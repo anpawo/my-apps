@@ -46,17 +46,15 @@ Hold the modifier and press Tab. Let it go and you are there. That is the whole 
 
 ![The switcher open over a desktop: eleven windows in two rows, the selected one outlined, the one under the pointer showing its close button](alt-tab/docs/panel.png)
 
-**It starts on ⌥Tab, and takes ⌘Tab when you tell it to.** The Dock consumes ⌘Tab before any
-application sees it, so holding that chord means switching Apple's switcher off — and that
-setting outlives the app that changed it. A default that did so would take the machine's
-switcher away from someone who asked for nothing. So a fresh install starts on a chord nobody
-owns: both switchers are there, you use one and then the other on the same desktop, and you
-decide.
+**It takes ⌘Tab from the first launch.** The Dock consumes ⌘Tab before any application sees
+it, so holding that chord means switching Apple's switcher off — and that setting outlives the
+app that changed it. alt-tab writes down what it took before it takes it, and hands it back
+when you quit it or run `./uninstall.sh`. If a crash ever leaves you without a switcher,
+`alt-tab --restore-hotkeys` returns it, and it works with no GUI at all.
 
-Once you have decided, **the settings give it ⌘Tab**. alt-tab then switches the system chord
-off while it holds it, and hands it back when you quit it or run `./uninstall.sh`. If a crash
-ever leaves you without one, `alt-tab --restore-hotkeys` returns it, and it works with no GUI
-at all.
+**The settings give it any other chord.** Bind ⌥Tab, say, and macOS has its own ⌘Tab back at
+once: both switchers are then there, and you can use one and then the other on the same
+desktop.
 
 ## Install
 
@@ -88,7 +86,7 @@ Two, and the app is honest about both — the settings window says which are mis
 you to the right pane.
 
 - **Accessibility** is required. Without it alt-tab can read no window titles and raise no
-  windows, so the panel lists applications and does nothing when you let ⌥ go.
+  windows, so the panel lists applications and does nothing when you let ⌘ go.
 - **Screen Recording** is optional. Without it there are no pictures of windows, only
   application icons. Everything else works.
 
@@ -99,11 +97,11 @@ you quit and reopen the app — not the moment you grant it.
 
 | | |
 |---|---|
-| **⌥Tab** | open the switcher, and step through the windows — or whatever chord you bound |
-| **let ⌥ go** | switch to the selected window |
-| **← →** | step back or forward, with ⌥ still held |
+| **⌘Tab** | open the switcher, and step through the windows — or whatever chord you bound |
+| **let ⌘ go** | switch to the selected window |
+| **← →** | step back or forward, with ⌘ still held |
 | **Escape** | change your mind |
-| **click a tile** | switch to that window — with ⌥ still held, since letting go ends the session |
+| **click a tile** | switch to that window — with ⌘ still held, since letting go ends the session |
 | **click the red cross** | close that window |
 
 **Six tiles to a row, then a new row.** A long list on one row shrinks every picture until it
@@ -113,7 +111,7 @@ size — cut to the widest picture on show — and a window narrower than that k
 picture, centred, with the spare room around it rather than stretched to fill. A last row that
 is short starts at the left, where the row above it started.
 
-A ⌥Tab faster than the panel's delay switches without drawing anything at all. The delay is a
+A ⌘Tab faster than the panel's delay switches without drawing anything at all. The delay is a
 slider in the settings; 100 ms by default, and 0 means the panel always appears.
 
 Minimized windows, and the windows of hidden applications, are in the list — at the end, since

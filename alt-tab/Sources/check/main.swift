@@ -237,12 +237,12 @@ scenario("chords are written the way macOS writes them") {
     expect(Shortcut(keyCode: 12, modifiers: [.command, .control]).label == "⌃⌘Q", "⌃⌘Q mislabelled")
 }
 
-scenario("there is one binding, and its default is ⌥Tab") {
+scenario("there is one binding, and its default is ⌘Tab") {
     expect(Binding.allCases.count == 1, "a binding came back")
-    expect(Binding.next.fallback.label == "⌥Tab", "the default changed")
-    // A default that took a system chord would switch Apple's switcher off on first launch,
-    // for someone who asked for nothing.
-    expect(Binding.allCases.allSatisfy { $0.fallback.isValid && !$0.fallback.takesOverSystemChord },
+    expect(Binding.next.fallback.label == "⌘Tab", "the default changed")
+    // The default is the system's own chord, so it has to switch off both of Apple's: one
+    // that left the reverse alive would put Apple's switcher back on ⌘⇧Tab.
+    expect(Binding.next.fallback.isValid && Binding.next.fallback.systemChords == [1, 2],
            "a default is unusable")
 }
 

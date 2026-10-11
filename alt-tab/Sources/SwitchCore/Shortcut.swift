@@ -109,7 +109,7 @@ public enum Binding: String, CaseIterable {
 
     public var fallback: Shortcut {
         switch self {
-        case .next: return Shortcut(keyCode: 48, modifiers: .option)   // ⌥Tab
+        case .next: return Shortcut(keyCode: 48, modifiers: .command)   // ⌘Tab
         }
     }
 }

@@ -26,7 +26,7 @@ public enum Filter {
 
     /// Our own panel is a titled, layer-0, standard window, and the panel activates — so
     /// without this it enumerates itself, lands at index 0 as the frontmost window, and
-    /// shifts every entry by one. That silently defeats "⌥Tab goes to the previous window",
+    /// shifts every entry by one. That silently defeats "⌘Tab goes to the previous window",
     /// which is the entire product.
     public static func isForeign(ownerPID: pid_t, selfPID: pid_t) -> Bool {
         ownerPID != selfPID

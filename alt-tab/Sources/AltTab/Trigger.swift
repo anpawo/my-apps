@@ -19,7 +19,7 @@ private nonisolated(unsafe) var commandForID: [UInt32: SwitchCommand] = [:]
 /// panel takes key focus while it is up.
 ///
 /// Note the vocabulary this hands upwards: `.next`, never `.open`. The trigger holds no state
-/// and cannot tell the first Tab from the third, so rebinding ⌥ to ⌘ is a number in a table.
+/// and cannot tell the first Tab from the third, so rebinding ⌘ to ⌥ is a number in a table.
 @MainActor
 enum Trigger {
 
@@ -31,7 +31,7 @@ enum Trigger {
 
     /// Which modifier, once released, means "go". Read from whatever `next` is currently bound
     /// to, so rebinding the chord rebinds the release along with it.
-    private static var holdModifier: NSEvent.ModifierFlags = .option
+    private static var holdModifier: NSEvent.ModifierFlags = .command
 
     @discardableResult
     static func install(_ block: @escaping (SwitchCommand) -> Void) -> Bool {

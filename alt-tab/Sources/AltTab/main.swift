@@ -3,17 +3,16 @@ import SwitchCore
 
 /// The system's own ⌘Tab, and how to give it back.
 ///
-/// alt-tab does not take ⌘Tab: it binds ⌥Tab, which is unclaimed, so nothing here is called on
-/// the normal path. It ships anyway because the *recovery* half is the valuable half —
-/// disabling the system chord is a setting that outlives the process that set it, so any app
-/// that takes ⌘Tab and then crashes leaves the machine with no switcher at all, across
-/// reboots, with no UI anywhere to explain it.
+/// alt-tab binds ⌘Tab by default, and the Dock answers that chord before any application sees
+/// it, so the system's own is switched off for as long as alt-tab holds it. That setting
+/// outlives the process that set it: an app that takes ⌘Tab and then crashes leaves the
+/// machine with no switcher at all, across reboots, with no UI anywhere to explain it. The
+/// *recovery* half is what this ships for.
 ///
-/// Deliberately not called at launch. The design note that asked for an unconditional restore
-/// assumed alt-tab would be the app disabling it; while ⌘Tab is somebody else's — AltTab is
-/// installed on this machine and holds it disabled right now — restoring on every launch would
-/// break a working switcher instead of repairing a broken one. `--restore-hotkeys` is the
-/// escape hatch, and it works without a GUI.
+/// Deliberately not called at launch. A chord alt-tab did not take may be held off by another
+/// switcher, and restoring every one on every launch would break a working switcher instead
+/// of repairing a broken one: a launch gives back only what the last run wrote down.
+/// `--restore-hotkeys` is the escape hatch, and it works without a GUI.
 enum SymbolicHotKeys {
     private typealias SetEnabled = @convention(c) (Int32, Bool) -> Int32
 
@@ -51,7 +50,7 @@ let startedByHand = !arguments.contains("--agent")
 /// Refuses to be the second copy.
 ///
 /// Two of these running is not a cosmetic problem. Carbon gives a hotkey to the first process
-/// that claims it, so a forgotten copy keeps ⌥Tab while the one you are looking at silently
+/// that claims it, so a forgotten copy keeps ⌘Tab while the one you are looking at silently
 /// does nothing — and if that copy is a bare binary rather than the signed bundle, it has no
 /// Screen Recording grant of its own and every picture comes back black. Both symptoms, one
 /// cause, and nothing about either points at the real reason.
@@ -255,7 +254,7 @@ func apply(_ effect: Effect) {
         if !WindowAction.perform(window) {
             // Hangs off the failed *action*, not off the permission check: the check can
             // report trusted after a revocation, and the failure to design against is the
-            // panel that opens, looks perfect, and then does nothing when ⌥ comes up.
+            // panel that opens, looks perfect, and then does nothing when ⌘ comes up.
             Panel.note("Could not switch to \(window.appName) — check alt-tab in "
                        + "System Settings → Privacy & Security → Accessibility.")
         }
@@ -266,7 +265,7 @@ func apply(_ effect: Effect) {
 }
 
 // Everything expensive, once, before the first keystroke: the window, its view tree, the icon
-// cache, and one Accessibility connection per running app. Left lazy, the first ⌥Tab pays all
+// cache, and one Accessibility connection per running app. Left lazy, the first ⌘Tab pays all
 // of it at once and that is what "slow the first time" is.
 // `assumeIsolated` rather than an await: this is main.swift, it is already on the main thread,
 // and the alternative is an async entry point that defers setup past the first keystroke.
@@ -287,7 +286,8 @@ MainActor.assumeIsolated {
     }
 
     guard Trigger.install({ command in dispatch(command) }) else {
-        FileHandle.standardError.write(Data("alt-tab: could not register ⌥Tab — another app owns it\n".utf8))
+        let chord = Shortcuts.current()[.next]?.label ?? "its chord"
+        FileHandle.standardError.write(Data("alt-tab: could not register \(chord) — another app owns it\n".utf8))
         exit(1)
     }
 
@@ -308,7 +308,7 @@ MainActor.assumeIsolated {
     }
 
     // A tile clicked anywhere but on its cross. The click stands in for the whole gesture —
-    // there is no ⌥ to release after it — so it names its window and the state machine raises it.
+    // there is no ⌘ to release after it — so it names its window and the state machine raises it.
     Panel.onPicked = { window in dispatch(.pick(window.id)) }
 
     // A window is photographed while it is the one in use. Cross-application switches are what
@@ -325,7 +325,7 @@ MainActor.assumeIsolated {
         }
     }
 
-    // One pass a few seconds after login, so the very first ⌥Tab of the day has pictures too
+    // One pass a few seconds after login, so the very first ⌘Tab of the day has pictures too
     // rather than being the one open that pays for all of them.
     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
         MainActor.assumeIsolated { Thumbnails.captureQuietly(WindowList.snapshot().map(\.id)) }

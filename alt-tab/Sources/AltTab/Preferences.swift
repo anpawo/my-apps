@@ -381,7 +381,7 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         Shortcuts.reset()
         Settings.reset()
         stopRecording()
-        status.stringValue = "Back to ⌥Tab, and to every default on this page."
+        status.stringValue = "Back to ⌘Tab, and to every default on this page."
     }
 
     /// Closing mid-recording must still give the hotkeys back, or the switcher stays dead until

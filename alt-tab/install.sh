@@ -47,10 +47,10 @@ launchctl bootstrap "gui/$UID" "$PLIST"
 echo
 echo "Installed, and invisible: no Dock icon and nothing in the menu bar."
 echo
-echo "Hold ⌥ and press Tab to switch windows; Escape cancels. With ⌥ still held,"
+echo "Hold ⌘ and press Tab to switch windows; Escape cancels. With ⌘ still held,"
 echo "click a tile to switch to it, or the red cross on its picture to close it."
-echo "⌥Tab rather than ⌘Tab so the system switcher is still there to compare with;"
-echo "open the app to change it, and for everything else it can be told to do."
+echo "It holds ⌘Tab in place of the system switcher, and hands it back when it quits;"
+echo "open the app to change the chord, and for everything else it can be told to do."
 echo
 echo "The first time you commit a switch, macOS will ask for Accessibility."
 echo "Until it is granted the panel lists applications without window names,"

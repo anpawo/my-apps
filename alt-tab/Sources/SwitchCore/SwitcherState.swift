@@ -2,8 +2,8 @@ import CoreGraphics
 
 /// What the trigger can say. Deliberately without an `.open` case: `.next` on an idle
 /// machine opens, `.next` on an open one advances. All the state lives here, so the trigger
-/// is stateless and cannot tell the first Tab from the third — which is what lets ⌥Tab and a
-/// future ⌘Tab emit identical streams.
+/// is stateless and cannot tell the first Tab from the third — which is what lets ⌘Tab and a
+/// rebound chord emit identical streams.
 public enum SwitchCommand: Equatable {
     case next
     /// One step back. Only meaningful while open: nothing opens the panel backwards.
@@ -70,7 +70,7 @@ public struct SwitcherState {
         case .next:
             guard !windows.isEmpty else { return nil }
             guard let current = selected else {
-                // Opening. Landing on index 1 is the product: one ⌥Tab goes to the window you
+                // Opening. Landing on index 1 is the product: one ⌘Tab goes to the window you
                 // were on before this one, and a second brings you back.
                 let start = min(1, windows.count - 1)
                 selected = windows[start].id
@@ -112,7 +112,7 @@ public struct SwitcherState {
 
         case .commit:
             // A modifier released while nothing is open is the common case, not an error:
-            // every ⌥ press in normal typing arrives here.
+            // every ⌘ press in normal typing arrives here.
             guard let current = selected else { return nil }
             selected = nil
             guard let window = windows.first(where: { $0.id == current }) else { return .hide }

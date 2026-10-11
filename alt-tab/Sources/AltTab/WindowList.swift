@@ -106,7 +106,7 @@ enum WindowList {
         return e
     }
 
-    /// Pays the cold cost once, at login, instead of on the first ⌥Tab.
+    /// Pays the cold cost once, at login, instead of on the first ⌘Tab.
     @MainActor
     static func prewarm() {
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {

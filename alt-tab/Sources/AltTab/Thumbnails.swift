@@ -45,7 +45,7 @@ enum Thumbnails {
     /// the time it is a row in the switcher.
     ///
     /// This is where the pictures actually come from in practice. Capturing only when the panel
-    /// opens means the first ⌥Tab of a session shows icons and fills in behind itself, every
+    /// opens means the first ⌘Tab of a session shows icons and fills in behind itself, every
     /// time; capturing on focus means the panel is usually complete before it appears.
     ///
     /// Never while the panel is up — that is the caller's guarantee — and at most once every

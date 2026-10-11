@@ -15,7 +15,7 @@ import SwitchCore
 ///
 /// Built once at launch and never closed, only emptied and ordered out. Construction is the
 /// expensive part by an order of magnitude — tens of milliseconds against well under one to
-/// show a window that already exists — so the first ⌥Tab must never be the one that pays it.
+/// show a window that already exists — so the first ⌘Tab must never be the one that pays it.
 ///
 /// It renders exactly the array it is handed and never asks who the windows are. That is what
 /// keeps the enumeration off the paint path.
@@ -99,7 +99,7 @@ enum Panel {
     /// Asked when the cross on a tile is clicked. The panel does not close anything itself: it
     /// says which window, and stays out of what that means.
     static var onCloseRequested: ((WindowInfo) -> Void)?
-    /// Asked when a tile itself is clicked — which is something you do with ⌥ still held, since
+    /// Asked when a tile itself is clicked — which is something you do with ⌘ still held, since
     /// releasing it is what ends the session. Same bargain as the cross: the panel names the
     /// window and leaves the switching to whoever owns the state machine.
     static var onPicked: ((WindowInfo) -> Void)?
@@ -157,7 +157,7 @@ enum Panel {
         // faster than the delay is one the eye never had time to want a panel for, and the
         // flash of one is worse than no panel at all.
         reveal?.invalidate()
-        // Shown late on purpose, so a ⌥Tab and release inside the delay switches without
+        // Shown late on purpose, so a ⌘Tab and release inside the delay switches without
         // anything appearing at all. Read per open rather than held, so the slider in the
         // settings takes effect on the next switch instead of the next launch.
         reveal = Timer.scheduledTimer(withTimeInterval: Settings.revealDelay, repeats: false) { _ in
@@ -505,7 +505,7 @@ enum Panel {
 
         /// Core Animation animates every layer change it is not told to leave alone, including
         /// the very first one — a tile is created at zero size, so its first real frame is a
-        /// growth from nothing, which is the zoom seen on the first ⌥Tab of a session. Pictures
+        /// growth from nothing, which is the zoom seen on the first ⌘Tab of a session. Pictures
         /// landing afterwards would cross-fade in for the same reason.
         private static let still: [String: CAAction] = [
             "contents": NSNull(), "bounds": NSNull(), "position": NSNull(),

@@ -3,7 +3,7 @@ import AppKit
 /// Everything the settings window can change, and where it lives between launches.
 ///
 /// Read at the point of use rather than cached anywhere, so a change takes effect on the next
-/// ⌥Tab without anything having to be told about it. The one exception is the menu bar icon,
+/// ⌘Tab without anything having to be told about it. The one exception is the menu bar icon,
 /// which is a live object and so is created and destroyed by hand.
 @MainActor
 enum Settings {
@@ -38,7 +38,7 @@ enum Settings {
         set { defaults.set(newValue, forKey: "showCloseButton") }
     }
 
-    /// How long a ⌥Tab has to be held before the panel appears at all, so that a switch made
+    /// How long a ⌘Tab has to be held before the panel appears at all, so that a switch made
     /// faster than this draws nothing. Zero is allowed and means "always show it".
     static var revealDelay: Double {
         get { defaults.object(forKey: "revealDelay") == nil ? 0.1 : defaults.double(forKey: "revealDelay") }
