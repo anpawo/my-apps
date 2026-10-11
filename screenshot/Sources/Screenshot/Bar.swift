@@ -84,7 +84,9 @@ final class Bar: NSPanel, NSMenuDelegate {
         go.layer?.cornerRadius = 8
         go.target = self
         go.action = #selector(commit)
-        go.frame = CGRect(x: x, y: mid - 18.25, width: 100, height: 36.5)
+        // As wide as its widest title: the bar keeps one width from stills to recordings.
+        let widest = ["Capture", "Record"].map { ($0 as NSString).size(withAttributes: [.font: go.font!]).width }.max()!
+        go.frame = CGRect(x: x, y: mid - 18.25, width: widest + 30, height: 36.5)
         back.addSubview(go)
         refresh()
 
@@ -106,13 +108,6 @@ final class Bar: NSPanel, NSMenuDelegate {
         go.attributedTitle = NSAttributedString(string: title, attributes: [.foregroundColor: NSColor.white, .font: go.font!])
         go.isEnabled = !(s.needsSelection && session.selection == nil)
         go.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(go.isEnabled ? 1 : 0.4).cgColor
-        let w = max(81.5, (title as NSString).size(withAttributes: [.font: go.font!]).width + 30)
-        if go.frame.width != w {
-            go.frame.size.width = w
-            let width = go.frame.maxX + 8.5
-            contentView?.frame.size.width = width
-            setFrame(CGRect(x: (frame.midX - width / 2).rounded(), y: frame.minY, width: width, height: Bar.height), display: true)
-        }
     }
 
     /// The bar as pixels, at 2×, without ever being on screen.
