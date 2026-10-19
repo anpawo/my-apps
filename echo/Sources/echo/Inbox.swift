@@ -16,7 +16,7 @@ final class Inbox: NSObject, ObservableObject {
     static let bubble: CGFloat = 38
     static let gap: CGFloat = 12
     static let window = NSSize(width: 1380, height: 260)
-    static let settingsHeight: CGFloat = 700
+    static let settingsHeight: CGFloat = 760
     static let margin: CGFloat = 30
     /// It fades in while rising these last points into its place.
     static let rise: CGFloat = 14
