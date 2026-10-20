@@ -3,11 +3,11 @@ import SwiftUI
 
 /// S on the panel: every check the hourly watcher has, laid out as the mail-draft dialog of the reconciliation site
 /// is (s14 `recon-v3-mr/web`: components/mail.tsx, ui/dialog.tsx, app/globals.css `.light`), at its sizes in points:
-/// a frosted dialog, its title in a block, two panes split by a thin line, label-and-pill rows, a footer with a button.
+/// a frosted dialog, its title in a block, two panes split by a thin line, a row of field blocks per check, a footer with a button.
 struct ChecksView: View {
     @ObservedObject var inbox: Inbox
     static let rows = 9
-    static let width: CGFloat = 1280
+    static let width: CGFloat = 1400
 
     private static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
     private static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
@@ -91,13 +91,17 @@ struct ChecksView: View {
     }
 
     private func pane(_ title: String, _ entries: [CheckEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // the channels' pills are as wide as the widest of the pane, as the mail's names are, up to a width
+        let widest = entries.prefix(Self.rows).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
+            .reduce(0, max).rounded(.up)
+        let via = min(160, widest)
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(title).font(.system(size: 18, weight: .semibold))
                 pill("\(entries.count)")
             }
             VStack(spacing: 8) {
-                ForEach(entries.prefix(Self.rows), id: \.id) { row($0) }
+                ForEach(entries.prefix(Self.rows), id: \.id) { row($0, via: via) }
                 if entries.count > Self.rows { Text("+ \(entries.count - Self.rows) more").padding(.top, 2) }
                 if entries.isEmpty { Text("Nothing here").padding(.top, 2) }
             }
@@ -107,15 +111,33 @@ struct ChecksView: View {
         .frame(height: CGFloat(Self.rows * 38 + (Self.rows - 1) * 8 + 62), alignment: .top)
     }
 
-    private func row(_ check: CheckEntry) -> some View {
+    /// A check as a mail of the thread is: its name in a block of its own with no label, as the mail's subject, then
+    /// its fields, each a block with its label and a pill, the time in its state's colour. The fields keep one width,
+    /// so the columns line up.
+    private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.state)
-        return HStack(spacing: 12) {
-            Text(check.name).fontWeight(.medium).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-            pill(check.watching, fixed: false).frame(maxWidth: 170, alignment: .leading)
-            pill(check.short, fill: tone.fill, ink: tone.ink)
+        return HStack(spacing: 8) {
+            Text(check.name)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38, alignment: .leading)
+                .block()
+            field("Via") { pill(check.watching, fixed: false).frame(width: via, alignment: .leading) }
+            field("When") {
+                ZStack(alignment: .leading) {
+                    pill("00/00 00h00").hidden()
+                    pill(Store.when(check.at), fill: tone.fill, ink: tone.ink)
+                }
+            }
+        }
+    }
+    private func field(_ name: String, @ViewBuilder _ value: () -> some View) -> some View {
+        HStack(spacing: 12) {
+            Text(name).fixedSize()
+            value()
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
         .frame(height: 38)
         .block()
     }

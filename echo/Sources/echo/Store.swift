@@ -65,14 +65,6 @@ struct CheckEntry: Equatable {
     /// ms: when it began waiting, arrived or was dropped.
     let at: Double
 
-    var short: String {
-        switch state {
-        case .waiting: return "since \(Store.when(at))"
-        case .arrived: return "arrived \(Store.when(at))"
-        case .dropped: return "dropped \(Store.when(at))"
-        }
-    }
-
     var detail: String {
         switch state {
         case .waiting: return "waiting since \(Store.when(at))"
