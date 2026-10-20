@@ -45,7 +45,7 @@ struct ChecksView: View {
     }
 
     /// The dialog's overlay over the whole screen: what is behind blurred 4 pt (`backdrop-blur-xs`) under black at 0.3.
-    /// A click on it goes back to the lines, as a click outside closes the dialog.
+    /// A click on it closes Echo, as a click outside closes the dialog.
     private var veil: some View {
         ZStack {
             if renderBackdrop == nil { GlassView(blur: 4, tone: nil, radius: 0) }

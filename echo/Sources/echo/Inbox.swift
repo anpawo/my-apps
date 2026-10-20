@@ -173,8 +173,11 @@ final class Inbox: NSObject, ObservableObject {
     /// ←→ move and keep every line; ↓ asks to set the shown one aside as done (`done/`, still on disk).
     func key(_ code: UInt16) -> Bool {
         if settings {
-            guard code == UInt16(kVK_ANSI_S) || code == UInt16(kVK_Escape) else { return false }
-            showSettings(false)
+            switch Int(code) {
+            case kVK_ANSI_S: showSettings(false)
+            case kVK_Escape: hide()
+            default: return false
+            }
             return true
         }
         let was = asking
@@ -285,8 +288,9 @@ final class Inbox: NSObject, ObservableObject {
     }
 
     func hide() {
-        settings = false
         panel?.orderOut(nil)
+        if settings { panel?.setContentSize(Self.window) }
+        settings = false
     }
 
     /// Non-activating, as Spotlight: it takes the keys without taking the app in front away from him. No window

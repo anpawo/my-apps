@@ -95,7 +95,7 @@ enum SelfCheck {
         let echo = Inbox(folder: state.appending(path: "inbox"))
         expect(echo.key(UInt16(kVK_ANSI_S)) && echo.settings && echo.checks.count == 3, true, "inbox: S shows the checks")
         expect(echo.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
-        expect(echo.key(UInt16(kVK_Escape)) && !echo.settings, true, "inbox: Esc leaves the checks first")
+        expect(echo.key(UInt16(kVK_Escape)) && !echo.settings, true, "inbox: Esc in the checks closes Echo")
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.past && inbox.items.map(\.id) == ["d", "c", "b", "a"], true, "inbox: at 0, the lines set aside, newest first")

@@ -11,7 +11,7 @@ them Spotlight-style.
 | ← → | move through the lines, none is dropped |
 | ↵ | resume the line's session in a terminal, and set the line aside |
 | ↓ then ↵ | set the line aside as done, without opening it |
-| S | every check the watcher has: waiting, arrived, dropped |
+| S | every check the watcher has: waiting, arrived, dropped; S again goes back to the lines |
 | ⎋ | close |
 
 At 0 it shows the last lines set aside, each with what came of it (one `claude -p` with no tool, kept).
