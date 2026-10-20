@@ -1,12 +1,13 @@
 import Carbon.HIToolbox
 import SwiftUI
 
-/// S on the panel: every check the hourly watcher has, laid out as the mail-draft dialog of the reconciliation site
-/// is (s14 `recon-v3-mr/web`: components/mail.tsx, ui/dialog.tsx, app/globals.css `.light`), at its sizes in points:
-/// a frosted dialog, its title in a block, two panes split by a thin line, a row of field blocks per check, a footer with a button.
+/// S on the panel: the checks the hourly watcher still waits on, and under them those done in the last 7 days, laid
+/// out as the mail-draft dialog of the reconciliation site is (s14 `recon-v3-mr/web`: components/mail.tsx,
+/// ui/dialog.tsx, app/globals.css `.light`), at its sizes in points: a frosted dialog, its title in a block, the two
+/// sections split by a thin line, a row of field blocks per check, a footer with a button.
 struct ChecksView: View {
     @ObservedObject var inbox: Inbox
-    static let rows = 9
+    static let rows = 12
     static let width: CGFloat = 1400
 
     private static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
@@ -56,7 +57,10 @@ struct ChecksView: View {
     }
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
-    private var settled: [CheckEntry] { inbox.checks.filter { $0.state != .waiting } }
+    private var done: [CheckEntry] {
+        let since = (Date().timeIntervalSince1970 - 7 * 86_400) * 1000
+        return inbox.checks.filter { $0.state == .arrived && $0.at >= since }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,10 +71,10 @@ struct ChecksView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .block()
-                HStack(alignment: .top, spacing: 24) {
-                    pane("Waiting", waiting)
-                    Rectangle().fill(Self.line).frame(width: 1)
-                    pane("Dropped and arrived", settled)
+                VStack(spacing: 24) {
+                    section("Waiting", waiting)
+                    Rectangle().fill(Self.line).frame(height: 1)
+                    section("Done in the last 7 days", done)
                 }
             }
             .padding(16)
@@ -90,9 +94,12 @@ struct ChecksView: View {
         .background { veil }
     }
 
-    private func pane(_ title: String, _ entries: [CheckEntry]) -> some View {
-        // the channels' pills are as wide as the widest of the pane, as the mail's names are, up to a width
-        let widest = entries.prefix(Self.rows).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
+    /// Its checks in two columns, newest first down the left one, then the right.
+    private func section(_ title: String, _ entries: [CheckEntry]) -> some View {
+        let shown = Array(entries.prefix(Self.rows))
+        let half = (shown.count + 1) / 2
+        // the channels' pills are as wide as the widest of the section, as the mail's names are, up to a width
+        let widest = shown.map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
             .reduce(0, max).rounded(.up)
         let via = min(160, widest)
         return VStack(alignment: .leading, spacing: 12) {
@@ -100,15 +107,16 @@ struct ChecksView: View {
                 Text(title).font(.system(size: 18, weight: .semibold))
                 pill("\(entries.count)")
             }
-            VStack(spacing: 8) {
-                ForEach(entries.prefix(Self.rows), id: \.id) { row($0, via: via) }
-                if entries.count > Self.rows { Text("+ \(entries.count - Self.rows) more").padding(.top, 2) }
-                if entries.isEmpty { Text("Nothing here").padding(.top, 2) }
+            HStack(alignment: .top, spacing: 24) {
+                ForEach([0..<half, half..<shown.count], id: \.lowerBound) { column in
+                    VStack(spacing: 8) { ForEach(shown[column], id: \.id) { row($0, via: via) } }
+                        .frame(maxWidth: .infinity)
+                }
             }
-            Spacer(minLength: 0)
+            if entries.count > Self.rows { Text("+ \(entries.count - Self.rows) more").frame(maxWidth: .infinity) }
+            if entries.isEmpty { Text("Nothing here") }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: CGFloat(Self.rows * 38 + (Self.rows - 1) * 8 + 62), alignment: .top)
     }
 
     /// A check as a mail of the thread is: its name in a block of its own with no label, as the mail's subject, then
