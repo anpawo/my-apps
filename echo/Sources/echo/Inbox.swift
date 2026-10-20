@@ -208,7 +208,7 @@ final class Inbox: NSObject, ObservableObject {
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
         guard let panel, panel.isVisible else { return }
         if on {
-            panel.setFrame(Self.activeScreen().frame, display: true)
+            Self.resize(panel, to: Self.activeScreen().frame)
         } else {
             panel.setContentSize(Self.window)
             panel.setFrame(place(panel), display: true)
@@ -284,6 +284,15 @@ final class Inbox: NSObject, ObservableObject {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(place, display: true)
+        }
+    }
+
+    /// At once, ending the entrance if it still runs: S pressed during it had its frame taken back to the lines' one,
+    /// and the checks drawn in the lines' window.
+    static func resize(_ panel: NSWindow, to frame: NSRect) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            panel.animator().setFrame(frame, display: true)
         }
     }
 
