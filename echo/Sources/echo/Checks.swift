@@ -36,12 +36,23 @@ struct ChecksView: View {
             GeometryReader { g in
                 let at = g.frame(in: .global)
                 LinearGradient(colors: renderBackdrop.map(Glass.filtered), startPoint: .top, endPoint: .bottom)
-                    .frame(width: Inbox.window.width, height: Inbox.settingsHeight)
+                    .frame(width: Inbox.screen.width, height: Inbox.screen.height)
                     .offset(x: -at.minX, y: -at.minY)
             }
         } else {
-            GlassView()
+            GlassView(blur: 40, tone: Glass.matrix, radius: Self.radius)
         }
+    }
+
+    /// The dialog's overlay over the whole screen: what is behind blurred 4 pt (`backdrop-blur-xs`) under black at 0.3.
+    /// A click on it goes back to the lines, as a click outside closes the dialog.
+    private var veil: some View {
+        ZStack {
+            if renderBackdrop == nil { GlassView(blur: 4, tone: nil, radius: 0) }
+            Color.black.opacity(0.3)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { _ = inbox.key(UInt16(kVK_Escape)) }
     }
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
@@ -74,8 +85,9 @@ struct ChecksView: View {
         .clipShape(RoundedRectangle(cornerRadius: Self.radius))
         .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(.white.opacity(0.4), lineWidth: 1))
         .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(Self.ink.opacity(0.1), lineWidth: 1).padding(-1))
-        .padding(.top, Inbox.margin)
-        .frame(width: Inbox.window.width, height: Inbox.settingsHeight, alignment: .top)
+        .onTapGesture {}
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { veil }
     }
 
     private func pane(_ title: String, _ entries: [CheckEntry]) -> some View {
@@ -152,9 +164,6 @@ final class Glass: NSVisualEffectView {
                 [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]].map { $0.map { $0 * 0.7 * 1.15 } }
     }()
 
-    /// `matrix` as CAColorMatrix holds it: four rows of five, the R, G, B and A weights, then an offset.
-    static let packed: [Float] = matrix.flatMap { row -> [Float] in row.map { Float($0) } + [0, 0] } + [0, 0, 0, 1, 0]
-
     static func filtered(_ color: Color) -> Color {
         let c = NSColor(color).usingColorSpace(.sRGB) ?? .gray
         let v = [c.redComponent, c.greenComponent, c.blueComponent].map(Double.init)
@@ -162,25 +171,39 @@ final class Glass: NSVisualEffectView {
         return Color(.sRGB, red: out[0], green: out[1], blue: out[2])
     }
 
+    /// A matrix as CAColorMatrix holds it: four rows of five, the R, G, B and A weights, then an offset.
+    static func pack(_ matrix: [[Double]]) -> [Float] {
+        matrix.flatMap { row -> [Float] in row.map { Float($0) } + [0, 0] } + [0, 0, 0, 1, 0]
+    }
+
+    let blur: Double
+    /// Nil: the blur alone.
+    let tone: [[Double]]?
+
     /// Nil when QuartzCore no longer has the private filters: the system's own blur stays.
-    static func filters() -> [NSObject]? {
+    func filters() -> [NSObject]? {
         guard let type = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
         func make(_ name: String) -> NSObject? {
             type.perform(NSSelectorFromString("filterWithType:"), with: name)?.takeUnretainedValue() as? NSObject
         }
-        guard let blur = make("gaussianBlur"), let tone = make("colorMatrix") else { return nil }
-        blur.setValue(40, forKey: "inputRadius")
-        blur.setValue(true, forKey: "inputNormalizeEdges")
-        var m = packed
-        tone.setValue(NSValue(bytes: &m, objCType: "{CAColorMatrix=ffffffffffffffffffff}"), forKey: "inputColorMatrix")
-        return [blur, tone]
+        guard let gauss = make("gaussianBlur") else { return nil }
+        gauss.setValue("cssBlur", forKey: "name")
+        gauss.setValue(blur, forKey: "inputRadius")
+        gauss.setValue(true, forKey: "inputNormalizeEdges")
+        guard let tone else { return [gauss] }
+        guard let colour = make("colorMatrix") else { return nil }
+        var m = Self.pack(tone)
+        colour.setValue(NSValue(bytes: &m, objCType: "{CAColorMatrix=ffffffffffffffffffff}"), forKey: "inputColorMatrix")
+        return [gauss, colour]
     }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    init(blur: Double, tone: [[Double]]?, radius r: CGFloat) {
+        self.blur = blur
+        self.tone = tone
+        super.init(frame: .zero)
         blendingMode = .behindWindow
         state = .active
-        let r: CGFloat = 14
+        guard r > 0 else { return }
         let mask = NSImage(size: NSSize(width: 2 * r + 1, height: 2 * r + 1), flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
             return true
@@ -200,14 +223,17 @@ final class Glass: NSVisualEffectView {
         for sub in layer?.sublayers?.flatMap({ $0.sublayers ?? [] }) ?? [] {
             guard sub.name == "backdrop" else { sub.isHidden = true; continue }
             let names = (sub.filters ?? []).compactMap { ($0 as? NSObject)?.value(forKey: "name") as? String }
-            guard names.last != "colorMatrix", let css = Self.filters() else { continue }
+            guard !names.contains("cssBlur"), let css = filters() else { continue }
             sub.filters = (sub.filters ?? []).filter { ($0 as? NSObject)?.value(forKey: "name") as? String == "sdrNormalize" } + css
         }
     }
 }
 
 struct GlassView: NSViewRepresentable {
-    func makeNSView(context: Context) -> Glass { Glass() }
+    let blur: Double
+    let tone: [[Double]]?
+    let radius: CGFloat
+    func makeNSView(context: Context) -> Glass { Glass(blur: blur, tone: tone, radius: radius) }
     func updateNSView(_ view: Glass, context: Context) {}
 }
 

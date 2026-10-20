@@ -16,7 +16,8 @@ final class Inbox: NSObject, ObservableObject {
     static let bubble: CGFloat = 38
     static let gap: CGFloat = 12
     static let window = NSSize(width: 1380, height: 260)
-    static let settingsHeight: CGFloat = 760
+    /// The checks cover the screen, under the dialog's veil; a render takes the main screen's size.
+    static var screen: CGSize { NSScreen.main?.frame.size ?? CGSize(width: 1470, height: 956) }
     static let margin: CGFloat = 30
     /// It fades in while rising these last points into its place.
     static let rise: CGFloat = 14
@@ -203,10 +204,8 @@ final class Inbox: NSObject, ObservableObject {
         settings = on
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
         guard let panel, panel.isVisible else { return }
-        let screen = Self.activeScreen().visibleFrame
         if on {
-            let height = min(Self.settingsHeight, screen.height)
-            panel.setFrame(NSRect(x: panel.frame.minX, y: screen.maxY - height, width: panel.frame.width, height: height), display: true)
+            panel.setFrame(Self.activeScreen().frame, display: true)
         } else {
             panel.setContentSize(Self.window)
             panel.setFrame(place(panel), display: true)
@@ -334,6 +333,7 @@ final class Inbox: NSObject, ObservableObject {
         let renderer = ImageRenderer(content: InboxView(inbox: inbox).background(backdrop)
             .environment(\.colorScheme, .light).environment(\.renderBackdrop, colors))
         renderer.scale = 2
+        if checks != nil { renderer.proposedSize = ProposedViewSize(screen) }
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         print("wrote \(path) \(image.size)")
