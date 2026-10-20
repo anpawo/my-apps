@@ -141,14 +141,7 @@ enum SelfCheck {
             alphas.append(panel.alphaValue)
             ys.append(panel.frame.minY)
         }
-        Inbox.present(panel, at: place)
-        RunLoop.main.run(until: Date().addingTimeInterval(Inbox.entrance / 4))
-        let screen = place.insetBy(dx: -300, dy: -300)
-        Inbox.resize(panel, to: screen)
-        RunLoop.main.run(until: Date().addingTimeInterval(Inbox.entrance + 0.15))
-        let resized = panel.frame
         panel.orderOut(nil)
-        expect(resized == screen, true, "inbox: S during the entrance keeps the checks' size (\(resized.size))")
         let oneWay = zip(alphas, alphas.dropFirst()).allSatisfy { $0 <= $1 } && zip(ys, ys.dropFirst()).allSatisfy { $0 <= $1 }
         print("        entrance: \(Set(alphas).count) alphas, \(Set(ys).count) heights over \(alphas.count) frames")
         expect(oneWay && alphas.last == 1 && ys.last == place.minY && Set(ys).count > 3 && Set(alphas).count > 3, true,

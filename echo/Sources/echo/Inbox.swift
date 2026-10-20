@@ -11,14 +11,12 @@ final class Inbox: NSObject, ObservableObject {
 
     static let chord = (keyCode: UInt16(kVK_ANSI_K), modifiers: UInt32(cmdKey | optionKey), label: "⌘⌥K")
     /// The line, as wide as its text and never cut, and under it the date, the count and the round buttons with
-    /// their names. The window is wider than any line and clear around them, for the shadow.
+    /// their names.
     static let barHeight: CGFloat = 56
     static let bubble: CGFloat = 38
     static let gap: CGFloat = 12
-    static let window = NSSize(width: 1380, height: 260)
-    /// The checks cover the screen, under the dialog's veil; a render takes the main screen's size.
+    /// Echo covers the screen, under the dialog's veil; a render takes the main screen's size.
     static var screen: CGSize { NSScreen.main?.frame.size ?? CGSize(width: 1470, height: 956) }
-    static let margin: CGFloat = 30
     /// It fades in while rising these last points into its place.
     static let rise: CGFloat = 14
     static let entrance: TimeInterval = 0.22
@@ -206,13 +204,6 @@ final class Inbox: NSObject, ObservableObject {
     private func showSettings(_ on: Bool) {
         settings = on
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
-        guard let panel, panel.isVisible else { return }
-        if on {
-            Self.resize(panel, to: Self.activeScreen().frame)
-        } else {
-            panel.setContentSize(Self.window)
-            panel.setFrame(place(panel), display: true)
-        }
     }
 
     private func step(_ by: Int) {
@@ -257,21 +248,13 @@ final class Inbox: NSObject, ObservableObject {
         if past { sumUp() }
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        Self.present(panel, at: place(panel))
+        Self.present(panel, at: Self.activeScreen().frame)
         panel.makeKey()
     }
 
     static func activeScreen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
-    }
-
-    /// Where Spotlight sits: centred, a third of the way down the screen the pointer is on.
-    private func place(_ panel: NSWindow) -> NSRect {
-        let screen = Self.activeScreen().visibleFrame
-        let size = panel.frame.size
-        return NSRect(x: screen.midX - size.width / 2, y: screen.maxY - screen.height / 3 - size.height / 2,
-                      width: size.width, height: size.height)
     }
 
     /// Fades in while it rises the last few points into its place.
@@ -287,26 +270,15 @@ final class Inbox: NSObject, ObservableObject {
         }
     }
 
-    /// At once, ending the entrance if it still runs: S pressed during it had its frame taken back to the lines' one,
-    /// and the checks drawn in the lines' window.
-    static func resize(_ panel: NSWindow, to frame: NSRect) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            panel.animator().setFrame(frame, display: true)
-        }
-    }
-
     func hide() {
         panel?.orderOut(nil)
-        if settings { panel?.setContentSize(Self.window) }
         settings = false
     }
 
     /// Non-activating, as Spotlight: it takes the keys without taking the app in front away from him. No window
-    /// shadow: the bar draws its own, in the clear margin around it.
+    /// shadow: it covers the screen.
     private func makePanel() -> InboxPanel {
-        let size = Self.window
-        let panel = InboxPanel(contentRect: NSRect(origin: .zero, size: size),
+        let panel = InboxPanel(contentRect: NSRect(origin: .zero, size: Self.screen),
                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
@@ -317,8 +289,7 @@ final class Inbox: NSObject, ObservableObject {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.onKey = { [weak self] code in self?.key(code) ?? false }
         let host = NSHostingView(rootView: InboxView(inbox: self))
-        // The panel keeps the size it is given: sized by its view, it stayed as big as the checks' card once hidden,
-        // and the lines then opened at the top of the screen.
+        // The panel keeps the size it is given, the screen's.
         host.sizingOptions = []
         panel.contentView = host
         return panel
@@ -350,7 +321,7 @@ final class Inbox: NSObject, ObservableObject {
         let renderer = ImageRenderer(content: InboxView(inbox: inbox).background(backdrop)
             .environment(\.colorScheme, .light).environment(\.renderBackdrop, colors))
         renderer.scale = 2
-        if checks != nil { renderer.proposedSize = ProposedViewSize(screen) }
+        renderer.proposedSize = ProposedViewSize(screen)
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         print("wrote \(path) \(image.size)")
@@ -381,26 +352,35 @@ struct InboxView: View {
     @ObservedObject var inbox: Inbox
 
     /// The icon of the key that comes next: ↵ when the line needs him, ✓ when it only tells him something is done.
-    private static let open = Color(red: 0.40, green: 0.70, blue: 1.00)
-    private static let done = Color(red: 0.24, green: 0.82, blue: 0.35)
+    /// Deep enough to read on a white block.
+    private static let open = Color(red: 0.15, green: 0.39, blue: 0.92)
+    private static let done = Color(red: 0.16, green: 0.62, blue: 0.28)
 
     var body: some View {
-        if inbox.settings { ChecksView(inbox: inbox) } else { main }
+        Group { if inbox.settings { ChecksView(inbox: inbox) } else { main } }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { Veil(inbox: inbox) }
     }
 
+    /// In a dialog as the checks are, a third of the way down the screen, where Spotlight sits.
     private var main: some View {
-        // Fixed to its ideal size, the stack is as wide as the line, and the row under it spreads to that width.
-        VStack(spacing: 10) {
-            subject
-            bar.frame(maxWidth: .infinity)
-            if inbox.past, let item = inbox.current { outcome(item) }
-            controls.frame(maxWidth: .infinity)
-                .padding(.top, 2)
+        VStack(spacing: 0) {
+            Spacer()
+            // Fixed to its ideal size, the stack is as wide as the line, and the row under it spreads to that width.
+            VStack(spacing: 10) {
+                subject
+                bar.frame(maxWidth: .infinity)
+                if inbox.past, let item = inbox.current { outcome(item) }
+                controls.frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+            }
+            .fixedSize()
+            .foregroundStyle(Site.ink)
+            .padding(16)
+            .card()
+            Spacer()
+            Spacer()
         }
-        .fixedSize()
-        .foregroundStyle(Spotlight.ink)
-        .padding(.top, Inbox.margin)
-        .frame(width: Inbox.window.width, height: Inbox.window.height, alignment: .top)
     }
 
     /// What the line is about, in its own block above it. Every subject of the list is laid under it unseen: the
@@ -440,7 +420,7 @@ struct InboxView: View {
         .multilineTextAlignment(.center)
         .padding(.horizontal, 28)
         .frame(minWidth: 620, minHeight: Inbox.barHeight)
-        .block(in: Capsule(), fill: inbox.asking.map { _ in Spotlight.fill.mix(with: Self.yes, by: 0.4) })
+        .block(in: Capsule(), fill: inbox.asking.map { _ in Color.white.mix(with: Self.yes, by: 0.25) })
         .contentShape(Capsule())
         .onTapGesture { _ = inbox.key(UInt16(kVK_Return)) }
     }
@@ -532,7 +512,7 @@ struct KeyBubble: View {
             Button(action: action) {
                 Image(systemName: symbol)
                     .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(tint == nil ? icon ?? Spotlight.ink : .white)
+                    .foregroundStyle(tint == nil ? icon ?? Site.ink : .white)
             }
             .buttonStyle(Bouncy(tint: tint, pressed: pressed, hovering: hovering && !off))
             .onHover { hovering = $0 }
@@ -571,12 +551,6 @@ private struct Bouncy: ButtonStyle {
     }
 }
 
-/// Spotlight's own colours, read off his screen: a flat grey, no blur and no edge, and the text near white.
-enum Spotlight {
-    static let fill = Color(white: 94 / 255)
-    static let ink = Color(white: 237 / 255)
-}
-
 extension View {
     /// A small block for the date and the count, as tall as the buttons beside it.
     func chip() -> some View {
@@ -586,7 +560,8 @@ extension View {
             .block(in: Capsule())
     }
 
-    func block<S: Shape>(in shape: S, fill: Color? = nil) -> some View {
-        background(fill ?? Spotlight.fill, in: shape)
+    /// The site's `block`: a border, a whiter glass.
+    func block<S: InsettableShape>(in shape: S, fill: Color? = nil) -> some View {
+        background(fill ?? .white.opacity(0.6), in: shape).overlay(shape.strokeBorder(Site.line, lineWidth: 1))
     }
 }

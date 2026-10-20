@@ -10,11 +10,6 @@ struct ChecksView: View {
     /// The site's dialog of one pane, `sm:max-w-3xl`.
     static let width: CGFloat = 768
 
-    private static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
-    private static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
-    private static let glass = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.4)
-    private static let radius: CGFloat = 14
-
     private static func hex(_ v: Int) -> Color {
         Color(red: Double(v >> 16 & 255) / 255, green: Double(v >> 8 & 255) / 255, blue: Double(v & 255) / 255)
     }
@@ -29,32 +24,6 @@ struct ChecksView: View {
     }
 
     @Environment(\.renderBackdrop) private var renderBackdrop
-
-    /// What the glass shows: behind the window, through the site's filters. In a render nothing is behind, so the
-    /// render's own backdrop goes through the same matrix in its place (a blur leaves a vertical gradient as it is).
-    @ViewBuilder private var behindGlass: some View {
-        if let renderBackdrop {
-            GeometryReader { g in
-                let at = g.frame(in: .global)
-                LinearGradient(colors: renderBackdrop.map(Glass.filtered), startPoint: .top, endPoint: .bottom)
-                    .frame(width: Inbox.screen.width, height: Inbox.screen.height)
-                    .offset(x: -at.minX, y: -at.minY)
-            }
-        } else {
-            GlassView(blur: 40, tone: Glass.matrix, radius: Self.radius)
-        }
-    }
-
-    /// The dialog's overlay over the whole screen: what is behind blurred 4 pt (`backdrop-blur-xs`) under black at 0.3.
-    /// A click on it closes Echo, as a click outside closes the dialog.
-    private var veil: some View {
-        ZStack {
-            if renderBackdrop == nil { GlassView(blur: 4, tone: nil, radius: 0) }
-            Color.black.opacity(0.3)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { _ = inbox.key(UInt16(kVK_Escape)) }
-    }
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
     private var done: [CheckEntry] {
@@ -81,17 +50,11 @@ struct ChecksView: View {
             footer
         }
         .font(.system(size: 14))
-        .foregroundStyle(Self.ink)
+        .foregroundStyle(Site.ink)
         .frame(width: Self.width)
-        .background(Self.glass)
-        .background { behindGlass }
-        .clipShape(RoundedRectangle(cornerRadius: Self.radius))
-        .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(.white.opacity(0.4), lineWidth: 1))
-        .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(Self.ink.opacity(0.1), lineWidth: 1).padding(-1))
-        .onTapGesture {}
+        .card()
         .padding(.vertical, 60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { veil }
     }
 
     private var sections: some View {
@@ -102,7 +65,7 @@ struct ChecksView: View {
         let via = min(260, widest)
         return VStack(spacing: 24) {
             section("Waiting", waiting, via: via)
-            Rectangle().fill(Self.line).frame(height: 1)
+            Rectangle().fill(Site.line).frame(height: 1)
             section("Done in the last 7 days", done, via: via)
         }
     }
@@ -143,10 +106,10 @@ struct ChecksView: View {
         Text(text)
             .lineLimit(1)
             .fixedSize(horizontal: fixed, vertical: false)
-            .foregroundStyle(ink ?? Self.ink)
+            .foregroundStyle(ink ?? Site.ink)
             .padding(.horizontal, 10)
             .frame(height: 24)
-            .background(fill ?? Self.ink.opacity(0.08), in: Capsule())
+            .background(fill ?? Site.ink.opacity(0.08), in: Capsule())
     }
 
     private var footer: some View {
@@ -159,13 +122,13 @@ struct ChecksView: View {
                 .padding(.horizontal, 10)
                 .frame(height: 32)
                 .background(Color(white: inbox.pressed == kVK_ANSI_S ? 0.97 : 1), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Self.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Site.line, lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture { _ = inbox.key(UInt16(kVK_ANSI_S)) }
         }
         .padding(16)
         .background(.white.opacity(0.25))
-        .overlay(alignment: .top) { Rectangle().fill(Self.line).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Site.line).frame(height: 1) }
     }
 }
 
@@ -266,10 +229,65 @@ extension EnvironmentValues {
     }
 }
 
+/// The colours of the site's `.light` dialog, which every view of Echo takes.
+enum Site {
+    static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
+    static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
+    static let glass = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.4)
+    static let radius: CGFloat = 14
+}
+
+/// The site's dialog: its frosted glass, rounded, a white rim inside a dark one. A click on it stays in it.
+private struct Card: ViewModifier {
+    @Environment(\.renderBackdrop) private var renderBackdrop
+
+    func body(content: Content) -> some View {
+        content
+            .background(Site.glass)
+            .background { behindGlass }
+            .clipShape(RoundedRectangle(cornerRadius: Site.radius))
+            .overlay(RoundedRectangle(cornerRadius: Site.radius).strokeBorder(.white.opacity(0.4), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Site.radius).strokeBorder(Site.ink.opacity(0.1), lineWidth: 1).padding(-1))
+            .onTapGesture {}
+    }
+
+    /// What the glass shows: behind the window, through the site's filters. In a render nothing is behind, so the
+    /// render's own backdrop goes through the same matrix in its place (a blur leaves a vertical gradient as it is).
+    @ViewBuilder private var behindGlass: some View {
+        if let renderBackdrop {
+            GeometryReader { g in
+                let at = g.frame(in: .global)
+                LinearGradient(colors: renderBackdrop.map(Glass.filtered), startPoint: .top, endPoint: .bottom)
+                    .frame(width: Inbox.screen.width, height: Inbox.screen.height)
+                    .offset(x: -at.minX, y: -at.minY)
+            }
+        } else {
+            GlassView(blur: 40, tone: Glass.matrix, radius: Site.radius)
+        }
+    }
+}
+
+/// The dialog's overlay over the whole screen: what is behind blurred 4 pt (`backdrop-blur-xs`) under black at 0.3.
+/// A click on it closes Echo, as a click outside closes the dialog.
+struct Veil: View {
+    let inbox: Inbox
+    @Environment(\.renderBackdrop) private var renderBackdrop
+
+    var body: some View {
+        ZStack {
+            if renderBackdrop == nil { GlassView(blur: 4, tone: nil, radius: 0) }
+            Color.black.opacity(0.3)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { inbox.hide() }
+    }
+}
+
+extension View {
+    func card() -> some View { modifier(Card()) }
+}
+
 private extension View {
     /// The site's `block`: rounded-lg, a border, a whiter glass.
-    func block() -> some View {
-        background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255), lineWidth: 1))
-    }
+    func block() -> some View { block(in: RoundedRectangle(cornerRadius: 10)) }
 }
