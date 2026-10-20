@@ -92,6 +92,7 @@ enum SelfCheck {
         let checks = CheckEntry.load(state: state)
         expect(checks.entries.map { "\($0.id)\($0.state.rawValue)" } == ["wwaiting", "ddropped", "aarrived"], true,
                "checks: waiting, then dropped, then arrived, a dropped one marked")
+        expect(checks.entries.map(\.channel) == [.whatsapp, .whatsapp, .command], true, "checks: a chat is WhatsApp, a cmd a command")
         let echo = Inbox(folder: state.appending(path: "inbox"))
         expect(echo.key(UInt16(kVK_ANSI_S)) && echo.settings && echo.checks.count == 3, true, "inbox: S shows the checks")
         expect(echo.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")

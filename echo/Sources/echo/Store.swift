@@ -57,10 +57,12 @@ struct InboxItem: Codable, Equatable {
 /// (`fired/` with a `dropped` stamp: nothing watches it any more).
 struct CheckEntry: Equatable {
     enum State: String { case waiting, dropped, arrived }
+    enum Channel: String { case whatsapp, gmail, command }
 
     let id: String
     let name: String
     let watching: String
+    let channel: Channel
     let state: State
     /// ms: when it began waiting, arrived or was dropped.
     let at: Double
@@ -86,11 +88,12 @@ struct CheckEntry: Equatable {
             let name = json["name"] as? String ?? String(what.prefix(40))
             let watching = (json["chat"] as? String).map { "WhatsApp “\($0)”" + ((json["also"] as? String).map { ", “\($0)”" } ?? "") }
                 ?? (json["cmd"] != nil ? json["how"] as? String ?? "command" : "Gmail")
+            let channel: Channel = json["chat"] != nil ? .whatsapp : json["cmd"] != nil ? .command : .gmail
             func stamp(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
             let fired = (json["fired"] as? [String: Any]).flatMap { stamp($0["at"]) }
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
-            return CheckEntry(id: id, name: name, watching: watching, state: state, at: at ?? 0)
+            return CheckEntry(id: id, name: name, watching: watching, channel: channel, state: state, at: at ?? 0)
         }
         let all = (read(state) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]

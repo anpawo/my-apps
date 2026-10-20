@@ -14,12 +14,12 @@ struct ChecksView: View {
         Color(red: Double(v >> 16 & 255) / 255, green: Double(v >> 8 & 255) / 255, blue: Double(v & 255) / 255)
     }
 
-    /// Tailwind's -100 fill and -900 ink, as the site's pills have them (`tone-usual`, `tone-added`).
-    private static func tone(_ state: CheckEntry.State) -> (fill: Color, ink: Color) {
-        switch state {
-        case .waiting: return (hex(0xDBEAFE), hex(0x1C398E))
-        case .dropped: return (hex(0xFEE2E2), hex(0x82181A))
-        case .arrived: return (hex(0xDCFCE7), hex(0x0D542B))
+    /// Tailwind's -100 fill and -900 ink, as the site's pills have them: WhatsApp's green, Gmail's red, a command's blue.
+    private static func tone(_ channel: CheckEntry.Channel) -> (fill: Color, ink: Color) {
+        switch channel {
+        case .whatsapp: return (hex(0xDCFCE7), hex(0x0D542B))
+        case .gmail: return (hex(0xFEE2E2), hex(0x82181A))
+        case .command: return (hex(0xDBEAFE), hex(0x1C398E))
         }
     }
 
@@ -82,20 +82,18 @@ struct ChecksView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A check in one block, as a field of the mail is: its name, then the pills of its channel and of its day and
-    /// time, the time in its state's colour. Both keep one width, so the columns line up.
+    /// A check in one block, as a field of the mail is: its name, then the pills of its channel, in the channel's
+    /// colour, and of its day and time. Both keep one width, so the columns line up.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
-        let tone = Self.tone(check.state)
+        let tone = Self.tone(check.channel)
         return HStack(spacing: 16) {
             Text(check.name)
                 .fontWeight(.medium)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            pill(check.watching, fixed: false).frame(width: via, alignment: .leading)
-            ZStack(alignment: .leading) {
-                pill("00/00 00h00").hidden()
-                pill(Store.when(check.at, day: true), fill: tone.fill, ink: tone.ink)
-            }
+            pill(check.watching, fill: tone.fill, ink: tone.ink, fixed: false).frame(width: via, alignment: .leading)
+            pill(Store.when(check.at, day: true))
+                .monospacedDigit()
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
