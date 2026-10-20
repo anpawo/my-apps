@@ -97,6 +97,20 @@ enum SelfCheck {
         expect(echo.key(UInt16(kVK_ANSI_S)) && echo.settings && echo.checks.count == 3, true, "inbox: S shows the checks")
         expect(echo.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
         expect(echo.key(UInt16(kVK_Escape)) && !echo.settings, true, "inbox: Esc in the checks closes Echo")
+        // Add back runs the real checker, on this folder: the fixture has no todo, so nothing leaves the Mac.
+        setenv("AWAIT_STATE", state.path, 1)
+        _ = echo.key(UInt16(kVK_ANSI_S))
+        echo.again(checks.entries[2])
+        expect(echo.checks.first.map { "\($0.id)\($0.state.rawValue)" } == "awaiting", true, "checks: Add back shows it waiting at once")
+        let given = Date().addingTimeInterval(10)
+        while Date() < given, !FileManager.default.fileExists(atPath: state.appending(path: "a.json").path) {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        unsetenv("AWAIT_STATE")
+        let disk = CheckEntry.load(state: state).entries
+        expect(disk.first { $0.id == "a" }?.state == .waiting && echo.checks == disk, true,
+               "checks: Add back has the checker watch it again, and the list is read back from disk")
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.past && inbox.items.map(\.id) == ["d", "c", "b", "a"], true, "inbox: at 0, the lines set aside, newest first")

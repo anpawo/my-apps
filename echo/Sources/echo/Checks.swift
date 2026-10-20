@@ -24,6 +24,7 @@ struct ChecksView: View {
     }
 
     @Environment(\.renderBackdrop) private var renderBackdrop
+    @State private var hovered: String?
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
     private var done: [CheckEntry] {
@@ -83,7 +84,8 @@ struct ChecksView: View {
     }
 
     /// A check in one block, as a field of the mail is: its name, then the pills of its channel, in the channel's
-    /// colour, and of its day and time. Both keep one width, so the columns line up.
+    /// colour, and of its day and time. Both keep one width, so the columns line up. Under the pointer, a check done
+    /// shows Add back over its time.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.channel)
         return HStack(spacing: 16) {
@@ -94,10 +96,26 @@ struct ChecksView: View {
             pill(check.watching, fill: tone.fill, ink: tone.ink, fixed: false).frame(width: via, alignment: .leading)
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
+                .overlay {
+                    if check.state == .arrived && hovered == check.id { addBack(check) }
+                }
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
         .block()
+        .onHover { hovered = $0 ? check.id : hovered == check.id ? nil : hovered }
+    }
+
+    /// The site's outline button, as Done is, at a row's size, covering the time.
+    private func addBack(_ check: CheckEntry) -> some View {
+        Text("Add back")
+            .fontWeight(.medium)
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)
+            .background(.white, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Site.line, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { inbox.again(check) }
     }
 
     private func pill(_ text: String, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {

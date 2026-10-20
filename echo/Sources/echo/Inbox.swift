@@ -206,6 +206,29 @@ final class Inbox: NSObject, ObservableObject {
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
     }
 
+    /// A check that came back, watched again from now (`checker.mjs again`): shown waiting at once, then read back
+    /// from disk once the checker is done, which puts it back under Done if it failed.
+    func again(_ check: CheckEntry) {
+        checks = [CheckEntry(id: check.id, name: check.name, watching: check.watching, channel: check.channel, state: .waiting,
+                             at: Date().timeIntervalSince1970 * 1000)] + checks.filter { $0.id != check.id }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
+        task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "again", check.id]
+        task.standardOutput = FileHandle.nullDevice
+        let state = folder.deletingLastPathComponent()
+        task.terminationHandler = { [weak self] task in
+            if task.terminationStatus != 0 { NSLog("echo: could not watch \(check.id) again (\(task.terminationStatus))") }
+            DispatchQueue.main.async {
+                guard let self, self.settings else { return }
+                (self.checks, self.lastCheck) = CheckEntry.load(state: state)
+            }
+        }
+        do { try task.run() } catch {
+            NSLog("echo: could not watch \(check.id) again — \(error)")
+            (checks, lastCheck) = CheckEntry.load(state: state)
+        }
+    }
+
     private func step(_ by: Int) {
         guard !items.isEmpty else { return }
         index = (index + by + items.count) % items.count
