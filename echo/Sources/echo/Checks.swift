@@ -7,8 +7,8 @@ import SwiftUI
 /// sections split by a thin line, a row of field blocks per check, a footer with a button.
 struct ChecksView: View {
     @ObservedObject var inbox: Inbox
-    static let rows = 12
-    static let width: CGFloat = 1400
+    /// The site's dialog of one pane, `sm:max-w-3xl`.
+    static let width: CGFloat = 768
 
     private static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
     private static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
@@ -71,10 +71,10 @@ struct ChecksView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .block()
-                VStack(spacing: 24) {
-                    section("Waiting", waiting)
-                    Rectangle().fill(Self.line).frame(height: 1)
-                    section("Done in the last 7 days", done)
+                ViewThatFits(in: .vertical) {
+                    sections
+                    // ImageRenderer draws no NSScrollView: a render shows the list's top, as the scroll does at first
+                    if renderBackdrop == nil { ScrollView { sections } } else { sections.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped() }
                 }
             }
             .padding(16)
@@ -83,37 +83,37 @@ struct ChecksView: View {
         .font(.system(size: 14))
         .foregroundStyle(Self.ink)
         .frame(width: Self.width)
-        .fixedSize(horizontal: false, vertical: true)
         .background(Self.glass)
         .background { behindGlass }
         .clipShape(RoundedRectangle(cornerRadius: Self.radius))
         .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(.white.opacity(0.4), lineWidth: 1))
         .overlay(RoundedRectangle(cornerRadius: Self.radius).strokeBorder(Self.ink.opacity(0.1), lineWidth: 1).padding(-1))
         .onTapGesture {}
+        .padding(.vertical, 60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { veil }
     }
 
-    /// Its checks in two columns, newest first down the left one, then the right.
-    private func section(_ title: String, _ entries: [CheckEntry]) -> some View {
-        let shown = Array(entries.prefix(Self.rows))
-        let half = (shown.count + 1) / 2
-        // the channels' pills are as wide as the widest of the section, as the mail's names are, up to a width
-        let widest = shown.map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
+    private var sections: some View {
+        let (waiting, done) = (waiting, done)
+        // the channels' pills are as wide as the widest of the list, as the mail's names are, up to a width
+        let widest = (waiting + done).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
             .reduce(0, max).rounded(.up)
         let via = min(160, widest)
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(spacing: 24) {
+            section("Waiting", waiting, via: via)
+            Rectangle().fill(Self.line).frame(height: 1)
+            section("Done in the last 7 days", done, via: via)
+        }
+    }
+
+    private func section(_ title: String, _ entries: [CheckEntry], via: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(title).font(.system(size: 18, weight: .semibold))
                 pill("\(entries.count)")
             }
-            HStack(alignment: .top, spacing: 24) {
-                ForEach([0..<half, half..<shown.count], id: \.lowerBound) { column in
-                    VStack(spacing: 8) { ForEach(shown[column], id: \.id) { row($0, via: via) } }
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            if entries.count > Self.rows { Text("+ \(entries.count - Self.rows) more").frame(maxWidth: .infinity) }
+            VStack(spacing: 8) { ForEach(entries, id: \.id) { row($0, via: via) } }
             if entries.isEmpty { Text("Nothing here") }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
