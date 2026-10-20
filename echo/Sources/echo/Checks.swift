@@ -119,18 +119,15 @@ struct ChecksView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A check as a mail of the thread is: its name in a block of its own with no label, as the mail's subject, then
-    /// its fields, each a block with its label and a pill, the time in its state's colour. The fields keep one width,
-    /// so the columns line up.
+    /// A check in one block, as a field of the mail is: its name, then its channel and its time, each with its label
+    /// and a pill, the time in its state's colour. Both keep one width, so the columns line up.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.state)
-        return HStack(spacing: 8) {
+        return HStack(spacing: 24) {
             Text(check.name)
                 .fontWeight(.medium)
                 .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38, alignment: .leading)
-                .block()
+                .frame(maxWidth: .infinity, alignment: .leading)
             field("Via") { pill(check.watching, fixed: false).frame(width: via, alignment: .leading) }
             field("When") {
                 ZStack(alignment: .leading) {
@@ -139,15 +136,15 @@ struct ChecksView: View {
                 }
             }
         }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .block()
     }
     private func field(_ name: String, @ViewBuilder _ value: () -> some View) -> some View {
         HStack(spacing: 12) {
             Text(name).fixedSize()
             value()
         }
-        .padding(.horizontal, 12)
-        .frame(height: 38)
-        .block()
     }
 
     private func pill(_ text: String, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {
