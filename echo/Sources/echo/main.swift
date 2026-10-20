@@ -45,7 +45,6 @@ if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
         let real = CheckEntry.load()
         Inbox.render([], checks: real.entries, lastCheck: real.last, to: beside("checks"))
         Inbox.render([], checks: real.entries, lastCheck: real.last, on: "white", to: beside("checks-white"))
-        Inbox.render(items, past: true, outcomes: ["photo of her ID": "Licence request filed on ANTS, receipt saved"], to: beside("past"))
         exit(0)
     }
 }

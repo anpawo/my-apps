@@ -5,7 +5,7 @@ import SwiftUI
 
 /// What the watcher found, counted in the menu bar and shown one line at a time on ⌘⌥K, Spotlight-like. Arrows
 /// only move, so what was skipped stays; a line goes once it is opened (its session resumed in a terminal) or
-/// set aside with ↓. At 0 it shows the last lines gone instead, newest first, each with what came of it.
+/// set aside with ↓. At 0 it opens on the checks.
 @MainActor
 final class Inbox: NSObject, ObservableObject {
 
@@ -24,13 +24,6 @@ final class Inbox: NSObject, ObservableObject {
     @Published private(set) var items: [InboxItem] = []
     @Published private(set) var index = 0
     var current: InboxItem? { items.indices.contains(index) ? items[index] : nil }
-    /// Nothing waits: `items` are the last lines set aside (`done/`), newest first, to look back on.
-    @Published private(set) var past = false
-    static let pastShown = Store.pastShown
-    /// What came of each past line, in a few words; "" when no session followed it. See `sumUp`.
-    @Published private(set) var outcomes: [String: String] = [:]
-    private(set) var summing: Set<String> = []
-    private static let keptOutcomes = "echoOutcomes"
     /// S: every check of the hourly watcher, instead of the lines.
     @Published private(set) var settings = false
     @Published private(set) var checks: [CheckEntry] = []
@@ -71,67 +64,9 @@ final class Inbox: NSObject, ObservableObject {
         guard force || date != seen else { return }
         seen = date
         let was = current?.id
-        let waiting = Store.lines(in: folder)
-        past = waiting.isEmpty
-        items = past ? Array(Store.lines(in: folder.appending(path: "done")).reversed().prefix(Self.pastShown)) : waiting
+        items = Store.lines(in: folder)
         index = items.firstIndex { $0.id == was } ?? min(index, max(items.count - 1, 0))
-        status?.button?.image = Self.badge(waiting.count)
-    }
-
-    /// Asks what came of each past line taken up again in its session, and keeps the answer with the size of the
-    /// transcript it was made from: a session gone back to since is summed up again. Off the main thread, as a
-    /// transcript runs to megabytes.
-    func sumUp() {
-        let kept = UserDefaults.standard.dictionary(forKey: Self.keptOutcomes) as? [String: String] ?? [:]
-        for item in items where !summing.contains(item.id) {
-            guard let session = item.session else { continue }
-            let file = URL(fileURLWithPath: Summary.projectDirectory(for: item.dir)).appending(path: "\(session).jsonl")
-            let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int ?? 0
-            if let made = kept[item.id]?.split(separator: "\u{1}", maxSplits: 1, omittingEmptySubsequences: false),
-               made.count == 2 {
-                outcomes[item.id] = String(made[1])
-                if made[0] == "\(size)" { continue }
-            }
-            summing.insert(item.id)
-            Task { [weak self] in
-                let said = await Task.detached { Self.said(after: item.at, in: file) }.value
-                var text: String? = ""
-                if let said { text = await Summary.outcome(subject: item.subject, line: item.line, after: said) }
-                guard let self else { return }
-                summing.remove(item.id)
-                // A call that failed is asked again at the next opening.
-                guard let text else { return }
-                outcomes[item.id] = text
-                var kept = UserDefaults.standard.dictionary(forKey: Self.keptOutcomes) as? [String: String] ?? [:]
-                kept[item.id] = "\(size)\u{1}\(text)"
-                UserDefaults.standard.set(kept, forKey: Self.keptOutcomes)
-            }
-        }
-    }
-
-    /// What was said in a session since `at` (ms), his prompts and Claude's text, the last 6,000 characters. Nil when
-    /// he asked nothing there since: the line was set aside, not taken up. Read from the end, and only messages
-    /// mark where `at` falls: an attachment written at a resume carries the time the session was opened.
-    nonisolated static func said(after at: Double, in file: URL) -> String? {
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        var said: [String] = []
-        var asked = false
-        for row in data.split(separator: UInt8(ascii: "\n")).reversed() {
-            guard let entry = try? JSONSerialization.jsonObject(with: Data(row)) as? [String: Any],
-                  let type = entry["type"] as? String, type == "user" || type == "assistant",
-                  let stamp = entry["timestamp"] as? String,
-                  let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(stamp) else { continue }
-            if date.timeIntervalSince1970 * 1000 <= at { break }
-            guard entry["isMeta"] as? Bool != true else { continue }
-            let content = (entry["message"] as? [String: Any])?["content"]
-            let text = ((content as? String).map { [$0] } ?? (content as? [[String: Any]] ?? [])
-                .filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String })
-                .joined(separator: "\n")
-            guard !text.isEmpty else { continue }
-            if type == "user" { asked = true }
-            said.append((type == "user" ? "He: " : "Claude: ") + text)
-        }
-        return asked ? String(said.reversed().joined(separator: "\n\n").suffix(6000)) : nil
+        status?.button?.image = Self.badge(items.count)
     }
 
     /// The count in a rounded square: drawn hollow at 0, filled with the figure cut out of it once something waits.
@@ -172,7 +107,8 @@ final class Inbox: NSObject, ObservableObject {
     func key(_ code: UInt16) -> Bool {
         if settings {
             switch Int(code) {
-            case kVK_ANSI_S: showSettings(false)
+            // nothing to go back to: S closes, as Done does
+            case kVK_ANSI_S: if items.isEmpty { hide() } else { showSettings(false) }
             case kVK_Escape: hide()
             default: return false
             }
@@ -186,11 +122,8 @@ final class Inbox: NSObject, ObservableObject {
         case kVK_LeftArrow: step(-1)
         case kVK_RightArrow: step(1)
         case kVK_Return, kVK_ANSI_KeypadEnter:
-            if past {
-                // Its session again, to see what came of it: the line stays where it is.
-                if let item = current, item.session != nil { hide(); _ = launch(item) }
-            } else if let was, let item = current, was.id == item.id { take(item) } else { openCurrent() }
-        case kVK_DownArrow: if !past, let item = current { asking = Ask(id: item.id) }
+            if let was, let item = current, was.id == item.id { take(item) } else { openCurrent() }
+        case kVK_DownArrow: if let item = current { asking = Ask(id: item.id) }
         default: return false
         }
         let code = Int(code)
@@ -244,7 +177,7 @@ final class Inbox: NSObject, ObservableObject {
     private func take(_ item: InboxItem) {
         Store.take(item.id, in: folder)
         refresh(force: true)
-        if past { hide() }
+        if items.isEmpty { hide() }
     }
 
     /// The session it ended in, back in a Ghostty window of his login shell, as `spawn` opens one.
@@ -268,7 +201,7 @@ final class Inbox: NSObject, ObservableObject {
     @objc func toggle() {
         if panel?.isVisible == true { return hide() }
         refresh(force: true)
-        if past { sumUp() }
+        if items.isEmpty { showSettings(true) }
         let panel = self.panel ?? makePanel()
         self.panel = panel
         Self.present(panel, at: Self.activeScreen().frame)
@@ -328,13 +261,11 @@ final class Inbox: NSObject, ObservableObject {
     ]
 
     /// The panel as it would show `items`, drawn offscreen over a light backdrop, as his desktop is.
-    static func render(_ items: [InboxItem], index: Int = 0, asking: Bool = false, past: Bool = false,
-                       outcomes: [String: String] = [:], checks: [CheckEntry]? = nil, lastCheck: String = "", on backdrop: String = "light", to path: String) {
+    static func render(_ items: [InboxItem], index: Int = 0, asking: Bool = false,
+                       checks: [CheckEntry]? = nil, lastCheck: String = "", on backdrop: String = "light", to path: String) {
         let inbox = Inbox(folder: URL(fileURLWithPath: "/nonexistent"))
         inbox.items = items
         inbox.index = index
-        inbox.past = past
-        inbox.outcomes = outcomes
         if let checks { (inbox.settings, inbox.checks, inbox.lastCheck) = (true, checks, lastCheck) }
         inbox.asking = asking ? inbox.current.map { Ask(id: $0.id) } : nil
         let colors = backdrops[backdrop] ?? [.gray]
@@ -393,7 +324,6 @@ struct InboxView: View {
             VStack(spacing: 10) {
                 subject
                 bar.frame(maxWidth: .infinity)
-                if inbox.past, let item = inbox.current { outcome(item) }
                 controls.frame(maxWidth: .infinity)
                     .padding(.top, 2)
             }
@@ -448,24 +378,6 @@ struct InboxView: View {
         .onTapGesture { _ = inbox.key(UInt16(kVK_Return)) }
     }
 
-    /// Under a past line, what came of it. As wide as the bar and no wider: the words arrive after the panel is up,
-    /// and must not move it.
-    private func outcome(_ item: InboxItem) -> some View {
-        let said = item.session == nil ? "" : inbox.outcomes[item.id]
-        return Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: 34)
-            .overlay {
-                Text(said.map { $0.isEmpty ? "Set aside as done" : "Outcome: \($0)" } ?? "Summing up its session…")
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 22)
-                    .opacity(said == nil ? 0.6 : 1)
-            }
-            .font(.system(size: 13, weight: .medium))
-            .block(in: Capsule())
-    }
-
     /// The dot's green, deeper: under a white tick the dot's own is too pale to read.
     private static let yes = Color(red: 0.16, green: 0.62, blue: 0.28)
 
@@ -489,8 +401,8 @@ struct InboxView: View {
                 // While ↓ asks, ↵ is the yes: its button says so in the question's colour.
                 let ask = inbox.asking
                 let colour = ask.map { _ in Self.yes }
-                let needs = ask == nil && !inbox.past && inbox.current?.kind == "needs"
-                let done = ask == nil && !inbox.past && inbox.current?.kind == "done"
+                let needs = ask == nil && inbox.current?.kind == "needs"
+                let done = ask == nil && inbox.current?.kind == "done"
                 key("return", ask == nil ? "open" : "yes", kVK_Return, tint: colour, icon: needs ? Self.open : nil)
                 key("checkmark", ask == nil ? "done" : "sure?", kVK_DownArrow,
                     tint: ask == nil ? nil : Self.yes, icon: done ? Self.done : nil)
@@ -500,7 +412,7 @@ struct InboxView: View {
         .overlay(alignment: .top) {
             HStack(alignment: .top, spacing: Inbox.gap) {
                 key("chevron.left", "prev", kVK_LeftArrow)
-                Text("\(inbox.past && !inbox.items.isEmpty ? "past " : "")\(inbox.items.isEmpty ? 0 : inbox.index + 1) / \(inbox.items.count)")
+                Text("\(inbox.items.isEmpty ? 0 : inbox.index + 1) / \(inbox.items.count)")
                     .monospacedDigit()
                     .chip()
                 key("chevron.right", "next", kVK_RightArrow)
@@ -509,8 +421,7 @@ struct InboxView: View {
     }
 
     private func key(_ symbol: String, _ label: String, _ code: Int, tint: Color? = nil, icon: Color? = nil) -> some View {
-        let off = code != kVK_ANSI_S && (inbox.current == nil || ((code == kVK_LeftArrow || code == kVK_RightArrow) && inbox.items.count < 2)
-            || (inbox.past && (code == kVK_DownArrow || (code == kVK_Return && inbox.current?.session == nil))))
+        let off = code != kVK_ANSI_S && (inbox.current == nil || ((code == kVK_LeftArrow || code == kVK_RightArrow) && inbox.items.count < 2))
         return KeyBubble(symbol: symbol, label: label, off: off, tint: tint, icon: icon, pressed: inbox.pressed == code) {
             _ = inbox.key(UInt16(code))
         }

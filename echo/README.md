@@ -11,10 +11,10 @@ them Spotlight-style.
 | ← → | move through the lines, none is dropped |
 | ↵ | resume the line's session in a terminal, and set the line aside |
 | ↓ then ↵ | set the line aside as done, without opening it |
-| S | the checks still waiting, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now); S again goes back to the lines |
+| S | the checks still waiting, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now); S again goes back to the lines, or closes Echo when none waits |
 | ⎋ | close |
 
-At 0 it shows the last lines set aside, each with what came of it (one `claude -p` with no tool, kept).
+With no line waiting, ⌘⌥K opens on the checks.
 
 ## MCP
 
@@ -32,4 +32,4 @@ claude mcp add --scope user echo -- ~/Applications/echo.app/Contents/MacOS/echo 
 
 ## Checking it without a window
 
-`echo --render out.png` draws the panel offscreen (also `out-asking.png`, `-empty`, `-checks`, `-past`).
+`echo --render out.png` draws the panel offscreen (also `out-asking.png`, `-empty`, `-checks`).
