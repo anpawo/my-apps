@@ -307,7 +307,11 @@ final class Inbox: NSObject, ObservableObject {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.onKey = { [weak self] code in self?.key(code) ?? false }
-        panel.contentView = NSHostingView(rootView: InboxView(inbox: self))
+        let host = NSHostingView(rootView: InboxView(inbox: self))
+        // The panel keeps the size it is given: sized by its view, it stayed as big as the checks' card once hidden,
+        // and the lines then opened at the top of the screen.
+        host.sizingOptions = []
+        panel.contentView = host
         return panel
     }
 
