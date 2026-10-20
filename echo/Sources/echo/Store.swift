@@ -8,10 +8,10 @@ enum Store {
     static let pastShown = 20
 
     /// Today's line by its hour alone, written the French way (10h40); an older one with its day (13/10 10h40).
-    static func when(_ ms: Double, now: Date = Date()) -> String {
+    static func when(_ ms: Double, now: Date = Date(), day: Bool = false) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
         let f = DateFormatter()
-        f.dateFormat = Calendar.current.isDate(date, inSameDayAs: now) ? "HH'h'mm" : "dd/MM HH'h'mm"
+        f.dateFormat = !day && Calendar.current.isDate(date, inSameDayAs: now) ? "HH'h'mm" : "dd/MM HH'h'mm"
         return f.string(from: date)
     }
 
@@ -84,8 +84,8 @@ struct CheckEntry: Equatable {
             guard let id = json["id"] as? String else { return nil }
             let what = json["what"] as? String ?? ""
             let name = json["name"] as? String ?? String(what.prefix(40))
-            let watching = (json["chat"] as? String).map { "WhatsApp “\($0)”" }
-                ?? (json["cmd"] != nil ? "command" : "Gmail")
+            let watching = (json["chat"] as? String).map { "WhatsApp “\($0)”" + ((json["also"] as? String).map { ", “\($0)”" } ?? "") }
+                ?? (json["cmd"] != nil ? json["how"] as? String ?? "command" : "Gmail")
             func stamp(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
             let fired = (json["fired"] as? [String: Any]).flatMap { stamp($0["at"]) }
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }

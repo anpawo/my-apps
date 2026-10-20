@@ -4,7 +4,7 @@ import SwiftUI
 /// S on the panel: the checks the hourly watcher still waits on, and under them those done in the last 7 days, laid
 /// out as the mail-draft dialog of the reconciliation site is (s14 `recon-v3-mr/web`: components/mail.tsx,
 /// ui/dialog.tsx, app/globals.css `.light`), at its sizes in points: a frosted dialog, its title in a block, the two
-/// sections split by a thin line, a row of field blocks per check, a footer with a button.
+/// sections split by a thin line, a block per check, a footer with a button.
 struct ChecksView: View {
     @ObservedObject var inbox: Inbox
     /// The site's dialog of one pane, `sm:max-w-3xl`.
@@ -99,7 +99,7 @@ struct ChecksView: View {
         // the channels' pills are as wide as the widest of the list, as the mail's names are, up to a width
         let widest = (waiting + done).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
             .reduce(0, max).rounded(.up)
-        let via = min(160, widest)
+        let via = min(260, widest)
         return VStack(spacing: 24) {
             section("Waiting", waiting, via: via)
             Rectangle().fill(Self.line).frame(height: 1)
@@ -119,32 +119,24 @@ struct ChecksView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A check in one block, as a field of the mail is: its name, then its channel and its time, each with its label
-    /// and a pill, the time in its state's colour. Both keep one width, so the columns line up.
+    /// A check in one block, as a field of the mail is: its name, then the pills of its channel and of its day and
+    /// time, the time in its state's colour. Both keep one width, so the columns line up.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.state)
-        return HStack(spacing: 24) {
+        return HStack(spacing: 16) {
             Text(check.name)
                 .fontWeight(.medium)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            field("Via") { pill(check.watching, fixed: false).frame(width: via, alignment: .leading) }
-            field("When") {
-                ZStack(alignment: .leading) {
-                    pill("00/00 00h00").hidden()
-                    pill(Store.when(check.at), fill: tone.fill, ink: tone.ink)
-                }
+            pill(check.watching, fixed: false).frame(width: via, alignment: .leading)
+            ZStack(alignment: .leading) {
+                pill("00/00 00h00").hidden()
+                pill(Store.when(check.at, day: true), fill: tone.fill, ink: tone.ink)
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
         .block()
-    }
-    private func field(_ name: String, @ViewBuilder _ value: () -> some View) -> some View {
-        HStack(spacing: 12) {
-            Text(name).fixedSize()
-            value()
-        }
     }
 
     private func pill(_ text: String, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {
