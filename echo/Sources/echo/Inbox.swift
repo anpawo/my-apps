@@ -327,10 +327,12 @@ final class Inbox: NSObject, ObservableObject {
         inbox.outcomes = outcomes
         if let checks { (inbox.settings, inbox.checks, inbox.lastCheck) = (true, checks, lastCheck) }
         inbox.asking = asking ? inbox.current.map { Ask(id: $0.id) } : nil
-        let backdrop = LinearGradient(colors: backdrops[backdrop] ?? [.gray], startPoint: .top, endPoint: .bottom)
+        let colors = backdrops[backdrop] ?? [.gray]
+        let backdrop = LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
         // SwiftUI's own renderer: a hosting view's `cacheDisplay` drew a short line off both ends of every stroked
         // capsule, which the screen does not.
-        let renderer = ImageRenderer(content: InboxView(inbox: inbox).background(backdrop).environment(\.colorScheme, .light))
+        let renderer = ImageRenderer(content: InboxView(inbox: inbox).background(backdrop)
+            .environment(\.colorScheme, .light).environment(\.renderBackdrop, colors))
         renderer.scale = 2
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))

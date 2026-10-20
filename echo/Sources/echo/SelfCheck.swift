@@ -16,8 +16,28 @@ enum SelfCheck {
             }
         }
         inbox(expect)
+        glass(expect)
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    /// The checks' glass, in a window never shown: its backdrop takes the site's filters and the material's tints
+    /// are hidden. A macOS that renames these private layers fails here, not on his screen.
+    private static func glass(_ expect: (Bool, Bool, String) -> Void) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        let view = Glass(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        window.contentView = view
+        window.displayIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        view.display()
+        let layers = view.layer?.sublayers?.flatMap { $0.sublayers ?? [] } ?? []
+        let backdrop = layers.first { $0.name == "backdrop" }
+        let names = (backdrop?.filters ?? []).compactMap { ($0 as? NSObject)?.value(forKey: "name") as? String }
+        expect(Array(names.suffix(2)) == ["gaussianBlur", "colorMatrix"], true, "glass: the backdrop blurs, then saturates and brightens as the site does (\(names))")
+        var m = [Float](repeating: 0, count: 20)
+        ((backdrop?.filters?.last as? NSObject)?.value(forKey: "inputColorMatrix") as? NSValue)?.getValue(&m, size: 80)
+        expect(m == Glass.packed, true, "glass: the backdrop holds the CSS matrix as given (\(m.prefix(3)))")
+        expect(layers.filter { $0 !== backdrop }.allSatisfy(\.isHidden) && layers.count > 1, true, "glass: the material's own tints are hidden")
     }
 
     /// The watcher's lines: in time order, ←→ wrap and take nothing away, ↵ opens and sets the line aside in `done/`
