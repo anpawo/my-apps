@@ -35,7 +35,7 @@ struct ChecksView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 36) {
-                Text("Checks")
+                Text("Watch list")
                     .font(.system(size: 30, weight: .medium))
                     .tracking(-0.75)
                     .padding(.horizontal, 16)
@@ -65,7 +65,7 @@ struct ChecksView: View {
             .reduce(0, max).rounded(.up)
         let via = min(260, widest)
         return VStack(spacing: 24) {
-            section("Waiting", waiting, via: via)
+            section("Watching", waiting, via: via)
             Rectangle().fill(Site.line).frame(height: 1)
             section("Done in the last 7 days", done, via: via)
         }
