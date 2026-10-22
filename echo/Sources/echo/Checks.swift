@@ -84,8 +84,8 @@ struct ChecksView: View {
     }
 
     /// A check in one block, as a field of the mail is: its name, then the pills of its channel, in the channel's
-    /// colour, and of its day and time. Both keep one width, so the columns line up. Under the pointer, a check done
-    /// shows Add back over its time.
+    /// colour, of how often it is read, and of its day and time. They keep one width, so the columns line up. Under
+    /// the pointer, a check done shows Add back over its time.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.channel)
         return HStack(spacing: 16) {
@@ -94,6 +94,8 @@ struct ChecksView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             pill(check.watching, fill: tone.fill, ink: tone.ink, fixed: false).frame(width: via, alignment: .leading)
+            // every waiting check is read in the checker's one run, at :10 of every hour (LaunchAgent mac.checker)
+            pill("Hourly").opacity(check.state == .waiting ? 1 : 0)
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
                 .overlay {
