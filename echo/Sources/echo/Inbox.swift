@@ -104,7 +104,13 @@ final class Inbox: NSObject, ObservableObject {
 
     /// Every key the panel takes, and what each button sends; the others go on. ↵ opens, or says yes to a question;
     /// ←→ move and keep every line; ↓ asks to set the shown one aside as done (`done/`, still on disk).
-    func key(_ code: UInt16) -> Bool {
+    func key(_ code: UInt16, flags: NSEvent.ModifierFlags = []) -> Bool {
+        // The chord sometimes reaches the panel as a plain key instead of the hot key, which went unanswered: AppKit beeped.
+        if flags.contains(.command), code == Self.chord.keyCode {
+            NSLog("echo: \(Self.chord.label) came in as a key\(flags.contains(.option) ? "" : " without ⌥"), not as the hot key")
+            hide()
+            return true
+        }
         if settings {
             switch Int(code) {
             // nothing to go back to: S closes, as Done does
@@ -243,7 +249,7 @@ final class Inbox: NSObject, ObservableObject {
         panel.animationBehavior = .none
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        panel.onKey = { [weak self] code in self?.key(code) ?? false }
+        panel.onKey = { [weak self] code, flags in self?.key(code, flags: flags) ?? false }
         let host = NSHostingView(rootView: InboxView(inbox: self))
         // The panel keeps the size it is given, the screen's.
         host.sizingOptions = []
@@ -283,7 +289,7 @@ final class Inbox: NSObject, ObservableObject {
 }
 
 final class InboxPanel: NSPanel {
-    var onKey: (UInt16) -> Bool = { _ in false }
+    var onKey: (UInt16, NSEvent.ModifierFlags) -> Bool = { _, _ in false }
 
     override var canBecomeKey: Bool { true }
 
@@ -291,7 +297,7 @@ final class InboxPanel: NSPanel {
     /// A key held down repeats only for the arrows: a repeated ⌫ answered its own question.
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, event.isARepeat, ![123, 124].contains(event.keyCode) { return }
-        if event.type == .keyDown, onKey(event.keyCode) { return }
+        if event.type == .keyDown, onKey(event.keyCode, event.modifierFlags) { return }
         super.sendEvent(event)
     }
 

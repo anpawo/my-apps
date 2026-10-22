@@ -97,6 +97,9 @@ enum SelfCheck {
         expect(echo.key(UInt16(kVK_ANSI_S)) && echo.settings && echo.checks.count == 3, true, "inbox: S shows the checks")
         expect(echo.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
         expect(echo.key(UInt16(kVK_Escape)) && !echo.settings, true, "inbox: Esc in the checks closes Echo")
+        _ = echo.key(UInt16(kVK_ANSI_S))
+        expect(echo.key(UInt16(kVK_ANSI_K), flags: [.command, .option]) && !echo.settings, true,
+               "inbox: ⌘⌥K come in as a plain key closes Echo, as the hot key does")
         // Add back runs the real checker, on this folder: the fixture has no todo, so nothing leaves the Mac.
         setenv("AWAIT_STATE", state.path, 1)
         _ = echo.key(UInt16(kVK_ANSI_S))
