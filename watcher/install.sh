@@ -5,12 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
-LABEL="app.echo"
-DEST="$HOME/Applications/echo.app"
+LABEL="app.watcher"
+DEST="$HOME/Applications/watcher.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-pkill -f "echo.app/Contents/MacOS/echo" 2>/dev/null || true
-rm -rf "$DEST"; mkdir -p "$HOME/Applications"; cp -R "dist/echo.app" "$DEST"
+pkill -f "watcher.app/Contents/MacOS/watcher" 2>/dev/null || true
+rm -rf "$DEST"; mkdir -p "$HOME/Applications"; cp -R "dist/watcher.app" "$DEST"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -20,7 +20,7 @@ cat > "$PLIST" <<EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$DEST/Contents/MacOS/echo</string>
+		<string>$DEST/Contents/MacOS/watcher</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -29,9 +29,9 @@ cat > "$PLIST" <<EOF
 	<key>ProcessType</key>
 	<string>Interactive</string>
 	<key>StandardErrorPath</key>
-	<string>/tmp/echo.log</string>
+	<string>/tmp/watcher.log</string>
 </dict>
 </plist>
 EOF
 launchctl bootstrap "gui/$UID" "$PLIST"
-echo "⌘⌥K opens it. For Claude Code: claude mcp add --scope user echo -- $DEST/Contents/MacOS/echo mcp"
+echo "⌘⌥K opens it. For Claude Code: claude mcp add --scope user watcher -- $DEST/Contents/MacOS/watcher mcp"

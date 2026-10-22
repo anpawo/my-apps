@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-/// `echo --selftest`: the panel's rules against files as the checker writes them, and its entrance read frame by
+/// `watcher --selftest`: the panel's rules against files as the checker writes them, and its entrance read frame by
 /// frame on a panel put off every screen. `swift test` runs nothing without Xcode, so it is a flag.
 @MainActor
 enum SelfCheck {
@@ -44,7 +44,7 @@ enum SelfCheck {
     /// The watcher's lines: in time order, ←→ wrap and take nothing away, ↵ opens and sets the line aside in `done/`
     /// once its terminal has started; ↓ only asks, however often, and only ↵ says yes (to `done/`).
     private static func inbox(_ expect: (Bool, Bool, String) -> Void) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "echo-inbox-\(getpid())")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "watcher-inbox-\(getpid())")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         for (id, at) in [("b", 2), ("a", 1), ("d", 4), ("c", 3)] {
@@ -83,7 +83,7 @@ enum SelfCheck {
         press(kVK_Return)
         expect(inbox.items.map(\.id) == ["a"] && kept("b"), true, "inbox: only ↵ says yes")
         expect(inbox.key(UInt16(kVK_ANSI_A)), false, "inbox: a letter is left to go on")
-        let state = FileManager.default.temporaryDirectory.appending(path: "echo-checks-\(getpid())")
+        let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }
         try? Data(#"{"id":"w","name":"W","chat":"Maman","since":5}"#.utf8).write(to: state.appending(path: "w.json"))
@@ -93,18 +93,18 @@ enum SelfCheck {
         expect(checks.entries.map { "\($0.id)\($0.state.rawValue)" } == ["wwaiting", "ddropped", "aarrived"], true,
                "checks: waiting, then dropped, then arrived, a dropped one marked")
         expect(checks.entries.map(\.channel) == [.whatsapp, .whatsapp, .command], true, "checks: a chat is WhatsApp, a cmd a command")
-        let echo = Inbox(folder: state.appending(path: "inbox"))
-        expect(echo.key(UInt16(kVK_ANSI_S)) && echo.settings && echo.checks.count == 3, true, "inbox: S shows the checks")
-        expect(echo.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
-        expect(echo.key(UInt16(kVK_Escape)) && !echo.settings, true, "inbox: Esc in the checks closes Echo")
-        _ = echo.key(UInt16(kVK_ANSI_S))
-        expect(echo.key(UInt16(kVK_ANSI_K), flags: [.command, .option]) && !echo.settings, true,
-               "inbox: ⌘⌥K come in as a plain key closes Echo, as the hot key does")
+        let watcher = Inbox(folder: state.appending(path: "inbox"))
+        expect(watcher.key(UInt16(kVK_ANSI_S)) && watcher.settings && watcher.checks.count == 3, true, "inbox: S shows the checks")
+        expect(watcher.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
+        expect(watcher.key(UInt16(kVK_Escape)) && !watcher.settings, true, "inbox: Esc in the checks closes Watcher")
+        _ = watcher.key(UInt16(kVK_ANSI_S))
+        expect(watcher.key(UInt16(kVK_ANSI_K), flags: [.command, .option]) && !watcher.settings, true,
+               "inbox: ⌘⌥K come in as a plain key closes Watcher, as the hot key does")
         // Add back runs the real checker, on this folder: the fixture has no todo, so nothing leaves the Mac.
         setenv("AWAIT_STATE", state.path, 1)
-        _ = echo.key(UInt16(kVK_ANSI_S))
-        echo.again(checks.entries[2])
-        expect(echo.checks.first.map { "\($0.id)\($0.state.rawValue)" } == "awaiting", true, "checks: Add back shows it waiting at once")
+        _ = watcher.key(UInt16(kVK_ANSI_S))
+        watcher.again(checks.entries[2])
+        expect(watcher.checks.first.map { "\($0.id)\($0.state.rawValue)" } == "awaiting", true, "checks: Add back shows it waiting at once")
         let given = Date().addingTimeInterval(10)
         while Date() < given, !FileManager.default.fileExists(atPath: state.appending(path: "a.json").path) {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -112,7 +112,7 @@ enum SelfCheck {
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         unsetenv("AWAIT_STATE")
         let disk = CheckEntry.load(state: state).entries
-        expect(disk.first { $0.id == "a" }?.state == .waiting && echo.checks == disk, true,
+        expect(disk.first { $0.id == "a" }?.state == .waiting && watcher.checks == disk, true,
                "checks: Add back has the checker watch it again, and the list is read back from disk")
         press(kVK_DownArrow)
         press(kVK_Return)

@@ -16,7 +16,7 @@ func registerChord() {
     let status = RegisterEventHotKey(UInt32(Inbox.chord.keyCode), Inbox.chord.modifiers,
                                      EventHotKeyID(signature: OSType(0x4543_484F), id: 1),
                                      GetEventDispatcherTarget(), 0, &ref)
-    if status != noErr { NSLog("echo: could not register \(Inbox.chord.label) (\(status)) — another app likely owns it") }
+    if status != noErr { NSLog("watcher: could not register \(Inbox.chord.label) (\(status)) — another app likely owns it") }
 }
 
 let args = CommandLine.arguments
@@ -61,7 +61,7 @@ final class App: NSObject, NSApplicationDelegate {
         let me = NSRunningApplication.current
         if NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .contains(where: { $0 != me && ($0.launchDate ?? .distantPast) <= (me.launchDate ?? .now) }) {
-            NSLog("echo: already running")
+            NSLog("watcher: already running")
             exit(0)
         }
         inbox.start()

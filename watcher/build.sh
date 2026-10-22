@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Builds and signs dist/watcher.app. Does not install: `./install.sh` does.
+# Ad-hoc signed: watcher asks macOS for no permission, so no certificate has a grant to keep.
+set -euo pipefail
+cd "$(dirname "$0")"
+APP="dist/watcher.app"
+swift build -c release --product watcher
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+cp "$(swift build -c release --show-bin-path)/watcher" "$APP/Contents/MacOS/watcher"
+cp Resources/Info.plist "$APP/Contents/"
+"$APP/Contents/MacOS/watcher" --selftest
+codesign --force --sign - "$APP"
+echo "==> $APP"

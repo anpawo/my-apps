@@ -247,7 +247,7 @@ extension EnvironmentValues {
     }
 }
 
-/// The colours of the site's `.light` dialog, which every view of Echo takes.
+/// The colours of the site's `.light` dialog, which every view of Watcher takes.
 enum Site {
     static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
     static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
@@ -286,7 +286,7 @@ private struct Card: ViewModifier {
 }
 
 /// The dialog's overlay over the whole screen: what is behind blurred 4 pt (`backdrop-blur-xs`) under black at 0.3.
-/// A click on it closes Echo, as a click outside closes the dialog.
+/// A click on it closes Watcher, as a click outside closes the dialog.
 struct Veil: View {
     let inbox: Inbox
     @Environment(\.renderBackdrop) private var renderBackdrop

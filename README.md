@@ -189,47 +189,6 @@ MIT.
 </details>
 
 <details>
-<summary><b>echo</b></summary>
-
-# echo
-
-What the answers you are waiting for brought back, one line at a time, on ⌘⌥K.
-
-It reads the state of the hourly checker (`~/.local/state/checker`): a headless follow-up that finished
-something, or stopped on something that needs you. The menu bar shows how many lines wait; ⌘⌥K opens
-them Spotlight-style.
-
-| Key | Does |
-|---|---|
-| ← → | move through the lines, none is dropped |
-| ↵ | resume the line's session in a terminal, and set the line aside |
-| ↓ then ↵ | set the line aside as done, without opening it |
-| S | the checks still waiting, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now); S again goes back to the lines, or closes Echo when none waits |
-| ⎋ | close |
-
-With no line waiting, ⌘⌥K opens on the checks.
-
-## MCP
-
-`echo mcp` is a stdio MCP server over the same files. It needs neither the app nor anything else to be running.
-
-```sh
-claude mcp add --scope user echo -- ~/Applications/echo.app/Contents/MacOS/echo mcp
-```
-
-| Tool | Does |
-|---|---|
-| `echo_lines` | the lines waiting (`past: true`: the ones set aside) |
-| `echo_checks` | every awaited answer and when the checker last ran |
-| `echo_set_aside` | set one waiting line aside as done |
-
-## Checking it without a window
-
-`echo --render out.png` draws the panel offscreen (also `out-asking.png`, `-empty`, `-checks`).
-
-</details>
-
-<details>
 <summary><b>screenshot</b></summary>
 
 # screenshot
@@ -307,6 +266,47 @@ Screenshots. The app needs Screen Recording, and asks for it the first time.
 
 The pictures above are drawn by the app's own views, offscreen, over a stock wallpaper and stand-in windows:
 `.build/release/screenshot --render-docs docs`.
+
+</details>
+
+<details>
+<summary><b>watcher</b></summary>
+
+# watcher
+
+What the answers you are waiting for brought back, one line at a time, on ⌘⌥K.
+
+It reads the state of the hourly checker (`~/.local/state/checker`): a headless follow-up that finished
+something, or stopped on something that needs you. The menu bar shows how many lines wait; ⌘⌥K opens
+them Spotlight-style.
+
+| Key | Does |
+|---|---|
+| ← → | move through the lines, none is dropped |
+| ↵ | resume the line's session in a terminal, and set the line aside |
+| ↓ then ↵ | set the line aside as done, without opening it |
+| S | the checks still waiting, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now); S again goes back to the lines, or closes Watcher when none waits |
+| ⎋ | close |
+
+With no line waiting, ⌘⌥K opens on the checks.
+
+## MCP
+
+`watcher mcp` is a stdio MCP server over the same files. It needs neither the app nor anything else to be running.
+
+```sh
+claude mcp add --scope user watcher -- ~/Applications/watcher.app/Contents/MacOS/watcher mcp
+```
+
+| Tool | Does |
+|---|---|
+| `watcher_lines` | the lines waiting (`past: true`: the ones set aside) |
+| `watcher_checks` | every awaited answer and when the checker last ran |
+| `watcher_set_aside` | set one waiting line aside as done |
+
+## Checking it without a window
+
+`watcher --render out.png` draws the panel offscreen (also `out-asking.png`, `-empty`, `-checks`).
 
 </details>
 <!-- apps:end -->

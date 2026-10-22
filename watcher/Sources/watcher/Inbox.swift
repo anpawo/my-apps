@@ -15,7 +15,7 @@ final class Inbox: NSObject, ObservableObject {
     static let barHeight: CGFloat = 56
     static let bubble: CGFloat = 38
     static let gap: CGFloat = 12
-    /// Echo covers the screen, under the dialog's veil; a render takes the main screen's size.
+    /// Watcher covers the screen, under the dialog's veil; a render takes the main screen's size.
     static var screen: CGSize { NSScreen.main?.frame.size ?? CGSize(width: 1470, height: 956) }
     /// It fades in while rising these last points into its place.
     static let rise: CGFloat = 14
@@ -49,7 +49,7 @@ final class Inbox: NSObject, ObservableObject {
         item.isVisible = true
         item.button?.target = self
         item.button?.action = #selector(toggle)
-        item.button?.toolTip = "Echo: what the awaited answers brought back — \(Self.chord.label)"
+        item.button?.toolTip = "Watcher: what the awaited answers brought back — \(Self.chord.label)"
         status = item
         refresh(force: true)
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -107,7 +107,7 @@ final class Inbox: NSObject, ObservableObject {
     func key(_ code: UInt16, flags: NSEvent.ModifierFlags = []) -> Bool {
         // The chord sometimes reaches the panel as a plain key instead of the hot key, which went unanswered: AppKit beeped.
         if flags.contains(.command), code == Self.chord.keyCode {
-            NSLog("echo: \(Self.chord.label) came in as a key\(flags.contains(.option) ? "" : " without ⌥"), not as the hot key")
+            NSLog("watcher: \(Self.chord.label) came in as a key\(flags.contains(.option) ? "" : " without ⌥"), not as the hot key")
             hide()
             return true
         }
@@ -156,14 +156,14 @@ final class Inbox: NSObject, ObservableObject {
         task.standardOutput = FileHandle.nullDevice
         let state = folder.deletingLastPathComponent()
         task.terminationHandler = { [weak self] task in
-            if task.terminationStatus != 0 { NSLog("echo: could not watch \(check.id) again (\(task.terminationStatus))") }
+            if task.terminationStatus != 0 { NSLog("watcher: could not watch \(check.id) again (\(task.terminationStatus))") }
             DispatchQueue.main.async {
                 guard let self, self.settings else { return }
                 (self.checks, self.lastCheck) = CheckEntry.load(state: state)
             }
         }
         do { try task.run() } catch {
-            NSLog("echo: could not watch \(check.id) again — \(error)")
+            NSLog("watcher: could not watch \(check.id) again — \(error)")
             (checks, lastCheck) = CheckEntry.load(state: state)
         }
     }
@@ -194,7 +194,7 @@ final class Inbox: NSObject, ObservableObject {
             + item.options
         task.standardOutput = FileHandle.nullDevice
         do { try task.run() } catch {
-            NSLog("echo: could not resume \(item.id) — \(error)")
+            NSLog("watcher: could not resume \(item.id) — \(error)")
             return false
         }
         // `open.sh` is back as soon as Ghostty has the request; its status says whether the line may go.
@@ -347,7 +347,7 @@ struct InboxView: View {
     private var subject: some View {
         ZStack {
             ForEach(inbox.items, id: \.id) { Text($0.subject).hidden() }
-            Text(inbox.current?.subject ?? "Echo")
+            Text(inbox.current?.subject ?? "Watcher")
         }
         .font(.system(size: 14, weight: .semibold))
         .lineLimit(1)

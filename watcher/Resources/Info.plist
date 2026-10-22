@@ -2,14 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleExecutable</key>
-	<string>echo</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.mr.echo</string>
-	<key>CFBundleName</key>
-	<string>echo</string>
 	<key>CFBundleDisplayName</key>
-	<string>echo</string>
+	<string>watcher</string>
+	<key>CFBundleExecutable</key>
+	<string>watcher</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.mr.watcher</string>
+	<key>CFBundleName</key>
+	<string>watcher</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

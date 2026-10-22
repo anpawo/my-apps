@@ -1,13 +1,13 @@
 import Foundation
 
-/// `echo mcp`: a stdio MCP server over the checker's state files, so Claude Code reads and sets aside Echo's lines
+/// `watcher mcp`: a stdio MCP server over the checker's state files, so Claude Code reads and sets aside Watcher's lines
 /// without Fleet or the app being in the way. Newline-delimited JSON-RPC, one reply per request.
 enum Mcp {
     private static let tools: [[String: Any]] = [
-        tool("echo_lines", "The lines Echo holds for Marius: what the hourly checker's follow-ups finished (done) or stopped on (needs). `past: true` lists the ones set aside, newest first.",
+        tool("watcher_lines", "The lines Watcher holds for Marius: what the hourly checker's follow-ups finished (done) or stopped on (needs). `past: true` lists the ones set aside, newest first.",
              ["past": ["type": "boolean"]]),
-        tool("echo_checks", "Every awaited answer the hourly checker watches: waiting, arrived or dropped, and when it last ran.", [:]),
-        tool("echo_set_aside", "Sets one waiting line aside as done (moved to done/, still on disk).",
+        tool("watcher_checks", "Every awaited answer the hourly checker watches: waiting, arrived or dropped, and when it last ran.", [:]),
+        tool("watcher_set_aside", "Sets one waiting line aside as done (moved to done/, still on disk).",
              ["id": ["type": "string"]], required: ["id"]),
     ]
 
@@ -33,7 +33,7 @@ enum Mcp {
         case "initialize":
             return ["result": ["protocolVersion": params["protocolVersion"] as? String ?? "2024-11-05",
                                "capabilities": ["tools": [String: Any]()],
-                               "serverInfo": ["name": "echo", "version": "0.1.0"]]]
+                               "serverInfo": ["name": "watcher", "version": "0.1.0"]]]
         case "tools/list": return ["result": ["tools": tools]]
         case "tools/call":
             let (text, failed) = call(params["name"] as? String ?? "", params["arguments"] as? [String: Any] ?? [:])
@@ -45,18 +45,18 @@ enum Mcp {
 
     private static func call(_ name: String, _ args: [String: Any]) -> (String, Bool) {
         switch name {
-        case "echo_lines":
+        case "watcher_lines":
             let past = args["past"] as? Bool ?? false
             let items = past ? Array(Store.lines(in: Store.inbox.appending(path: "done")).reversed().prefix(Store.pastShown))
                              : Store.lines(in: Store.inbox)
             return (json(items.map { ["id": $0.id, "kind": $0.kind, "subject": $0.subject, "line": $0.line,
                                       "at": Store.when($0.at), "dir": $0.dir, "session": $0.session ?? ""] }), false)
-        case "echo_checks":
+        case "watcher_checks":
             let (entries, last) = CheckEntry.load()
             return (json(["last_check": last, "checks": entries.map {
                 ["id": $0.id, "name": $0.name, "watching": $0.watching, "state": $0.state.rawValue, "detail": $0.detail]
             }]), false)
-        case "echo_set_aside":
+        case "watcher_set_aside":
             guard let id = args["id"] as? String, !id.contains("/") else { return ("missing or bad id", true) }
             return Store.take(id) ? ("set aside: \(id)", false) : ("no waiting line \(id)", true)
         default: return ("unknown tool \(name)", true)
