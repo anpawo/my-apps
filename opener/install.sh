@@ -34,4 +34,4 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 launchctl bootstrap "gui/$UID" "$PLIST"
-echo "⌥Space opens it."
+echo "⌘Space opens it."

@@ -2,8 +2,9 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// ⌥Space and not ⌘Space: Raycast holds ⌘Space while it runs, and Carbon gives a chord to one app only.
-let chord = (keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), label: "⌥Space")
+/// ⌘Space is free only while Spotlight's own shortcut stays off (Keyboard Shortcuts → Spotlight): the system would
+/// take the chord before any app. Raycast, which held it until 2026-10-24, is gone.
+let chord = (keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey), label: "⌘Space")
 
 private nonisolated(unsafe) var toggle: (() -> Void)?
 

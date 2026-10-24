@@ -193,7 +193,7 @@ MIT.
 
 # opener
 
-Spotlight for apps only, on ⌥Space. Type a few letters of an app, ↵ opens it.
+Spotlight for apps only, on ⌘Space. Type a few letters of an app, ↵ opens it.
 
 ![opener](opener/docs/opener.png)
 
@@ -209,7 +209,8 @@ already there. No file, contact or web result, no settings.
 | ⌫, ⌘⌫ | take a letter, take them all |
 | ⎋ | close (a click elsewhere too) |
 
-⌥Space and not ⌘Space: Raycast holds ⌘Space while it runs. The chord is in `Sources/opener/main.swift`.
+⌘Space works only while Spotlight's own shortcut is off (System Settings → Keyboard → Keyboard Shortcuts →
+Spotlight). The chord is in `Sources/opener/main.swift`.
 
 ```sh
 ./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
