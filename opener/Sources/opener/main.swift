@@ -2,25 +2,29 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// ⌘Space is free only while Spotlight's own shortcut stays off (Keyboard Shortcuts → Spotlight): the system would
-/// take the chord before any app. Raycast, which held it until 2026-10-24, is gone.
-let chord = (keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey), label: "⌘Space")
-
-private nonisolated(unsafe) var toggle: (() -> Void)?
+private nonisolated(unsafe) var actions: [UInt32: () -> Void] = [:]
 
 /// Carbon's `RegisterEventHotKey` rather than a global key monitor: the monitor needs Accessibility permission, this
 /// needs nothing, and it consumes the chord so the app in front never sees it.
 @MainActor
-func registerChord() {
+func registerChords(_ chords: [(keyCode: Int, modifiers: Int, label: String, action: () -> Void)]) {
     var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-    InstallEventHandler(GetEventDispatcherTarget(), { _, _, _ in
-        DispatchQueue.main.async { toggle?() }
+    InstallEventHandler(GetEventDispatcherTarget(), { _, event, _ in
+        var key = EventHotKeyID()
+        GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                          MemoryLayout<EventHotKeyID>.size, nil, &key)
+        let id = key.id
+        DispatchQueue.main.async { actions[id]?() }
         return noErr
     }, 1, &spec, nil, nil)
-    var ref: EventHotKeyRef?
-    let status = RegisterEventHotKey(chord.keyCode, chord.modifiers, EventHotKeyID(signature: OSType(0x4F50_4E52), id: 1),
-                                     GetEventDispatcherTarget(), 0, &ref)
-    if status != noErr { NSLog("opener: could not register \(chord.label) (\(status)), another app likely owns it") }
+    for (i, chord) in chords.enumerated() {
+        let id = UInt32(i + 1)
+        actions[id] = chord.action
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(UInt32(chord.keyCode), UInt32(chord.modifiers), EventHotKeyID(signature: OSType(0x4F50_4E52), id: id),
+                                         GetEventDispatcherTarget(), 0, &ref)
+        if status != noErr { NSLog("opener: could not register \(chord.label) (\(status)), another app likely owns it") }
+    }
 }
 
 let args = CommandLine.arguments
@@ -64,8 +68,16 @@ final class App: NSObject, NSApplicationDelegate {
             NSLog("opener: already running")
             exit(0)
         }
-        toggle = { [opener] in MainActor.assumeIsolated { opener.toggle() } }
-        registerChord()
+        let opener = self.opener
+        registerChords([
+            // Free only while Spotlight's own shortcut stays off (Keyboard Shortcuts → Spotlight): the system would
+            // take it first. Raycast held it until 2026-10-24.
+            (kVK_Space, cmdKey, "⌘Space", { MainActor.assumeIsolated { opener.toggle() } }),
+            // A Windows habit (Win+E). It was the system's "Show Finder search window", which the Spotlight agent
+            // carries out and which went with it on 2026-10-24. The home folder rather than Finder's default
+            // window: that is Recents, a Spotlight search, empty without the index.
+            (kVK_ANSI_E, cmdKey, "⌘E", { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory())) }),
+        ])
     }
 }
 

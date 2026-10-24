@@ -16,8 +16,11 @@ already there. No file, contact or web result, no settings.
 | ⌫, ⌘⌫ | take a letter, take them all |
 | ⎋ | close (a click elsewhere too) |
 
+⌘E, from any app, opens a Finder window on the home folder (a Windows habit, Win+E). It was Spotlight's
+"Show Finder search window", gone with the Spotlight agent.
+
 ⌘Space works only while Spotlight's own shortcut is off (System Settings → Keyboard → Keyboard Shortcuts →
-Spotlight). The chord is in `Sources/opener/main.swift`.
+Spotlight). The chords are in `Sources/opener/main.swift`.
 
 ```sh
 ./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
