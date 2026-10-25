@@ -77,6 +77,13 @@ final class App: NSObject, NSApplicationDelegate {
             // carries out and which went with it on 2026-10-24. The home folder rather than Finder's default
             // window: that is Recents, a Spotlight search, empty without the index.
             (kVK_ANSI_E, cmdKey, "⌘E", { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory())) }),
+            // Raycast app hotkeys until it was uninstalled on 2026-10-24.
+            (kVK_ANSI_F, cmdKey | optionKey, "⌥⌘F", {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Firefox.app"), configuration: .init())
+            }),
+            (kVK_ANSI_T, cmdKey | optionKey, "⌥⌘T", {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: .init())
+            }),
         ])
     }
 }
