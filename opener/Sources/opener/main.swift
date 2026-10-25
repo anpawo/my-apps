@@ -27,6 +27,15 @@ func registerChords(_ chords: [(keyCode: Int, modifiers: Int, label: String, act
     }
 }
 
+/// Firefox started while ⌥ is still down asks whether to open in Troubleshoot Mode, so it waits (2 s at most) for the
+/// chord to be let go.
+func openOnceOptionIsUp(_ path: String, tries: Int = 40) {
+    if tries > 0, CGEventSource.flagsState(.combinedSessionState).contains(.maskAlternate) {
+        return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { openOnceOptionIsUp(path, tries: tries - 1) }
+    }
+    NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+}
+
 let args = CommandLine.arguments
 
 if args.contains("--selftest") { MainActor.assumeIsolated { exit(SelfCheck.run() == 0 ? 0 : 1) } }
@@ -78,9 +87,7 @@ final class App: NSObject, NSApplicationDelegate {
             // window: that is Recents, a Spotlight search, empty without the index.
             (kVK_ANSI_E, cmdKey, "⌘E", { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory())) }),
             // Raycast app hotkeys until it was uninstalled on 2026-10-24.
-            (kVK_ANSI_F, cmdKey | optionKey, "⌥⌘F", {
-                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Firefox.app"), configuration: .init())
-            }),
+            (kVK_ANSI_F, cmdKey | optionKey, "⌥⌘F", { openOnceOptionIsUp("/Applications/Firefox.app") }),
             // Ghostty already in front: bringing it up shows nothing, so a new window, the way spawn opens one
             // (`open -na Ghostty`).
             (kVK_ANSI_T, cmdKey | optionKey, "⌥⌘T", {
