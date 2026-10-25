@@ -81,8 +81,12 @@ final class App: NSObject, NSApplicationDelegate {
             (kVK_ANSI_F, cmdKey | optionKey, "⌥⌘F", {
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Firefox.app"), configuration: .init())
             }),
+            // Ghostty already in front: bringing it up shows nothing, so a new window, the way spawn opens one
+            // (`open -na Ghostty`).
             (kVK_ANSI_T, cmdKey | optionKey, "⌥⌘T", {
-                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: .init())
+                let config = NSWorkspace.OpenConfiguration()
+                config.createsNewApplicationInstance = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty"
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: config)
             }),
         ])
     }
