@@ -112,6 +112,12 @@ final class Session {
     /// After a state change: the bar and every overlay. Panels at screen-saver level do not
     /// always flush a `needsDisplay` without a mouse event, so this draws now.
     func refresh() {
+        // The hover is otherwise only set by a mouse move: opening in window mode, or ⌘→ into
+        // it, would show nothing until the pointer moves. On the bar it stays as it was.
+        let p = NSEvent.mouseLocation
+        if bar?.frame.contains(p) != true {
+            hoverWindow = state.target == .window ? windows.first { $0.frame.contains(p) } : nil
+        }
         bar?.refresh()
         redraw()
     }
