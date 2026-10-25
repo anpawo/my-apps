@@ -1,5 +1,6 @@
 import AppKit
 import ScreenshotCore
+import SwiftUI
 
 /// One per display: shows the frozen screen, dims it, and takes the mouse and keyboard.
 /// Non-activating, so the app under the cursor keeps focus and looks normal in the shot.
@@ -236,18 +237,12 @@ private final class OverlayView: NSView {
         veil.opacity = target == .window ? 0 : 0.6
         if target == .window, let w = session.hoverWindow {
             let r = local(w.frame)
-            // 17 pt: a circle fitted to a macOS 26 window's corner in a shadowless capture.
-            windowTint.path = CGPath(roundedRect: r, cornerWidth: 17, cornerHeight: 17, transform: nil)
+            windowTint.path = shape(r, w.radius)
             // Stroke just outside the window, concentric: its inner edge is the window's own edge.
-            windowFrame.path = CGPath(roundedRect: r.insetBy(dx: -1, dy: -1), cornerWidth: 18, cornerHeight: 18, transform: nil)
+            windowFrame.path = shape(r.insetBy(dx: -1, dy: -1), w.radius + 1)
             // The list is front to back: everything before the hovered window covers it.
-            let fronts = session.windows.prefix { $0.id != w.id }.map { local($0.frame) }
-            let mask = CGMutablePath()
-            for part in visible(r, behind: Array(fronts)) { mask.addRect(part) }
-            // Windows in front have round corners: give the cut the same, by adding back the
-            // slivers between each square corner and its arc.
-            for f in fronts { addFillets(of: f, inside: r, to: mask) }
-            windowMask.path = mask
+            windowMask.path = session.windows.prefix { $0.id != w.id }
+                .reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(shape(local($1.frame), $1.radius)) }
         } else {
             windowTint.path = nil
             windowFrame.path = nil
@@ -304,21 +299,10 @@ private final class OverlayView: NSView {
         CATransaction.commit()
     }
 
-    /// The four corner slivers of `f` (a macOS window's 17 pt radius), for the corners that
-    /// fall inside `r`: square corner minus quarter disc.
-    private func addFillets(of f: CGRect, inside r: CGRect, to path: CGMutablePath) {
-        let radius: CGFloat = 17
-        for (sx, sy) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] as [(CGFloat, CGFloat)] {
-            let corner = CGPoint(x: sx > 0 ? f.minX : f.maxX, y: sy > 0 ? f.minY : f.maxY)
-            guard r.insetBy(dx: 1, dy: 1).contains(corner) else { continue }
-            let onX = CGPoint(x: corner.x + sx * radius, y: corner.y)    // where the arc meets the x edge
-            let onY = CGPoint(x: corner.x, y: corner.y + sy * radius)
-            path.move(to: corner)
-            path.addLine(to: onX)
-            path.addArc(tangent1End: corner, tangent2End: onY, radius: radius)
-            path.addLine(to: onY)
-            path.closeSubpath()
-        }
+    /// A window's outline: macOS rounds them with a continuous curve, not a circle's arc
+    /// (checked against a shadowless capture's alpha).
+    private func shape(_ r: CGRect, _ radius: CGFloat) -> CGPath {
+        RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: r).cgPath
     }
 
     /// The display's own outline, inset by the stroke: a built-in panel (the one with a notch)

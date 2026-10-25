@@ -7,6 +7,7 @@ struct WindowInfo {
     let id: CGWindowID
     let frame: CGRect        // AppKit global points
     let app: String
+    var radius: CGFloat = 16 // its corners', as the WindowServer cuts them
 }
 
 /// ScreenCaptureKit, one frame at a time. Our own process is excluded from every display
@@ -86,6 +87,7 @@ enum Capture {
         let mainHeight = NSScreen.screens[0].frame.height
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
+        let radii = cornerRadii(list.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
         return list.compactMap { w in
             guard w[kCGWindowLayer as String] as? Int == 0,
                   w[kCGWindowOwnerPID as String] as? Int32 != pid,
@@ -95,8 +97,29 @@ enum Capture {
                   bounds.width > 32, bounds.height > 32
             else { return nil }
             return WindowInfo(id: id, frame: appKit(bounds, mainHeight: mainHeight),
-                              app: w[kCGWindowOwnerName as String] as? String ?? "")
+                              app: w[kCGWindowOwnerName as String] as? String ?? "", radius: radii[id] ?? 16)
         }
+    }
+
+    /// No public API says how round a window is, and it varies: 16 pt for most macOS 26
+    /// windows, 26 for one with a toolbar (Finder). SkyLight's window query does, by name.
+    private static func cornerRadii(_ ids: [CGWindowID]) -> [CGWindowID: CGFloat] {
+        guard let sky = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else { return [:] }
+        func fn<T>(_ name: String, _: T.Type) -> T? { dlsym(sky, name).map { unsafeBitCast($0, to: T.self) } }
+        guard let connection = fn("SLSMainConnectionID", (@convention(c) () -> Int32).self),
+              let query = fn("SLSWindowQueryWindows", (@convention(c) (Int32, CFArray, Int32) -> Unmanaged<CFTypeRef>).self),
+              let results = fn("SLSWindowQueryResultCopyWindows", (@convention(c) (CFTypeRef) -> Unmanaged<CFTypeRef>).self),
+              let advance = fn("SLSWindowIteratorAdvance", (@convention(c) (CFTypeRef) -> Bool).self),
+              let windowID = fn("SLSWindowIteratorGetWindowID", (@convention(c) (CFTypeRef) -> CGWindowID).self),
+              let radii = fn("SLSWindowIteratorGetResolvedCornerRadii", (@convention(c) (CFTypeRef) -> Unmanaged<CFArray>).self)
+        else { return [:] }
+        let it = results(query(connection(), ids as CFArray, Int32(ids.count)).takeRetainedValue()).takeRetainedValue()
+        var out: [CGWindowID: CGFloat] = [:]
+        while advance(it) {
+            // Four corners, all the same so far.
+            if let r = (radii(it).takeRetainedValue() as? [NSNumber])?.first { out[windowID(it)] = CGFloat(r.doubleValue) }
+        }
+        return out
     }
 }
 

@@ -99,12 +99,13 @@ enum Docs {
     }
 
     /// A stand-in app window: real AppKit content under a title bar, in a macOS 26 window's
-    /// 17 pt round corners, light whatever the system's appearance.
+    /// 16 pt continuous corners, light whatever the system's appearance.
     private static func window(_ title: String, _ size: CGSize, _ content: (CGSize) -> NSView) -> NSBitmapImageRep {
         let v = NSView(frame: CGRect(origin: .zero, size: size))
         v.appearance = NSAppearance(named: .aqua)
         v.wantsLayer = true
-        v.layer!.cornerRadius = 17
+        v.layer!.cornerRadius = 16
+        v.layer!.cornerCurve = .continuous
         v.layer!.masksToBounds = true
         v.layer!.backgroundColor = NSColor(white: 0.97, alpha: 1).cgColor
         v.addSubview(content(CGSize(width: size.width, height: size.height - 40)))

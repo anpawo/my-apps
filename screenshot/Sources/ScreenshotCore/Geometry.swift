@@ -82,20 +82,3 @@ public func newestFirst(_ urls: [URL]) -> [URL] {
     }
     return urls.sorted { date($0) > date($1) }
 }
-
-/// `r` minus `cut`: up to four non-overlapping rects.
-public func subtract(_ r: CGRect, _ cut: CGRect) -> [CGRect] {
-    let c = r.intersection(cut)
-    guard !c.isNull, !c.isEmpty else { return [r] }
-    var out: [CGRect] = []
-    if c.minY > r.minY { out.append(CGRect(x: r.minX, y: r.minY, width: r.width, height: c.minY - r.minY)) }
-    if c.maxY < r.maxY { out.append(CGRect(x: r.minX, y: c.maxY, width: r.width, height: r.maxY - c.maxY)) }
-    if c.minX > r.minX { out.append(CGRect(x: r.minX, y: c.minY, width: c.minX - r.minX, height: c.height)) }
-    if c.maxX < r.maxX { out.append(CGRect(x: c.maxX, y: c.minY, width: r.maxX - c.maxX, height: c.height)) }
-    return out
-}
-
-/// What is left of `r` once the windows in front of it are taken away.
-public func visible(_ r: CGRect, behind fronts: [CGRect]) -> [CGRect] {
-    fronts.reduce([r]) { rects, f in rects.flatMap { subtract($0, f) } }
-}
