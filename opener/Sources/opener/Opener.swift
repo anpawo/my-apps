@@ -14,7 +14,7 @@ enum Catalog {
     static let folders = ["/Applications", "/Applications/Utilities", "/System/Applications",
                           "/System/Applications/Utilities", NSHomeDirectory() + "/Applications"]
 
-    static func apps() -> [AppEntry] {
+    static func apps(in folders: [String] = folders) -> [AppEntry] {
         let fm = FileManager.default
         let paths = folders.flatMap { dir in
             ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".app") }.map { "\(dir)/\($0)" }
@@ -115,12 +115,14 @@ final class Opener: ObservableObject {
         self.panel = panel
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let area = screen.visibleFrame, size = Self.size
-        // The box's top a fifth of the way down, where Spotlight puts its bar.
-        panel.setFrame(NSRect(x: area.midX - size.width / 2, y: area.maxY - area.height / 5 + Self.margin - size.height,
-                              width: size.width, height: size.height), display: true)
+        panel.setFrame(Self.frame(in: screen.visibleFrame), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
+    }
+
+    /// The box's top a fifth of the way down, where Spotlight puts its bar.
+    static func frame(in area: NSRect) -> NSRect {
+        NSRect(x: area.midX - size.width / 2, y: area.maxY - area.height / 5 + margin - size.height, width: size.width, height: size.height)
     }
 
     func hide() { panel?.orderOut(nil) }

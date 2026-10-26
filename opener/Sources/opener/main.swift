@@ -62,6 +62,15 @@ if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
     }
 }
 
+// `--render-demo <dir>`: the README's GIF as frames, on the apps every Mac has. Never a window.
+if let i = args.firstIndex(of: "--render-demo"), i + 1 < args.count {
+    MainActor.assumeIsolated {
+        _ = NSApplication.shared
+        Demo.render(to: URL(fileURLWithPath: args[i + 1]))
+        exit(0)
+    }
+}
+
 @MainActor
 final class App: NSObject, NSApplicationDelegate {
     let opener = Opener()

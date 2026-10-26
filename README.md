@@ -14,7 +14,7 @@ runs on my Mac today.
 
 ### [opener](opener)
 
-[![opener](opener/docs/opener.png)](opener)
+[![⌘Space over a desktop: the panel opens empty, typing "saf" narrows the list to Safari and ↵ opens it; ⌘Space again over Safari, "te" lists Terminal then TextEdit, ↓ moves to TextEdit and ↵ opens it](opener/docs/demo.gif)](opener)
 
 ### [screenshot](screenshot)
 
