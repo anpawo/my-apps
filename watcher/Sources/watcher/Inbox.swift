@@ -145,6 +145,17 @@ final class Inbox: NSObject, ObservableObject {
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
     }
 
+    /// Add back on a check done: the newest line its follow-up left, set aside or not, is shown among the lines, ↵ away
+    /// from its session. A check that left none (a quiet follow-up, a command of its own) is watched again instead.
+    func addBack(_ check: CheckEntry) {
+        let from = { (folder: URL) in Store.lines(in: folder).last { $0.entries?.contains(check.id) == true }?.id }
+        guard let line = from(folder) ?? from(folder.appending(path: "done")).flatMap({ Store.restore($0, in: folder) ? $0 : nil })
+        else { return again(check) }
+        refresh(force: true)
+        index = items.firstIndex { $0.id == line } ?? index
+        showSettings(false)
+    }
+
     /// A check that came back, watched again from now (`checker.mjs again --keep`): shown waiting at once, and still
     /// under Done, then read back from disk once the checker is done, which drops the waiting one if it failed.
     func again(_ check: CheckEntry) {

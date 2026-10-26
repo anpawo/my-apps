@@ -103,7 +103,7 @@ enum SelfCheck {
         // Add back runs the real checker, on this folder: the fixture has no todo, so nothing leaves the Mac.
         setenv("AWAIT_STATE", state.path, 1)
         _ = watcher.key(UInt16(kVK_ANSI_S))
-        watcher.again(checks.entries[2])
+        watcher.addBack(checks.entries[2]) // it left no line: watched again
         expect(watcher.checks.first.map { "\($0.id)\($0.state.rawValue)" } == "awaiting", true, "checks: Add back shows it waiting at once")
         let given = Date().addingTimeInterval(10)
         while Date() < given, !FileManager.default.fileExists(atPath: state.appending(path: "a.json").path) {
@@ -115,6 +115,15 @@ enum SelfCheck {
         expect(disk.first { $0.id == "a" }?.state == .waiting && watcher.checks == disk, true,
                "checks: Add back has the checker watch it again, and the list is read back from disk")
         expect(disk.filter { $0.id == "a" }.map(\.state) == [.waiting, .arrived], true, "checks: Add back keeps it under done too")
+        // A check whose follow-up left a line he set aside: Add back brings the line back, shown, and watches nothing.
+        try? FileManager.default.createDirectory(at: state.appending(path: "inbox/done"), withIntermediateDirectories: true)
+        try? Data(#"{"id":"b","name":"B","cmd":"x","since":1,"fired":{"at":8}}"#.utf8).write(to: state.appending(path: "fired/b.json"))
+        try? Data(#"{"id":"r","at":8,"kind":"needs","subject":"B","line":"L","dir":"/","options":["--resume","s"],"entries":["b"]}"#.utf8)
+            .write(to: state.appending(path: "inbox/done/r.json"))
+        expect(watcher.settings, true, "checks: still on the watch list before Add back")
+        watcher.addBack(CheckEntry.load(state: state).entries.first { $0.id == "b" }!)
+        expect(watcher.current?.id == "r" && !watcher.settings && !FileManager.default.fileExists(atPath: state.appending(path: "b.json").path), true,
+               "checks: Add back brings back the line its follow-up left, shown, and watches nothing again")
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.items.isEmpty && kept("a"), true, "inbox: the last line set aside leaves none")

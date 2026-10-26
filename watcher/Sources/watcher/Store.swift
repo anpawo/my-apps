@@ -31,6 +31,11 @@ enum Store {
         try? FileManager.default.removeItem(at: done.appending(path: "\(id).json"))
         return (try? FileManager.default.moveItem(at: from, to: done.appending(path: "\(id).json"))) != nil
     }
+
+    /// A line set aside, back among the lines. False when `done/` has no such line.
+    static func restore(_ id: String, in folder: URL = inbox) -> Bool {
+        (try? FileManager.default.moveItem(at: folder.appending(path: "done/\(id).json"), to: folder.appending(path: "\(id).json"))) != nil
+    }
 }
 
 /// One line the watcher of awaited answers left for Marius: a headless follow-up that finished something (`done`)
@@ -46,6 +51,8 @@ struct InboxItem: Codable, Equatable {
     let options: [String]
     /// Only for a run that broke: its task, handed to the session again.
     let prompt: String?
+    /// The checks whose answers the run followed up; none on a line another tool wrote.
+    var entries: [String]? = nil
 
     var session: String? {
         options.firstIndex(of: "--resume").flatMap { options.indices.contains($0 + 1) ? options[$0 + 1] : nil }

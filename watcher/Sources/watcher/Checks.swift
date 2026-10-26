@@ -118,7 +118,7 @@ struct ChecksView: View {
             .background(.white, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Site.line, lineWidth: 1))
             .contentShape(Rectangle())
-            .onTapGesture { inbox.again(check) }
+            .onTapGesture { inbox.addBack(check) }
     }
 
     private func pill(_ text: String, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {
