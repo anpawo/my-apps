@@ -99,6 +99,16 @@ enum SelfCheck {
         expect(checks.entries.map(\.who) == ["Maman", "Maman", nil] && parts("Claude invoice for Caroline", "caroline") == ["Claude invoice for ", "Caroline", ""]
                && parts("who redoes the poster", "EIP") == ["", "EIP", " who redoes the poster"] && parts("Windows session rename", nil) == nil, true,
                "checks: the one awaited from, a chat's title by default, pilled where the name says it, else in front")
+        func logo(_ channel: CheckEntry.Channel, _ how: String) -> String {
+            CheckEntry(id: "l", name: "", who: nil, watching: how, channel: channel, state: .waiting, at: 0).logo
+        }
+        expect(logo(.whatsapp, "") == "whatsapp" && logo(.gmail, "") == "gmail" && logo(.command, "mo@ inbox: a BofA reply") == "outlook"
+               && logo(.command, "ssh to mo-recon") == "server.rack" && logo(.command, "a quiet Mac") == "terminal", true,
+               "checks: each shows the logo of what it reads, a command's by a word of its how")
+        let missing = (["whatsapp", "gmail", "terminal"] + CheckEntry.logos.map(\.1)).filter {
+            Bundle.main.url(forResource: $0, withExtension: "png", subdirectory: "logos") == nil && NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil
+        }
+        expect(missing.isEmpty, true, "checks: every logo is in the app or among the SF Symbols \(missing)")
         let watcher = Inbox(folder: state.appending(path: "inbox"))
         expect(watcher.key(UInt16(kVK_ANSI_S)) && watcher.settings && watcher.checks.count == 3, true, "inbox: S shows the checks")
         expect(watcher.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")

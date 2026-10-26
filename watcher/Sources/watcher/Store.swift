@@ -82,6 +82,19 @@ struct CheckEntry: Equatable {
         return (String(name[..<r.lowerBound]), String(name[r]), String(name[r.upperBound...]))
     }
 
+    /// What a command reads, by a word of its `how`, and the logo that says it: a brand's in the app's `logos`, else an
+    /// SF Symbol.
+    static let logos = [("mo@", "outlook"), ("teams", "teams"), ("sncf", "sncf"), ("epitech", "epitech"),
+                        ("mo-recon", "server.rack"), ("ssh", "server.rack"), ("pc ", "pc"), ("clock", "clock")]
+
+    var logo: String {
+        switch channel {
+        case .whatsapp: return "whatsapp"
+        case .gmail: return "gmail"
+        case .command: return Self.logos.first { watching.lowercased().contains($0.0) }?.1 ?? "terminal"
+        }
+    }
+
     var detail: String {
         switch state {
         case .waiting: return "waiting since \(Store.when(at))"

@@ -14,14 +14,9 @@ struct ChecksView: View {
         Color(red: Double(v >> 16 & 255) / 255, green: Double(v >> 8 & 255) / 255, blue: Double(v & 255) / 255)
     }
 
-    /// Tailwind's -100 fill and -900 ink, as the site's pills have them: WhatsApp's green, Gmail's red, a command's blue.
-    private static func tone(_ channel: CheckEntry.Channel) -> (fill: Color, ink: Color) {
-        switch channel {
-        case .whatsapp: return (hex(0xDCFCE7), hex(0x0D542B))
-        case .gmail: return (hex(0xFEE2E2), hex(0x82181A))
-        case .command: return (hex(0xDBEAFE), hex(0x1C398E))
-        }
-    }
+    /// Tailwind's pink-100 fill and pink-900 ink, as the site's pills have their colours: every channel's, its logo
+    /// telling them apart.
+    private static let pink = (fill: hex(0xFCE7F3), ink: hex(0x861043))
 
     @Environment(\.renderBackdrop) private var renderBackdrop
     @State private var hovered: String?
@@ -61,7 +56,7 @@ struct ChecksView: View {
     private var sections: some View {
         let (waiting, done) = (waiting, done)
         // the channels' pills are as wide as the widest of the list, as the mail's names are, up to a width
-        let widest = (waiting + done).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 22 }
+        let widest = (waiting + done).map { ($0.watching as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width + 44 }
             .reduce(0, max).rounded(.up)
         let via = min(260, widest)
         return VStack(spacing: 24) {
@@ -83,18 +78,17 @@ struct ChecksView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A check in one block, as a field of the mail is: its name, then the pills of its channel, in the channel's
-    /// colour, of how often it is read, and of its day and time. They keep one width, so the columns line up. Under
+    /// A check in one block, as a field of the mail is: its name, then the pills of its channel, with the logo of
+    /// what it reads, of how often it is read, and of its day and time. They keep one width, so the columns line up. Under
     /// the pointer, a check done shows Add back over its time, unless it is watched again already.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
-        let tone = Self.tone(check.channel)
         let addable = check.state == .arrived && !waiting.contains { $0.id == check.id }
         return HStack(spacing: 16) {
             title(check)
                 .fontWeight(.medium)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            pill(check.watching, fill: tone.fill, ink: tone.ink, fixed: false).frame(width: via, alignment: .leading)
+            pill(check.watching, logo: check.logo, fill: Self.pink.fill, ink: Self.pink.ink, fixed: false).frame(width: via, alignment: .leading)
             // every waiting check is read in the checker's one run, at :10 of every hour (LaunchAgent mac.checker)
             pill("Hourly").opacity(check.state == .waiting ? 1 : 0)
             pill(Store.when(check.at, day: true))
@@ -136,14 +130,29 @@ struct ChecksView: View {
             .onTapGesture { inbox.addBack(check) }
     }
 
-    private func pill(_ text: String, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {
-        Text(text)
-            .lineLimit(1)
-            .fixedSize(horizontal: fixed, vertical: false)
-            .foregroundStyle(ink ?? Site.ink)
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .background(fill ?? Site.ink.opacity(0.08), in: Capsule())
+    private func pill(_ text: String, logo name: String? = nil, fill: Color? = nil, ink: Color? = nil, fixed: Bool = true) -> some View {
+        HStack(spacing: 6) {
+            if let name { logo(name) }
+            Text(text)
+                .lineLimit(1)
+                .fixedSize(horizontal: fixed, vertical: false)
+        }
+        .foregroundStyle(ink ?? Site.ink)
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(fill ?? Site.ink.opacity(0.08), in: Capsule())
+    }
+
+    /// A brand's logo from the app's `logos`, else the SF Symbol of that name, in the pill's ink.
+    private func logo(_ name: String) -> some View {
+        Group {
+            if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "logos"), let image = NSImage(contentsOf: url) {
+                Image(nsImage: image).resizable().interpolation(.high)
+            } else {
+                Image(systemName: name).font(.system(size: 12))
+            }
+        }
+        .frame(width: 16, height: 16)
     }
 
     private var footer: some View {
