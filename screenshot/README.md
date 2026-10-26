@@ -50,7 +50,7 @@ The same settings are `defaults write com.mr.screenshot <key> <value>`.
 
 ## Install
 
-**Download** [the latest release](https://github.com/anpawo/my-lab/releases?q=screenshot),
+**Download** [the latest release](https://github.com/anpawo/my-lab/releases/latest),
 unzip it, and move `screenshot.app` to `~/Applications`. Apple Silicon only.
 
 macOS will refuse to open it the first time: the release is signed ad-hoc, which is what an

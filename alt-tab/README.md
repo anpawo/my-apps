@@ -31,7 +31,7 @@ desktop.
 
 ## Install
 
-**Download** [the latest release](https://github.com/anpawo/my-lab/releases?q=alt-tab), unzip
+**Download** [the latest release](https://github.com/anpawo/my-lab/releases/latest), unzip
 it, and move `Alt-tab.app` to `~/Applications`.
 
 macOS will refuse to open it the first time: the release is signed ad-hoc, which is what an

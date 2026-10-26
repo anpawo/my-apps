@@ -1,0 +1,72 @@
+# Every app built, zipped and published as one release on each change to main; the releases
+# before it are deleted, so the latest is the only one.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "**/docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build
+        run: |
+          swift --version
+          for package in */Package.swift; do
+            app=$(dirname "$package")
+            echo "::group::$app"
+            if [ -f "$app/build.py" ]; then python3 "$app/build.py" --adhoc; else "$app/build.sh"; fi
+            echo "::endgroup::"
+          done
+
+      - name: Zip
+        run: |
+          mkdir out
+          python3 - <<'EOF' > notes.md
+          import glob, os, plistlib, re, subprocess
+          sha = os.environ["GITHUB_SHA"]
+          print("Every app of this repo, built from", sha[:7] + ". Apple Silicon; alt-tab runs on Intel too.\n")
+          print("| App | Does | Download | macOS |\n|---|---|---|---|")
+          for bundle in sorted(glob.glob("*/dist/*.app")):
+              app = bundle.split("/")[0]
+              info = plistlib.load(open(f"{bundle}/Contents/Info.plist", "rb"))
+              archive = f"{os.path.basename(bundle)[:-4]}-{info['CFBundleShortVersionString']}.zip"
+              # ditto, not zip: it keeps the signature intact.
+              subprocess.run(["ditto", "-c", "-k", "--keepParent", bundle, f"out/{archive}"], check=True)
+              intro = open(f"{app}/README.md").read().split("\n\n")[1].replace("\n", " ")
+              does = re.match(r".+?\.(?=\s|$)", intro).group(0)
+              print(f"| [{app}](https://github.com/anpawo/my-lab/tree/{sha}/{app}) | {does} | `{archive}` | {info['LSMinimumSystemVersion']}+ |")
+          print("""
+          ## Install
+
+          1. Download the app's zip below, unzip it, and move the app to `~/Applications`.
+          2. Open it once. macOS refuses, because the build is signed ad-hoc: go to **System Settings → Privacy & Security → Open Anyway**.
+          3. Open it again and grant what it asks for; its README says which permission and why.
+
+          Opened by hand, an app runs until you log out. Cloning the repo and running its `./install.sh` is what makes it start at login.""")
+          EOF
+          ls -l out
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
+          gh release create "$tag" out/*.zip --target "$GITHUB_SHA" --title "my-lab $(date -u +%Y-%m-%d)" --notes-file notes.md --latest
+          for old in $(gh release list --limit 100 --json tagName --jq ".[] | select(.tagName != \"$tag\") | .tagName"); do
+            gh release delete "$old" --yes --cleanup-tag
+          done
+          gh release list
