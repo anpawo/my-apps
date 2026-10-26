@@ -22,8 +22,6 @@ enum Docs {
 
         session.state = BarState(target: .area, kind: .photo)
         bar.refresh()
-        let wall = NSImage(contentsOfFile: "/System/Library/Desktop Pictures/Sonoma.heic")!
-            .cgImage(forProposedRect: nil, context: nil, hints: nil)!
         let overlay = Overlay(screen: screen, frozen: wall, session: session)
         overlay.refreshLayers()
         // Cropped to the selection and the bar: the whole 2× screen of wallpaper is a 6 MB PNG.
@@ -36,31 +34,9 @@ enum Docs {
         }
         save(shot.representation(using: .png, properties: [:]), dir, "overlay.png")
 
-        // The three stills over a desktop of stand-in windows, listed front to back like
-        // `Capture.windows()`: Tasks covers a corner of Editor, which covers Files.
-        let stand: [(String, CGRect, (CGSize) -> NSView)] = [
-            ("Tasks", rect(s, 0.6, 0.2, 0.27, 0.46), tasks),
-            ("Editor", rect(s, 0.34, 0.26, 0.4, 0.56), editor),
-            ("Files", rect(s, 0.08, 0.34, 0.4, 0.5), files),
-        ]
-        session.windows = stand.enumerated().map { WindowInfo(id: CGWindowID($0.offset + 1), frame: $0.element.1, app: $0.element.0) }
-        let desktop = Bar.canvas(s.size) {
-            // Sonoma.heic is square: fill the screen from its middle band rather than squash it.
-            let h = CGFloat(wall.width) * s.height / s.width
-            NSImage(cgImage: wall, size: .zero).draw(in: CGRect(origin: .zero, size: s.size),
-                from: CGRect(x: 0, y: (CGFloat(wall.height) - h) / 2, width: CGFloat(wall.width), height: h),
-                operation: .copy, fraction: 1)
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor(white: 0, alpha: 0.4)
-            shadow.shadowBlurRadius = 30
-            shadow.shadowOffset = CGSize(width: 0, height: -12)
-            shadow.set()
-            for (title, r, content) in stand.reversed() {
-                window(title, r.size, content).draw(in: r.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
-                                                    operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
-            }
-        }
-        let modes = Overlay(screen: screen, frozen: desktop.cgImage!, session: session)
+        // The three stills over a desktop of stand-in windows.
+        session.windows = stand(s).enumerated().map { WindowInfo(id: CGWindowID($0.offset + 1), frame: $0.element.1, app: $0.element.0) }
+        let modes = Overlay(screen: screen, frozen: desktop(s).cgImage!, session: session)
         session.hoverScreen = screen
         session.hoverWindow = session.windows[1]
         session.selection = rect(s, 0.22, 0.42, 0.3, 0.3).integral
@@ -91,6 +67,140 @@ enum Docs {
             }
         }
         save(sheet.representation(using: .png, properties: [:]), dir, "modes.png")
+    }
+
+    /// The README's GIF as frames and an ffmpeg concat list of their durations: ⌘⇧5, an area
+    /// dragged out, two buttons hovered, Capture, the thumbnail. `docs/make-demo.sh` makes the GIF.
+    static func demo(to dir: URL) {
+        let session = Session.shared
+        let screen = NSScreen.main!
+        let s = screen.frame
+        let desk = desktop(s)
+        session.selection = nil
+        session.state = BarState(target: .area, kind: .photo)
+        let overlay = Overlay(screen: screen, frozen: desk.cgImage!, session: session)
+        let bar = Bar(session: session, on: screen)
+        overlay.refreshLayers()
+        func spot(_ v: NSView) -> CGRect { bar.convertToScreen(v.convert(v.bounds, to: nil)) }
+        func centre(_ v: NSView) -> CGPoint { CGPoint(x: spot(v).midX, y: spot(v).midY) }
+
+        var p = CGPoint(x: s.minX + s.width * 0.37, y: s.minY + s.height * 0.88)
+        var up = false, card: Thumbnail?, caption: String?
+        var list = "", count = 0
+        func frame(_ seconds: Double, _ cursor: NSCursor? = nil) {
+            let pic = Bar.canvas(s.size) {
+                if up {
+                    Bar.pixels(overlay.contentView!).draw(in: CGRect(origin: .zero, size: s.size))
+                    // Drawn from the bar's corner: the hints of the buttons the pointer crosses fit
+                    // within its width (the first one's would not).
+                    let strip = bar.buttons.firstIndex { spot($0).contains(p) }.map(bar.render(hovering:)) ?? Bar.pixels(bar.contentView!)
+                    strip.draw(in: CGRect(origin: bar.frame.origin, size: strip.size).offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                               operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                } else {
+                    desk.draw(in: CGRect(origin: .zero, size: s.size))
+                    if let card {
+                        // The window server's shadow, which a panel drawn offscreen goes without.
+                        NSGraphicsContext.saveGraphicsState()
+                        let shadow = NSShadow()
+                        shadow.shadowColor = NSColor(white: 0, alpha: 0.45)
+                        shadow.shadowBlurRadius = 14
+                        shadow.shadowOffset = CGSize(width: 0, height: -5)
+                        shadow.set()
+                        Bar.pixels(card.contentView!).draw(in: card.frame.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                                                           operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                        NSGraphicsContext.restoreGraphicsState()
+                    }
+                }
+                // The bar sets the arrow, the overlay its own cursors.
+                let c = cursor ?? (up && !bar.frame.contains(p) ? overlay.cursor(at: p) : .arrow)
+                let size = c.image.size
+                c.image.draw(in: CGRect(x: p.x - c.hotSpot.x - s.minX, y: p.y - size.height + c.hotSpot.y - s.minY,
+                                        width: size.width, height: size.height))
+                if let caption {
+                    let t = NSAttributedString(string: caption, attributes: [
+                        .font: NSFont.systemFont(ofSize: 28, weight: .semibold), .foregroundColor: NSColor.white])
+                    let pill = CGRect(x: 28, y: s.height - 28 - t.size().height - 14, width: t.size().width + 36, height: t.size().height + 14)
+                    NSColor(white: 0, alpha: 0.7).setFill()
+                    NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
+                    t.draw(at: CGPoint(x: pill.minX + 18, y: pill.minY + 7))
+                }
+            }
+            count += 1
+            let name = String(format: "%03d.png", count)
+            save(pic.representation(using: .png, properties: [:]), dir, name)
+            list += "file '\(name)'\nduration \(seconds)\n"
+        }
+        /// Eased, in 40 ms steps, the last one held: ffmpeg reads the frames at 25 fps, and 50 ms
+        /// came out 40 and 80 by turns. From `start`, a drag that draws the selection as
+        /// `mouseDragged` does, under the cursor the press found.
+        func move(to q: CGPoint, steps: Int, hold: Double, from start: CGPoint? = nil) {
+            let a = p
+            for k in 1...steps {
+                let t = CGFloat(k) / CGFloat(steps), e = t * t * (3 - 2 * t)
+                p = CGPoint(x: a.x + (q.x - a.x) * e, y: a.y + (q.y - a.y) * e)
+                if let start {
+                    session.selection = ScreenshotCore.rect(from: start, to: p).intersection(s)
+                    overlay.refreshLayers()
+                }
+                frame(k == steps ? hold : 0.04, start == nil ? nil : .selectionLight)
+            }
+        }
+
+        frame(0.6)
+        caption = "⌘⇧5"
+        frame(0.5)
+        up = true
+        frame(0.5)
+        caption = nil
+        frame(0.4)
+        move(to: CGPoint(x: s.minX + s.width * 0.73, y: s.minY + s.height * 0.4), steps: 36, hold: 0.32, from: p)
+        // mouseUp: the bar wakes up, the cursor waits for the next move.
+        bar.refresh()
+        overlay.refreshLayers()
+        frame(0.4, .selectionLight)
+        move(to: centre(bar.buttons[4]), steps: 12, hold: 1)
+        move(to: centre(bar.buttons[5]), steps: 5, hold: 1)
+        move(to: centre(bar.go), steps: 10, hold: 0.4)
+        // Capture, as `Session.commit` takes an area: the overlay goes, the frozen screen is
+        // cropped, the card comes up.
+        let r = session.selection!.integral
+        card = Thumbnail(.image(desk.cgImage!.cropping(to: pixelCrop(r, in: s, scale: 2))!, dir, r), on: screen)
+        up = false
+        frame(2.6)
+        // The concat demuxer drops the last frame's duration unless the frame comes again.
+        list += "file '\(String(format: "%03d.png", count))'\n"
+        try! list.write(to: dir.appendingPathComponent("list.txt"), atomically: true, encoding: .utf8)
+    }
+
+    private static let wall = NSImage(contentsOfFile: "/System/Library/Desktop Pictures/Sonoma.heic")!
+        .cgImage(forProposedRect: nil, context: nil, hints: nil)!
+
+    /// The stand-in windows, listed front to back like `Capture.windows()`: Tasks covers a
+    /// corner of Editor, which covers Files.
+    private static func stand(_ s: CGRect) -> [(String, CGRect, (CGSize) -> NSView)] {
+        [("Tasks", rect(s, 0.6, 0.2, 0.27, 0.46), tasks),
+         ("Editor", rect(s, 0.34, 0.26, 0.4, 0.56), editor),
+         ("Files", rect(s, 0.08, 0.34, 0.4, 0.5), files)]
+    }
+
+    /// The wallpaper with the stand-in windows on it: the screen the overlay freezes.
+    private static func desktop(_ s: CGRect) -> NSBitmapImageRep {
+        Bar.canvas(s.size) {
+            // Sonoma.heic is square: fill the screen from its middle band rather than squash it.
+            let h = CGFloat(wall.width) * s.height / s.width
+            NSImage(cgImage: wall, size: .zero).draw(in: CGRect(origin: .zero, size: s.size),
+                from: CGRect(x: 0, y: (CGFloat(wall.height) - h) / 2, width: CGFloat(wall.width), height: h),
+                operation: .copy, fraction: 1)
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor(white: 0, alpha: 0.4)
+            shadow.shadowBlurRadius = 30
+            shadow.shadowOffset = CGSize(width: 0, height: -12)
+            shadow.set()
+            for (title, r, content) in stand(s).reversed() {
+                window(title, r.size, content).draw(in: r.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                                                    operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            }
+        }
     }
 
     /// `s` scaled: x, y, width and height as fractions of it.

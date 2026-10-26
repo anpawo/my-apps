@@ -3,6 +3,8 @@
 A ⌘⇧5 replacement for macOS: the same bar, the same six modes, and a file that is on disk the
 moment you click, not five seconds later.
 
+![⌘⇧5 over a desktop of three windows: the screen dims, a selection is dragged out with its size in pixels growing, the pointer names two buttons of the bar, Capture, and the shot's thumbnail comes up in the top-right corner](docs/demo.gif)
+
 ![The area mode over a desktop: the screen dimmed, a selection with its handles and its size in pixels, the bar underneath](docs/overlay.png)
 
 Press ⌘⇧5. The screen freezes and dims, the bar comes up at the bottom, and you pick what to
@@ -72,4 +74,5 @@ Turn the system's own ⌘⇧5 off first: System Settings → Keyboard → Keyboa
 Screenshots. The app needs Screen Recording, and asks for it the first time.
 
 The pictures above are drawn by the app's own views, offscreen, over a stock wallpaper and stand-in windows:
-`.build/release/screenshot --render-docs docs`.
+`.build/release/screenshot --render-docs docs`. `docs/make-demo.sh` draws the GIF the same way, frame by
+frame (`--render-demo`), and puts it together with ffmpeg.

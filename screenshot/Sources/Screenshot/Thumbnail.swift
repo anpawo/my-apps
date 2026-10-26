@@ -19,13 +19,16 @@ final class Thumbnail: NSPanel {
     static func show(_ content: Content) {
         guard Settings.thumbnail else { return }
         current?.orderOut(nil)
-        current = Thumbnail(content)
+        current = Thumbnail(content, on: .underMouse)
+        current?.orderFrontRegardless()
+        current?.arm()
     }
 
-    private init(_ content: Content) {
+    /// Off screen until `show` puts it there: Docs draws one without.
+    init(_ content: Content, on screen: NSScreen) {
         self.content = content
         // Top-right corner, a tenth of the screen wide at most, the capture centred on it.
-        let v = NSScreen.underMouse.visibleFrame
+        let v = screen.visibleFrame
         let width = (v.width / 10).rounded()
         var size = CGSize(width: width, height: (width * 0.625).rounded())
         switch content {
@@ -72,9 +75,7 @@ final class Thumbnail: NSPanel {
         }
 
         // Under the pinned cards, if any.
-        setFrameOrigin(CGPoint(x: v.maxX - frame.width - 16, y: Pin.stackBottom(on: NSScreen.underMouse) - frame.height - 16))
-        orderFrontRegardless()
-        arm()
+        setFrameOrigin(CGPoint(x: v.maxX - frame.width - 16, y: Pin.stackBottom(on: screen) - frame.height - 16))
     }
 
     private func label(_ s: String, in r: CGRect) -> NSTextField {

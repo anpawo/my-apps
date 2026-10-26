@@ -13,6 +13,10 @@ final class App: NSObject, NSApplicationDelegate {
             Docs.render(to: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
             exit(0)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--render-demo") {
+            Docs.demo(to: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
+            exit(0)
+        }
         Capture.prefetch()
         if let i = CommandLine.arguments.firstIndex(of: "--render-bar") {
             // The bar as a PNG, never shown: how its look gets checked without a window.

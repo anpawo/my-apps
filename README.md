@@ -39,7 +39,7 @@ Click one for its README.
 
 ### [screenshot](screenshot)
 
-[![The area mode over a desktop: the screen dimmed, a selection with its handles and its size in pixels, the bar underneath](screenshot/docs/overlay.png)](screenshot)
+[![⌘⇧5 over a desktop of three windows: the screen dims, a selection is dragged out with its size in pixels growing, the pointer names two buttons of the bar, Capture, and the shot's thumbnail comes up in the top-right corner](screenshot/docs/demo.gif)](screenshot)
 
 ### [watcher](watcher)
 

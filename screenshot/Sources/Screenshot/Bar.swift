@@ -9,8 +9,8 @@ final class Bar: NSPanel, NSMenuDelegate {
     // 10 and 7 pt after the groups, Options 17.5 pt after, the button 15 pt after that.
     static let height: CGFloat = 53
     private unowned let session: Session
-    private var buttons: [ModeButton] = []
-    private let go = NSButton()
+    private(set) var buttons: [ModeButton] = []
+    let go = NSButton()
     private let options = NSButton()
     private let hint = Hint()
 

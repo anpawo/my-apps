@@ -29,6 +29,7 @@ final class Overlay: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     func refreshLayers() { (contentView as! OverlayView).update() }
+    func cursor(at p: CGPoint) -> NSCursor { (contentView as! OverlayView).cursor(at: p) }
 }
 
 private final class OverlayView: NSView {
@@ -180,7 +181,7 @@ private final class OverlayView: NSView {
 
     override func rightMouseDown(with event: NSEvent) { session.close() }
 
-    private func cursor(at p: CGPoint) -> NSCursor {
+    func cursor(at p: CGPoint) -> NSCursor {
         guard session.state.needsSelection else { return .camera }
         if let r = session.selection, !NSEvent.modifierFlags.contains(.command) {
             if let i = handle(of: r, at: p) {
