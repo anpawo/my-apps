@@ -34,4 +34,4 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 launchctl bootstrap "gui/$UID" "$PLIST"
-echo "⌘⌥K opens it. For Claude Code: claude mcp add --scope user watcher -- $DEST/Contents/MacOS/watcher mcp"
+echo "⌘⌥K opens it."

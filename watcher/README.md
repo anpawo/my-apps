@@ -16,20 +16,6 @@ them Spotlight-style.
 
 With no line waiting, ⌘⌥K opens on the watch list.
 
-## MCP
-
-`watcher mcp` is a stdio MCP server over the same files. It needs neither the app nor anything else to be running.
-
-```sh
-claude mcp add --scope user watcher -- ~/Applications/watcher.app/Contents/MacOS/watcher mcp
-```
-
-| Tool | Does |
-|---|---|
-| `watcher_lines` | the lines waiting (`past: true`: the ones set aside) |
-| `watcher_checks` | every awaited answer and when the checker last ran |
-| `watcher_set_aside` | set one waiting line aside as done |
-
 ## Checking it without a window
 
 `watcher --render out.png` draws the panel offscreen (also `out-asking.png`, `-empty`, `-checks`).

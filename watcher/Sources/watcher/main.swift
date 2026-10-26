@@ -21,8 +21,6 @@ func registerChord() {
 
 let args = CommandLine.arguments
 
-if args.dropFirst().first == "mcp" { Mcp.serve() }
-
 if args.contains("--selftest") { MainActor.assumeIsolated { exit(SelfCheck.run() == 0 ? 0 : 1) } }
 
 // `--render <png>`: the panel offscreen, on lines that test it, and on his real checks. Never a window.

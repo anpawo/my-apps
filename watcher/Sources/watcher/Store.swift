@@ -1,11 +1,10 @@
 import Foundation
 
-/// The state the checker (`~/.claude/skills/checker`) keeps on disk. The app and the MCP server both read it here;
-/// nothing talks to a running app.
+/// The state the checker (`~/.claude/skills/checker`) keeps on disk. The app reads it here; nothing talks to a
+/// running app.
 enum Store {
     static let state = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/checker")
     static var inbox: URL { state.appending(path: "inbox") }
-    static let pastShown = 20
 
     /// Today's line by its hour alone, written the French way (10h40); an older one with its day (13/10 10h40).
     static func when(_ ms: Double, now: Date = Date(), day: Bool = false) -> String {
