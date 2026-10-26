@@ -17,8 +17,8 @@ already there. No file, contact or web result, no settings.
 | ⎋ | close (a click elsewhere too) |
 
 ⌘E, from any app, opens a Finder window on the home folder (a Windows habit, Win+E). It was Spotlight's
-"Show Finder search window", gone with the Spotlight agent. ⌥⌘F brings up Firefox and ⌥⌘T Ghostty, starting
-them if needed (⌥⌘T from Ghostty opens a new window): Raycast's app hotkeys, until it was uninstalled.
+"Show Finder search window", gone with the Spotlight agent. ⌥⌘F brings up Firefox, starting it if needed, and
+⌥⌘T always opens a new Ghostty window: Raycast's app hotkeys, until it was uninstalled.
 
 ⌘Space works only while Spotlight's own shortcut is off (System Settings → Keyboard → Keyboard Shortcuts →
 Spotlight). The chords are in `Sources/opener/main.swift`.

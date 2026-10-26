@@ -88,11 +88,10 @@ final class App: NSObject, NSApplicationDelegate {
             (kVK_ANSI_E, cmdKey, "⌘E", { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory())) }),
             // Raycast app hotkeys until it was uninstalled on 2026-10-24.
             (kVK_ANSI_F, cmdKey | optionKey, "⌥⌘F", { openOnceOptionIsUp("/Applications/Firefox.app") }),
-            // Ghostty already in front: bringing it up shows nothing, so a new window, the way spawn opens one
-            // (`open -na Ghostty`).
+            // Always a new Ghostty, the way spawn opens one (`open -na Ghostty`), never one already open brought up.
             (kVK_ANSI_T, cmdKey | optionKey, "⌥⌘T", {
                 let config = NSWorkspace.OpenConfiguration()
-                config.createsNewApplicationInstance = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty"
+                config.createsNewApplicationInstance = true
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: config)
             }),
         ])
