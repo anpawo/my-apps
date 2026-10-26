@@ -12,7 +12,7 @@ final class Bar: NSPanel, NSMenuDelegate {
     private(set) var buttons: [ModeButton] = []
     let go = NSButton()
     private let options = NSButton()
-    private let hint = Hint()
+    let hint = Hint()
 
     init(session: Session, on screen: NSScreen) {
         self.session = session

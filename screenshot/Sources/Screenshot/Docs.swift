@@ -69,60 +69,81 @@ enum Docs {
         save(sheet.representation(using: .png, properties: [:]), dir, "modes.png")
     }
 
-    /// The README's GIF as frames and an ffmpeg concat list of their durations: ⌘⇧5, an area
-    /// dragged out, two buttons hovered, Capture, the thumbnail. `docs/make-demo.sh` makes the GIF.
+    /// The README's GIF as frames and an ffmpeg concat list of their durations: ⌘⇧5, the three
+    /// stills clicked in turn, Capture, the thumbnail pinned, then a click, a double click and a
+    /// right click on the pin. `docs/make-demo.sh` makes the GIF.
     static func demo(to dir: URL) {
         let session = Session.shared
         let screen = NSScreen.main!
         let s = screen.frame
         let desk = desktop(s)
-        session.selection = nil
+        session.windows = stand(s).enumerated().map { WindowInfo(id: CGWindowID($0.offset + 1), frame: $0.element.1, app: $0.element.0) }
+        // It opens as it was left: the area mode and last time's selection.
+        session.selection = rect(s, 0.38, 0.4, 0.34, 0.46)
         session.state = BarState(target: .area, kind: .photo)
+        session.hoverScreen = screen
         let overlay = Overlay(screen: screen, frozen: desk.cgImage!, session: session)
         let bar = Bar(session: session, on: screen)
         overlay.refreshLayers()
         func spot(_ v: NSView) -> CGRect { bar.convertToScreen(v.convert(v.bounds, to: nil)) }
         func centre(_ v: NSView) -> CGPoint { CGPoint(x: spot(v).midX, y: spot(v).midY) }
 
-        var p = CGPoint(x: s.minX + s.width * 0.37, y: s.minY + s.height * 0.88)
-        var up = false, card: Thumbnail?, caption: String?
+        var p = CGPoint(x: s.minX + s.width * 0.4, y: s.minY + s.height * 0.22)
+        var up = false, card: Thumbnail?, pin: Pin?, caption: String?, note: String?, ring = false
         var list = "", count = 0
-        func frame(_ seconds: Double, _ cursor: NSCursor? = nil) {
+        /// A dark rounded label, placed from its size.
+        func pill(_ text: String, _ points: CGFloat, at place: (CGSize) -> CGPoint) {
+            let t = NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: points, weight: .semibold), .foregroundColor: NSColor.white])
+            let pad = CGSize(width: (points * 0.65).rounded(), height: (points * 0.3).rounded())
+            let box = CGRect(origin: .zero, size: CGSize(width: t.size().width + 2 * pad.width, height: t.size().height + 2 * pad.height))
+            let r = CGRect(origin: place(box.size), size: box.size)
+            NSColor(white: 0, alpha: 0.75).setFill()
+            NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
+            t.draw(at: CGPoint(x: r.minX + pad.width, y: r.minY + pad.height))
+        }
+        func frame(_ seconds: Double) {
             let pic = Bar.canvas(s.size) {
                 if up {
                     Bar.pixels(overlay.contentView!).draw(in: CGRect(origin: .zero, size: s.size))
-                    // Drawn from the bar's corner: the hints of the buttons the pointer crosses fit
-                    // within its width (the first one's would not).
-                    let strip = bar.buttons.firstIndex { spot($0).contains(p) }.map(bar.render(hovering:)) ?? Bar.pixels(bar.contentView!)
-                    strip.draw(in: CGRect(origin: bar.frame.origin, size: strip.size).offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                    // A hint can stick out of the bar: the picture starts at the corner of both.
+                    let i = bar.buttons.firstIndex { spot($0).contains(p) }
+                    let strip = i.map(bar.render(hovering:)) ?? Bar.pixels(bar.contentView!)
+                    let at = i == nil ? bar.frame.origin : bar.frame.union(bar.hint.frame).origin
+                    strip.draw(in: CGRect(origin: at, size: strip.size).offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
                                operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
                 } else {
                     desk.draw(in: CGRect(origin: .zero, size: s.size))
-                    if let card {
-                        // The window server's shadow, which a panel drawn offscreen goes without.
+                    // The window server's shadow, which a panel drawn offscreen goes without.
+                    let shadow = NSShadow()
+                    shadow.shadowColor = NSColor(white: 0, alpha: 0.45)
+                    shadow.shadowBlurRadius = 14
+                    shadow.shadowOffset = CGSize(width: 0, height: -5)
+                    for w in [card as NSWindow?, pin].compactMap({ $0 }) {
                         NSGraphicsContext.saveGraphicsState()
-                        let shadow = NSShadow()
-                        shadow.shadowColor = NSColor(white: 0, alpha: 0.45)
-                        shadow.shadowBlurRadius = 14
-                        shadow.shadowOffset = CGSize(width: 0, height: -5)
                         shadow.set()
-                        Bar.pixels(card.contentView!).draw(in: card.frame.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
-                                                           operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                        Bar.pixels(w.contentView!).draw(in: w.frame.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                                                        operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
                         NSGraphicsContext.restoreGraphicsState()
                     }
                 }
+                if ring {
+                    let o = NSBezierPath(ovalIn: CGRect(x: p.x - s.minX - 14, y: p.y - s.minY - 14, width: 28, height: 28))
+                    NSColor(white: 0, alpha: 0.25).setFill()
+                    o.fill()
+                    o.lineWidth = 2.5
+                    NSColor.white.setStroke()
+                    o.stroke()
+                }
                 // The bar sets the arrow, the overlay its own cursors.
-                let c = cursor ?? (up && !bar.frame.contains(p) ? overlay.cursor(at: p) : .arrow)
+                let c = up && !bar.frame.contains(p) ? overlay.cursor(at: p) : .arrow
                 let size = c.image.size
                 c.image.draw(in: CGRect(x: p.x - c.hotSpot.x - s.minX, y: p.y - size.height + c.hotSpot.y - s.minY,
                                         width: size.width, height: size.height))
-                if let caption {
-                    let t = NSAttributedString(string: caption, attributes: [
-                        .font: NSFont.systemFont(ofSize: 28, weight: .semibold), .foregroundColor: NSColor.white])
-                    let pill = CGRect(x: 28, y: s.height - 28 - t.size().height - 14, width: t.size().width + 36, height: t.size().height + 14)
-                    NSColor(white: 0, alpha: 0.7).setFill()
-                    NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
-                    t.draw(at: CGPoint(x: pill.minX + 18, y: pill.minY + 7))
+                if let caption { pill(caption, 28) { CGPoint(x: 28, y: s.height - 28 - $0.height) } }
+                // Below-right of the pointer, kept on the screen.
+                if let note {
+                    pill(note, 16) { CGPoint(x: min(p.x - s.minX + 18, s.width - $0.width - 8), y: max(p.y - s.minY - 22 - $0.height, 6)) }
                 }
             }
             count += 1
@@ -131,42 +152,79 @@ enum Docs {
             list += "file '\(name)'\nduration \(seconds)\n"
         }
         /// Eased, in 40 ms steps, the last one held: ffmpeg reads the frames at 25 fps, and 50 ms
-        /// came out 40 and 80 by turns. From `start`, a drag that draws the selection as
-        /// `mouseDragged` does, under the cursor the press found.
-        func move(to q: CGPoint, steps: Int, hold: Double, from start: CGPoint? = nil) {
+        /// came out 40 and 80 by turns. Each step does what `mouseMoved` does under the pointer:
+        /// the overlay picks the window in window mode, the thumbnail darkens the half.
+        func move(to q: CGPoint, steps: Int, hold: Double) {
             let a = p
             for k in 1...steps {
                 let t = CGFloat(k) / CGFloat(steps), e = t * t * (3 - 2 * t)
                 p = CGPoint(x: a.x + (q.x - a.x) * e, y: a.y + (q.y - a.y) * e)
-                if let start {
-                    session.selection = ScreenshotCore.rect(from: start, to: p).intersection(s)
+                if up && !bar.frame.contains(p) {
+                    session.hoverWindow = session.state.target == .window ? session.windows.first { $0.frame.contains(p) } : nil
                     overlay.refreshLayers()
                 }
-                frame(k == steps ? hold : 0.04, start == nil ? nil : .selectionLight)
+                if let card { card.hover(card.frame.contains(p) ? CGPoint(x: p.x - card.frame.minX, y: p.y - card.frame.minY) : nil) }
+                frame(k == steps ? hold : 0.04)
             }
+        }
+        /// A press, `times` over, shown as a ring under the pointer; then what it does, and a note
+        /// saying so.
+        func click(_ text: String, times: Int = 1, hold: Double, _ action: () -> Void) {
+            for i in 0..<times {
+                if i > 0 { frame(0.08) }
+                ring = true
+                frame(0.12)
+                ring = false
+            }
+            action()
+            note = text
+            frame(hold)
+            note = nil
+        }
+        // `Bar.pick`. The pointer is on the bar, so the hovered window stays as it was.
+        func pick(_ i: Int) {
+            session.state = bar.buttons[i].mode
+            bar.refresh()
+            overlay.refreshLayers()
         }
 
         frame(0.6)
         caption = "⌘⇧5"
-        frame(0.5)
+        frame(0.52)
         up = true
-        frame(0.5)
+        frame(0.52)
         caption = nil
-        frame(0.4)
-        move(to: CGPoint(x: s.minX + s.width * 0.73, y: s.minY + s.height * 0.4), steps: 36, hold: 0.32, from: p)
-        // mouseUp: the bar wakes up, the cursor waits for the next move.
-        bar.refresh()
-        overlay.refreshLayers()
-        frame(0.4, .selectionLight)
-        move(to: centre(bar.buttons[4]), steps: 12, hold: 1)
-        move(to: centre(bar.buttons[5]), steps: 5, hold: 1)
-        move(to: centre(bar.go), steps: 10, hold: 0.4)
+        frame(0.32)
+        move(to: centre(bar.buttons[0]), steps: 12, hold: 0.32)
+        click("Entire Screen", hold: 1) { pick(0) }
+        move(to: centre(bar.buttons[1]), steps: 5, hold: 0.2)
+        click("Selected Window", hold: 0.8) { pick(1) }
+        move(to: CGPoint(x: s.minX + s.width * 0.5, y: s.minY + s.height * 0.55), steps: 14, hold: 0.8)
+        move(to: CGPoint(x: s.minX + s.width * 0.78, y: s.minY + s.height * 0.45), steps: 8, hold: 0.6)
+        move(to: centre(bar.buttons[2]), steps: 14, hold: 0.2)
+        click("Selected Portion", hold: 1) { pick(2) }
+        move(to: centre(bar.go), steps: 12, hold: 0.2)
         // Capture, as `Session.commit` takes an area: the overlay goes, the frozen screen is
-        // cropped, the card comes up.
+        // cropped, the thumbnail comes up.
         let r = session.selection!.integral
-        card = Thumbnail(.image(desk.cgImage!.cropping(to: pixelCrop(r, in: s, scale: 2))!, dir, r), on: screen)
-        up = false
-        frame(2.6)
+        let shot = desk.cgImage!.cropping(to: pixelCrop(r, in: s, scale: 2))!
+        click("Captured", hold: 0.8) {
+            up = false
+            card = Thumbnail(.image(shot, dir, r), on: screen)
+        }
+        // Low on its left half, the pin glyph in view; the pin that replaces it is shorter, and
+        // the notes fall just under it.
+        move(to: CGPoint(x: card!.frame.minX + card!.frame.width / 4, y: card!.frame.minY + 20), steps: 18, hold: 0.6)
+        // The left half: `Thumbnail.pin`, a pin in the same corner.
+        click("Pinned", hold: 1) {
+            card = nil
+            pin = Pin(shot, url: dir, on: screen)
+        }
+        // `PinView`: a click copies the file, a double click opens it, a right click unpins.
+        click("Click: copied", hold: 1) {}
+        click("Double click: opens the file", times: 2, hold: 1.2) {}
+        click("Right click: unpinned", hold: 1) { pin = nil }
+        frame(0.8)
         // The concat demuxer drops the last frame's duration unless the frame comes again.
         list += "file '\(String(format: "%03d.png", count))'\n"
         try! list.write(to: dir.appendingPathComponent("list.txt"), atomically: true, encoding: .utf8)

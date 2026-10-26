@@ -3,7 +3,7 @@
 A ⌘⇧5 replacement for macOS: the same bar, the same six modes, and a file that is on disk the
 moment you click, not five seconds later.
 
-![⌘⇧5 over a desktop of three windows: the screen dims, a selection is dragged out with its size in pixels growing, the pointer names two buttons of the bar, Capture, and the shot's thumbnail comes up in the top-right corner](docs/demo.gif)
+![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on its left half pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](docs/demo.gif)
 
 ![The area mode over a desktop: the screen dimmed, a selection with its handles and its size in pixels, the bar underneath](docs/overlay.png)
 

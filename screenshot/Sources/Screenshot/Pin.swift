@@ -9,7 +9,9 @@ final class Pin: NSPanel {
     private let screenOf: NSScreen
 
     static func show(_ image: CGImage, url: URL) {
-        pins.append(Pin(image, url: url))
+        let pin = Pin(image, url: url, on: .underMouse)
+        pins.append(pin)
+        pin.orderFrontRegardless()
     }
 
     /// Where the stack ends on this screen: the next card goes below it.
@@ -26,9 +28,9 @@ final class Pin: NSPanel {
         }
     }
 
-    private init(_ image: CGImage, url: URL) {
+    /// Off screen until `show` puts it there: Docs draws one without.
+    init(_ image: CGImage, url: URL, on s: NSScreen) {
         self.url = url
-        let s = NSScreen.underMouse
         screenOf = s
         let width = (s.visibleFrame.width / 10).rounded()
         let size = CGSize(width: width, height: (width * 9 / 16).rounded())
@@ -51,7 +53,6 @@ final class Pin: NSPanel {
         view.addSubview(iv)
         contentView = view
         setFrameOrigin(CGPoint(x: s.visibleFrame.maxX - size.width - 16, y: Pin.stackBottom(on: s) - size.height - 16))
-        orderFrontRegardless()
     }
 
     override var canBecomeKey: Bool { false }
