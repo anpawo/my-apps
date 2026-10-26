@@ -159,7 +159,7 @@ final class Inbox: NSObject, ObservableObject {
     /// A check that came back, watched again from now (`checker.mjs again --keep`): shown waiting at once, and still
     /// under Done, then read back from disk once the checker is done, which drops the waiting one if it failed.
     func again(_ check: CheckEntry) {
-        checks = [CheckEntry(id: check.id, name: check.name, watching: check.watching, channel: check.channel, state: .waiting,
+        checks = [CheckEntry(id: check.id, name: check.name, who: check.who, watching: check.watching, channel: check.channel, state: .waiting,
                              at: Date().timeIntervalSince1970 * 1000)] + checks
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")

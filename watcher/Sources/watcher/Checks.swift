@@ -90,7 +90,7 @@ struct ChecksView: View {
         let tone = Self.tone(check.channel)
         let addable = check.state == .arrived && !waiting.contains { $0.id == check.id }
         return HStack(spacing: 16) {
-            Text(check.name)
+            title(check)
                 .fontWeight(.medium)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,6 +107,21 @@ struct ChecksView: View {
         .frame(height: 38)
         .block()
         .onHover { hovered = $0 ? check.id : hovered == check.id ? nil : hovered }
+    }
+
+    /// The name, with the one it is awaited from in a grey pill; a space beside the pill becomes its margin.
+    @ViewBuilder private func title(_ check: CheckEntry) -> some View {
+        if let p = check.parts {
+            HStack(spacing: 0) {
+                if !p.before.isEmpty { Text(p.before.trimmingCharacters(in: .whitespaces)).layoutPriority(1) }
+                pill(p.who)
+                    .padding(.leading, p.before.last?.isWhitespace == true ? 5 : 0)
+                    .padding(.trailing, p.after.first?.isWhitespace == true ? 5 : 0)
+                if !p.after.isEmpty { Text(p.after.trimmingCharacters(in: .whitespaces)) }
+            }
+        } else {
+            Text(check.name)
+        }
     }
 
     /// The site's outline button, as Done is, at a row's size, covering the time.

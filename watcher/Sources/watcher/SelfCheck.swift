@@ -93,6 +93,12 @@ enum SelfCheck {
         expect(checks.entries.map { "\($0.id)\($0.state.rawValue)" } == ["wwaiting", "ddropped", "aarrived"], true,
                "checks: waiting, then dropped, then arrived, a dropped one marked")
         expect(checks.entries.map(\.channel) == [.whatsapp, .whatsapp, .command], true, "checks: a chat is WhatsApp, a cmd a command")
+        func parts(_ name: String, _ who: String?) -> [String]? {
+            CheckEntry(id: "p", name: name, who: who, watching: "", channel: .gmail, state: .waiting, at: 0).parts.map { [$0.before, $0.who, $0.after] }
+        }
+        expect(checks.entries.map(\.who) == ["Maman", "Maman", nil] && parts("Claude invoice for Caroline", "caroline") == ["Claude invoice for ", "Caroline", ""]
+               && parts("who redoes the poster", "EIP") == ["", "EIP", " who redoes the poster"] && parts("Windows session rename", nil) == nil, true,
+               "checks: the one awaited from, a chat's title by default, pilled where the name says it, else in front")
         let watcher = Inbox(folder: state.appending(path: "inbox"))
         expect(watcher.key(UInt16(kVK_ANSI_S)) && watcher.settings && watcher.checks.count == 3, true, "inbox: S shows the checks")
         expect(watcher.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")

@@ -67,11 +67,20 @@ struct CheckEntry: Equatable {
 
     let id: String
     let name: String
+    /// The one it is awaited from (Caroline, Mercor); a chat's title when the checker was not told.
+    let who: String?
     let watching: String
     let channel: Channel
     let state: State
     /// ms: when it began waiting, arrived or was dropped.
     let at: Double
+
+    /// The name split around the one it is awaited from, matched in any case; not in the name, in front of it.
+    var parts: (before: String, who: String, after: String)? {
+        guard let who, !who.isEmpty else { return nil }
+        guard let r = name.range(of: who, options: .caseInsensitive) else { return ("", who, " " + name) }
+        return (String(name[..<r.lowerBound]), String(name[r]), String(name[r.upperBound...]))
+    }
 
     var detail: String {
         switch state {
@@ -99,7 +108,8 @@ struct CheckEntry: Equatable {
             let fired = (json["fired"] as? [String: Any]).flatMap { stamp($0["at"]) }
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
-            return CheckEntry(id: id, name: name, watching: watching, channel: channel, state: state, at: at ?? 0)
+            return CheckEntry(id: id, name: name, who: json["who"] as? String ?? json["chat"] as? String, watching: watching,
+                              channel: channel, state: state, at: at ?? 0)
         }
         let all = (read(state) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
