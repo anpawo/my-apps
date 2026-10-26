@@ -22,5 +22,5 @@ runs on my Mac today.
 
 ### [watcher](watcher)
 
-[![The panel: one line waiting, its subject, what the follow-up left, its age, and the buttons to move, open, set aside](watcher/docs/panel.png)](watcher)
+[![⌘⌥K over a desktop with 3 in the menu bar: the panel fades in on the first of three lines; → shows the next and ← comes back; ↓ asks to set the line aside and ↵ does it, the count dropping to 2; S shows the watch list, the checks still watched and those done this week, each with the logo of what it reads; S again goes back, esc closes, and a new line brings the count back to 3](watcher/docs/demo.gif)](watcher)
 <!-- apps:end -->

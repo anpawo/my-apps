@@ -47,6 +47,11 @@ if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
     }
 }
 
+// `--render-demo <dir>`: the README's GIF as frames, on made-up lines (Demo.swift). Never a window.
+if let i = args.firstIndex(of: "--render-demo"), i + 1 < args.count {
+    MainActor.assumeIsolated { Demo.render(to: URL(fileURLWithPath: args[i + 1])); exit(0) }
+}
+
 @MainActor
 final class App: NSObject, NSApplicationDelegate {
     let inbox = Inbox()
