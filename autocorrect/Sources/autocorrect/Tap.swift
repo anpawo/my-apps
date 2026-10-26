@@ -66,7 +66,7 @@ final class Tap {
 
     /// nil for a dead key: it types nothing yet, the next key brings the accented letter.
     private static func key(_ event: CGEvent) -> Typist.Key? {
-        if !event.flags.isDisjoint(with: [.maskCommand, .maskControl]) { return .reset }
+        if !event.flags.isDisjoint(with: [.maskCommand, .maskControl]) { return .focus }
         switch event.getIntegerValueField(.keyboardEventKeycode) {
         case 51: return .backspace
         case 36, 76: return .char("\r")

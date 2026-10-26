@@ -69,12 +69,12 @@ enum SelfCheck {
         expect(t.handle(.char(" ")), .pass, "and the same word is then left alone")
         _ = t.handle(.reset)
         for c in "tres" { _ = t.handle(.char(c)) }
-        expect(t.handle(.char(" ")), .pass, "a word begun after an arrow or a shortcut is never fixed")
+        expect(t.handle(.char(" ")), .pass, "a word begun after an arrow is never fixed")
         for c in "tres" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .edit(delete: 2, type: "ès", thenKey: true), "the next one is")
         _ = t.handle(.focus)
         for c in "probleme" { _ = t.handle(.char(c)) }
-        expect(t.handle(.char(" ")), .edit(delete: 3, type: "ème", thenKey: true), "one begun after a click or in another app is")
+        expect(t.handle(.char(" ")), .edit(delete: 3, type: "ème", thenKey: true), "one begun after a click, in another app or after a paste is")
         _ = t.handle(.char("x"))
         expect(t.handle(.backspace), .pass, "⌫ after another key is a plain ⌫")
         for c in " ca" { _ = t.handle(.char(c)) }

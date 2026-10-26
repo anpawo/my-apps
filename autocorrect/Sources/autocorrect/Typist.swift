@@ -4,13 +4,14 @@
 /// abbreviation (etudiant.gouv.fr, e.g), left alone.
 ///
 /// It sees keys, not the text field. So a word is only fixed when this process saw it start:
-/// after a space, a Return, a click or a switch to another app. After an arrow or a ⌘ shortcut
-/// the caret may be in the middle of a word it never saw, and that word is left alone up to the
-/// next space.
+/// after a space, a Return, a click, a switch to another app or a shortcut (a paste, ⌘⌫). After
+/// an arrow, or a ⌫ past the start of the word, the caret may be in the middle of a word it never
+/// saw, and that word is left alone up to the next space.
 struct Typist {
     enum Key: Equatable {
         case char(Character), backspace, reset
-        /// A click or another app: the caret is at the start of a word far more often than inside one.
+        /// A click, another app or a shortcut: the caret is at the start of a word far more often
+        /// than inside one.
         case focus
     }
     enum Act: Equatable {
