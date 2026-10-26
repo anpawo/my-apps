@@ -5,11 +5,12 @@ import AppKit
 final class Tap {
     private var typist: Typist
     private var port: CFMachPort?
-    /// Apps where words are not prose: terminals, code editors, password managers.
+    /// Apps where words are not prose: terminals, code editors, password managers. Not Ghostty:
+    /// it is where he writes to Claude Code.
     private let skipped: Set<String>
 
     static let defaultSkipped: Set<String> = [
-        "com.mitchellh.ghostty", "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
+        "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
         "net.kovidgoyal.kitty", "org.alacritty", "com.github.wez.wezterm",
         "com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92", "dev.zed.Zed", "com.sublimetext.4", "com.apple.dt.Xcode",
         "com.jetbrains.intellij", "com.jetbrains.CLion", "com.jetbrains.pycharm", "com.google.android.studio",
