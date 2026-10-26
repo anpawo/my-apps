@@ -5,6 +5,8 @@ accents and apostrophes a U.S. keyboard makes you leave out: `ca va tres bien` b
 `cest` `c'est`, `peutetre` `peut-être`, `dont` `don't`, `teh` `the`. No underline, no popup: the word is
 replaced as you go.
 
+![Three lines typed into a text field, each word fixed on space: ça va très bien, I don't think the plan is ready, and tema, changed to team then put back with ⌫](docs/demo.gif)
+
 | Key | Does |
 |---|---|
 | space, ↵ | fix the word before it, with its punctuation (`tres.` → `très.`) |
@@ -44,7 +46,8 @@ one you use wins.
 
 Then give it Accessibility (System Settings → Privacy & Security → Accessibility): it waits for it and starts
 fixing as soon as it is on. `autocorrect --selftest` checks the choices and the keys; `autocorrect --fix`
-prints its input as it would read once typed.
+prints its input as it would read once typed. `node docs/make-demo.mjs` draws the picture above again
+from what `--fix` does.
 
 ## The words
 
