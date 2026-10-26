@@ -6,6 +6,8 @@ It reads the state of the hourly checker (`~/.local/state/checker`): a headless 
 something, or stopped on something that needs you. The menu bar shows how many lines wait; ⌘⌥K opens
 them Spotlight-style.
 
+![The panel: one line waiting, its subject, what the follow-up left, its age, and the buttons to move, open, set aside](docs/panel.png)
+
 | Key | Does |
 |---|---|
 | ← → | move through the lines, none is dropped |
