@@ -12,6 +12,10 @@ runs on my Mac today.
 
 [![Three lines typed into a text field, each word fixed on space: ça va très bien, I don't think the plan is ready, and tema, changed to team then put back with ⌫](autocorrect/docs/demo.gif)](autocorrect)
 
+### [copilot](copilot)
+
+[![⌥Space over a terminal where a Python script failed: the panel opens at the top, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](copilot/docs/demo.gif)](copilot)
+
 ### [opener](opener)
 
 [![⌘Space over a desktop: the panel opens empty, typing "saf" narrows the list to Safari and ↵ opens it; ⌘Space again over Safari, "te" lists Terminal then TextEdit, ↓ moves to TextEdit and ↵ opens it](opener/docs/demo.gif)](opener)

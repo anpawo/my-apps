@@ -1,0 +1,334 @@
+import AppKit
+import Carbon.HIToolbox
+import SwiftUI
+
+@MainActor
+final class Copilot: ObservableObject {
+    struct Turn: Identifiable, Equatable {
+        let id = UUID()
+        var question: String
+        var withScreen: Bool
+        var answer = ""
+        var error: String?
+        var done = false
+    }
+
+    static let width: CGFloat = 640
+    /// Room around the box for its shadow. The panel is cut to the box, so the clear part covers only this band of the
+    /// app behind: the panel stays up while he works there.
+    static let margin: CGFloat = 24
+
+    @Published var draft = ""
+    @Published var turns: [Turn] = []
+    /// A screenshot is waiting to go with the next question.
+    @Published var seesScreen = false
+    @Published var note: String?
+    @Published var copied = false
+    /// The conversation's height before it scrolls.
+    @Published var room: CGFloat = 600
+    private var shot: Task<Data?, Never>?
+    private var app: String?
+    private var conversation: Conversation?
+    private var panel: CopilotPanel?
+    private var top = CGPoint.zero
+
+    var answering: Bool { turns.last.map { !$0.done } ?? false }
+
+    /// ⌥Space. Hidden: a new conversation on the screen as it is. Up but not in focus (he clicked in the app behind):
+    /// the screen again, for the next question. Up and in focus: put away.
+    func summon() {
+        if let panel, panel.isVisible {
+            if panel.isKeyWindow { return hide() }
+            capture()
+            return panel.makeKey()
+        }
+        (draft, turns, note) = ("", [], nil)
+        capture()
+        let conversation = Conversation { [weak self] in self?.receive($0) }
+        conversation.start()
+        self.conversation = conversation
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
+        let area = NSScreen.underMouse.visibleFrame
+        room = (area.height * 0.7).rounded()
+        top = CGPoint(x: area.midX, y: area.maxY - 8 + Self.margin)
+        place(height: 48)
+        panel.orderFrontRegardless()
+        panel.makeKey()
+    }
+
+    func hide() {
+        panel?.orderOut(nil)
+        conversation?.stop()
+        conversation = nil
+        shot?.cancel()
+        (shot, seesScreen) = (nil, false)
+    }
+
+    private func capture() {
+        app = NSWorkspace.shared.frontmostApplication?.localizedName
+        guard CGPreflightScreenCaptureAccess() else {
+            note = "copilot cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌥Space twice. Questions still work."
+            // Asks once; after that it is a no-op, so the pane is opened instead.
+            if !CGRequestScreenCaptureAccess() {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+            }
+            return
+        }
+        shot?.cancel()
+        seesScreen = true
+        shot = Task {
+            do { return try await Screen.shot() } catch {
+                if !Task.isCancelled { (note, seesScreen) = ("No screenshot: \(error.localizedDescription)", false) }
+                return nil
+            }
+        }
+    }
+
+    /// ↵. Nothing typed is a question too, "help with what is on the screen", as long as there is a screen to send.
+    func send() {
+        guard !answering, let conversation else { return }
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty || shot != nil else { return }
+        let pending = shot, app = self.app
+        (shot, seesScreen, draft, note) = (nil, false, "", nil)
+        turns.append(Turn(question: typed, withScreen: pending != nil))
+        let index = turns.count - 1
+        Task {
+            let image = await pending?.value
+            if image == nil { turns[index].withScreen = false }
+            conversation.send(Conversation.question(typed, app: image == nil ? nil : app), image: image)
+        }
+    }
+
+    func receive(_ event: Conversation.Event) {
+        guard let i = turns.indices.last, !turns[i].done else {
+            if case .failed(let why) = event { note = why }
+            return
+        }
+        switch event {
+        case .text(let t): turns[i].answer += t
+        case .done(let whole):
+            if turns[i].answer.isEmpty { turns[i].answer = whole }
+            turns[i].done = true
+        case .failed(let why): (turns[i].error, turns[i].done) = (why, true)
+        }
+    }
+
+    /// ⌘C: what is selected in an answer; with nothing selected, the code block of the last answer (where the
+    /// prompt puts text to send), or the whole answer.
+    func copy() {
+        let board = NSPasteboard.general, before = board.changeCount
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+        guard board.changeCount == before, let last = turns.last(where: { !$0.answer.isEmpty }) else { return }
+        board.clearContents()
+        board.setString(Markdown.code(in: last.answer) ?? last.answer, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.copied = false }
+    }
+
+    /// Every key comes here before any view. There is no text field: in a panel that never activates the app there
+    /// would be one to focus, and a field that missed its focus would leave the typing nowhere (opener's reason).
+    func key(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        switch Int(event.keyCode) {
+        case kVK_Escape: hide()
+        case kVK_Return, kVK_ANSI_KeypadEnter: send()
+        case kVK_Delete where flags.contains(.command): draft = ""
+        case kVK_Delete where flags.contains(.option): draft = Self.dropWord(draft)
+        case kVK_Delete: draft = String(draft.dropLast())
+        case kVK_ANSI_V where flags.contains(.command): draft += NSPasteboard.general.string(forType: .string) ?? ""
+        case kVK_ANSI_C where flags.contains(.command): copy()
+        default:
+            // Arrows and function keys come as characters of the private-use area.
+            guard flags.intersection([.command, .control]).isEmpty, let text = event.characters, !text.isEmpty,
+                  text.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) })
+            else { return false }
+            draft += text
+        }
+        return true
+    }
+
+    static func dropWord(_ s: String) -> String {
+        let trimmed = s.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        return String(trimmed[..<(trimmed.lastIndex(where: \.isWhitespace).map { trimmed.index(after: $0) } ?? trimmed.startIndex)])
+    }
+
+    /// The box's top stays where it opened; the panel grows down as the answer comes in.
+    func place(height: CGFloat) {
+        guard let panel else { return }
+        let size = NSSize(width: Self.width + 2 * Self.margin, height: height + 2 * Self.margin)
+        panel.setFrame(NSRect(x: top.x - size.width / 2, y: top.y - size.height, width: size.width, height: size.height), display: true)
+    }
+
+    /// Non-activating, as Spotlight: it takes the keys without taking the app in front away. On every Space and over
+    /// full-screen apps, and out of screen shares (the window server honours that for most capture tools, not all).
+    private func makePanel() -> CopilotPanel {
+        let panel = CopilotPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.sharingType = .none
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.onKey = { [weak self] in self?.key($0) ?? false }
+        let host = NSHostingView(rootView: CopilotView(copilot: self))
+        host.sizingOptions = []
+        panel.contentView = host
+        return panel
+    }
+}
+
+final class CopilotPanel: NSPanel {
+    var onKey: (NSEvent) -> Bool = { _ in false }
+
+    override var canBecomeKey: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, onKey(event) { return }
+        super.sendEvent(event)
+    }
+}
+
+enum Markdown {
+    enum Block: Equatable {
+        case text(String)
+        case code(String)
+    }
+
+    /// Fenced code apart from the prose around it. A fence still open (the answer streaming in) is code so far.
+    static func blocks(_ s: String) -> [Block] {
+        var out: [Block] = [], lines: [Substring] = [], fenced = false
+        func flush() {
+            let body = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !body.trimmingCharacters(in: .whitespaces).isEmpty { out.append(fenced ? .code(body) : .text(body)) }
+            lines = []
+        }
+        for line in s.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                flush()
+                fenced.toggle()
+            } else {
+                lines.append(line)
+            }
+        }
+        flush()
+        return out
+    }
+
+    static func code(in s: String) -> String? {
+        blocks(s).lazy.compactMap { if case .code(let c) = $0 { c } else { nil } }.first
+    }
+
+    /// Bold, italics, inline code and links; list marks as bullets. The blocks are `blocks`' work.
+    static func inline(_ s: String) -> AttributedString {
+        let text = s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let indent = line.prefix(while: { $0 == " " })
+            let rest = line.dropFirst(indent.count)
+            return rest.hasPrefix("- ") || rest.hasPrefix("* ") ? indent + "• " + rest.dropFirst(2) : String(line)
+        }.joined(separator: "\n")
+        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+}
+
+struct CopilotView: View {
+    @ObservedObject var copilot: Copilot
+    /// Off offscreen: ImageRenderer draws a ScrollView as nothing.
+    var scrolls = true
+    @State private var height: CGFloat = 0
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            field
+            if !copilot.turns.isEmpty || copilot.note != nil {
+                Divider()
+                if scrolls {
+                    ScrollViewReader { proxy in
+                        ScrollView { thread }
+                            .frame(height: min(height, copilot.room))
+                            .onChange(of: copilot.turns.count) { proxy.scrollTo(copilot.turns.last?.id, anchor: .top) }
+                    }
+                } else {
+                    thread
+                }
+            }
+        }
+        .frame(width: Copilot.width)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(scheme == .dark ? Color(white: 0.16) : Color(white: 0.97)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { copilot.place(height: $0) }
+        .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
+        .padding(Copilot.margin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var field: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: copilot.seesScreen ? "camera.viewfinder" : "sparkles")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(copilot.seesScreen ? Color.accentColor : .secondary)
+            // A caret that does not blink: a blink would redraw the panel twice a second for nothing.
+            (Text(copilot.draft) + Text("|").foregroundColor(.accentColor)
+                + Text(copilot.draft.isEmpty ? (copilot.turns.isEmpty ? " Ask about your screen" : " Ask a follow-up") : "")
+                .foregroundColor(Color.secondary.opacity(0.6)))
+                .font(.system(size: 17))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Text(copilot.copied ? "Copied" : copilot.answering ? "…" : "↵")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    private var thread: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let note = copilot.note { Text(note).font(.system(size: 13)).foregroundStyle(.orange) }
+            ForEach(copilot.turns) { turn in
+                TurnView(turn: turn).id(turn.id)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
+    }
+}
+
+struct TurnView: View {
+    let turn: Copilot.Turn
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if turn.withScreen { Image(systemName: "camera.viewfinder") }
+                Text(turn.question.isEmpty ? "What's on screen" : turn.question)
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            if let error = turn.error {
+                Text(error).font(.system(size: 14)).foregroundStyle(.red)
+            } else if turn.answer.isEmpty {
+                Text("Looking…").font(.system(size: 14)).foregroundStyle(.tertiary)
+            } else {
+                ForEach(Array(Markdown.blocks(turn.answer).enumerated()), id: \.offset) { _, block in
+                    switch block {
+                    case .text(let s):
+                        Text(Markdown.inline(s)).font(.system(size: 14)).lineSpacing(2)
+                    case .code(let s):
+                        Text(s)
+                            .font(.system(size: 12.5, design: .monospaced))
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+                    }
+                }
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
