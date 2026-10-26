@@ -17,7 +17,7 @@ window open is not in the list, Finder included.
 
 Hold the modifier and press Tab. Let it go and you are there. That is the whole product.
 
-![The switcher open over a desktop: eleven windows in two rows, the selected one outlined, the one under the pointer showing its close button](docs/panel.png)
+![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps from tile to tile with each Tab, and letting go of ⌘ brings the Mail window forward](docs/demo.gif)
 
 **It takes ⌘Tab from the first launch.** The Dock consumes ⌘Tab before any application sees
 it, so holding that chord means switching Apple's switcher off — and that setting outlives the
@@ -76,6 +76,8 @@ you quit and reopen the app — not the moment you grant it.
 | **Escape** | change your mind |
 | **click a tile** | switch to that window — with ⌘ still held, since letting go ends the session |
 | **click the red cross** | close that window |
+
+![The switcher open over a desktop: eleven windows in two rows, the selected one outlined, the one under the pointer showing its close button](docs/panel.png)
 
 **Six tiles to a row, then a new row.** A long list on one row shrinks every picture until it
 stops saying which window it is, so the panel wraps instead, and only gives tiles back their
@@ -136,14 +138,22 @@ alt-tab --render                          # the window list, then where every ti
 alt-tab --render --windows=14             # the same, with the list padded out to 14 tiles
 alt-tab --render --shot=docs/panel.png    # the panel as a PNG, pictures and all
 alt-tab --render --demo --shot=docs/panel.png   # the whole screen, with invented windows
+alt-tab --render --demo --frames=/tmp/frames    # a ⌘Tab session on that screen, one PNG per change
 ```
 
 All of them build the real panel and run the real layout; none orders the window in. Without
 `--demo` the windows in the picture are whatever is open at the time, which is someone's work;
 `--demo` swaps them for apps everyone has, titles that belong to no one and hand-drawn
-pictures. The picture at the top of this page is neither: it is a screenshot of the switcher
-in use, edited afterwards — the private windows taken out, the rest moved up to fill their
+pictures. The still picture under **Using it** is neither: it is a screenshot of the switcher
+in use, edited afterwards: the private windows taken out, the rest moved up to fill their
 places, and a stock wallpaper put behind it.
+
+The animation at the top is the `--frames` stills made into a GIF, each held as long as the
+`list.txt` beside them says:
+
+```sh
+ffmpeg -f concat -safe 0 -i /tmp/frames/list.txt -fps_mode vfr -vf "scale=1440:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 docs/demo.gif
+```
 
 ## What it does not do
 

@@ -100,11 +100,11 @@ func demoWindows() -> [WindowInfo] {
 }
 
 /// The main screen at its own pixel size, a plain gradient for a wallpaper (never the user's
-/// own, which may be a photo of someone), and the panel centred on it.
+/// own, which may be a photo of someone), and on it: the window in front if one is named, the
+/// panel centred if there is one, and the two keys if they are to be shown.
 @MainActor
-func demoScreen(panel: Data) -> Data? {
-    guard let screen = NSScreen.main, let panelImage = NSImage(data: panel),
-          let panelCG = panelImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+func demoScreen(panel: Data?, front: WindowInfo? = nil, keys: (command: Bool, tab: Bool)? = nil) -> Data? {
+    guard let screen = NSScreen.main else { return nil }
     let scale = screen.backingScaleFactor
     let w = Int(screen.frame.width * scale), h = Int(screen.frame.height * scale)
     guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
@@ -114,8 +114,65 @@ func demoScreen(panel: Data) -> Data? {
     if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: h), end: CGPoint(x: w, y: 0), options: [])
     }
-    let pw = CGFloat(panelCG.width), ph = CGFloat(panelCG.height)
-    ctx.draw(panelCG, in: CGRect(x: (CGFloat(w) - pw) / 2, y: (CGFloat(h) - ph) / 2, width: pw, height: ph))
+    // Points from here on, the unit everything below is sized in.
+    ctx.scaleBy(x: scale, y: scale)
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+    defer { NSGraphicsContext.current = nil }
+    let size = screen.frame.size
+
+    // The window being worked in: its own hand-drawn picture, framed the way macOS frames one.
+    if let front, let picture = Thumbnails.cached(front.id) {
+        let frame = CGRect(x: ((size.width - front.size.width) / 2).rounded(),
+                           y: ((size.height - front.size.height) / 2).rounded() - 10,
+                           width: front.size.width, height: front.size.height)
+        let outline = NSBezierPath(roundedRect: frame, xRadius: 16, yRadius: 16)
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowBlurRadius = 40
+        shadow.shadowOffset = NSSize(width: 0, height: -12)
+        shadow.shadowColor = NSColor(white: 0, alpha: 0.45)
+        shadow.set()
+        NSColor.white.setFill()
+        outline.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSGraphicsContext.saveGraphicsState()
+        outline.addClip()
+        picture.draw(in: frame)
+        NSGraphicsContext.restoreGraphicsState()
+        // The picture's title bar is its top 52 points.
+        let bar = frame.maxY - 26
+        for (i, rgb) in [(1.00, 0.37, 0.34), (1.00, 0.74, 0.18), (0.16, 0.79, 0.25)].enumerated() {
+            NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1).setFill()
+            NSBezierPath(ovalIn: CGRect(x: frame.minX + 20 + CGFloat(i) * 20, y: bar - 6, width: 12, height: 12)).fill()
+        }
+        let title = NSAttributedString(string: front.title, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: NSColor(white: 0.3, alpha: 1)])
+        title.draw(at: CGPoint(x: frame.midX - title.size().width / 2, y: bar - title.size().height / 2))
+    }
+
+    if let panel, let panelCG = NSImage(data: panel)?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        // Drawn at its own pixels, so the panel is exactly what `Panel.png` made.
+        let pw = CGFloat(panelCG.width) / scale, ph = CGFloat(panelCG.height) / scale
+        ctx.draw(panelCG, in: CGRect(x: (size.width - pw) / 2, y: (size.height - ph) / 2, width: pw, height: ph))
+    }
+
+    // ⌘ and Tab, lit while they are down: what the fingers are doing, under what it does.
+    if let keys {
+        let caps: [(label: String, width: CGFloat, down: Bool)] = [("⌘", 60, keys.command), ("Tab", 92, keys.tab)]
+        var x = (size.width - caps.reduce(-10) { $0 + $1.width + 10 }) / 2
+        for cap in caps {
+            let rect = CGRect(x: x, y: 64, width: cap.width, height: 52)
+            (cap.down ? NSColor(srgbRed: 0.04, green: 0.45, blue: 0.95, alpha: 1)
+                      : NSColor(white: 0.12, alpha: 0.85)).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 11, yRadius: 11).fill()
+            let label = NSAttributedString(string: cap.label, attributes: [
+                .font: NSFont.systemFont(ofSize: 21, weight: .medium),
+                .foregroundColor: NSColor(white: 1, alpha: cap.down ? 1 : 0.7)])
+            label.draw(at: CGPoint(x: rect.midX - label.size().width / 2, y: rect.midY - label.size().height / 2))
+            x += cap.width + 10
+        }
+    }
     guard let out = ctx.makeImage() else { return nil }
     return NSBitmapImageRep(cgImage: out).representation(using: .png, properties: [:])
 }
@@ -170,6 +227,46 @@ if arguments.contains("--render") {
             if arguments.contains("--demo"), let full = demoScreen(panel: data) { data = full }
             try? data.write(to: URL(fileURLWithPath: shot))
             print("wrote \(shot)  (\(list.count) windows)")
+            exit(0)
+        }
+        // `--demo --frames=<dir>` writes the README's GIF as stills: a ⌘Tab session on the demo
+        // screen, one PNG per change and `list.txt` saying how long each stays up, for ffmpeg's
+        // concat demuxer. Demo only, since the frames show the window in front as well.
+        if arguments.contains("--demo"),
+           let dir = arguments.first(where: { $0.hasPrefix("--frames=") }).map({ URL(fileURLWithPath: String($0.dropFirst("--frames=".count))) }) {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // Down the first row and onto the second, to the window that will be raised.
+            let last = min(7, list.count - 1)
+            // Each selection drawn once by the panel itself. Moving it is instant in use too, so
+            // the steps between are cuts, as is the panel coming and going.
+            let panels = (0...last).map { $0 == 0 ? nil : Panel.png(list, selected: $0, settle: 0.5) }
+            // Panel showing which selection (nil: none), window in front, ⌘ down, Tab down, seconds.
+            var script: [(panel: Int?, front: Int, command: Bool, tab: Bool, seconds: Double)] = [
+                (nil, 0, false, false, 1.2), (nil, 0, true, false, 0.3),
+                // The panel waits out its 100 ms delay before it appears.
+                (nil, 0, true, true, 0.1), (1, 0, true, true, 0.05), (1, 0, true, false, 0.55)]
+            for k in stride(from: 2, through: last, by: 1) {
+                script += [(k, 0, true, true, 0.12), (k, 0, true, false, 0.55)]
+            }
+            // ⌘ let go: the selected window comes forward. Then a ⌘Tab quicker than the delay,
+            // which switches back without drawing a panel, onto the first frame of the loop.
+            script += [(nil, last, false, false, 1.8), (nil, last, true, false, 0.15), (nil, last, true, true, 0.1)]
+            var concat = ""
+            for (i, step) in script.enumerated() {
+                let name = String(format: "%03d.png", i)
+                guard let png = demoScreen(panel: step.panel.flatMap { panels[$0] }, front: list[step.front],
+                                           keys: (step.command, step.tab)),
+                      (try? png.write(to: dir.appendingPathComponent(name))) != nil else {
+                    print("could not write \(name)")
+                    exit(1)
+                }
+                concat += "file '\(name)'\nduration \(step.seconds)\n"
+            }
+            // The concat demuxer only honours a duration followed by another file.
+            concat += "file '\(String(format: "%03d.png", script.count - 1))'\n"
+            try? concat.write(to: dir.appendingPathComponent("list.txt"), atomically: true, encoding: .utf8)
+            print("wrote \(script.count) frames and list.txt to \(dir.path)")
             exit(0)
         }
         Panel.show(list, selected: 0)

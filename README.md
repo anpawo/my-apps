@@ -27,7 +27,7 @@ Click one for its README.
 <!-- apps:start -->
 ### [alt-tab](alt-tab)
 
-[![The switcher open over a desktop: eleven windows in two rows, the selected one outlined, the one under the pointer showing its close button](alt-tab/docs/panel.png)](alt-tab)
+[![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps from tile to tile with each Tab, and letting go of ⌘ brings the Mail window forward](alt-tab/docs/demo.gif)](alt-tab)
 
 ### [autocorrect](autocorrect)
 
