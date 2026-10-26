@@ -145,14 +145,14 @@ final class Inbox: NSObject, ObservableObject {
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
     }
 
-    /// A check that came back, watched again from now (`checker.mjs again`): shown waiting at once, then read back
-    /// from disk once the checker is done, which puts it back under Done if it failed.
+    /// A check that came back, watched again from now (`checker.mjs again --keep`): shown waiting at once, and still
+    /// under Done, then read back from disk once the checker is done, which drops the waiting one if it failed.
     func again(_ check: CheckEntry) {
         checks = [CheckEntry(id: check.id, name: check.name, watching: check.watching, channel: check.channel, state: .waiting,
-                             at: Date().timeIntervalSince1970 * 1000)] + checks.filter { $0.id != check.id }
+                             at: Date().timeIntervalSince1970 * 1000)] + checks
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
-        task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "again", check.id]
+        task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "again", check.id, "--keep"]
         task.standardOutput = FileHandle.nullDevice
         let state = folder.deletingLastPathComponent()
         task.terminationHandler = { [weak self] task in

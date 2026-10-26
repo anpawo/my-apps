@@ -85,9 +85,10 @@ struct ChecksView: View {
 
     /// A check in one block, as a field of the mail is: its name, then the pills of its channel, in the channel's
     /// colour, of how often it is read, and of its day and time. They keep one width, so the columns line up. Under
-    /// the pointer, a check done shows Add back over its time.
+    /// the pointer, a check done shows Add back over its time, unless it is watched again already.
     private func row(_ check: CheckEntry, via: CGFloat) -> some View {
         let tone = Self.tone(check.channel)
+        let addable = check.state == .arrived && !waiting.contains { $0.id == check.id }
         return HStack(spacing: 16) {
             Text(check.name)
                 .fontWeight(.medium)
@@ -99,7 +100,7 @@ struct ChecksView: View {
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
                 .overlay {
-                    if check.state == .arrived && hovered == check.id { addBack(check) }
+                    if addable && hovered == check.id { addBack(check) }
                 }
         }
         .padding(.horizontal, 12)

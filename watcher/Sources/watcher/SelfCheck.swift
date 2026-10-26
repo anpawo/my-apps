@@ -114,6 +114,7 @@ enum SelfCheck {
         let disk = CheckEntry.load(state: state).entries
         expect(disk.first { $0.id == "a" }?.state == .waiting && watcher.checks == disk, true,
                "checks: Add back has the checker watch it again, and the list is read back from disk")
+        expect(disk.filter { $0.id == "a" }.map(\.state) == [.waiting, .arrived], true, "checks: Add back keeps it under done too")
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.items.isEmpty && kept("a"), true, "inbox: the last line set aside leaves none")

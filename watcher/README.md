@@ -11,7 +11,7 @@ them Spotlight-style.
 | ← → | move through the lines, none is dropped |
 | ↵ | resume the line's session in a terminal, and set the line aside |
 | ↓ then ↵ | set the line aside as done, without opening it |
-| S | the watch list: the checks still watched, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now); S again goes back to the lines, or closes Watcher when none waits |
+| S | the watch list: the checks still watched, and under them those done in the last 7 days (newest first: the pointer on one shows Add back, which has the checker watch it again from now, and keeps it listed here); S again goes back to the lines, or closes Watcher when none waits |
 | ⎋ | close |
 
 With no line waiting, ⌘⌥K opens on the watch list.
