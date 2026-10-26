@@ -113,12 +113,17 @@ final class Words {
         // A typo, but not in a name (capital), an abbreviation (no vowel: mdr, bcp, smth), a word
         // missing its accents (genere: génère or généré, not genre) nor a word macOS knows
         // (plugin, hotkey, tutoriels). Three letters have too many neighbours: only two swapped
-        // ones (teh) count there.
+        // ones (teh) count there. Two swaps when one slip finds nothing (vraiemtn), from five
+        // letters on: a swap with another slip turns distnoted into distorted, pyright upright.
         if rare, scores.isEmpty, typedMarks.1 == 0, chars.count >= 3, chars[0].isLowercase,
            base.contains(where: { "aeiouy".contains($0) }), !Self.known(lower) {
-            for edit in Self.edits(base, swapsOnly: chars.count < 4) {
-                for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && Self.known(key) {
-                    consider(key, prior(key, fr: fr) * 0.01)
+            let first = Array(Self.edits(base, swapsOnly: chars.count < 4))
+            let second = chars.count < 5 ? [] : Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) }
+            for (edits, channel) in [(first, 0.01), (second, 0.0001)] where scores.isEmpty {
+                for edit in edits {
+                    for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && Self.known(key) {
+                        consider(key, prior(key, fr: fr) * channel)
+                    }
                 }
             }
         }

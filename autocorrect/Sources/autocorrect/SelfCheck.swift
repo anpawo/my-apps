@@ -44,6 +44,7 @@ enum SelfCheck {
             ("la maison dont je parle", "la maison dont je parle", "French after French: dont stays"),
             ("im tired", "I'm tired", ""),
             ("teh cat", "the cat", "a typo, one letter off"),
+            ("c'est vraiemtn cool", "c'est vraiment cool", "two swaps"),
             ("because of teh becuase", "because of the because", ""),
             ("le role", "le rôle", "rôle in French"),
             ("the role", "the role", "role in English"),

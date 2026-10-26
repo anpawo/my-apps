@@ -207,7 +207,7 @@ replaced as you go.
 
 Each spelling the word could be gets a score: how often it is said (French and English counts, weighed by
 how French the sentence is so far, plus how often you use it) times how likely you typed it that way when you
-meant it (as is, without its accents or apostrophe, one letter off). The best one replaces the word only when
+meant it (as is, without its accents or apostrophe, one letter off, two pairs swapped). The best one replaces the word only when
 it scores five times higher, and three times higher than the next best: `verifie` could be `vérifie` or
 `vérifié`, so it is left as typed. Mixed sentences work: `dont` is `don't` after `i`, and stays `dont` after
 `la maison`.
