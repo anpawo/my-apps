@@ -8,6 +8,7 @@ final class Tap {
     /// Apps where words are not prose: terminals, code editors, password managers. Not Ghostty:
     /// it is where he writes to Claude Code.
     private let skipped: Set<String>
+    private var app: String?
 
     static let defaultSkipped: Set<String> = [
         "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
@@ -43,11 +44,13 @@ final class Tap {
             _ = typist.handle(.reset)
             return pass
         }
-        guard type == .keyDown else { _ = typist.handle(.reset); return pass }
-        if let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, skipped.contains(app) {
+        guard type == .keyDown else { _ = typist.handle(.focus); return pass }
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let front, skipped.contains(front) {
             _ = typist.handle(.reset)
             return pass
         }
+        if front != app { app = front; _ = typist.handle(.focus) }
         guard let key = Self.key(event) else { return pass }
         switch typist.handle(key) {
         case .pass:

@@ -3,11 +3,16 @@
 /// the fix back on a ⌫ right after. A letter right after that punctuation makes it a link or an
 /// abbreviation (etudiant.gouv.fr, e.g), left alone.
 ///
-/// It sees keys, not the text field. So a word is only fixed when this process saw it start,
-/// right after a space or Return: after a click, an arrow or a ⌘ shortcut the caret may be in
-/// the middle of a word it never saw, and that word is left alone up to the next space.
+/// It sees keys, not the text field. So a word is only fixed when this process saw it start:
+/// after a space, a Return, a click or a switch to another app. After an arrow or a ⌘ shortcut
+/// the caret may be in the middle of a word it never saw, and that word is left alone up to the
+/// next space.
 struct Typist {
-    enum Key { case char(Character), backspace, reset }
+    enum Key: Equatable {
+        case char(Character), backspace, reset
+        /// A click or another app: the caret is at the start of a word far more often than inside one.
+        case focus
+    }
     enum Act: Equatable {
         case pass
         /// Hold the key, erase `delete` characters, type `type`, then let the key through or not.
@@ -37,8 +42,8 @@ struct Typist {
         undo = nil
         if case .backspace = key {} else if let w = kept { words.learn(w); kept = nil }
         switch key {
-        case .reset:
-            word = []; tail = []; clean = false; fr = 0.5
+        case .reset, .focus:
+            word = []; tail = []; clean = key == .focus; fr = 0.5
             return .pass
         case .backspace:
             if let u = last {

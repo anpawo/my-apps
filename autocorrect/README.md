@@ -22,7 +22,7 @@ it scores five times higher, and three times higher than the next best: `verifie
 It never changes a word it knows into another one (`chat`, `scan` stay), a word typed with its accents
 (`côte` stays), nor a word the macOS spell checker knows (`plugin`, `hotkey`, `tutoriels`). It leaves alone
 words with a digit or a capital inside (`GitHub`), links and addresses (`etudiant.gouv.fr`), a word begun
-after a click, an arrow or a ⌘ shortcut (it sees keys, not the text), password fields, and terminals (but
+after an arrow or a ⌘ shortcut (it sees keys, not the text), password fields, and terminals (but
 Ghostty, where Claude Code runs), code editors and password managers (the list is in
 `Sources/autocorrect/Tap.swift`). Another app:
 
