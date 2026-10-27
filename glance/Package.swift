@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "copilot",
+    name: "glance",
     platforms: [.macOS(.v15)],
     targets: [
-        .executableTarget(name: "copilot", path: "Sources/copilot", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "glance", path: "Sources/glance", swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )

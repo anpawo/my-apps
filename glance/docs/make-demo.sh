@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Draws docs/demo.gif again: the app renders each frame offscreen (`--render-demo`), ffmpeg makes them one GIF on a
 # single palette, each frame storing only the rectangle that changed (opener's recipe).
-# `--ask-again` first asks Claude about frame 001 as copilot would, to paste its answers into `Demo.answers`.
+# `--ask-again` first asks Claude about frame 001 as glance would, to paste its answers into `Demo.answers`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release --product copilot
-bin="$(swift build -c release --show-bin-path)/copilot"
+swift build -c release --product glance
+bin="$(swift build -c release --show-bin-path)/glance"
 frames=$(mktemp -d)
 trap 'rm -rf "$frames"' EXIT
 "$bin" --render-demo "$frames"

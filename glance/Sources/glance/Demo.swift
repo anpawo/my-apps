@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// `copilot --render-demo <dir>`: the README's GIF as frames, one PNG per change, and `list.txt`, an ffmpeg concat list of
+/// `glance --render-demo <dir>`: the README's GIF as frames, one PNG per change, and `list.txt`, an ffmpeg concat list of
 /// how long each stays up. A terminal with a script that fails; ⌥Space and ↵ on nothing typed; a follow-up in French;
-/// ⌘C; ⎋. The panel is `CopilotView`, drawn offscreen, and its answers are the ones `copilot --ask` gave on the first
+/// ⌘C; ⎋. The panel is `GlanceView`, drawn offscreen, and its answers are the ones `glance --ask` gave on the first
 /// frame (`docs/make-demo.sh --ask-again`), so the GIF shows what the app does, not what it might. Frame 001 is that
 /// screen alone.
 @MainActor
@@ -39,7 +39,7 @@ enum Demo {
 
     static let followUp = "et si le fichier est vide ?"
 
-    /// What `copilot --ask <frames>/001.png "" "et si le fichier est vide ?"` answered, Opus, 27/10/2026 (`docs/make-demo.sh`).
+    /// What `glance --ask <frames>/001.png "" "et si le fichier est vide ?"` answered, Opus, 27/10/2026 (`docs/make-demo.sh`).
     static let answers = [
         """
         The CSV is semicolon-separated, but `csv.DictReader` splits on commas by default. Fix line 7:
@@ -79,7 +79,7 @@ enum Demo {
 
     static func render(to dir: URL) {
         try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let copilot = Copilot()
+        let glance = Glance()
         let desk = canvas { wallpaper(); window(CGRect(x: 150, y: 84, width: 800, height: 500)) }
         var up = false, caps: [(label: String, down: Bool)] = [], note: String?
         var list = "", count = 0
@@ -90,8 +90,8 @@ enum Demo {
             let pic = canvas {
                 desk.draw(in: screen)
                 if up {
-                    let p = panel(copilot)
-                    p.draw(in: CGRect(x: (screen.width - p.size.width) / 2, y: screen.maxY - 8 + Copilot.margin - p.size.height,
+                    let p = panel(glance)
+                    p.draw(in: CGRect(x: (screen.width - p.size.width) / 2, y: screen.maxY - 8 + Glance.margin - p.size.height,
                                       width: p.size.width, height: p.size.height))
                 }
                 keys(caps, note)
@@ -113,38 +113,38 @@ enum Demo {
         func stream(_ answer: String) {
             let words = answer.split(separator: " ", omittingEmptySubsequences: false)
             stride(from: 0, to: words.count, by: 4).forEach { i in
-                copilot.receive(.text(words[i..<min(i + 4, words.count)].joined(separator: " ") + (i + 4 < words.count ? " " : "")))
+                glance.receive(.text(words[i..<min(i + 4, words.count)].joined(separator: " ") + (i + 4 < words.count ? " " : "")))
                 frame(0.04)
             }
-            copilot.receive(.done(answer))
+            glance.receive(.done(answer))
         }
 
         frame(1.6)
         press(["⌥", "Space"], {
-            (up, copilot.seesScreen) = (true, true)
+            (up, glance.seesScreen) = (true, true)
         }, hold: 0.6, says: "opens on the screen as it is")
         press(["↵"], {
-            (copilot.seesScreen, caps) = (false, [("↵", true)])
-            copilot.turns = [Copilot.Turn(question: "", withScreen: true)]
+            (glance.seesScreen, caps) = (false, [("↵", true)])
+            glance.turns = [Glance.Turn(question: "", withScreen: true)]
         }, hold: 0.8, says: "nothing typed: help with what is there")
         (caps, note) = ([], nil)
         stream(answers[0])
         frame(3.2)
         for c in followUp {
-            copilot.draft.append(c)
+            glance.draft.append(c)
             frame(0.04)
         }
         frame(0.4)
         press(["↵"], {
-            copilot.draft = ""
+            glance.draft = ""
             // The panel scrolls the new question to its top, past the first answer: two answers are more than its room.
-            copilot.turns = [Copilot.Turn(question: followUp, withScreen: false)]
+            glance.turns = [Glance.Turn(question: followUp, withScreen: false)]
         }, hold: 0.6, says: "a follow-up, in French")
         (caps, note) = ([], nil)
         stream(answers[1])
         frame(3.2)
-        press(["⌘", "C"], { copilot.copied = true }, hold: 1.0, says: "copies the code")
-        copilot.copied = false
+        press(["⌘", "C"], { glance.copied = true }, hold: 1.0, says: "copies the code")
+        glance.copied = false
         press(["⎋"], { up = false }, hold: 1.2, says: "closes, and the conversation ends")
         (caps, note) = ([], nil)
         frame(0.8)
@@ -154,13 +154,13 @@ enum Demo {
         print("wrote \(count) frames and list.txt to \(dir.path)")
     }
 
-    /// `copilot --render <png> [--dark]`: the panel at the end of the demo, on a plain backdrop.
+    /// `glance --render <png> [--dark]`: the panel at the end of the demo, on a plain backdrop.
     static func still(to url: URL, dark: Bool) {
-        let copilot = Copilot()
-        copilot.turns = [Copilot.Turn(question: "", withScreen: true, answer: answers[0], done: true),
-                         Copilot.Turn(question: followUp, withScreen: false, answer: answers[1], done: true)]
-        let renderer = ImageRenderer(content: CopilotView(copilot: copilot, scrolls: false)
-            .frame(width: Copilot.width + 2 * Copilot.margin)
+        let glance = Glance()
+        glance.turns = [Glance.Turn(question: "", withScreen: true, answer: answers[0], done: true),
+                         Glance.Turn(question: followUp, withScreen: false, answer: answers[1], done: true)]
+        let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false)
+            .frame(width: Glance.width + 2 * Glance.margin)
             .background(LinearGradient(colors: [Color(red: 0.55, green: 0.70, blue: 0.85), Color(red: 0.85, green: 0.82, blue: 0.70)],
                                        startPoint: .top, endPoint: .bottom))
             .environment(\.colorScheme, dark ? .dark : .light))
@@ -171,9 +171,9 @@ enum Demo {
         print("wrote \(url.path) \(image.size)")
     }
 
-    private static func panel(_ copilot: Copilot) -> NSImage {
-        let renderer = ImageRenderer(content: CopilotView(copilot: copilot, scrolls: false)
-            .frame(width: Copilot.width + 2 * Copilot.margin)
+    private static func panel(_ glance: Glance) -> NSImage {
+        let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false)
+            .frame(width: Glance.width + 2 * Glance.margin)
             .environment(\.colorScheme, .light))
         renderer.scale = 2
         return renderer.nsImage!

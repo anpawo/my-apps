@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// `copilot --selftest`: what goes to `claude` and what comes back, the keys, the Markdown, the image size. Runs
+/// `glance --selftest`: what goes to `claude` and what comes back, the keys, the Markdown, the image size. Runs
 /// headless, with no `claude` and no screen, before every install. `--ask` is the check of the path to Claude itself.
 @MainActor
 enum SelfCheck {
@@ -53,37 +53,37 @@ enum SelfCheck {
         expect(String(Markdown.inline("- one\n  * two").characters), "• one\n  • two", "list marks become bullets")
         expect(String(Markdown.inline("a **b** `c`").characters), "a b c", "inline marks are styles, not characters")
 
-        let copilot = Copilot()
+        let glance = Glance()
         func press(_ code: Int, _ chars: String, _ flags: NSEvent.ModifierFlags = []) -> Bool {
-            copilot.key(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+            glance.key(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
                                          characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: UInt16(code))!)
         }
         for c in "pourquoi ça" { _ = press(kVK_ANSI_A, String(c)) }
-        expect(copilot.draft, "pourquoi ça", "letters, accents and spaces type")
+        expect(glance.draft, "pourquoi ça", "letters, accents and spaces type")
         _ = press(kVK_ANSI_E, "é", .option)
-        expect(copilot.draft, "pourquoi çaé", "⌥E types é (his layout)")
+        expect(glance.draft, "pourquoi çaé", "⌥E types é (his layout)")
         _ = press(kVK_Delete, "\u{7F}")
-        expect(copilot.draft, "pourquoi ça", "⌫ takes a letter")
+        expect(glance.draft, "pourquoi ça", "⌫ takes a letter")
         _ = press(kVK_Delete, "\u{7F}", .option)
-        expect(copilot.draft, "pourquoi ", "⌥⌫ takes a word")
+        expect(glance.draft, "pourquoi ", "⌥⌫ takes a word")
         _ = press(kVK_Delete, "\u{7F}", .command)
-        expect(copilot.draft, "", "⌘⌫ takes them all")
+        expect(glance.draft, "", "⌘⌫ takes them all")
         expect(press(kVK_ANSI_Q, "q", .command), false, "other ⌘ chords are not typed")
         expect(press(kVK_LeftArrow, "\u{F702}"), false, "arrows are not typed")
-        expect(Copilot.dropWord("fix it  "), "fix ", "⌥⌫ over trailing spaces")
+        expect(Glance.dropWord("fix it  "), "fix ", "⌥⌫ over trailing spaces")
 
-        copilot.turns = [Copilot.Turn(question: "", withScreen: true)]
-        copilot.receive(.text("`trades` "))
-        copilot.receive(.text("is empty."))
-        expect(copilot.turns[0].answer, "`trades` is empty.", "the answer streams in")
-        expect(copilot.answering, true, "and it is still answering")
-        copilot.receive(.done("`trades` is empty."))
-        expect(copilot.answering, false, "a result ends it")
-        copilot.turns.append(Copilot.Turn(question: "and?", withScreen: false))
-        copilot.receive(.failed("claude stopped before answering"))
-        expect(copilot.turns[1].error, "claude stopped before answering", "a failure shows under its question")
-        copilot.receive(.failed("claude is not installed"))
-        expect(copilot.note, "claude is not installed", "one with no question waiting shows as a note")
+        glance.turns = [Glance.Turn(question: "", withScreen: true)]
+        glance.receive(.text("`trades` "))
+        glance.receive(.text("is empty."))
+        expect(glance.turns[0].answer, "`trades` is empty.", "the answer streams in")
+        expect(glance.answering, true, "and it is still answering")
+        glance.receive(.done("`trades` is empty."))
+        expect(glance.answering, false, "a result ends it")
+        glance.turns.append(Glance.Turn(question: "and?", withScreen: false))
+        glance.receive(.failed("claude stopped before answering"))
+        expect(glance.turns[1].error, "claude stopped before answering", "a failure shows under its question")
+        glance.receive(.failed("claude is not installed"))
+        expect(glance.note, "claude is not installed", "one with no question waiting shows as a note")
 
         print(failures == 0 ? "selftest: all passed" : "selftest: \(failures) failed")
         return failures

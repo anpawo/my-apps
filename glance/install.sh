@@ -5,12 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
-LABEL="app.copilot"
-DEST="$HOME/Applications/copilot.app"
+LABEL="app.glance"
+DEST="$HOME/Applications/glance.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-pkill -f "copilot.app/Contents/MacOS/copilot" 2>/dev/null || true
-rm -rf "$DEST"; mkdir -p "$HOME/Applications"; cp -R "dist/copilot.app" "$DEST"
+pkill -f "glance.app/Contents/MacOS/glance" 2>/dev/null || true
+rm -rf "$DEST"; mkdir -p "$HOME/Applications"; cp -R "dist/glance.app" "$DEST"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -20,7 +20,7 @@ cat > "$PLIST" <<EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$DEST/Contents/MacOS/copilot</string>
+		<string>$DEST/Contents/MacOS/glance</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -29,7 +29,7 @@ cat > "$PLIST" <<EOF
 	<key>ProcessType</key>
 	<string>Interactive</string>
 	<key>StandardErrorPath</key>
-	<string>/tmp/copilot.log</string>
+	<string>/tmp/glance.log</string>
 </dict>
 </plist>
 EOF

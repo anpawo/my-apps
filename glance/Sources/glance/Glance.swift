@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import SwiftUI
 
 @MainActor
-final class Copilot: ObservableObject {
+final class Glance: ObservableObject {
     struct Turn: Identifiable, Equatable {
         let id = UUID()
         var question: String
@@ -29,7 +29,7 @@ final class Copilot: ObservableObject {
     private var shot: Task<Data?, Never>?
     private var app: String?
     private var conversation: Conversation?
-    private var panel: CopilotPanel?
+    private var panel: GlancePanel?
     private var top = CGPoint.zero
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
@@ -68,7 +68,7 @@ final class Copilot: ObservableObject {
     private func capture() {
         app = NSWorkspace.shared.frontmostApplication?.localizedName
         guard CGPreflightScreenCaptureAccess() else {
-            note = "copilot cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌥Space twice. Questions still work."
+            note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌥Space twice. Questions still work."
             // Asks once; after that it is a no-op, so the pane is opened instead.
             if !CGRequestScreenCaptureAccess() {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
@@ -163,8 +163,8 @@ final class Copilot: ObservableObject {
 
     /// Non-activating, as Spotlight: it takes the keys without taking the app in front away. On every Space and over
     /// full-screen apps, and out of screen shares (the window server honours that for most capture tools, not all).
-    private func makePanel() -> CopilotPanel {
-        let panel = CopilotPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private func makePanel() -> GlancePanel {
+        let panel = GlancePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -173,14 +173,14 @@ final class Copilot: ObservableObject {
         panel.sharingType = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onKey = { [weak self] in self?.key($0) ?? false }
-        let host = NSHostingView(rootView: CopilotView(copilot: self))
+        let host = NSHostingView(rootView: GlanceView(glance: self))
         host.sizingOptions = []
         panel.contentView = host
         return panel
     }
 }
 
-final class CopilotPanel: NSPanel {
+final class GlancePanel: NSPanel {
     var onKey: (NSEvent) -> Bool = { _ in false }
 
     override var canBecomeKey: Bool { true }
@@ -233,8 +233,8 @@ enum Markdown {
     }
 }
 
-struct CopilotView: View {
-    @ObservedObject var copilot: Copilot
+struct GlanceView: View {
+    @ObservedObject var glance: Glance
     /// Off offscreen: ImageRenderer draws a ScrollView as nothing.
     var scrolls = true
     @State private var height: CGFloat = 0
@@ -243,41 +243,41 @@ struct CopilotView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             field
-            if !copilot.turns.isEmpty || copilot.note != nil {
+            if !glance.turns.isEmpty || glance.note != nil {
                 Divider()
                 if scrolls {
                     ScrollViewReader { proxy in
                         ScrollView { thread }
-                            .frame(height: min(height, copilot.room))
-                            .onChange(of: copilot.turns.count) { proxy.scrollTo(copilot.turns.last?.id, anchor: .top) }
+                            .frame(height: min(height, glance.room))
+                            .onChange(of: glance.turns.count) { proxy.scrollTo(glance.turns.last?.id, anchor: .top) }
                     }
                 } else {
                     thread
                 }
             }
         }
-        .frame(width: Copilot.width)
+        .frame(width: Glance.width)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(scheme == .dark ? Color(white: 0.16) : Color(white: 0.97)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { copilot.place(height: $0) }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { glance.place(height: $0) }
         .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
-        .padding(Copilot.margin)
+        .padding(Glance.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var field: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: copilot.seesScreen ? "camera.viewfinder" : "sparkles")
+            Image(systemName: glance.seesScreen ? "camera.viewfinder" : "sparkles")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(copilot.seesScreen ? Color.accentColor : .secondary)
+                .foregroundStyle(glance.seesScreen ? Color.accentColor : .secondary)
             // A caret that does not blink: a blink would redraw the panel twice a second for nothing.
-            (Text(copilot.draft) + Text("|").foregroundColor(.accentColor)
-                + Text(copilot.draft.isEmpty ? (copilot.turns.isEmpty ? " Ask about your screen" : " Ask a follow-up") : "")
+            (Text(glance.draft) + Text("|").foregroundColor(.accentColor)
+                + Text(glance.draft.isEmpty ? (glance.turns.isEmpty ? " Ask about your screen" : " Ask a follow-up") : "")
                 .foregroundColor(Color.secondary.opacity(0.6)))
                 .font(.system(size: 17))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Text(copilot.copied ? "Copied" : copilot.answering ? "…" : "↵")
+            Text(glance.copied ? "Copied" : glance.answering ? "…" : "↵")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
         }
@@ -287,8 +287,8 @@ struct CopilotView: View {
 
     private var thread: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if let note = copilot.note { Text(note).font(.system(size: 13)).foregroundStyle(.orange) }
-            ForEach(copilot.turns) { turn in
+            if let note = glance.note { Text(note).font(.system(size: 13)).foregroundStyle(.orange) }
+            ForEach(glance.turns) { turn in
                 TurnView(turn: turn).id(turn.id)
             }
         }
@@ -299,7 +299,7 @@ struct CopilotView: View {
 }
 
 struct TurnView: View {
-    let turn: Copilot.Turn
+    let turn: Glance.Turn
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

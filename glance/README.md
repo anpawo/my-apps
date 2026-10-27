@@ -1,4 +1,4 @@
-# copilot
+# glance
 
 Ask about what is on the screen, on ⌥Space. With nothing typed, ↵ works out what you need from the screen: the
 fix for the error, the reply to the message, the answer to the exercise.
@@ -36,7 +36,7 @@ meeting transcript here.
 ./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
 ```
 
-`copilot --selftest` checks what goes to `claude` and back, the keys and the Markdown;
-`copilot --ask <image> [question] [follow-up…]` runs a conversation on a picture in the terminal, with timings;
-`copilot --render out.png [--dark]` draws the panel offscreen. `docs/make-demo.sh` draws the GIF again;
+`glance --selftest` checks what goes to `claude` and back, the keys and the Markdown;
+`glance --ask <image> [question] [follow-up…]` runs a conversation on a picture in the terminal, with timings;
+`glance --render out.png [--dark]` draws the panel offscreen. `docs/make-demo.sh` draws the GIF again;
 `--ask-again` asks Claude about its screen once more.

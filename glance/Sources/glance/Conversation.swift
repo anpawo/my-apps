@@ -28,7 +28,7 @@ final class Conversation: @unchecked Sendable {
     ]
 
     static let prompt = """
-    You are copilot, a panel on Marius's Mac that he calls up with a key while he works. A message may carry a \
+    You are glance, a panel on Marius's Mac that he calls up with a key while he works. A message may carry a \
     screenshot of his screen taken when he called you (the panel itself is left out of it), and the app in front.
 
     When he types a question, answer it. When he types nothing, work out from the screen what he most likely needs \
@@ -83,7 +83,7 @@ final class Conversation: @unchecked Sendable {
     private static let path = "/opt/homebrew/bin:\(NSHomeDirectory())/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
     /// Everything below is only touched on it.
-    private let queue = DispatchQueue(label: "com.mr.copilot.conversation")
+    private let queue = DispatchQueue(label: "com.mr.glance.conversation")
     private var process: Process?
     private var input: FileHandle?
     private var unread = Data()

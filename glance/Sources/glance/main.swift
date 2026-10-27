@@ -15,9 +15,9 @@ func registerChord(keyCode: Int, modifiers: Int, label: String, _ action: @escap
         return noErr
     }, 1, &spec, nil, nil)
     var ref: EventHotKeyRef?
-    let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), EventHotKeyID(signature: OSType(0x434F_504C), id: 1),
+    let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), EventHotKeyID(signature: OSType(0x474C_4E43), id: 1),
                                      GetEventDispatcherTarget(), 0, &ref)
-    if status != noErr { NSLog("copilot: could not register \(label) (\(status)), another app likely owns it") }
+    if status != noErr { NSLog("glance: could not register \(label) (\(status)), another app likely owns it") }
 }
 
 let args = CommandLine.arguments
@@ -79,7 +79,7 @@ if let i = args.firstIndex(of: "--render-demo"), i + 1 < args.count {
 
 @MainActor
 final class App: NSObject, NSApplicationDelegate {
-    let copilot = Copilot()
+    let glance = Glance()
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // An agent with no window is a candidate for automatic termination; that is how it would "crash" unseen.
@@ -89,12 +89,12 @@ final class App: NSObject, NSApplicationDelegate {
         let me = NSRunningApplication.current
         if NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .contains(where: { $0 != me && ($0.launchDate ?? .distantPast) <= (me.launchDate ?? .now) }) {
-            NSLog("copilot: already running")
+            NSLog("glance: already running")
             exit(0)
         }
-        let copilot = self.copilot
+        let glance = self.glance
         // Free: Handy holds ⌥⇧Space and ⌘S, opener ⌘Space (27/10/2026).
-        registerChord(keyCode: kVK_Space, modifiers: optionKey, label: "⌥Space") { MainActor.assumeIsolated { copilot.summon() } }
+        registerChord(keyCode: kVK_Space, modifiers: optionKey, label: "⌥Space") { MainActor.assumeIsolated { glance.summon() } }
     }
 }
 
