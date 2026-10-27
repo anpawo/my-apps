@@ -35,7 +35,7 @@ if let i = args.firstIndex(of: "--ask"), i + 1 < args.count {
     var conversation: Conversation!
     func ask(_ typed: String, _ image: Data?) {
         print("> \(typed.isEmpty ? "(nothing typed)" : typed)\n")
-        conversation.send(Conversation.question(typed, app: image == nil ? nil : "Terminal"), image: image)
+        conversation.send(Conversation.question(typed, app: image == nil ? nil : "Terminal"), images: image.map { [$0] } ?? [])
     }
     func seconds(_ t: TimeInterval?) -> String { t.map { String(format: "%.1f s", $0) } ?? "none" }
     conversation = Conversation { event in
@@ -86,6 +86,34 @@ if let i = args.firstIndex(of: "--listen"), i + 1 < args.count, let seconds = Do
         print(Sound.words(await transcript.finish(), length: seconds))
         FileHandle.standardError.write(Data(String(format: "last words settled in %.1f s\n", Date().timeIntervalSince(start)).utf8))
         exit(0)
+    }
+    dispatchMain()
+}
+
+// `--film <seconds> [question]`: the screen filmed that long, as the Video button films it, then asked about as ↵ asks,
+// the answer printed. Never a window.
+if let i = args.firstIndex(of: "--film"), i + 1 < args.count, let seconds = Double(args[i + 1]) {
+    guard CGPreflightScreenCaptureAccess() else {
+        print("no Screen & System Audio Recording permission")
+        exit(1)
+    }
+    var conversation: Conversation?
+    Task { @MainActor in
+        let film = Film()
+        film.start()
+        try? await Task.sleep(for: .seconds(seconds))
+        film.stop()
+        let frames = film.frames
+        FileHandle.standardError.write(Data("\(frames.count) frames at \(frames.map { Sound.clock($0.at) }.joined(separator: " ")), \(frames.map(\.jpeg.count).reduce(0, +) / 1024) KB\n".utf8))
+        conversation = Conversation { event in
+            switch event {
+            case .text(let t): print(t, terminator: ""); fflush(stdout)
+            case .done: print(); exit(0)
+            case .failed(let why): FileHandle.standardError.write(Data("failed: \(why)\n".utf8)); exit(1)
+            }
+        }
+        conversation?.send(Conversation.question(i + 2 < args.count ? args[i + 2] : "", app: nil, filmed: Film.words(frames, length: seconds)),
+                           images: frames.map(\.jpeg))
     }
     dispatchMain()
 }

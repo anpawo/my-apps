@@ -29,9 +29,12 @@ enum SelfCheck {
         expect(Conversation.event(line(#"{"type":"system","subtype":"init"}"#)), nil, "the init line is nothing")
         expect(Conversation.event(line("not json")), nil, "a stray line is nothing")
 
-        let sent = try? JSONSerialization.jsonObject(with: Conversation.message("hi", image: Data([1, 2, 3]))) as? [String: Any]
+        let sent = try? JSONSerialization.jsonObject(with: Conversation.message("hi", images: [Data([1, 2, 3])])) as? [String: Any]
         let content = (sent?["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
         expect(content.map { $0["type"] as? String ?? "" }, ["image", "text"], "the screenshot goes before the words")
+        let filmed = try? JSONSerialization.jsonObject(with: Conversation.message("hi", images: [Data([1]), Data([2])])) as? [String: Any]
+        expect(((filmed?["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []).map { $0["type"] as? String ?? "" },
+               ["image", "image", "text"], "a film's frames go in order before the words")
         expect((content.first?["source"] as? [String: String])?["data"], "AQID", "the screenshot as base64")
         expect(Conversation.question("", app: "Safari"), "In front: Safari.\n\n(Nothing typed: help with what is on the screen.)",
                "nothing typed asks for help with the screen, naming the app")
@@ -39,6 +42,14 @@ enum SelfCheck {
         expect(Conversation.question("", app: "Zoom", heard: "Sound from the computer, 0:12, transcribed:\nAny questions?"),
                "In front: Zoom.\n\nSound from the computer, 0:12, transcribed:\nAny questions?\n\n(Nothing typed: help with what was heard.)",
                "nothing typed after listening asks for help with what was heard, after the app")
+        expect(Conversation.question("", app: "Safari", filmed: "The screen, filmed for 0:04: …"),
+               "In front: Safari.\n\nThe screen, filmed for 0:04: …\n\n(Nothing typed: help with what the screen showed.)",
+               "nothing typed after filming asks for help with what the screen showed")
+        let film = Film()
+        for t in 0...Film.most { film.add(Film.Frame(at: Double(t), jpeg: Data())) }
+        expect(film.frames.map(\.at), [0, 2, 4, 6, 8, 10, 12, 14, 16], "past 16 frames every other one goes")
+        expect(Film.words(Array(film.frames.prefix(2)), length: 4.2), "The screen, filmed for 0:04: the 2 images above, oldest first, taken at 0:00, 0:02.",
+               "the frames are told with their times")
         expect(Sound.clock(75.9), "1:15", "a length reads as minutes and seconds")
 
         expect(Sound.words("", length: 3), "Sound from the computer, 0:03: no speech in it.", "nothing said says so")

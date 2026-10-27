@@ -1,6 +1,6 @@
 # glance
 
-Ask about what is on the screen, on ⌘⌥J, and about what the computer plays, on ⌘R. With nothing typed, ↵ works
+Ask about what is on the screen, on ⌘⌥J, what happens on it, on ⌘F, and what the computer plays, on ⌘R. With nothing typed, ↵ works
 out what you need from the screen: the fix for the error, the reply to the message, the answer to the exercise;
 after listening, from what was said: the answer to the question asked in the call, the gist of the video, the song.
 
@@ -9,7 +9,11 @@ after listening, from what was said: the answer to the question asked in the cal
 ⌘⌥J takes a screenshot of the display under the mouse (the panel left out) and starts `claude`; ↵ sends the
 screenshot and the question to Claude Opus through Claude Code, on the subscription it is logged in with: no API
 key. The first words come 1.5 to 3 s after ↵. Follow-ups go to the same process, which remembers the screen;
-⎋ ends it. The screenshot stays in memory and no transcript is kept; the `claude` process takes about 150 MB while
+⎋ ends it. The buttons on top pick what goes with the next question, each with its key: Photo (⌘P) a new
+screenshot, or none when it is already blue; Video (⌘F) films the screen until Video again or ↵, a frame a
+second, and sends the frames in place of the screenshot (past 16, every other one goes and the pace halves, so a
+long film sends at most 16, spread over all of it; 9 frames of 20 s came to 780 KB and an answer 5 s later). The
+question is typed at the bottom. The screenshot stays in memory and no transcript is kept; the `claude` process takes about 150 MB while
 the panel is up, nothing otherwise.
 
 ⌘R, or the Listen button, listens to the computer's sound (every app but glance; not the microphone) until ⌘R
@@ -31,8 +35,11 @@ anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it 
 |---|---|
 | ⌘⌥J | open on the screen as it is, with the focus; again, close |
 | letters | the question, in French or English: the answer comes in the same |
-| ⌘R | listen to the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
-| ↵ | ask; with nothing typed, help with the screen, or with what was heard |
+| ⌘P | Photo: a new screenshot for the next question; again, none |
+| ⌘F | Video: film the screen for the next question; again, stop (↵ stops it too) |
+| ⌘R | Listen: the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
+| ⌘E | the eye: Seen or Hidden by screenshots and screen shares |
+| ↵ | ask; with nothing typed, help with the screen, or with what it showed or what was heard |
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
 | ⌫, ⌥⌫, ⌘⌫ | take a letter, a word, all of it |
@@ -57,5 +64,6 @@ Needs macOS 26, for its speech recognizer.
 are put together;
 `glance --ask <image> [question] [follow-up…]` runs a conversation on a picture in the terminal, with timings;
 `glance --listen <seconds>` prints the words of what the computer plays as they come, then as ↵ would send them;
+`glance --film <seconds> [question]` films the screen as Video does and prints Claude's answer about it;
 `glance --render out.png` draws the panel offscreen, over the demo's screen. `docs/make-demo.sh` draws the GIF again;
 `--ask-again` asks Claude about its screen once more.

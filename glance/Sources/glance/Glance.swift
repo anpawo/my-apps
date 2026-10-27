@@ -9,6 +9,7 @@ final class Glance: ObservableObject {
         var question: String
         var withScreen: Bool
         var withSound = false
+        var withFilm = false
         /// What was heard, as the live text showed it.
         var transcript: String?
         var answer = ""
@@ -27,6 +28,10 @@ final class Glance: ObservableObject {
     @Published var turns: [Turn] = []
     /// A screenshot is waiting to go with the next question.
     @Published var seesScreen = false
+    /// Filming the screen since then.
+    @Published var filming: Date?
+    /// The film's frames wait to go with the next question.
+    @Published var films = false
     /// Listening to the computer since then.
     @Published var listening: Date?
     /// What was heard waits to go with the next question.
@@ -46,6 +51,8 @@ final class Glance: ObservableObject {
     /// The box's size: the screen's shape.
     @Published var size = CGSize(width: width, height: width * 10 / 16)
     private var shot: Task<Data?, Never>?
+    private var film: Film?
+    private var filmedFor: TimeInterval = 0
     private var listener: Listener?
     private var transcript: Transcript?
     private var starting: Task<Void, Error>?
@@ -96,9 +103,43 @@ final class Glance: ObservableObject {
         conversation = nil
         shot?.cancel()
         (shot, seesScreen) = (nil, false)
+        dropFilm()
         if listening != nil { stopListening() }
         (transcript, heard, hears, live) = (nil, nil, false, "")
     }
+
+    /// ⌘P or the Photo button: a new screenshot goes with the next question, in place of a film; again, none.
+    func photo() {
+        dropFilm()
+        if seesScreen { shot?.cancel(); (shot, seesScreen) = (nil, false) } else { capture() }
+    }
+
+    /// ⌘F or the Video button. The screen from now on, a frame a second, goes with the next question in place of the
+    /// screenshot; again stops filming, so does ↵.
+    func filmScreen() {
+        if filming != nil { return stopFilming() }
+        guard CGPreflightScreenCaptureAccess() else { return capture() }
+        shot?.cancel()
+        (shot, seesScreen) = (nil, false)
+        dropFilm()
+        let film = Film()
+        film.start()
+        (self.film, filming, note, app) = (film, Date(), nil, front)
+    }
+
+    private func stopFilming() {
+        guard let film, let since = filming else { return }
+        film.stop()
+        (filmedFor, filming, films) = (Date().timeIntervalSince(since), nil, true)
+    }
+
+    private func dropFilm() {
+        film?.stop()
+        (film, filming, films) = (nil, nil, false)
+    }
+
+    /// The app he works in: the one behind glance once glance has the focus.
+    private var front: String? { (NSApp.isActive ? before : NSWorkspace.shared.frontmostApplication)?.localizedName }
 
     /// ⌘R or the Listen button. The computer's sound from now on, in words as it plays, goes with the next question;
     /// again stops listening, so does ↵.
@@ -139,7 +180,7 @@ final class Glance: ObservableObject {
     }
 
     private func capture() {
-        app = NSWorkspace.shared.frontmostApplication?.localizedName
+        app = front
         guard CGPreflightScreenCaptureAccess() else {
             note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌘⌥J twice. Questions still work."
             // Asks once; after that it is a no-op, so the pane is opened instead.
@@ -164,18 +205,24 @@ final class Glance: ObservableObject {
         guard !answering, let conversation else { return }
         let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if listening != nil { stopListening() }
-        guard !typed.isEmpty || shot != nil || heard != nil else { return }
-        let pending = shot, sound = heard, length = heardFor, app = self.app
-        turns.append(Turn(question: typed, withScreen: pending != nil, withSound: sound != nil, transcript: sound == nil ? nil : live))
+        if filming != nil { stopFilming() }
+        let frames = films ? film?.frames ?? [] : []
+        guard !typed.isEmpty || shot != nil || heard != nil || !frames.isEmpty else { return }
+        let pending = shot, sound = heard, length = heardFor, filmed = filmedFor, app = self.app
+        turns.append(Turn(question: typed, withScreen: pending != nil, withSound: sound != nil, withFilm: !frames.isEmpty,
+                          transcript: sound == nil ? nil : live))
         (shot, seesScreen, heard, hears, draft, note, transcript, live) = (nil, false, nil, false, "", nil, nil, "")
+        (film, films) = (nil, false)
         let index = turns.count - 1
         Task {
             let image = await pending?.value
             if image == nil { turns[index].withScreen = false }
             let words = await sound?.value
             if let words { turns[index].transcript = words }
-            conversation.send(Conversation.question(typed, app: image == nil ? nil : app, heard: words.map { Sound.words($0, length: length) }),
-                              image: image)
+            let images = image.map { [$0] } ?? frames.map(\.jpeg)
+            conversation.send(Conversation.question(typed, app: images.isEmpty ? nil : app, heard: words.map { Sound.words($0, length: length) },
+                                                    filmed: frames.isEmpty ? nil : Film.words(frames, length: filmed)),
+                              images: images)
         }
     }
 
@@ -218,6 +265,9 @@ final class Glance: ObservableObject {
         case kVK_ANSI_V where flags.contains(.command): draft += NSPasteboard.general.string(forType: .string) ?? ""
         case kVK_ANSI_C where flags.contains(.command): copy()
         case kVK_ANSI_R where flags.contains(.command): listen()
+        case kVK_ANSI_P where flags.contains(.command): photo()
+        case kVK_ANSI_F where flags.contains(.command): filmScreen()
+        case kVK_ANSI_E where flags.contains(.command): hidden.toggle()
         case kVK_LeftArrow where flags.contains(.control): move(left: true)
         case kVK_RightArrow where flags.contains(.control): move(left: false)
         case kVK_UpArrow where flags.contains(.control): move(bottom: false)
@@ -360,10 +410,11 @@ struct GlanceView: View {
     @Environment(\.renderBehind) private var renderBehind
 
     var body: some View {
+        // The buttons on top, the answers under them, the question at the bottom (his pick, 27/10/2026).
         VStack(alignment: .leading, spacing: 0) {
-            field
-            if !glance.turns.isEmpty || glance.note != nil || glance.listening != nil || glance.hears {
-                Divider()
+            buttons
+            Divider()
+            Group {
                 if scrolls {
                     ScrollViewReader { proxy in
                         ScrollView { thread }
@@ -374,6 +425,10 @@ struct GlanceView: View {
                     thread
                 }
             }
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .clipped()
+            Divider()
+            field
         }
         .frame(width: glance.size.width, height: glance.size.height, alignment: .top)
         // Light text whatever the system's mode: it sits on a light glass. The text alone: a light material hides the
@@ -396,11 +451,51 @@ struct GlanceView: View {
         .padding(Glance.margin)
     }
 
+    /// Each with its key, shown on it (his pick, 27/10/2026). Blue: what goes with the next question; red: recording.
+    private var buttons: some View {
+        HStack(spacing: 8) {
+            Button { glance.photo() } label: { Label("Photo", systemImage: "camera") }
+                .buttonStyle(Pill(key: "⌘P", fill: glance.seesScreen ? .accentColor : nil))
+                .help(glance.seesScreen ? "The screenshot goes with the next question: click to send none"
+                                        : "Take a screenshot to send with the next question")
+            Button { glance.filmScreen() } label: {
+                if let since = glance.filming {
+                    TimelineView(.periodic(from: since, by: 1)) { context in
+                        Label(Sound.clock(context.date.timeIntervalSince(since)), systemImage: "stop.fill")
+                    }
+                    .monospacedDigit()
+                } else {
+                    Label("Video", systemImage: "video")
+                }
+            }
+            .buttonStyle(Pill(key: "⌘F", fill: glance.filming != nil ? .red : glance.films ? .accentColor : nil))
+            .help(glance.filming != nil ? "Stop filming" : "Film the screen, a frame a second, to send with the next question")
+            Button { glance.listen() } label: {
+                if let since = glance.listening {
+                    TimelineView(.periodic(from: since, by: 1)) { context in
+                        Label(Sound.clock(context.date.timeIntervalSince(since)), systemImage: "stop.fill")
+                    }
+                    .monospacedDigit()
+                } else {
+                    Label("Listen", systemImage: "waveform")
+                }
+            }
+            .buttonStyle(Pill(key: "⌘R", fill: glance.listening != nil ? .red : nil))
+            .help(glance.listening != nil ? "Stop listening" : "Listen to the computer's sound and write it out live")
+            Button { glance.hidden.toggle() } label: {
+                Label(glance.hidden ? "Hidden" : "Seen", systemImage: glance.hidden ? "eye.slash" : "eye")
+            }
+            .buttonStyle(Pill(key: "⌘E"))
+            .help(glance.hidden ? "Left out of screenshots and screen shares: click to let them see it"
+                                : "Seen by screenshots and screen shares: click to leave it out")
+        }
+        .fixedSize()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
     private var field: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: glance.listening != nil || glance.hears ? "waveform" : glance.seesScreen ? "camera.viewfinder" : "sparkles")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(glance.listening != nil ? Color.red : glance.hears || glance.seesScreen ? Color.accentColor : .secondary)
             // A caret that does not blink: a blink would redraw the panel twice a second for nothing.
             (Text(glance.draft) + Text("|").foregroundColor(.accentColor)
                 + Text(glance.draft.isEmpty ? placeholder : "")
@@ -408,39 +503,21 @@ struct GlanceView: View {
                 .font(.system(size: 17))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                Button { glance.listen() } label: {
-                    if let since = glance.listening {
-                        TimelineView(.periodic(from: since, by: 1)) { context in
-                            Label(Sound.clock(context.date.timeIntervalSince(since)), systemImage: "stop.fill")
-                        }
-                        .monospacedDigit()
-                    } else {
-                        Label("Listen", systemImage: "waveform")
-                    }
-                }
-                .buttonStyle(Pill(on: glance.listening != nil))
-                .help(glance.listening != nil ? "Stop listening (⌘R)" : "Listen to the computer's sound and write it out live (⌘R)")
-                Button { glance.hidden.toggle() } label: {
-                    Label(glance.hidden ? "Hidden" : "Seen", systemImage: glance.hidden ? "eye.slash" : "eye")
-                }
-                .buttonStyle(Pill(on: false))
-                .help(glance.hidden ? "Left out of screenshots and screen shares: click to let them see it"
-                                    : "Seen by screenshots and screen shares: click to leave it out")
-                Text(glance.copied ? "Copied" : glance.answering ? "…" : "↵")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            // The buttons whole, the question wraps instead: at 416 pt they were cut to "Lis…".
-            .fixedSize()
+            Text(glance.copied ? "Copied" : glance.answering ? "…" : "↵")
+                .font(.system(size: 13, weight: .medium))
+                .fixedSize()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
     }
 
     private var placeholder: String {
+        if glance.filming != nil { return " Filming the screen, ↵ to ask about it" }
         if glance.listening != nil { return " Listening to the computer, ↵ to ask about it" }
+        if glance.films { return " Ask about what the screen showed" }
         if glance.hears { return " Ask about what was heard" }
-        return glance.turns.isEmpty ? " Ask about your screen" : " Ask a follow-up"
+        if glance.seesScreen { return " Ask about your screen" }
+        return glance.turns.isEmpty ? " Ask anything" : " Ask a follow-up"
     }
 
     private var thread: some View {
@@ -473,9 +550,9 @@ struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if turn.withScreen { Image(systemName: "camera.viewfinder") }
                 if turn.withSound { Image(systemName: "waveform") }
-                Text(turn.question.isEmpty ? (turn.withSound ? "What was heard" : "What's on screen") : turn.question)
+                Text(turn.question.isEmpty ? (turn.withSound ? "What was heard" : turn.withFilm ? "What the screen showed" : "What's on screen")
+                                           : turn.question)
             }
             .font(.system(size: 13, weight: .medium))
             // Its end: the question is mostly about the last thing said.
@@ -514,16 +591,19 @@ struct TurnView: View {
 
 /// The panel's buttons: the watch list's rows, a whiter glass with a grey rim; red while it runs.
 struct Pill: ButtonStyle {
-    let on: Bool
+    let key: String
+    var fill: Color?
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .labelStyle(.titleAndIcon)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(on ? Color.white : Glass.ink)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(on ? Color.red : .white.opacity(configuration.isPressed ? 0.85 : 0.6), in: Capsule())
-            .overlay(Capsule().strokeBorder(on ? Color.clear : Glass.line, lineWidth: 1))
+        HStack(spacing: 5) {
+            configuration.label.labelStyle(.titleAndIcon)
+            Text(key).opacity(0.55)
+        }
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(fill == nil ? Color.black : .white)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(fill ?? .white.opacity(configuration.isPressed ? 0.85 : 0.6), in: Capsule())
+        .overlay(Capsule().strokeBorder(fill == nil ? Glass.line : .clear, lineWidth: 1))
     }
 }

@@ -29,7 +29,9 @@ final class Conversation: @unchecked Sendable {
 
     static let prompt = """
     You are glance, a panel on Marius's Mac that he calls up with a key while he works. A message may carry a \
-    screenshot of his screen taken when he called you (the panel itself is left out of it), and the app in front.
+    screenshot of his screen taken when he called you (the panel itself is left out of it), and the app in front. \
+    In place of the screenshot it may carry frames of the screen he filmed, oldest first, with when each was taken: \
+    read them as one sequence, what happened on the screen over that time (a video, a demo, steps he went through).
 
     When he types a question, answer it. When he types nothing, work out from the screen what he most likely needs \
     and give it: the answer to a question or exercise shown, the fix for an error, a reply to the message he is \
@@ -53,18 +55,17 @@ final class Conversation: @unchecked Sendable {
 
     /// What a turn says: the question, or the standing one when he typed nothing; the app in front with a screenshot,
     /// what was heard (`Sound.words`) when he listened.
-    static func question(_ typed: String, app: String?, heard: String? = nil) -> String {
-        let head = (app.map { "In front: \($0).\n\n" } ?? "") + (heard.map { "\($0)\n\n" } ?? "")
-        let standing = heard == nil ? "(Nothing typed: help with what is on the screen.)" : "(Nothing typed: help with what was heard.)"
+    static func question(_ typed: String, app: String?, heard: String? = nil, filmed: String? = nil) -> String {
+        let head = (app.map { "In front: \($0).\n\n" } ?? "") + (filmed.map { "\($0)\n\n" } ?? "") + (heard.map { "\($0)\n\n" } ?? "")
+        let about = [filmed.map { _ in "what the screen showed" }, heard.map { _ in "what was heard" }].compactMap { $0 }
+        let standing = "(Nothing typed: help with \(about.isEmpty ? "what is on the screen" : about.joined(separator: " and ")).)"
         return head + (typed.isEmpty ? standing : typed)
     }
 
-    /// One stream-json input line: the screenshot first, then the words, as the API reads an image best.
-    static func message(_ text: String, image: Data?) -> Data {
-        var content: [[String: Any]] = []
-        if let image {
-            content.append(["type": "image", "source": ["type": "base64", "media_type": "image/jpeg",
-                                                        "data": image.base64EncodedString()]])
+    /// One stream-json input line: the screenshot or the film's frames first, then the words, as the API reads images best.
+    static func message(_ text: String, images: [Data]) -> Data {
+        var content: [[String: Any]] = images.map {
+            ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": $0.base64EncodedString()]]
         }
         content.append(["type": "text", "text": text])
         return try! JSONSerialization.data(withJSONObject: ["type": "user", "message": ["role": "user", "content": content]])
@@ -104,12 +105,12 @@ final class Conversation: @unchecked Sendable {
 
     func start() { queue.async { self.launch() } }
 
-    func send(_ text: String, image: Data?) {
+    func send(_ text: String, images: [Data]) {
         queue.async { [self] in
             launch()
             guard let input else { return }
             asking = true
-            do { try input.write(contentsOf: Self.message(text, image: image) + Data([0x0A])) } catch { ended() }
+            do { try input.write(contentsOf: Self.message(text, images: images) + Data([0x0A])) } catch { ended() }
         }
     }
 

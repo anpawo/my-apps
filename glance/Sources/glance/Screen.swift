@@ -13,7 +13,7 @@ enum Screen {
 
     /// The display under the mouse, this app's windows left out, as JPEG.
     @MainActor
-    static func shot() async throws -> Data {
+    static func shot(longEdge: Int = longEdge) async throws -> Data {
         let screen = NSScreen.underMouse
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == screen.displayID }) else { throw Failure.noDisplay }
@@ -24,11 +24,11 @@ enum Screen {
         config.showsCursor = false
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: []), configuration: config)
-        return jpeg(image)
+        return jpeg(image, longEdge: longEdge)
     }
 
-    static func jpeg(_ image: CGImage) -> Data {
-        let size = fit(image.width, image.height)
+    static func jpeg(_ image: CGImage, longEdge: Int = longEdge) -> Data {
+        let size = fit(image.width, image.height, longEdge: longEdge)
         var out = image
         if size.width != image.width,
            let context = CGContext(data: nil, width: size.width, height: size.height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -43,6 +43,44 @@ enum Screen {
     enum Failure: LocalizedError {
         case noDisplay
         var errorDescription: String? { "the display is not shareable" }
+    }
+}
+
+/// The screen filmed: a frame a second, smaller than the screenshot (there are many); past `most`, every other one goes
+/// and the pace halves, so a long film still sends at most `most` frames, spread over all of it.
+@MainActor
+final class Film {
+    static let most = 16
+    struct Frame { let at: TimeInterval; let jpeg: Data }
+    private(set) var frames: [Frame] = []
+    private var every: TimeInterval = 1
+    private var task: Task<Void, Never>?
+
+    func start() {
+        let began = Date()
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                let shot = try? await Screen.shot(longEdge: 1280)
+                guard let self, !Task.isCancelled else { return }
+                if let shot { add(Frame(at: Date().timeIntervalSince(began), jpeg: shot)) }
+                try? await Task.sleep(for: .seconds(every))
+            }
+        }
+    }
+
+    func stop() { task?.cancel() }
+
+    func add(_ frame: Frame) {
+        frames.append(frame)
+        guard frames.count > Self.most else { return }
+        frames = frames.enumerated().filter { $0.offset.isMultiple(of: 2) }.map(\.element)
+        every *= 2
+    }
+
+    /// What goes with the frames, after them: how long the film ran and when each frame was taken.
+    static func words(_ frames: [Frame], length: TimeInterval) -> String {
+        "The screen, filmed for \(Sound.clock(length)): the \(frames.count) images above, oldest first, taken at "
+            + frames.map { Sound.clock($0.at) }.joined(separator: ", ") + "."
     }
 }
 
