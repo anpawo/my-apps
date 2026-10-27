@@ -36,6 +36,7 @@ final class Glance: ObservableObject {
     /// Put in words from the moment listening stops, not from ↵.
     private var heard: Task<String, Never>?
     private var app: String?
+    private var before: NSRunningApplication?
     private var conversation: Conversation?
     private var panel: GlancePanel?
     private var top = CGPoint.zero
@@ -56,12 +57,17 @@ final class Glance: ObservableObject {
         room = (area.height * 0.7).rounded()
         top = CGPoint(x: area.midX, y: area.maxY - 8 + Self.margin)
         place(height: 48)
-        panel.orderFrontRegardless()
-        panel.makeKey()
+        // It takes the focus, his pick (27/10/2026): the app behind goes inactive, and gets it back on ⎋.
+        before = NSWorkspace.shared.frontmostApplication
+        NSApp.activate()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func hide() {
         panel?.orderOut(nil)
+        // Only when glance still has it: a click in another app since then chose where the focus goes.
+        if NSApp.isActive { before?.activate(options: []) }
+        before = nil
         conversation?.stop()
         conversation = nil
         shot?.cancel()
@@ -193,7 +199,8 @@ final class Glance: ObservableObject {
         panel.setFrame(NSRect(x: top.x - size.width / 2, y: top.y - size.height, width: size.width, height: size.height), display: true)
     }
 
-    /// Non-activating, as Spotlight: it takes the keys without taking the app in front away. On every Space and over
+    /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
+    /// (⌘⌥G is what takes the focus). On every Space and over
     /// full-screen apps, and out of screen shares (the window server honours that for most capture tools, not all).
     private func makePanel() -> GlancePanel {
         let panel = GlancePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
