@@ -1,18 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Watcher's watch list glass (watcher/Sources/watcher/Checks.swift), his pick for glance too: the site's `.light`
-/// glass, `backdrop-filter: blur(40px) saturate(200%) brightness(1.15)`, on what is behind the window. A behind-window
-/// effect view whose backdrop layer takes those filters, its own tints hidden.
+/// Watcher's watch list glass (watcher/Sources/watcher/Checks.swift), his pick for glance too: what is behind the window
+/// blurred 40 pt, toned by `matrix`. A behind-window effect view whose backdrop layer takes those filters, its own tints
+/// hidden.
 final class Glass: NSVisualEffectView {
-    /// CSS `saturate(200%) brightness(1.15)` on sRGB values, the Filter Effects spec's matrix: rows R, G, B. Times 0.7
-    /// first: Watcher's card stands on its veil, black at 0.3, and glance takes the same look without one.
-    static let matrix: [[Double]] = {
-        let s = 2.0
-        return [[0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
-                [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
-                [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]].map { $0.map { $0 * 0.7 * 1.15 } }
-    }()
+    /// Watcher's card as it shows on his screen rather than its CSS: over the same Ghostty window, the card read
+    /// (197, 202, 200) and glance, with the site's `saturate(200%) brightness(1.15)`, a beige (214, 210, 200), the
+    /// highlighted lines under the top of the screen saturated (27/10/2026). Black at 0.3, Watcher's veil, and no more:
+    /// the tint over it gives (195, 197, 199) on white. Rows R, G, B.
+    static let matrix: [[Double]] = [[0.7, 0, 0], [0, 0.7, 0], [0, 0, 0.7]]
 
     /// The site's glass fill over the backdrop, and its rims.
     static let tint = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.4)
