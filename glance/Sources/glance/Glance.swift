@@ -34,14 +34,9 @@ final class Glance: ObservableObject {
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
 
-    /// ⌥Space. Hidden: a new conversation on the screen as it is. Up but not in focus (he clicked in the app behind):
-    /// the screen again, for the next question. Up and in focus: put away.
+    /// ⌘⌥G. Hidden: a new conversation on the screen as it is. Up: put away, wherever the focus is.
     func summon() {
-        if let panel, panel.isVisible {
-            if panel.isKeyWindow { return hide() }
-            capture()
-            return panel.makeKey()
-        }
+        if let panel, panel.isVisible { return hide() }
         (draft, turns, note) = ("", [], nil)
         capture()
         let conversation = Conversation { [weak self] in self?.receive($0) }
@@ -68,7 +63,7 @@ final class Glance: ObservableObject {
     private func capture() {
         app = NSWorkspace.shared.frontmostApplication?.localizedName
         guard CGPreflightScreenCaptureAccess() else {
-            note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌥Space twice. Questions still work."
+            note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌘⌥G twice. Questions still work."
             // Asks once; after that it is a no-op, so the pane is opened instead.
             if !CGRequestScreenCaptureAccess() {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)

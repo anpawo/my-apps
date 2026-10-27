@@ -93,8 +93,8 @@ final class App: NSObject, NSApplicationDelegate {
             exit(0)
         }
         let glance = self.glance
-        // Free: Handy holds ⌥⇧Space and ⌘S, opener ⌘Space (27/10/2026).
-        registerChord(keyCode: kVK_Space, modifiers: optionKey, label: "⌥Space") { MainActor.assumeIsolated { glance.summon() } }
+        // His pick (27/10/2026). Free: opener holds ⌥⌘F and ⌥⌘T, watcher ⌘⌥K.
+        registerChord(keyCode: kVK_ANSI_G, modifiers: cmdKey | optionKey, label: "⌘⌥G") { MainActor.assumeIsolated { glance.summon() } }
     }
 }
 

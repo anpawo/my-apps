@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// `glance --render-demo <dir>`: the README's GIF as frames, one PNG per change, and `list.txt`, an ffmpeg concat list of
-/// how long each stays up. A terminal with a script that fails; ⌥Space and ↵ on nothing typed; a follow-up in French;
+/// how long each stays up. A terminal with a script that fails; ⌘⌥G and ↵ on nothing typed; a follow-up in French;
 /// ⌘C; ⎋. The panel is `GlanceView`, drawn offscreen, and its answers are the ones `glance --ask` gave on the first
 /// frame (`docs/make-demo.sh --ask-again`), so the GIF shows what the app does, not what it might. Frame 001 is that
 /// screen alone.
@@ -120,7 +120,7 @@ enum Demo {
         }
 
         frame(1.6)
-        press(["⌥", "Space"], {
+        press(["⌘", "⌥", "G"], {
             (up, glance.seesScreen) = (true, true)
         }, hold: 0.6, says: "opens on the screen as it is")
         press(["↵"], {
