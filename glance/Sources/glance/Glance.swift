@@ -267,7 +267,8 @@ final class Glance: ObservableObject {
         case kVK_ANSI_R where flags.contains(.command): listen()
         case kVK_ANSI_P where flags.contains(.command): photo()
         case kVK_ANSI_F where flags.contains(.command): filmScreen()
-        case kVK_ANSI_E where flags.contains(.command): hidden.toggle()
+        // Not ⌘E: opener holds it everywhere, for a Finder window.
+        case kVK_ANSI_H where flags.contains(.command): hidden.toggle()
         case kVK_LeftArrow where flags.contains(.control): move(left: true)
         case kVK_RightArrow where flags.contains(.control): move(left: false)
         case kVK_UpArrow where flags.contains(.control): move(bottom: false)
@@ -485,7 +486,7 @@ struct GlanceView: View {
             Button { glance.hidden.toggle() } label: {
                 Label(glance.hidden ? "Hidden" : "Seen", systemImage: glance.hidden ? "eye.slash" : "eye")
             }
-            .buttonStyle(Pill(key: "⌘E"))
+            .buttonStyle(Pill(key: "⌘H"))
             .help(glance.hidden ? "Left out of screenshots and screen shares: click to let them see it"
                                 : "Seen by screenshots and screen shares: click to leave it out")
         }

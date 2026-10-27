@@ -38,7 +38,7 @@ anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it 
 | ⌘P | Photo: a new screenshot for the next question; again, none |
 | ⌘F | Video: film the screen for the next question; again, stop (↵ stops it too) |
 | ⌘R | Listen: the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
-| ⌘E | the eye: Seen or Hidden by screenshots and screen shares |
+| ⌘H | the eye: Seen or Hidden by screenshots and screen shares |
 | ↵ | ask; with nothing typed, help with the screen, or with what it showed or what was heard |
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
