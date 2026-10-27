@@ -1,6 +1,6 @@
 # glance
 
-Ask about what is on the screen, on ⌘⌥J, what happens on it, on ⌘F, and what the computer plays, on ⌘R. With nothing typed, ↵ works
+Ask about what is on the screen, on ⌘⌥J, what happens on it, on ⌘2, and what the computer plays, on ⌘3. With nothing typed, ↵ works
 out what you need from the screen: the fix for the error, the reply to the message, the answer to the exercise;
 after listening, from what was said: the answer to the question asked in the call, the gist of the video, the song.
 
@@ -9,20 +9,20 @@ after listening, from what was said: the answer to the question asked in the cal
 ⌘⌥J takes a screenshot of the display under the mouse (the panel left out) and starts `claude`; ↵ sends the
 screenshot and the question to Claude Opus through Claude Code, on the subscription it is logged in with: no API
 key. The first words come 1.5 to 3 s after ↵. Follow-ups go to the same process, which remembers the screen;
-⎋ ends it. The buttons on top pick what goes with the next question, each with its key: Photo (⌘P) a new
-screenshot, or none when it is already blue; Video (⌘F) films the screen until Video again or ↵, a frame a
+⎋ ends it. The buttons on top pick what goes with the next question, each with its key: Photo (⌘1) a new
+screenshot, or none when it is already blue; Video (⌘2) films the screen until Video again or ↵, a frame a
 second, and sends the frames in place of the screenshot (past 16, every other one goes and the pace halves, so a
 long film sends at most 16, spread over all of it; 9 frames of 20 s came to 780 KB and an answer 5 s later). The
 question is typed at the bottom. The screenshot stays in memory and no transcript is kept; the `claude` process takes about 150 MB while
 the panel is up, nothing otherwise.
 
-⌘R, or the Listen button, listens to the computer's sound (every app but glance; not the microphone) until ⌘R
+⌘3, or the Listen button, listens to the computer's sound (every app but glance; not the microphone) until ⌘3
 again or ↵, and writes what is said in the panel as it is said, about a second behind. Apple's speech recognizer
 puts it in words on the Mac, once per language (the Mac's first two, as System Settings → General → Language &
 Region lists them), and each sentence is shown in the language it is surer of; a sentence run from one language
 into the other with no pause shows garbled until the pause, then comes right. Only those words go to Claude with
 the question. The sound stays in memory and never leaves the Mac. Speech only: Claude hears no tone and no music,
-only the lyrics. The first ⌘R in a language downloads its model, about a second.
+only the lyrics. The first ⌘3 in a language downloads its model, about a second.
 
 The panel is Watcher's watch list glass under the white of its rows, the screen behind it blurred and seen through: a box of the screen's
 shape, 512 pt wide, that scrolls, in a corner of the screen (top right at first; ⌃ and an arrow move it to another,
@@ -35,10 +35,10 @@ anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it 
 |---|---|
 | ⌘⌥J | open on the screen as it is, with the focus; again, close |
 | letters | the question, in French or English: the answer comes in the same |
-| ⌘P | Photo: a new screenshot for the next question; again, none |
-| ⌘F | Video: film the screen for the next question; again, stop (↵ stops it too) |
-| ⌘R | Listen: the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
-| ⌘H | the eye: Seen or Hidden by screenshots and screen shares |
+| ⌘1 | Photo: a new screenshot for the next question; again, none |
+| ⌘2 | Video: film the screen for the next question; again, stop (↵ stops it too) |
+| ⌘3 | Listen: the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
+| ⌘4 | the eye: Seen or Hidden by screenshots and screen shares |
 | ↵ | ask; with nothing typed, help with the screen, or with what it showed or what was heard |
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |

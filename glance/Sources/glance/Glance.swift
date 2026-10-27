@@ -108,13 +108,13 @@ final class Glance: ObservableObject {
         (transcript, heard, hears, live) = (nil, nil, false, "")
     }
 
-    /// ⌘P or the Photo button: a new screenshot goes with the next question, in place of a film; again, none.
+    /// ⌘1 or the Photo button: a new screenshot goes with the next question, in place of a film; again, none.
     func photo() {
         dropFilm()
         if seesScreen { shot?.cancel(); (shot, seesScreen) = (nil, false) } else { capture() }
     }
 
-    /// ⌘F or the Video button. The screen from now on, a frame a second, goes with the next question in place of the
+    /// ⌘2 or the Video button. The screen from now on, a frame a second, goes with the next question in place of the
     /// screenshot; again stops filming, so does ↵.
     func filmScreen() {
         if filming != nil { return stopFilming() }
@@ -141,7 +141,7 @@ final class Glance: ObservableObject {
     /// The app he works in: the one behind glance once glance has the focus.
     private var front: String? { (NSApp.isActive ? before : NSWorkspace.shared.frontmostApplication)?.localizedName }
 
-    /// ⌘R or the Listen button. The computer's sound from now on, in words as it plays, goes with the next question;
+    /// ⌘3 or the Listen button. The computer's sound from now on, in words as it plays, goes with the next question;
     /// again stops listening, so does ↵.
     func listen() {
         if listening != nil { return stopListening() }
@@ -264,11 +264,11 @@ final class Glance: ObservableObject {
         case kVK_Delete: draft = String(draft.dropLast())
         case kVK_ANSI_V where flags.contains(.command): draft += NSPasteboard.general.string(forType: .string) ?? ""
         case kVK_ANSI_C where flags.contains(.command): copy()
-        case kVK_ANSI_R where flags.contains(.command): listen()
-        case kVK_ANSI_P where flags.contains(.command): photo()
-        case kVK_ANSI_F where flags.contains(.command): filmScreen()
-        // Not ⌘E: opener holds it everywhere, for a Finder window.
-        case kVK_ANSI_H where flags.contains(.command): hidden.toggle()
+        // The buttons in their order, ⌘1 to ⌘4 (his pick, 27/10/2026).
+        case kVK_ANSI_1 where flags.contains(.command): photo()
+        case kVK_ANSI_2 where flags.contains(.command): filmScreen()
+        case kVK_ANSI_3 where flags.contains(.command): listen()
+        case kVK_ANSI_4 where flags.contains(.command): hidden.toggle()
         case kVK_LeftArrow where flags.contains(.control): move(left: true)
         case kVK_RightArrow where flags.contains(.control): move(left: false)
         case kVK_UpArrow where flags.contains(.control): move(bottom: false)
@@ -456,7 +456,7 @@ struct GlanceView: View {
     private var buttons: some View {
         HStack(spacing: 8) {
             Button { glance.photo() } label: { Label("Photo", systemImage: "camera") }
-                .buttonStyle(Pill(key: "⌘P", fill: glance.seesScreen ? .accentColor : nil))
+                .buttonStyle(Pill(key: "⌘1", fill: glance.seesScreen ? .accentColor : nil))
                 .help(glance.seesScreen ? "The screenshot goes with the next question: click to send none"
                                         : "Take a screenshot to send with the next question")
             Button { glance.filmScreen() } label: {
@@ -469,7 +469,7 @@ struct GlanceView: View {
                     Label("Video", systemImage: "video")
                 }
             }
-            .buttonStyle(Pill(key: "⌘F", fill: glance.filming != nil ? .red : glance.films ? .accentColor : nil))
+            .buttonStyle(Pill(key: "⌘2", fill: glance.filming != nil ? .red : glance.films ? .accentColor : nil))
             .help(glance.filming != nil ? "Stop filming" : "Film the screen, a frame a second, to send with the next question")
             Button { glance.listen() } label: {
                 if let since = glance.listening {
@@ -481,12 +481,12 @@ struct GlanceView: View {
                     Label("Listen", systemImage: "waveform")
                 }
             }
-            .buttonStyle(Pill(key: "⌘R", fill: glance.listening != nil ? .red : nil))
+            .buttonStyle(Pill(key: "⌘3", fill: glance.listening != nil ? .red : nil))
             .help(glance.listening != nil ? "Stop listening" : "Listen to the computer's sound and write it out live")
             Button { glance.hidden.toggle() } label: {
                 Label(glance.hidden ? "Hidden" : "Seen", systemImage: glance.hidden ? "eye.slash" : "eye")
             }
-            .buttonStyle(Pill(key: "⌘H"))
+            .buttonStyle(Pill(key: "⌘4"))
             .help(glance.hidden ? "Left out of screenshots and screen shares: click to let them see it"
                                 : "Seen by screenshots and screen shares: click to leave it out")
         }
