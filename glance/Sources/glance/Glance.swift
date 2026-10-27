@@ -296,8 +296,10 @@ struct GlanceView: View {
             }
         }
         .frame(width: Glance.width)
-        // The watch list's card: its glass, a white rim inside a dark one. Light whatever the system's mode: the text
-        // sits on a light glass.
+        // Light text whatever the system's mode: it sits on a light glass. The text alone: a light material hides the
+        // backdrop the glass blurs, and the panel turns clear.
+        .environment(\.colorScheme, .light)
+        // The watch list's card: its glass, a white rim inside a dark one.
         .background(Glass.tint)
         .background(alignment: .topLeading) {
             if let renderBehind { Image(nsImage: renderBehind) } else { GlassView(radius: 14) }
@@ -305,7 +307,6 @@ struct GlanceView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.4), lineWidth: 1))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Glass.ink.opacity(0.1), lineWidth: 1).padding(-1))
-        .environment(\.colorScheme, .light)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { glance.place(height: $0) }
         .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
         .padding(Glance.margin)

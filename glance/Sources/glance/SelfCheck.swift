@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 /// `glance --selftest`: what goes to `claude` and what comes back, the keys, the Markdown, the image size. Runs
 /// headless, with no `claude` and no screen, before every install. `--ask` is the check of the path to Claude itself.
@@ -94,6 +95,20 @@ enum SelfCheck {
         expect(glance.turns[1].error, "claude stopped before answering", "a failure shows under its question")
         glance.receive(.failed("claude is not installed"))
         expect(glance.note, "claude is not installed", "one with no question waiting shows as a note")
+
+        // In a window never shown, dark as his Mac is: the glass keeps the backdrop it blurs. A render cannot tell, it
+        // draws the glass from a picture; the light text once turned the material light, which names its layer otherwise.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = NSHostingView(rootView: GlanceView(glance: glance, scrolls: false))
+        window.displayIfNeeded()
+        func glass(_ v: NSView) -> Glass? { (v as? Glass) ?? v.subviews.lazy.compactMap(glass).first }
+        let shown = glass(window.contentView!)
+        // Unshown, the material builds its layers only when asked to draw.
+        shown?.display()
+        let backdrop = shown?.layer?.sublayers?.flatMap { $0.sublayers ?? [] }.first { !$0.isHidden }
+        expect(backdrop.map { ($0.filters ?? []).compactMap { ($0 as? NSObject)?.value(forKey: "name") as? String } },
+               ["sdrNormalize", "cssBlur", "colorMatrix"], "the panel's glass blurs what is behind it")
 
         print(failures == 0 ? "selftest: all passed" : "selftest: \(failures) failed")
         return failures
