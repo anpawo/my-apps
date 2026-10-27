@@ -21,8 +21,8 @@ only the lyrics. Needs `brew install whisper-cpp` and, in `~/.local/share/whispe
 
 The panel is Watcher's watch list glass, the screen behind it blurred and seen through. ⌘⌥G gives it the focus,
 and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from
-anywhere, ⎋ from the panel. Screen shares and recordings leave it out (`sharingType = .none`), as far as macOS
-still honours that: since 15.4 not every capture tool does.
+anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it as any window; only glance's own
+screenshot leaves it out.
 
 | Key | Does |
 |---|---|

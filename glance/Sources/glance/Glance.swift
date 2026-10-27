@@ -200,8 +200,8 @@ final class Glance: ObservableObject {
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
-    /// (⌘⌥G is what takes the focus). On every Space and over
-    /// full-screen apps, and out of screen shares (the window server honours that for most capture tools, not all).
+    /// (⌘⌥G is what takes the focus). On every Space and over full-screen apps. Screenshots and screen shares see it, his
+    /// pick (27/10/2026); glance's own shot leaves it out by its filter.
     private func makePanel() -> GlancePanel {
         let panel = GlancePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
@@ -209,7 +209,6 @@ final class Glance: ObservableObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
-        panel.sharingType = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onKey = { [weak self] in self?.key($0) ?? false }
         let host = NSHostingView(rootView: GlanceView(glance: self))
