@@ -84,6 +84,8 @@ enum SelfCheck {
                                           [H(language: "fr_FR", start: 5.2, end: 8, text: "what is", confidence: 0)]]),
                "So the question is. what is", "the sentence being said comes from the language it reads as")
 
+        let air = Glance.frame(screen: CGRect(x: 0, y: 0, width: 1512, height: 982), visible: CGRect(x: 0, y: 0, width: 1512, height: 949))
+        expect([air.minX, air.minY, air.width, air.height], [863, 524, 642, 418], "the panel is the screen's shape, at its top right")
         let retina = Screen.fit(2940, 1912)
         expect([retina.width, retina.height], [1920, 1249], "a Retina screen comes down to 1920 on its long edge")
         let small = Screen.fit(1280, 800)

@@ -165,15 +165,13 @@ enum Demo {
         canvas { wallpaper(); window(CGRect(x: 150, y: 84, width: 800, height: 500)) }
     }
 
-    /// Where ⌘⌥G puts it: centred, its card 8 pt under the top of the screen.
+    /// Where ⌘⌥G puts it, as `Glance.frame` says.
     private static func drawPanel(_ glance: Glance, _ glass: NSImage) {
-        let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false)
-            .frame(width: Glance.width + 2 * Glance.margin)
-            .environment(\.renderBehind, glass))
+        let frame = Glance.frame(screen: screen, visible: screen)
+        glance.size = frame.insetBy(dx: Glance.margin, dy: Glance.margin).size
+        let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false).environment(\.renderBehind, glass))
         renderer.scale = 2
-        let p = renderer.nsImage!
-        p.draw(in: CGRect(x: (screen.width - p.size.width) / 2, y: screen.maxY - 8 + Glance.margin - p.size.height,
-                          width: p.size.width, height: p.size.height))
+        renderer.nsImage!.draw(in: frame)
     }
 
     /// What the glass shows of `desk`, from the card's top-left corner down: blurred 40 pt and through the matrix, on
@@ -185,12 +183,12 @@ enum Demo {
                 "inputRVector": CIVector(x: m[0][0], y: m[0][1], z: m[0][2], w: 0),
                 "inputGVector": CIVector(x: m[1][0], y: m[1][1], z: m[1][2], w: 0),
                 "inputBVector": CIVector(x: m[2][0], y: m[2][1], z: m[2][2], w: 0)])
-        // Core Image counts from the bottom: the card runs from there up to 8 pt under the top.
-        let card = CGSize(width: Glance.width, height: screen.height - 8)
-        let pixels = CGRect(x: (screen.width - card.width) / 2 * scale, y: 0, width: card.width * scale, height: card.height * scale)
+        // Core Image counts from the bottom: from there up to the card's top.
+        let card = Glance.frame(screen: screen, visible: screen).insetBy(dx: Glance.margin, dy: Glance.margin)
+        let pixels = CGRect(x: card.minX * scale, y: 0, width: card.width * scale, height: card.maxY * scale)
         let out = CIContext(options: [.workingColorSpace: NSNull()])
             .createCGImage(image, from: pixels, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))!
-        return NSImage(cgImage: out, size: card)
+        return NSImage(cgImage: out, size: CGSize(width: card.width, height: card.maxY))
     }
 
     private static func canvas(_ draw: () -> Void) -> NSBitmapImageRep {

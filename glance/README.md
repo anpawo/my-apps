@@ -4,7 +4,7 @@ Ask about what is on the screen, on ⌘⌥G, and about what the computer plays, 
 out what you need from the screen: the fix for the error, the reply to the message, the answer to the exercise;
 after listening, from what was said: the answer to the question asked in the call, the gist of the video, the song.
 
-![⌘⌥G over a terminal where a Python script failed: the panel opens at the top, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](docs/demo.gif)
+![⌘⌥G over a terminal where a Python script failed: the panel opens at the top right, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](docs/demo.gif)
 
 ⌘⌥G takes a screenshot of the display under the mouse (the panel left out) and starts `claude`; ↵ sends the
 screenshot and the question to Claude Opus through Claude Code, on the subscription it is logged in with: no API
@@ -20,7 +20,8 @@ into the other with no pause shows garbled until the pause, then comes right. On
 the question. The sound stays in memory and never leaves the Mac. Speech only: Claude hears no tone and no music,
 only the lyrics. The first ⌘R in a language downloads its model, about a second.
 
-The panel is Watcher's watch list glass, the screen behind it blurred and seen through. ⌘⌥G gives it the focus,
+The panel is Watcher's watch list glass, the screen behind it blurred and seen through: a box of the screen's
+shape at its top right, 640 pt wide, that scrolls. ⌘⌥G gives it the focus,
 and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from
 anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it as any window; the eye button
 (Seen, Hidden) leaves it out of them, and stays as it was set. glance's own screenshot always leaves it out.

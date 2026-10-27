@@ -17,9 +17,11 @@ final class Glance: ObservableObject {
     }
 
     static let width: CGFloat = 640
-    /// Room around the box for its shadow. The panel is cut to the box, so the clear part covers only this band of the
-    /// app behind: the panel stays up while he works there.
-    static let margin: CGFloat = 24
+    /// Room around the box for its outer rim, drawn just outside it. No shadow: a soft one needs a clear band around the
+    /// box, and its edge showed where the band ended (27/10/2026); the watch list has none either.
+    static let margin: CGFloat = 1
+    /// From the box to the top and right edges of the screen.
+    static let gap: CGFloat = 8
 
     @Published var draft = ""
     @Published var turns: [Turn] = []
@@ -41,8 +43,8 @@ final class Glance: ObservableObject {
     }
     @Published var note: String?
     @Published var copied = false
-    /// The conversation's height before it scrolls.
-    @Published var room: CGFloat = 600
+    /// The box's size: the screen's shape.
+    @Published var size = CGSize(width: width, height: width * 10 / 16)
     private var shot: Task<Data?, Never>?
     private var listener: Listener?
     private var transcript: Transcript?
@@ -54,7 +56,6 @@ final class Glance: ObservableObject {
     private var before: NSRunningApplication?
     private var conversation: Conversation?
     private var panel: GlancePanel?
-    private var top = CGPoint.zero
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
 
@@ -68,10 +69,9 @@ final class Glance: ObservableObject {
         self.conversation = conversation
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let area = NSScreen.underMouse.visibleFrame
-        room = (area.height * 0.7).rounded()
-        top = CGPoint(x: area.midX, y: area.maxY - 8 + Self.margin)
-        place(height: 48)
+        let screen = NSScreen.underMouse, frame = Self.frame(screen: screen.frame, visible: screen.visibleFrame)
+        size = frame.insetBy(dx: Self.margin, dy: Self.margin).size
+        panel.setFrame(frame, display: true)
         // It takes the focus, his pick (27/10/2026): the app behind goes inactive, and gets it back on ⎋.
         before = NSWorkspace.shared.frontmostApplication
         NSApp.activate()
@@ -224,11 +224,11 @@ final class Glance: ObservableObject {
         return String(trimmed[..<(trimmed.lastIndex(where: \.isWhitespace).map { trimmed.index(after: $0) } ?? trimmed.startIndex)])
     }
 
-    /// The box's top stays where it opened; the panel grows down as the answer comes in.
-    func place(height: CGFloat) {
-        guard let panel else { return }
-        let size = NSSize(width: Self.width + 2 * Self.margin, height: height + 2 * Self.margin)
-        panel.setFrame(NSRect(x: top.x - size.width / 2, y: top.y - size.height, width: size.width, height: size.height), display: true)
+    /// The panel: a box of the screen's shape at its top right, under the menu bar (his pick, 27/10/2026).
+    static func frame(screen: CGRect, visible: CGRect) -> CGRect {
+        let size = CGSize(width: width, height: (width * screen.height / screen.width).rounded())
+        return CGRect(x: visible.maxX - gap - size.width, y: visible.maxY - gap - size.height, width: size.width, height: size.height)
+            .insetBy(dx: -margin, dy: -margin)
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
@@ -312,7 +312,6 @@ struct GlanceView: View {
     @ObservedObject var glance: Glance
     /// Off offscreen: ImageRenderer draws a ScrollView as nothing.
     var scrolls = true
-    @State private var height: CGFloat = 0
     @Environment(\.renderBehind) private var renderBehind
 
     var body: some View {
@@ -323,7 +322,6 @@ struct GlanceView: View {
                 if scrolls {
                     ScrollViewReader { proxy in
                         ScrollView { thread }
-                            .frame(height: min(height, glance.room))
                             .onChange(of: glance.turns.count) { proxy.scrollTo(glance.turns.last?.id, anchor: .top) }
                             .onChange(of: glance.live) { proxy.scrollTo("live", anchor: .bottom) }
                     }
@@ -332,7 +330,7 @@ struct GlanceView: View {
                 }
             }
         }
-        .frame(width: Glance.width)
+        .frame(width: glance.size.width, height: glance.size.height, alignment: .top)
         // Light text whatever the system's mode: it sits on a light glass. The text alone: a light material hides the
         // backdrop the glass blurs, and the panel turns clear.
         .environment(\.colorScheme, .light)
@@ -344,10 +342,7 @@ struct GlanceView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.4), lineWidth: 1))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Glass.ink.opacity(0.1), lineWidth: 1).padding(-1))
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { glance.place(height: $0) }
-        .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
         .padding(Glance.margin)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var field: some View {
@@ -418,7 +413,6 @@ struct GlanceView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
     }
 }
 
