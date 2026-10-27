@@ -65,7 +65,7 @@ final class Glance: ObservableObject {
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
 
-    /// ⌘⌥G. Hidden: a new conversation on the screen as it is. Up: put away, wherever the focus is.
+    /// ⌘⌥J. Hidden: a new conversation on the screen as it is. Up: put away, wherever the focus is.
     func summon() {
         if let panel, panel.isVisible { return hide() }
         (draft, turns, note) = ("", [], nil)
@@ -141,7 +141,7 @@ final class Glance: ObservableObject {
     private func capture() {
         app = NSWorkspace.shared.frontmostApplication?.localizedName
         guard CGPreflightScreenCaptureAccess() else {
-            note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌘⌥G twice. Questions still work."
+            note = "glance cannot see the screen: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording, then ⌘⌥J twice. Questions still work."
             // Asks once; after that it is a no-op, so the pane is opened instead.
             if !CGRequestScreenCaptureAccess() {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
@@ -276,7 +276,7 @@ final class Glance: ObservableObject {
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
-    /// (⌘⌥G is what takes the focus). On every Space and over full-screen apps.
+    /// (⌘⌥J is what takes the focus). On every Space and over full-screen apps.
     private func makePanel() -> GlancePanel {
         let panel = GlancePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating

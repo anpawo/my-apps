@@ -3,7 +3,7 @@ import CoreImage
 import SwiftUI
 
 /// `glance --render-demo <dir>`: the README's GIF as frames, one PNG per change, and `list.txt`, an ffmpeg concat list of
-/// how long each stays up. A terminal with a script that fails; ⌘⌥G and ↵ on nothing typed; a follow-up in French;
+/// how long each stays up. A terminal with a script that fails; ⌘⌥J and ↵ on nothing typed; a follow-up in French;
 /// ⌘C; ⎋. The panel is `GlanceView`, drawn offscreen, and its answers are the ones `glance --ask` gave on the first
 /// frame (`docs/make-demo.sh --ask-again`), so the GIF shows what the app does, not what it might. Frame 001 is that
 /// screen alone.
@@ -165,7 +165,7 @@ enum Demo {
         canvas { wallpaper(); window(CGRect(x: 150, y: 84, width: 800, height: 500)) }
     }
 
-    /// Where ⌘⌥G puts it, as `Glance.frame` says.
+    /// Where ⌘⌥J puts it, as `Glance.frame` says.
     private static func drawPanel(_ glance: Glance, _ glass: NSImage) {
         let frame = Glance.frame(screen: screen, visible: screen)
         glance.size = frame.insetBy(dx: Glance.margin, dy: Glance.margin).size

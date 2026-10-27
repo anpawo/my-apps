@@ -124,8 +124,9 @@ final class App: NSObject, NSApplicationDelegate {
             exit(0)
         }
         let glance = self.glance
-        // His pick (27/10/2026). Free: opener holds ⌥⌘F and ⌥⌘T, watcher ⌘⌥K.
-        registerChord(keyCode: kVK_ANSI_G, modifiers: cmdKey | optionKey, label: "⌘⌥G") { MainActor.assumeIsolated { glance.summon() } }
+        // His pick (27/10/2026), ⌘⌥G before. Jarvis asks for it too, when he opens it: it no longer starts at login.
+        // opener holds ⌥⌘F and ⌥⌘T, watcher ⌘⌥K.
+        registerChord(keyCode: kVK_ANSI_J, modifiers: cmdKey | optionKey, label: "⌘⌥J") { MainActor.assumeIsolated { glance.summon() } }
     }
 }
 

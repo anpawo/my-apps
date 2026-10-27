@@ -34,4 +34,4 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 launchctl bootstrap "gui/$UID" "$PLIST"
-echo "⌘⌥G opens it."
+echo "⌘⌥J opens it."
