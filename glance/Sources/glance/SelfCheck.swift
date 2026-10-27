@@ -85,7 +85,7 @@ enum SelfCheck {
                "So the question is. what is", "the sentence being said comes from the language it reads as")
 
         let air = Glance.frame(screen: CGRect(x: 0, y: 0, width: 1512, height: 982), visible: CGRect(x: 0, y: 0, width: 1512, height: 949))
-        expect([air.minX, air.minY, air.width, air.height], [1087, 607, 418, 335], "the panel is 0.65 of the screen's shape wide, 0.8 high, at its top right")
+        expect([air.minX, air.minY, air.width, air.height], [991, 607, 514, 335], "the panel is the screen's shape, at its top right")
         let corner = Glance.frame(screen: CGRect(x: 0, y: 0, width: 1512, height: 982), visible: CGRect(x: 0, y: 0, width: 1512, height: 949),
                                   left: true, bottom: true)
         expect([corner.minX, corner.minY], [7, 7], "⌃← and ⌃↓ put it in the bottom left corner")

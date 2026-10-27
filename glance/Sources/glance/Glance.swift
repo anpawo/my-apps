@@ -16,7 +16,7 @@ final class Glance: ObservableObject {
         var done = false
     }
 
-    static let width: CGFloat = 640
+    static let width: CGFloat = 512
     /// Room around the box for its outer rim, drawn just outside it. No shadow: a soft one needs a clear band around the
     /// box, and its edge showed where the band ended (27/10/2026); the watch list has none either.
     static let margin: CGFloat = 1
@@ -237,10 +237,9 @@ final class Glance: ObservableObject {
         return String(trimmed[..<(trimmed.lastIndex(where: \.isWhitespace).map { trimmed.index(after: $0) } ?? trimmed.startIndex)])
     }
 
-    /// The panel: in a corner, under the menu bar at the top, 0.65 as wide and 0.8 as high as the screen's shape at
-    /// `width` (his picks, 27/10/2026).
+    /// The panel: a box of the screen's shape in a corner, under the menu bar at the top (his pick, 27/10/2026).
     static func frame(screen: CGRect, visible: CGRect, left: Bool = false, bottom: Bool = false) -> CGRect {
-        let size = CGSize(width: width * 0.65, height: (width * 0.8 * screen.height / screen.width).rounded())
+        let size = CGSize(width: width, height: (width * screen.height / screen.width).rounded())
         return CGRect(x: left ? visible.minX + gap : visible.maxX - gap - size.width,
                       y: bottom ? visible.minY + gap : visible.maxY - gap - size.height, width: size.width, height: size.height)
             .insetBy(dx: -margin, dy: -margin)
