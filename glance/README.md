@@ -19,20 +19,21 @@ stays in memory, and on disk only for the seconds Whisper reads it. Speech only:
 only the lyrics. Needs `brew install whisper-cpp` and, in `~/.local/share/whisper`, `ggml-large-v3-turbo-q5_0.bin`
 (huggingface.co/ggerganov/whisper.cpp) and `ggml-silero-v5.1.2.bin` (huggingface.co/ggml-org/whisper-vad).
 
-The panel stays up while you click in the app behind; ⌘⌥G closes it from anywhere, ⎋ from the panel. Screen
-shares and recordings leave it out (`sharingType = .none`), as far as macOS still honours that: since 15.4 not
-every capture tool does.
+The panel is Watcher's watch list glass, the screen behind it blurred and seen through. ⌘⌥G gives it the focus,
+and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from
+anywhere, ⎋ from the panel. Screen shares and recordings leave it out (`sharingType = .none`), as far as macOS
+still honours that: since 15.4 not every capture tool does.
 
 | Key | Does |
 |---|---|
-| ⌘⌥G | open on the screen as it is; again, close |
+| ⌘⌥G | open on the screen as it is, with the focus; again, close |
 | letters | the question, in French or English: the answer comes in the same |
 | ⌘R | listen to the computer's sound; again, stop (↵ stops it too) |
 | ↵ | ask; with nothing typed, help with the screen, or with what was heard |
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
 | ⌫, ⌥⌫, ⌘⌫ | take a letter, a word, all of it |
-| ⎋ | close, end the conversation, drop what was heard |
+| ⎋ | close, end the conversation, drop what was heard, give the focus back |
 
 The first ⌘⌥G asks for Screen Recording (System Settings → Privacy & Security → Screen & System Audio
 Recording), which also covers the sound; without it, questions still work, without the screen or the sound.
@@ -48,5 +49,5 @@ leaves the Mac, only its words.
 `glance --selftest` checks what goes to `claude` and back, the keys, the Markdown and the WAV given to Whisper;
 `glance --ask <image> [question] [follow-up…]` runs a conversation on a picture in the terminal, with timings;
 `glance --listen <seconds>` prints what the computer played for that long, as ↵ would send it;
-`glance --render out.png [--dark]` draws the panel offscreen. `docs/make-demo.sh` draws the GIF again;
+`glance --render out.png` draws the panel offscreen, over the demo's screen. `docs/make-demo.sh` draws the GIF again;
 `--ask-again` asks Claude about its screen once more.

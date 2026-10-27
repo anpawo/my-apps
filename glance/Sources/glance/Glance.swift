@@ -277,7 +277,7 @@ struct GlanceView: View {
     /// Off offscreen: ImageRenderer draws a ScrollView as nothing.
     var scrolls = true
     @State private var height: CGFloat = 0
-    @Environment(\.colorScheme) private var scheme
+    @Environment(\.renderBehind) private var renderBehind
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -296,8 +296,16 @@ struct GlanceView: View {
             }
         }
         .frame(width: Glance.width)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(scheme == .dark ? Color(white: 0.16) : Color(white: 0.97)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        // The watch list's card: its glass, a white rim inside a dark one. Light whatever the system's mode: the text
+        // sits on a light glass.
+        .background(Glass.tint)
+        .background(alignment: .topLeading) {
+            if let renderBehind { Image(nsImage: renderBehind) } else { GlassView(radius: 14) }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.4), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Glass.ink.opacity(0.1), lineWidth: 1).padding(-1))
+        .environment(\.colorScheme, .light)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { glance.place(height: $0) }
         .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
         .padding(Glance.margin)
@@ -377,7 +385,9 @@ struct TurnView: View {
                             .font(.system(size: 12.5, design: .monospaced))
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+                            // The watch list's rows: a whiter glass, readable over a dark window too.
+                            .background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Glass.line, lineWidth: 1))
                     }
                 }
                 .textSelection(.enabled)

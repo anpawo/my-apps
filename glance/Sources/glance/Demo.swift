@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import SwiftUI
 
 /// `glance --render-demo <dir>`: the README's GIF as frames, one PNG per change, and `list.txt`, an ffmpeg concat list of
@@ -80,7 +81,7 @@ enum Demo {
     static func render(to dir: URL) {
         try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let glance = Glance()
-        let desk = canvas { wallpaper(); window(CGRect(x: 150, y: 84, width: 800, height: 500)) }
+        let desk = desktop(), glass = behind(desk)
         var up = false, caps: [(label: String, down: Bool)] = [], note: String?
         var list = "", count = 0
 
@@ -89,11 +90,7 @@ enum Demo {
             precondition(abs(seconds * 25 - (seconds * 25).rounded()) < 1e-6, "\(seconds) s is not a multiple of 40 ms")
             let pic = canvas {
                 desk.draw(in: screen)
-                if up {
-                    let p = panel(glance)
-                    p.draw(in: CGRect(x: (screen.width - p.size.width) / 2, y: screen.maxY - 8 + Glance.margin - p.size.height,
-                                      width: p.size.width, height: p.size.height))
-                }
+                if up { drawPanel(glance, glass) }
                 keys(caps, note)
             }
             count += 1
@@ -154,29 +151,46 @@ enum Demo {
         print("wrote \(count) frames and list.txt to \(dir.path)")
     }
 
-    /// `glance --render <png> [--dark]`: the panel at the end of the demo, on a plain backdrop.
-    static func still(to url: URL, dark: Bool) {
+    /// `glance --render <png>`: the demo's screen with its first answer up.
+    static func still(to url: URL) {
         let glance = Glance()
-        glance.turns = [Glance.Turn(question: "", withScreen: true, answer: answers[0], done: true),
-                         Glance.Turn(question: followUp, withScreen: false, answer: answers[1], done: true)]
-        let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false)
-            .frame(width: Glance.width + 2 * Glance.margin)
-            .background(LinearGradient(colors: [Color(red: 0.55, green: 0.70, blue: 0.85), Color(red: 0.85, green: 0.82, blue: 0.70)],
-                                       startPoint: .top, endPoint: .bottom))
-            .environment(\.colorScheme, dark ? .dark : .light))
-        renderer.scale = 2
-        guard let image = renderer.nsImage, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
-        try! png.write(to: url)
-        print("wrote \(url.path) \(image.size)")
+        glance.turns = [Glance.Turn(question: "", withScreen: true, answer: answers[0], done: true)]
+        let desk = desktop()
+        let pic = canvas { desk.draw(in: screen); drawPanel(glance, behind(desk)) }
+        try! pic.representation(using: .png, properties: [:])!.write(to: url)
+        print("wrote \(url.path)")
     }
 
-    private static func panel(_ glance: Glance) -> NSImage {
+    private static func desktop() -> NSBitmapImageRep {
+        canvas { wallpaper(); window(CGRect(x: 150, y: 84, width: 800, height: 500)) }
+    }
+
+    /// Where ⌘⌥G puts it: centred, its card 8 pt under the top of the screen.
+    private static func drawPanel(_ glance: Glance, _ glass: NSImage) {
         let renderer = ImageRenderer(content: GlanceView(glance: glance, scrolls: false)
             .frame(width: Glance.width + 2 * Glance.margin)
-            .environment(\.colorScheme, .light))
+            .environment(\.renderBehind, glass))
         renderer.scale = 2
-        return renderer.nsImage!
+        let p = renderer.nsImage!
+        p.draw(in: CGRect(x: (screen.width - p.size.width) / 2, y: screen.maxY - 8 + Glance.margin - p.size.height,
+                          width: p.size.width, height: p.size.height))
+    }
+
+    /// What the glass shows of `desk`, from the card's top-left corner down: blurred 40 pt and through the matrix, on
+    /// sRGB values with no working colour space, as `Glass` does on the screen.
+    private static func behind(_ desk: NSBitmapImageRep) -> NSImage {
+        let scale = CGFloat(desk.pixelsWide) / screen.width, m = Glass.matrix
+        let image = CIImage(cgImage: desk.cgImage!).clampedToExtent().applyingGaussianBlur(sigma: 40 * scale)
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: m[0][0], y: m[0][1], z: m[0][2], w: 0),
+                "inputGVector": CIVector(x: m[1][0], y: m[1][1], z: m[1][2], w: 0),
+                "inputBVector": CIVector(x: m[2][0], y: m[2][1], z: m[2][2], w: 0)])
+        // Core Image counts from the bottom: the card runs from there up to 8 pt under the top.
+        let card = CGSize(width: Glance.width, height: screen.height - 8)
+        let pixels = CGRect(x: (screen.width - card.width) / 2 * scale, y: 0, width: card.width * scale, height: card.height * scale)
+        let out = CIContext(options: [.workingColorSpace: NSNull()])
+            .createCGImage(image, from: pixels, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))!
+        return NSImage(cgImage: out, size: card)
     }
 
     private static func canvas(_ draw: () -> Void) -> NSBitmapImageRep {

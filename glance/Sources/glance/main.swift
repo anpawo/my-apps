@@ -82,11 +82,11 @@ if let i = args.firstIndex(of: "--listen"), i + 1 < args.count, let seconds = Do
     dispatchMain()
 }
 
-// `--render <png> [--dark]`: the panel offscreen, on the demo's conversation. Never a window.
+// `--render <png>`: the panel offscreen, on the demo's screen and conversation. Never a window.
 if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
     MainActor.assumeIsolated {
         _ = NSApplication.shared
-        Demo.still(to: URL(fileURLWithPath: args[i + 1]), dark: args.contains("--dark"))
+        Demo.still(to: URL(fileURLWithPath: args[i + 1]))
         exit(0)
     }
 }
