@@ -59,6 +59,29 @@ if let i = args.firstIndex(of: "--ask"), i + 1 < args.count {
     dispatchMain()
 }
 
+// `--listen <seconds>`: the computer's sound for that long, put in words as ↵ would send it. Never a window, never the
+// permission prompt.
+if let i = args.firstIndex(of: "--listen"), i + 1 < args.count, let seconds = Double(args[i + 1]) {
+    guard CGPreflightScreenCaptureAccess() else {
+        print("no Screen & System Audio Recording permission")
+        exit(1)
+    }
+    Task { @MainActor in
+        let listener = Listener()
+        do { try await listener.start() } catch {
+            print("cannot listen: \(error.localizedDescription)")
+            exit(1)
+        }
+        try? await Task.sleep(for: .seconds(seconds))
+        let samples = await listener.stop(), start = Date()
+        print(await Sound.words(samples, length: seconds))
+        FileHandle.standardError.write(Data(String(format: "\n%.1f s of samples, put in words in %.1f s\n",
+                                                   Double(samples.count) / Double(Listener.rate), Date().timeIntervalSince(start)).utf8))
+        exit(0)
+    }
+    dispatchMain()
+}
+
 // `--render <png> [--dark]`: the panel offscreen, on the demo's conversation. Never a window.
 if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
     MainActor.assumeIsolated {

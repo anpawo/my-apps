@@ -33,6 +33,16 @@ enum SelfCheck {
         expect(Conversation.question("", app: "Safari"), "In front: Safari.\n\n(Nothing typed: help with what is on the screen.)",
                "nothing typed asks for help with the screen, naming the app")
         expect(Conversation.question("why?", app: nil), "why?", "a follow-up without a screen is the words alone")
+        expect(Conversation.question("", app: "Zoom", heard: "Sound from the computer, 0:12, transcribed:\nAny questions?"),
+               "In front: Zoom.\n\nSound from the computer, 0:12, transcribed:\nAny questions?\n\n(Nothing typed: help with what was heard.)",
+               "nothing typed after listening asks for help with what was heard, after the app")
+        expect(Sound.clock(75.9), "1:15", "a length reads as minutes and seconds")
+
+        let wav = Sound.wav([0, 1, -1, 2])
+        func u32(_ at: Int) -> Int { Int(wav[at..<at + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }) }
+        expect([wav.count, u32(4), u32(24), u32(40)], [52, 44, 16_000, 8], "the WAV header gives its sizes and 16 kHz")
+        expect(stride(from: 44, to: 52, by: 2).map { i in wav[i..<i + 2].withUnsafeBytes { $0.loadUnaligned(as: Int16.self) } },
+               [0, 32767, -32767, 32767], "samples are 16-bit, clipped")
 
         let retina = Screen.fit(2940, 1912)
         expect([retina.width, retina.height], [1920, 1249], "a Retina screen comes down to 1920 on its long edge")
