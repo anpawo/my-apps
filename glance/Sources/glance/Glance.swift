@@ -56,6 +56,12 @@ final class Glance: ObservableObject {
     private var before: NSRunningApplication?
     private var conversation: Conversation?
     private var panel: GlancePanel?
+    /// The corner it opens in, top right at first: ⌃ and an arrow move it, and it stays there (his pick, 27/10/2026).
+    private var left = UserDefaults.standard.bool(forKey: "left")
+    private var bottom = UserDefaults.standard.bool(forKey: "bottom")
+    private var mouse: [Any] = []
+    /// Where the mouse holds the panel while ⌃ is down over it.
+    private var grab: CGPoint?
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
 
@@ -69,9 +75,10 @@ final class Glance: ObservableObject {
         self.conversation = conversation
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let screen = NSScreen.underMouse, frame = Self.frame(screen: screen.frame, visible: screen.visibleFrame)
+        let screen = NSScreen.underMouse, frame = Self.frame(screen: screen.frame, visible: screen.visibleFrame, left: left, bottom: bottom)
         size = frame.insetBy(dx: Self.margin, dy: Self.margin).size
         panel.setFrame(frame, display: true)
+        followMouse()
         // It takes the focus, his pick (27/10/2026): the app behind goes inactive, and gets it back on ⎋.
         before = NSWorkspace.shared.frontmostApplication
         NSApp.activate()
@@ -80,6 +87,8 @@ final class Glance: ObservableObject {
 
     func hide() {
         panel?.orderOut(nil)
+        mouse.forEach(NSEvent.removeMonitor)
+        (mouse, grab) = ([], nil)
         // Only when glance still has it: a click in another app since then chose where the focus goes.
         if NSApp.isActive { before?.activate(options: []) }
         before = nil
@@ -209,6 +218,10 @@ final class Glance: ObservableObject {
         case kVK_ANSI_V where flags.contains(.command): draft += NSPasteboard.general.string(forType: .string) ?? ""
         case kVK_ANSI_C where flags.contains(.command): copy()
         case kVK_ANSI_R where flags.contains(.command): listen()
+        case kVK_LeftArrow where flags.contains(.control): move(left: true)
+        case kVK_RightArrow where flags.contains(.control): move(left: false)
+        case kVK_UpArrow where flags.contains(.control): move(bottom: false)
+        case kVK_DownArrow where flags.contains(.control): move(bottom: true)
         default:
             // Arrows and function keys come as characters of the private-use area.
             guard flags.intersection([.command, .control]).isEmpty, let text = event.characters, !text.isEmpty,
@@ -224,11 +237,42 @@ final class Glance: ObservableObject {
         return String(trimmed[..<(trimmed.lastIndex(where: \.isWhitespace).map { trimmed.index(after: $0) } ?? trimmed.startIndex)])
     }
 
-    /// The panel: a box of the screen's shape at its top right, under the menu bar (his pick, 27/10/2026).
-    static func frame(screen: CGRect, visible: CGRect) -> CGRect {
+    /// The panel: a box of the screen's shape in a corner, under the menu bar at the top (his pick, 27/10/2026).
+    static func frame(screen: CGRect, visible: CGRect, left: Bool = false, bottom: Bool = false) -> CGRect {
         let size = CGSize(width: width, height: (width * screen.height / screen.width).rounded())
-        return CGRect(x: visible.maxX - gap - size.width, y: visible.maxY - gap - size.height, width: size.width, height: size.height)
+        return CGRect(x: left ? visible.minX + gap : visible.maxX - gap - size.width,
+                      y: bottom ? visible.minY + gap : visible.maxY - gap - size.height, width: size.width, height: size.height)
             .insetBy(dx: -margin, dy: -margin)
+    }
+
+    /// ⌃ and an arrow: to that side of its screen, the other side as it stands, after a drag too.
+    private func move(left: Bool? = nil, bottom: Bool? = nil) {
+        guard let panel, let screen = panel.screen else { return }
+        let visible = screen.visibleFrame
+        self.left = left ?? (panel.frame.midX < visible.midX)
+        self.bottom = bottom ?? (panel.frame.midY < visible.midY)
+        UserDefaults.standard.set(self.left, forKey: "left")
+        UserDefaults.standard.set(self.bottom, forKey: "bottom")
+        let frame = Self.frame(screen: screen.frame, visible: visible, left: self.left, bottom: self.bottom)
+        size = frame.insetBy(dx: Self.margin, dy: Self.margin).size
+        panel.animator().setFrame(frame, display: true)
+    }
+
+    /// ⌃ over the panel: it follows the mouse until ⌃ is let go. A mouse move carries the keys held, and watching mouse
+    /// moves needs no permission, where watching keys from outside needs Accessibility. Global for when another app has
+    /// the keys, local for when glance has them.
+    private func followMouse() {
+        guard mouse.isEmpty else { return }
+        let follow: (NSEvent) -> Void = { [weak self] event in MainActor.assumeIsolated { self?.follow(event) } }
+        mouse = [NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved, handler: follow) as Any,
+                 NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { follow($0); return $0 } as Any]
+    }
+
+    private func follow(_ event: NSEvent) {
+        guard let panel, event.modifierFlags.contains(.control) else { grab = nil; return }
+        let at = NSEvent.mouseLocation
+        if grab == nil, panel.frame.contains(at) { grab = CGPoint(x: at.x - panel.frame.minX, y: at.y - panel.frame.minY) }
+        if let grab { panel.setFrameOrigin(CGPoint(x: at.x - grab.x, y: at.y - grab.y)) }
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
@@ -240,6 +284,7 @@ final class Glance: ObservableObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
+        panel.acceptsMouseMovedEvents = true
         panel.sharingType = hidden ? .none : .readOnly
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onKey = { [weak self] in self?.key($0) ?? false }

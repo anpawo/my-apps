@@ -21,7 +21,8 @@ the question. The sound stays in memory and never leaves the Mac. Speech only: C
 only the lyrics. The first ⌘R in a language downloads its model, about a second.
 
 The panel is Watcher's watch list glass, the screen behind it blurred and seen through: a box of the screen's
-shape at its top right, 640 pt wide, that scrolls. ⌘⌥G gives it the focus,
+shape, 640 pt wide, that scrolls, in a corner of the screen (top right at first; ⌃ and an arrow move it to another,
+where it opens from then on). With ⌃ held over it, it follows the mouse until ⌃ is let go. ⌘⌥G gives it the focus,
 and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from
 anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it as any window; the eye button
 (Seen, Hidden) leaves it out of them, and stays as it was set. glance's own screenshot always leaves it out.
@@ -35,6 +36,8 @@ anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it 
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
 | ⌫, ⌥⌫, ⌘⌫ | take a letter, a word, all of it |
+| ⌃←, ⌃→, ⌃↑, ⌃↓ | move it to that side of the screen: to a corner, where it opens from then on |
+| ⌃, over it | it follows the mouse until ⌃ is let go |
 | ⎋ | close, end the conversation, drop what was heard, give the focus back |
 
 The first ⌘⌥G asks for Screen Recording (System Settings → Privacy & Security → Screen & System Audio
