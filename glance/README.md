@@ -20,7 +20,7 @@ into the other with no pause shows garbled until the pause, then comes right. On
 the question. The sound stays in memory and never leaves the Mac. Speech only: Claude hears no tone and no music,
 only the lyrics. The first ⌘R in a language downloads its model, about a second.
 
-The panel is Watcher's watch list glass, the screen behind it blurred and seen through: a box of the screen's
+The panel is Watcher's watch list glass under the white of its rows, the screen behind it blurred and seen through: a box of the screen's
 shape at 640 pt wide, cut to 0.65 of that width and 0.8 of that height (416 pt wide), that scrolls, in a corner of the screen (top right at first; ⌃ and an arrow move it to another,
 where it opens from then on). With ⌃ held over it, it follows the mouse until ⌃ is let go. ⌘⌥G gives it the focus,
 and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from

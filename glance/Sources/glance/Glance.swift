@@ -380,7 +380,10 @@ struct GlanceView: View {
         // Light text whatever the system's mode: it sits on a light glass. The text alone: a light material hides the
         // backdrop the glass blurs, and the panel turns clear.
         .environment(\.colorScheme, .light)
-        // The watch list's card: its glass, a white rim inside a dark one.
+        // The watch list's card: its glass, a white rim inside a dark one. Under the white of its rows: the glass alone
+        // is the watch list's to the unit, measured on his screen at the same place (27/10/2026), but the watch list is
+        // mostly rows at white 0.6 and stands on a dark veil, where glance stands on a white window: it looked grey.
+        .background(.white.opacity(0.6))
         .background(Glass.tint)
         .background(alignment: .topLeading) {
             if let renderBehind { Image(nsImage: renderBehind) } else { GlassView(radius: 14) }
