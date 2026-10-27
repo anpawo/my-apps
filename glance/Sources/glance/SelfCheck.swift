@@ -1,6 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
+import CoreMedia
+import Speech
 
 /// `glance --selftest`: what goes to `claude` and what comes back, the keys, the Markdown, the image size. Runs
 /// headless, with no `claude` and no screen, before every install. `--ask` is the check of the path to Claude itself.
@@ -39,11 +41,48 @@ enum SelfCheck {
                "nothing typed after listening asks for help with what was heard, after the app")
         expect(Sound.clock(75.9), "1:15", "a length reads as minutes and seconds")
 
-        let wav = Sound.wav([0, 1, -1, 2])
-        func u32(_ at: Int) -> Int { Int(wav[at..<at + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }) }
-        expect([wav.count, u32(4), u32(24), u32(40)], [52, 44, 16_000, 8], "the WAV header gives its sizes and 16 kHz")
-        expect(stride(from: 44, to: 52, by: 2).map { i in wav[i..<i + 2].withUnsafeBytes { $0.loadUnaligned(as: Int16.self) } },
-               [0, 32767, -32767, 32767], "samples are 16-bit, clipped")
+        expect(Sound.words("", length: 3), "Sound from the computer, 0:03: no speech in it.", "nothing said says so")
+        typealias H = Transcript.Heard
+        // The measured confidences (27/10/2026): the right language 0.94, the wrong one 0.18 on French, 0.73 on English.
+        expect(Transcript.merge([H(language: "en_US", start: 0, end: 3.2, text: "Situ a pure regardé", confidence: 0.18),
+                                 H(language: "fr_FR", start: 0, end: 3, text: "Si tu as pu regarder", confidence: 0.94),
+                                 H(language: "fr_FR", start: 4.1, end: 6, text: "S the question", confidence: 0.73),
+                                 H(language: "en_US", start: 4, end: 5, text: "So the", confidence: 0.94),
+                                 H(language: "en_US", start: 5, end: 6.2, text: "question", confidence: 0.94),
+                                 H(language: "fr_FR", start: 7, end: 8, text: "Merci.", confidence: 0.5)]),
+               ["Si tu as pu regarder", "So the", "question", "Merci."],
+               "each stretch heard is said in the language surer of it, in order")
+        // A French clip then an English one with no pause, as the recognizers settled them (27/10/2026).
+        expect(Transcript.merge([H(language: "en_US", start: 3.00, end: 8.34, text: "Bonjour, je vous les savoir.", confidence: 0.26),
+                                 H(language: "en_US", start: 8.34, end: 13.02, text: "Il fautre quon le signe.", confidence: 0.07),
+                                 H(language: "en_US", start: 13.02, end: 20.12, text: "So the question is", confidence: 0.89),
+                                 H(language: "fr_FR", start: 2.22, end: 13.50, text: "Bonjour, je voulais savoir, les fonds.", confidence: 0.95),
+                                 H(language: "fr_FR", start: 13.50, end: 20.04, text: "what time complexity", confidence: 0.80)]),
+               ["Bonjour, je voulais savoir, les fonds.", "So the question is"], "French then English with no pause: each sentence in its own")
+        var said = AttributedString("Les fonds.") + AttributedString(" So the question")
+        func at(_ a: Double, _ b: Double) -> CMTimeRange { CMTimeRange(start: CMTime(seconds: a, preferredTimescale: 1000), end: CMTime(seconds: b, preferredTimescale: 1000)) }
+        said[said.range(of: "Les fonds.")!].audioTimeRange = at(10, 14.3)
+        said[said.range(of: " So the question")!].audioTimeRange = at(14.4, 16)
+        said.transcriptionConfidence = 0.5
+        expect(Transcript.sentences(said, language: "fr_FR", within: at(10, 16)),
+               [H(language: "fr_FR", start: 10, end: 14.3, text: "Les fonds.", confidence: 0.5),
+                H(language: "fr_FR", start: 14.4, end: 16, text: "So the question", confidence: 0.5)],
+               "a result is cut at its sentence ends, each with its time")
+        expect(Transcript.sentences(AttributedString("Les fonds. So the") .settingAttributes(AttributeContainer().audioTimeRange(at(10, 27))),
+                                    language: "fr_FR", within: at(10, 27)).map { [$0.text, String($0.start), String($0.end)] },
+               [["Les fonds.", "10.0", "20.0"], ["So the", "20.0", "27.0"]], "words still being heard, one piece, share its time by length")
+        let french = "Bonjour, je voulais savoir si tu as pu regarder le contrat que je t'ai envoyé hier"
+        expect([Transcript.reads(french, as: "fr_FR") > 0.5, Transcript.reads(french, as: "en_US") < 0.5], [true, true],
+               "words still being heard are judged by the language they read as")
+        // Live, a French clip run into an English one (27/10/2026): nothing settled yet, the English take one piece from 0.
+        expect(Transcript.shown(finals: [], pending: [[H(language: "fr_FR", start: 0, end: 14.47, text: "Bonjour, les fonds.", confidence: 1),
+                                                        H(language: "fr_FR", start: 14.47, end: 19.38, text: "question, what the", confidence: 0)],
+                                                       [H(language: "en_US", start: 0, end: 19.38, text: "Bonjour v cont So the question is", confidence: 1)]]),
+               "Bonjour, les fonds. question, what the", "the sentence being said never replaces a whole one shown")
+        expect(Transcript.shown(finals: [H(language: "en_US", start: 0, end: 5, text: "So the question is.", confidence: 0.94)],
+                                pending: [[H(language: "en_US", start: 5, end: 8, text: "what is", confidence: 1)],
+                                          [H(language: "fr_FR", start: 5.2, end: 8, text: "what is", confidence: 0)]]),
+               "So the question is. what is", "the sentence being said comes from the language it reads as")
 
         let retina = Screen.fit(2940, 1912)
         expect([retina.width, retina.height], [1920, 1249], "a Retina screen comes down to 1920 on its long edge")

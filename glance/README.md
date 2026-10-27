@@ -12,23 +12,24 @@ key. The first words come 1.5 to 3 s after ↵. Follow-ups go to the same proces
 ⎋ ends it. The screenshot stays in memory and no transcript is kept; the `claude` process takes about 150 MB while
 the panel is up, nothing otherwise.
 
-⌘R listens to the computer's sound (every app but glance; not the microphone) until ⌘R again or ↵. whisper.cpp
-puts it in words on the Mac (large-v3-turbo, French and English in the same clip), and only those words go to
-Claude with the question: two minutes of speech take about 8 s, started as soon as listening stops. The sound
-stays in memory, and on disk only for the seconds Whisper reads it. Speech only: Claude hears no tone and no music,
-only the lyrics. Needs `brew install whisper-cpp` and, in `~/.local/share/whisper`, `ggml-large-v3-turbo-q5_0.bin`
-(huggingface.co/ggerganov/whisper.cpp) and `ggml-silero-v5.1.2.bin` (huggingface.co/ggml-org/whisper-vad).
+⌘R, or the Listen button, listens to the computer's sound (every app but glance; not the microphone) until ⌘R
+again or ↵, and writes what is said in the panel as it is said, about a second behind. Apple's speech recognizer
+puts it in words on the Mac, once per language (the Mac's first two, as System Settings → General → Language &
+Region lists them), and each sentence is shown in the language it is surer of; a sentence run from one language
+into the other with no pause shows garbled until the pause, then comes right. Only those words go to Claude with
+the question. The sound stays in memory and never leaves the Mac. Speech only: Claude hears no tone and no music,
+only the lyrics. The first ⌘R in a language downloads its model, about a second.
 
 The panel is Watcher's watch list glass, the screen behind it blurred and seen through. ⌘⌥G gives it the focus,
 and ⎋ gives it back to the app you were in. It stays up while you click in the app behind; ⌘⌥G closes it from
-anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it as any window; only glance's own
-screenshot leaves it out.
+anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it as any window; the eye button
+(Seen, Hidden) leaves it out of them, and stays as it was set. glance's own screenshot always leaves it out.
 
 | Key | Does |
 |---|---|
 | ⌘⌥G | open on the screen as it is, with the focus; again, close |
 | letters | the question, in French or English: the answer comes in the same |
-| ⌘R | listen to the computer's sound; again, stop (↵ stops it too) |
+| ⌘R | listen to the computer's sound, its words written as they are said; again, stop (↵ stops it too) |
 | ↵ | ask; with nothing typed, help with the screen, or with what was heard |
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
@@ -42,12 +43,15 @@ Made after [cue](https://github.com/Blueturboguy07/cue), a free Cluely clone, wi
 and GPL, and its downloads send prompts and screenshots through publik's servers by default. Here the sound never
 leaves the Mac, only its words.
 
+Needs macOS 26, for its speech recognizer.
+
 ```sh
 ./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
 ```
 
-`glance --selftest` checks what goes to `claude` and back, the keys, the Markdown and the WAV given to Whisper;
+`glance --selftest` checks what goes to `claude` and back, the keys, the Markdown and how the two languages' words
+are put together;
 `glance --ask <image> [question] [follow-up…]` runs a conversation on a picture in the terminal, with timings;
-`glance --listen <seconds>` prints what the computer played for that long, as ↵ would send it;
+`glance --listen <seconds>` prints the words of what the computer plays as they come, then as ↵ would send them;
 `glance --render out.png` draws the panel offscreen, over the demo's screen. `docs/make-demo.sh` draws the GIF again;
 `--ask-again` asks Claude about its screen once more.

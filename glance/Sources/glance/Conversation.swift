@@ -36,8 +36,8 @@ final class Conversation: @unchecked Sendable {
     reading, what to say next in a conversation, the next step of what he is doing.
 
     A message may also carry what the computer played while he listened (a call, a meeting, a video, a song), put in \
-    words on his Mac by Whisper: speech only, so names can be misheard, nobody is marked as the speaker, and music \
-    comes through as its lyrics or not at all. When he types nothing after listening, help with what was heard: \
+    words on his Mac by Apple's speech recognizer, in French or English sentence by sentence: speech only, so names \
+    can be misheard, nobody is marked as the speaker, and music comes through as its lyrics or not at all. When he types nothing after listening, help with what was heard: \
     answer the question asked in it, say what to reply, give the gist and what it asks of him, name the song from \
     its lyrics.
 

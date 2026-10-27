@@ -1,16 +1,22 @@
 import AVFoundation
+import NaturalLanguage
 import ScreenCaptureKit
+import Speech
 
-/// The computer's sound while it runs (calls, videos, music: every app but glance), as Whisper reads it: 16 kHz mono.
-/// It rides on Screen Recording, the permission the screenshot already has. Kept in memory only.
+/// The computer's sound while it runs (calls, videos, music: every app but glance), 16 kHz mono, handed on as it comes.
+/// It rides on Screen Recording, the permission the screenshot already has. Never kept.
 final class Listener: NSObject, SCStreamOutput, @unchecked Sendable {
     static let rate = 16_000
+    static let format = AVAudioFormat(standardFormatWithSampleRate: Double(rate), channels: 1)!
 
-    /// `samples` is only touched on it; `stream` and `stopped` on the main thread.
+    /// Called on `queue`, a piece at a time.
+    private let hear: (AVAudioPCMBuffer) -> Void
     private let queue = DispatchQueue(label: "com.mr.glance.listener")
-    private var samples: [Float] = []
+    /// On the main thread.
     private var stream: SCStream?
     private var stopped = false
+
+    init(hear: @escaping (AVAudioPCMBuffer) -> Void) { self.hear = hear }
 
     @MainActor
     func start() async throws {
@@ -34,13 +40,11 @@ final class Listener: NSObject, SCStreamOutput, @unchecked Sendable {
         if stopped { try? await stream.stopCapture() }
     }
 
-    /// What it heard so far; it hears nothing more.
     @MainActor
-    func stop() async -> [Float] {
+    func stop() async {
         stopped = true
         try? await stream?.stopCapture()
         stream = nil
-        return queue.sync { samples }
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -48,79 +52,222 @@ final class Listener: NSObject, SCStreamOutput, @unchecked Sendable {
         // Float32, one buffer a channel: one channel was asked for.
         try? buffer.withAudioBufferList { list, _ in
             guard let b = list.first, let data = b.mData else { return }
-            samples.append(contentsOf: UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self),
-                                                           count: Int(b.mDataByteSize) / MemoryLayout<Float>.size))
+            let count = AVAudioFrameCount(Int(b.mDataByteSize) / MemoryLayout<Float>.size)
+            guard count > 0, let piece = AVAudioPCMBuffer(pcmFormat: Self.format, frameCapacity: count) else { return }
+            piece.frameLength = count
+            memcpy(piece.floatChannelData![0], data, Int(b.mDataByteSize))
+            hear(piece)
         }
     }
 }
 
-/// What was heard, put in words on the Mac by whisper.cpp: no audio leaves it, only the transcript, with the question.
-enum Sound {
-    static let whisper = ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"]
-        .first(where: FileManager.default.isExecutableFile(atPath:))
-    static let models = "\(NSHomeDirectory())/.local/share/whisper"
-    /// Turbo: 2 min of speech in 8.5 s on battery, where large-v3 took 16 s; and it kept a French then English clip as
-    /// it was said, where large-v3 put it all in English and small dropped the English (measured 27/10/2026).
-    static let model = "\(models)/ggml-large-v3-turbo-q5_0.bin"
-    /// Silero voice detection: Whisper hears no "Thank you." in silence, and skips it.
-    static let vad = "\(models)/ggml-silero-v5.1.2.bin"
+/// What the computer says, in words as it says it, on the Mac: Apple's speech recognizer runs once per language of
+/// his (French and English), and each sentence keeps the surer of the two. Measured 27/10/2026 on an M4: a word shows
+/// about a second after it is said; the right language reads 0.94 sure, the wrong one 0.18 to 0.73.
+final class Transcript: @unchecked Sendable {
+    struct Heard: Equatable {
+        var language: String
+        var start: Double
+        var end: Double
+        var text: String
+        var confidence: Double
+    }
 
-    /// The paragraph that goes before the question.
-    static func words(_ samples: [Float], length: TimeInterval) async -> String {
-        let head = "Sound from the computer, \(clock(length))"
-        if samples.allSatisfy({ abs($0) < 0.001 }) { return head + ": silence, nothing played." }
-        do {
-            let text = try await transcribe(samples)
-            return text.isEmpty ? head + ": no speech in it." : head + ", transcribed:\n" + text
-        } catch {
-            return head + ": not transcribed, \(error.localizedDescription)."
+    /// Called on the main thread with the whole text so far, at each change.
+    var onChange: @MainActor (String) -> Void = { _ in }
+    /// The rest on the main thread; `converter` and `inputs` on the listener's queue once started. Sentences by language,
+    /// settled and still being heard.
+    private var finals: [String: [Heard]] = [:]
+    private var pending: [String: [Heard]] = [:]
+    private var analyzers: [SpeechAnalyzer] = []
+    private var readers: [Task<Void, Never>] = []
+    private var inputs: [AsyncStream<AnalyzerInput>.Continuation] = []
+    private var converter: AVAudioConverter?
+
+    @MainActor
+    var text: String { Self.shown(finals: Array(finals.values.joined()), pending: Array(pending.values)) }
+
+    /// The whole sentences, settled or not, each in the language surer of it; then the one being said, from the language
+    /// whose take reads best among those that do not go back over what is shown. Words still being heard are one piece
+    /// since the last pause, with one time: run from French into English, the English take's piece starts with its
+    /// garbled French and would replace the French shown (measured 27/10/2026).
+    static func shown(finals: [Heard], pending: [[Heard]]) -> String {
+        var whole = finals, open: [Heard] = []
+        for said in pending {
+            if let last = said.last, let mark = last.text.last, !".?!…".contains(mark) {
+                whole += said.dropLast()
+                open.append(last)
+            } else {
+                whole += said
+            }
         }
+        let covered = whole.map(\.end).max() ?? -.infinity
+        let tail = open.filter { covered - $0.start <= 0.5 * ($0.end - $0.start) }.max { $0.confidence < $1.confidence }
+        return (merge(whole) + (tail.map { [$0.text] } ?? [])).joined(separator: " ")
     }
 
-    static func clock(_ t: TimeInterval) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }
-
-    static func transcribe(_ samples: [Float]) async throws -> String {
-        guard let whisper, FileManager.default.fileExists(atPath: model), FileManager.default.fileExists(atPath: vad)
-        else { throw Failure.noWhisper }
-        // whisper-cli reads files only; this one lives as long as it takes.
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("glance-\(UUID().uuidString).wav")
-        try wav(samples).write(to: file)
-        defer { try? FileManager.default.removeItem(at: file) }
-        return try await Task.detached {
-            let p = Process(), out = Pipe()
-            p.executableURL = URL(fileURLWithPath: whisper)
-            p.arguments = ["-m", model, "-f", file.path, "-l", "auto", "--vad", "-vm", vad, "-np", "-nt"]
-            p.standardOutput = out
-            p.standardError = FileHandle.nullDevice
-            try p.run()
-            let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            p.waitUntilExit()
-            guard p.terminationStatus == 0 else { throw Failure.whisperFailed(p.terminationStatus) }
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.value
+    /// His languages, as the recognizer has them: English and French here.
+    static func languages() async -> [Locale] {
+        let supported = await SpeechTranscriber.supportedLocales
+        var out: [Locale] = []
+        for id in Locale.preferredLanguages {
+            // French on a US Mac ("fr-US") has no model of its own, and the recognizer's nearest is drawn at random among
+            // France, Switzerland, Belgium and Canada (measured 27/10/2026): the language's home country instead.
+            let asked = Locale.Language(identifier: id), code = asked.languageCode
+            let home = Locale.Language(identifier: Locale.Language(identifier: code?.identifier ?? id).maximalIdentifier).region
+            func model(_ region: Locale.Region?) -> Locale? { supported.first { $0.language.languageCode == code && $0.region == region } }
+            var l = model(asked.region) ?? model(home)
+            if l == nil { l = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: id)) }
+            if let l, !out.contains(l) { out.append(l) }
+        }
+        return out.isEmpty ? [Locale(identifier: "en_US")] : Array(out.prefix(2))
     }
 
-    /// 16-bit PCM, mono, at `Listener.rate`.
-    static func wav(_ samples: [Float]) -> Data {
-        var d = Data()
-        func put<T: FixedWidthInteger>(_ v: T) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        let bytes = samples.count * 2
-        d.append(contentsOf: "RIFF".utf8); put(UInt32(36 + bytes)); d.append(contentsOf: "WAVEfmt ".utf8)
-        put(UInt32(16)); put(UInt16(1)); put(UInt16(1)); put(UInt32(Listener.rate)); put(UInt32(Listener.rate * 2))
-        put(UInt16(2)); put(UInt16(16))
-        d.append(contentsOf: "data".utf8); put(UInt32(bytes))
-        samples.map { Int16(max(-1, min(1, $0)) * 32767).littleEndian }.withUnsafeBytes { d.append(contentsOf: $0) }
-        return d
+    /// Downloads a language's model the first time (about a second), then starts listening for words.
+    @MainActor
+    func start() async throws {
+        var format: AVAudioFormat?
+        for locale in await Self.languages() {
+            let module = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults],
+                                           attributeOptions: [.transcriptionConfidence, .audioTimeRange])
+            if let install = try await AssetInventory.assetInstallationRequest(supporting: [module]) { try await install.downloadAndInstall() }
+            if format == nil { format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module]) }
+            let (stream, input) = AsyncStream.makeStream(of: AnalyzerInput.self)
+            let analyzer = SpeechAnalyzer(modules: [module])
+            try await analyzer.start(inputSequence: stream)
+            let language = locale.identifier
+            readers.append(Task { @MainActor in
+                do {
+                    for try await r in module.results { self.take(r, language: language) }
+                } catch {}
+            })
+            analyzers.append(analyzer)
+            inputs.append(input)
+        }
+        guard let format, let converter = AVAudioConverter(from: Listener.format, to: format) else { throw Failure.noFormat }
+        self.converter = converter
+    }
+
+    /// On the listener's queue: the piece, as the recognizer reads sound (16-bit), to every language.
+    func feed(_ piece: AVAudioPCMBuffer) {
+        guard let converter else { return }
+        let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
+        guard let out = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: AVAudioFrameCount(Double(piece.frameLength) * ratio) + 32)
+        else { return }
+        var given = false
+        converter.convert(to: out, error: nil) { _, status in
+            if given { status.pointee = .noDataNow; return nil }
+            given = true
+            status.pointee = .haveData
+            return piece
+        }
+        guard out.frameLength > 0 else { return }
+        for input in inputs { input.yield(AnalyzerInput(buffer: out)) }
+    }
+
+    /// The text once every language has said its last word.
+    @MainActor
+    func finish() async -> String {
+        inputs.forEach { $0.finish() }
+        for analyzer in analyzers { try? await analyzer.finalizeAndFinishThroughEndOfInput() }
+        for reader in readers { await reader.value }
+        return text
+    }
+
+    @MainActor
+    private func take(_ r: SpeechTranscriber.Result, language: String) {
+        let said = Self.sentences(r.text, language: language, within: r.range)
+        if r.isFinal {
+            pending[language] = nil
+            finals[language, default: []] += said
+        } else {
+            pending[language] = said
+        }
+        onChange(text)
+    }
+
+    /// A result cut at its sentence ends, each with its time and how sure the recognizer is of it: a result can run
+    /// from French into English with no pause between. Words still being heard come as one piece with one time, no
+    /// confidence: each sentence takes its share of the time by length, and how much it reads as its language stands in
+    /// for the confidence, as the wrong language writes the other's sounds in its own words ("Situ a pure regardé" for
+    /// "Si tu as pu regarder").
+    static func sentences(_ text: AttributedString, language: String, within range: CMTimeRange) -> [Heard] {
+        var out: [Heard] = [], words = "", start: Double?, end = range.start.seconds, sure = 0.0, chars = 0.0
+        func close() {
+            let said = words.trimmingCharacters(in: .whitespaces)
+            if !said.isEmpty {
+                out.append(Heard(language: language, start: start ?? end, end: end, text: said,
+                                 confidence: chars > 0 ? sure / chars : reads(said, as: language)))
+            }
+            (words, start, sure, chars) = ("", nil, 0, 0)
+        }
+        for run in text.runs {
+            let piece = String(text[run.range].characters)
+            var part = "", done = 0
+            for (i, c) in zip(piece.indices, piece) {
+                part.append(c)
+                let ends = ".?!…".contains(c) && (piece.index(after: i) == piece.endIndex || piece[piece.index(after: i)].isWhitespace)
+                guard ends || piece.index(after: i) == piece.endIndex else { continue }
+                words += part
+                if let time = run.audioTimeRange {
+                    let a = time.start.seconds, b = time.end.seconds
+                    start = start ?? a + (b - a) * Double(done) / Double(piece.count)
+                    done += part.count
+                    end = a + (b - a) * Double(done) / Double(piece.count)
+                }
+                if let c = run.transcriptionConfidence {
+                    sure += c * Double(part.count)
+                    chars += Double(part.count)
+                }
+                part = ""
+                if ends { close() }
+            }
+        }
+        if start == nil { end = range.end.seconds }
+        close()
+        return out
+    }
+
+    static func reads(_ text: String, as language: String) -> Double {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        let code = Locale(identifier: language).language.languageCode?.identifier ?? language
+        return recognizer.languageHypotheses(withMaximum: 10)[NLLanguage(rawValue: code)] ?? 0
+    }
+
+    /// Both languages hear the same sound: sentences that overlap are one stretch, said in the language surer of it.
+    /// Overlapping by less than half the shorter one, they are apart: the languages do not end a sentence on the same
+    /// instant (half a second between them, measured).
+    static func merge(_ finals: [Heard]) -> [String] {
+        var out: [String] = [], stretch: [Heard] = []
+        func close() {
+            func sure(_ hs: [Heard]) -> Double {
+                hs.map { $0.confidence * Double($0.text.count) }.reduce(0, +) / max(1, Double(hs.map(\.text.count).reduce(0, +)))
+            }
+            if let best = Dictionary(grouping: stretch, by: \.language).values.max(by: { sure($0) < sure($1) }) { out += best.map(\.text) }
+            stretch = []
+        }
+        for h in finals.sorted(by: { $0.start < $1.start }) {
+            if let last = stretch.max(by: { $0.end < $1.end }),
+               last.end - h.start <= 0.5 * min(last.end - last.start, h.end - h.start) { close() }
+            stretch.append(h)
+        }
+        close()
+        return out
     }
 
     enum Failure: LocalizedError {
-        case noWhisper
-        case whisperFailed(Int32)
-        var errorDescription: String? {
-            switch self {
-            case .noWhisper: "whisper-cli or its models are missing (brew install whisper-cpp; models in ~/.local/share/whisper)"
-            case .whisperFailed(let status): "whisper-cli failed (\(status))"
-            }
-        }
+        case noFormat
+        var errorDescription: String? { "the speech recognizer takes no sound format glance can give it" }
     }
+}
+
+enum Sound {
+    /// The paragraph that goes before the question.
+    static func words(_ text: String, length: TimeInterval) -> String {
+        let head = "Sound from the computer, \(clock(length))"
+        return text.isEmpty ? head + ": no speech in it." : head + ", transcribed:\n" + text
+    }
+
+    static func clock(_ t: TimeInterval) -> String { String(format: "%d:%02d", Int(t) / 60, Int(t) % 60) }
 }

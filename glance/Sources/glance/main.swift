@@ -59,24 +59,32 @@ if let i = args.firstIndex(of: "--ask"), i + 1 < args.count {
     dispatchMain()
 }
 
-// `--listen <seconds>`: the computer's sound for that long, put in words as ↵ would send it. Never a window, never the
-// permission prompt.
+// `--listen <seconds>`: the computer's sound for that long, its words live on stderr as the panel shows them, then as ↵
+// would send them. Never a window, never the permission prompt.
 if let i = args.firstIndex(of: "--listen"), i + 1 < args.count, let seconds = Double(args[i + 1]) {
     guard CGPreflightScreenCaptureAccess() else {
         print("no Screen & System Audio Recording permission")
         exit(1)
     }
     Task { @MainActor in
-        let listener = Listener()
-        do { try await listener.start() } catch {
+        let transcript = Transcript(), began = Date()
+        transcript.onChange = { text in
+            FileHandle.standardError.write(Data(String(format: "%5.1f  %@\n", Date().timeIntervalSince(began), text).utf8))
+        }
+        let listener = Listener(hear: transcript.feed)
+        do {
+            try await transcript.start()
+            try await listener.start()
+        } catch {
             print("cannot listen: \(error.localizedDescription)")
             exit(1)
         }
+        FileHandle.standardError.write(Data("listening in \(await Transcript.languages().map(\.identifier)), ready in \(String(format: "%.1f", Date().timeIntervalSince(began))) s\n".utf8))
         try? await Task.sleep(for: .seconds(seconds))
-        let samples = await listener.stop(), start = Date()
-        print(await Sound.words(samples, length: seconds))
-        FileHandle.standardError.write(Data(String(format: "\n%.1f s of samples, put in words in %.1f s\n",
-                                                   Double(samples.count) / Double(Listener.rate), Date().timeIntervalSince(start)).utf8))
+        await listener.stop()
+        let start = Date()
+        print(Sound.words(await transcript.finish(), length: seconds))
+        FileHandle.standardError.write(Data(String(format: "last words settled in %.1f s\n", Date().timeIntervalSince(start)).utf8))
         exit(0)
     }
     dispatchMain()

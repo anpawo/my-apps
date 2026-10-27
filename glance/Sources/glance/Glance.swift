@@ -9,6 +9,8 @@ final class Glance: ObservableObject {
         var question: String
         var withScreen: Bool
         var withSound = false
+        /// What was heard, as the live text showed it.
+        var transcript: String?
         var answer = ""
         var error: String?
         var done = false
@@ -27,14 +29,27 @@ final class Glance: ObservableObject {
     @Published var listening: Date?
     /// What was heard waits to go with the next question.
     @Published var hears = false
+    /// The words heard so far, live.
+    @Published var live = ""
+    /// Out of screenshots, screen shares and recordings; his switch, the eye in the panel. Glance's own shot leaves the
+    /// panel out either way, by its filter.
+    @Published var hidden = UserDefaults.standard.bool(forKey: "hidden") {
+        didSet {
+            UserDefaults.standard.set(hidden, forKey: "hidden")
+            panel?.sharingType = hidden ? .none : .readOnly
+        }
+    }
     @Published var note: String?
     @Published var copied = false
     /// The conversation's height before it scrolls.
     @Published var room: CGFloat = 600
     private var shot: Task<Data?, Never>?
     private var listener: Listener?
-    /// Put in words from the moment listening stops, not from ↵.
+    private var transcript: Transcript?
+    private var starting: Task<Void, Error>?
+    /// The last words, settled from the moment listening stops, not from ↵.
     private var heard: Task<String, Never>?
+    private var heardFor: TimeInterval = 0
     private var app: String?
     private var before: NSRunningApplication?
     private var conversation: Conversation?
@@ -72,32 +87,46 @@ final class Glance: ObservableObject {
         conversation = nil
         shot?.cancel()
         (shot, seesScreen) = (nil, false)
-        if let listener { Task { _ = await listener.stop() } }
-        (listener, listening, heard, hears) = (nil, nil, nil, false)
+        if listening != nil { stopListening() }
+        (transcript, heard, hears, live) = (nil, nil, false, "")
     }
 
-    /// ⌘R. The computer's sound from now on goes with the next question; ⌘R again stops listening, so does ↵.
+    /// ⌘R or the Listen button. The computer's sound from now on, in words as it plays, goes with the next question;
+    /// again stops listening, so does ↵.
     func listen() {
         if listening != nil { return stopListening() }
         guard CGPreflightScreenCaptureAccess() else {
             note = "glance cannot hear the computer: turn it on in System Settings → Privacy & Security → Screen & System Audio Recording."
             return
         }
-        let listener = Listener()
-        (self.listener, listening, heard, hears, note) = (listener, Date(), nil, false, nil)
+        let transcript = Transcript()
+        transcript.onChange = { [weak self, weak transcript] text in
+            if let self, self.transcript === transcript { self.live = text }
+        }
+        let listener = Listener(hear: transcript.feed)
+        let starting = Task {
+            try await transcript.start()
+            try await listener.start()
+        }
+        (self.listener, self.transcript, self.starting) = (listener, transcript, starting)
+        (listening, heard, hears, note, live) = (Date(), nil, false, nil, "")
         Task {
-            do { try await listener.start() } catch {
+            do { try await starting.value } catch {
                 guard self.listener === listener else { return }
-                (self.listener, listening, note) = (nil, nil, "No sound: \(error.localizedDescription)")
+                (self.listener, self.transcript, listening, note) = (nil, nil, nil, "No sound: \(error.localizedDescription)")
             }
         }
     }
 
     private func stopListening() {
-        guard let listener, let since = listening else { return }
-        let length = Date().timeIntervalSince(since)
-        (self.listener, listening, hears) = (nil, nil, true)
-        heard = Task { await Sound.words(await listener.stop(), length: length) }
+        guard let listener, let transcript, let since = listening else { return }
+        let starting = self.starting
+        (heardFor, self.listener, self.starting, listening, hears) = (Date().timeIntervalSince(since), nil, nil, nil, true)
+        heard = Task {
+            _ = try? await starting?.value
+            await listener.stop()
+            return await transcript.finish()
+        }
     }
 
     private func capture() {
@@ -127,14 +156,17 @@ final class Glance: ObservableObject {
         let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if listening != nil { stopListening() }
         guard !typed.isEmpty || shot != nil || heard != nil else { return }
-        let pending = shot, sound = heard, app = self.app
-        (shot, seesScreen, heard, hears, draft, note) = (nil, false, nil, false, "", nil)
-        turns.append(Turn(question: typed, withScreen: pending != nil, withSound: sound != nil))
+        let pending = shot, sound = heard, length = heardFor, app = self.app
+        turns.append(Turn(question: typed, withScreen: pending != nil, withSound: sound != nil, transcript: sound == nil ? nil : live))
+        (shot, seesScreen, heard, hears, draft, note, transcript, live) = (nil, false, nil, false, "", nil, nil, "")
         let index = turns.count - 1
         Task {
             let image = await pending?.value
             if image == nil { turns[index].withScreen = false }
-            conversation.send(Conversation.question(typed, app: image == nil ? nil : app, heard: await sound?.value), image: image)
+            let words = await sound?.value
+            if let words { turns[index].transcript = words }
+            conversation.send(Conversation.question(typed, app: image == nil ? nil : app, heard: words.map { Sound.words($0, length: length) }),
+                              image: image)
         }
     }
 
@@ -200,8 +232,7 @@ final class Glance: ObservableObject {
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away
-    /// (⌘⌥G is what takes the focus). On every Space and over full-screen apps. Screenshots and screen shares see it, his
-    /// pick (27/10/2026); glance's own shot leaves it out by its filter.
+    /// (⌘⌥G is what takes the focus). On every Space and over full-screen apps.
     private func makePanel() -> GlancePanel {
         let panel = GlancePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
@@ -209,13 +240,19 @@ final class Glance: ObservableObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
+        panel.sharingType = hidden ? .none : .readOnly
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onKey = { [weak self] in self?.key($0) ?? false }
-        let host = NSHostingView(rootView: GlanceView(glance: self))
+        let host = Host(rootView: GlanceView(glance: self))
         host.sizingOptions = []
         panel.contentView = host
         return panel
     }
+}
+
+/// A click on a button works even while another app has the focus, not only once the panel has it.
+final class Host<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 final class GlancePanel: NSPanel {
@@ -281,13 +318,14 @@ struct GlanceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             field
-            if !glance.turns.isEmpty || glance.note != nil {
+            if !glance.turns.isEmpty || glance.note != nil || glance.listening != nil || glance.hears {
                 Divider()
                 if scrolls {
                     ScrollViewReader { proxy in
                         ScrollView { thread }
                             .frame(height: min(height, glance.room))
                             .onChange(of: glance.turns.count) { proxy.scrollTo(glance.turns.last?.id, anchor: .top) }
+                            .onChange(of: glance.live) { proxy.scrollTo("live", anchor: .bottom) }
                     }
                 } else {
                     thread
@@ -324,13 +362,25 @@ struct GlanceView: View {
                 .font(.system(size: 17))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            if let since = glance.listening {
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    Text(Sound.clock(context.date.timeIntervalSince(since)))
+            HStack(spacing: 8) {
+                Button { glance.listen() } label: {
+                    if let since = glance.listening {
+                        TimelineView(.periodic(from: since, by: 1)) { context in
+                            Label(Sound.clock(context.date.timeIntervalSince(since)), systemImage: "stop.fill")
+                        }
+                        .monospacedDigit()
+                    } else {
+                        Label("Listen", systemImage: "waveform")
+                    }
                 }
-                .font(.system(size: 13, weight: .medium).monospacedDigit())
-                .foregroundStyle(.red)
-            } else {
+                .buttonStyle(Pill(on: glance.listening != nil))
+                .help(glance.listening != nil ? "Stop listening (⌘R)" : "Listen to the computer's sound and write it out live (⌘R)")
+                Button { glance.hidden.toggle() } label: {
+                    Label(glance.hidden ? "Hidden" : "Seen", systemImage: glance.hidden ? "eye.slash" : "eye")
+                }
+                .buttonStyle(Pill(on: false))
+                .help(glance.hidden ? "Left out of screenshots and screen shares: click to let them see it"
+                                    : "Seen by screenshots and screen shares: click to leave it out")
                 Text(glance.copied ? "Copied" : glance.answering ? "…" : "↵")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -341,7 +391,7 @@ struct GlanceView: View {
     }
 
     private var placeholder: String {
-        if glance.listening != nil { return " Listening to the computer, ↵ to ask" }
+        if glance.listening != nil { return " Listening to the computer, ↵ to ask about it" }
         if glance.hears { return " Ask about what was heard" }
         return glance.turns.isEmpty ? " Ask about your screen" : " Ask a follow-up"
     }
@@ -351,6 +401,19 @@ struct GlanceView: View {
             if let note = glance.note { Text(note).font(.system(size: 13)).foregroundStyle(.orange) }
             ForEach(glance.turns) { turn in
                 TurnView(turn: turn).id(turn.id)
+            }
+            if glance.listening != nil || glance.hears {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(glance.listening != nil ? "Listening" : "Heard, ↵ to ask about it", systemImage: "waveform")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(glance.listening != nil ? Color.red : .secondary)
+                    Text(glance.live.isEmpty ? "Nothing said yet." : glance.live)
+                        .font(.system(size: 14))
+                        .foregroundStyle(glance.live.isEmpty ? .tertiary : .primary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .id("live")
             }
         }
         .padding(16)
@@ -371,6 +434,15 @@ struct TurnView: View {
             }
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.secondary)
+            // Its end: the question is mostly about the last thing said.
+            if let transcript = turn.transcript, !transcript.isEmpty {
+                Text(transcript)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .truncationMode(.head)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let error = turn.error {
                 Text(error).font(.system(size: 14)).foregroundStyle(.red)
             } else if turn.answer.isEmpty {
@@ -394,5 +466,21 @@ struct TurnView: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// The panel's buttons: the watch list's rows, a whiter glass with a grey rim; red while it runs.
+struct Pill: ButtonStyle {
+    let on: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .labelStyle(.titleAndIcon)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(on ? Color.white : Glass.ink)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(on ? Color.red : .white.opacity(configuration.isPressed ? 0.85 : 0.6), in: Capsule())
+            .overlay(Capsule().strokeBorder(on ? Color.clear : Glass.line, lineWidth: 1))
     }
 }
