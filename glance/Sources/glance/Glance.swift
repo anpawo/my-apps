@@ -377,8 +377,9 @@ struct GlanceView: View {
         }
         .frame(width: glance.size.width, height: glance.size.height, alignment: .top)
         // Light text whatever the system's mode: it sits on a light glass. The text alone: a light material hides the
-        // backdrop the glass blurs, and the panel turns clear.
+        // backdrop the glass blurs, and the panel turns clear. All of it black, his pick (27/10/2026).
         .environment(\.colorScheme, .light)
+        .foregroundStyle(.black)
         // The watch list's card: its glass, a white rim inside a dark one. Under the white of its rows: the glass alone
         // is the watch list's to the unit, measured on his screen at the same place (27/10/2026), but the watch list is
         // mostly rows at white 0.6 and stands on a dark veil, where glance stands on a white window: it looked grey.
@@ -403,7 +404,7 @@ struct GlanceView: View {
             // A caret that does not blink: a blink would redraw the panel twice a second for nothing.
             (Text(glance.draft) + Text("|").foregroundColor(.accentColor)
                 + Text(glance.draft.isEmpty ? placeholder : "")
-                .foregroundColor(Color.secondary.opacity(0.6)))
+                .foregroundColor(Color.black.opacity(0.5)))
                 .font(.system(size: 17))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -428,7 +429,6 @@ struct GlanceView: View {
                                     : "Seen by screenshots and screen shares: click to leave it out")
                 Text(glance.copied ? "Copied" : glance.answering ? "…" : "↵")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
             }
             // The buttons whole, the question wraps instead: at 416 pt they were cut to "Lis…".
             .fixedSize()
@@ -453,10 +453,9 @@ struct GlanceView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label(glance.listening != nil ? "Listening" : "Heard, ↵ to ask about it", systemImage: "waveform")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(glance.listening != nil ? Color.red : .secondary)
+                        .foregroundStyle(glance.listening != nil ? Color.red : .black)
                     Text(glance.live.isEmpty ? "Nothing said yet." : glance.live)
                         .font(.system(size: 14))
-                        .foregroundStyle(glance.live.isEmpty ? .tertiary : .primary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -479,12 +478,10 @@ struct TurnView: View {
                 Text(turn.question.isEmpty ? (turn.withSound ? "What was heard" : "What's on screen") : turn.question)
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
             // Its end: the question is mostly about the last thing said.
             if let transcript = turn.transcript, !transcript.isEmpty {
                 Text(transcript)
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .truncationMode(.head)
                     .fixedSize(horizontal: false, vertical: true)
@@ -492,7 +489,7 @@ struct TurnView: View {
             if let error = turn.error {
                 Text(error).font(.system(size: 14)).foregroundStyle(.red)
             } else if turn.answer.isEmpty {
-                Text("Looking…").font(.system(size: 14)).foregroundStyle(.tertiary)
+                Text("Looking…").font(.system(size: 14))
             } else {
                 ForEach(Array(Markdown.blocks(turn.answer).enumerated()), id: \.offset) { _, block in
                     switch block {
