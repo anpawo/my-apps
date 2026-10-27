@@ -386,7 +386,9 @@ struct GlanceView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.4), lineWidth: 1))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Glass.ink.opacity(0.1), lineWidth: 1).padding(-1))
+        // The dark rim darker than Watcher's 0.1: its card stands on a veil, black at 0.3, that sets its white rim off;
+        // glance stands on the screen as it is, a white window often, where the white rim alone does not show.
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Glass.ink.opacity(0.4), lineWidth: 1).padding(-1))
         .padding(Glance.margin)
     }
 
