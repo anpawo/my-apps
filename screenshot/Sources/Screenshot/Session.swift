@@ -45,7 +45,12 @@ final class Session {
         state = Settings.bar
         hoverScreen = NSScreen.underMouse
         windows = Capture.windows()
+        // A capture can never answer (replayd: "no client found", 28-10): `opening` then stays set
+        // and ⌘⇧5 is dead until a restart. Quitting lets the LaunchAgent start a fresh copy.
+        let watchdog = DispatchWorkItem { NSLog("screenshot: capture hung, restarting"); exit(1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: watchdog)
         Task {
+            defer { watchdog.cancel() }
             var frozen: [CGDirectDisplayID: CGImage] = [:]
             do {
                 // Every display at once: the screen is frozen as of a single instant.
