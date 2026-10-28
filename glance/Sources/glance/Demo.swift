@@ -174,11 +174,11 @@ enum Demo {
         renderer.nsImage!.draw(in: frame)
     }
 
-    /// What the glass shows of `desk`, from the card's top-left corner down: blurred 30 pt and through the matrix, on
+    /// What the glass shows of `desk`, from the card's top-left corner down: blurred 10 pt and through the matrix, on
     /// sRGB values with no working colour space, as `Glass` does on the screen.
     private static func behind(_ desk: NSBitmapImageRep) -> NSImage {
         let scale = CGFloat(desk.pixelsWide) / screen.width, m = Glass.matrix
-        let image = CIImage(cgImage: desk.cgImage!).clampedToExtent().applyingGaussianBlur(sigma: 30 * scale)
+        let image = CIImage(cgImage: desk.cgImage!).clampedToExtent().applyingGaussianBlur(sigma: 10 * scale)
             .applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: m[0][0], y: m[0][1], z: m[0][2], w: 0),
                 "inputGVector": CIVector(x: m[1][0], y: m[1][1], z: m[1][2], w: 0),
