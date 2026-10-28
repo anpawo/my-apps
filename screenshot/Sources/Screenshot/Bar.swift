@@ -174,9 +174,11 @@ final class Bar: NSPanel, NSMenuDelegate {
         }
         header("Save to")
         let home = FileManager.default.homeDirectoryForCurrentUser
-        var known = [("Desktop", home.appendingPathComponent("Desktop")),
-                     ("Downloads", home.appendingPathComponent("Downloads")),
-                     ("Documents", home.appendingPathComponent("Documents"))]
+        // A home that renamed Desktop and Downloads (desk, dwl) is offered those, not folders macOS would bring back.
+        var known = [("Desktop", "desk"), ("Downloads", "dwl"), ("Documents", "Documents")].map { name, short in
+            let own = home.appendingPathComponent(short)
+            return FileManager.default.fileExists(atPath: own.path) ? (short, own) : (name, home.appendingPathComponent(name))
+        }
         for f in Settings.folders where !known.contains(where: { $0.1.path == f.path }) { known.append((f.lastPathComponent, f)) }
         for (name, dir) in known {
             item(name, #selector(toggleFolder(_:)), on: Settings.folders.contains { $0.path == dir.path }, object: dir)
