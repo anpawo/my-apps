@@ -439,8 +439,8 @@ struct GlanceView: View {
         // The watch list's card: its glass, a white rim inside a dark one. Under the white of its rows: the glass alone
         // is the watch list's to the unit, measured on his screen at the same place (27/10/2026), but the watch list is
         // mostly rows at white 0.6 and stands on a dark veil, where glance stands on a white window: it looked grey.
-        // 0.8, his pick (27/10/2026).
-        .background(.white.opacity(0.8))
+        // 0.2, more see-through: his pick (28/10/2026).
+        .background(.white.opacity(0.2))
         .background(Glass.tint)
         .background(alignment: .topLeading) {
             if let renderBehind { Image(nsImage: renderBehind) } else { GlassView(radius: 14) }
