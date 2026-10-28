@@ -28,12 +28,12 @@ func registerChords(_ chords: [(keyCode: Int, modifiers: Int, label: String, act
 }
 
 /// Firefox started while ⌥ is still down asks whether to open in Troubleshoot Mode, so it waits (2 s at most) for the
-/// chord to be let go. Already in front, bringing it up would do nothing: it gets a new window.
+/// chord to be let go. Already running, it gets a new window rather than being brought up.
 func openOnceOptionIsUp(_ path: String, tries: Int = 40) {
     if tries > 0, CGEventSource.flagsState(.combinedSessionState).contains(.maskAlternate) {
         return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { openOnceOptionIsUp(path, tries: tries - 1) }
     }
-    if NSWorkspace.shared.frontmostApplication?.bundleURL?.path == path {
+    if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleURL?.path == path }) {
         // A second `firefox` hands `-browser` to the running one through its remote and exits; no permission needed,
         // where File → New Window through System Events would need Accessibility.
         _ = try? Process.run(URL(fileURLWithPath: path + "/Contents/MacOS/firefox"), arguments: ["-browser"])
