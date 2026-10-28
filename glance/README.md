@@ -57,7 +57,7 @@ leaves the Mac, only its words.
 Needs macOS 26, for its speech recognizer.
 
 ```sh
-./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
+./install.sh   # builds, runs the self-test, copies to ~/apps (else ~/Applications), starts at login
 ```
 
 `glance --selftest` checks what goes to `claude` and back, the keys, the Markdown and how the two languages' words

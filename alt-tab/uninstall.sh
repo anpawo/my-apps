@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 LABEL="app.alt-tab"
-APP="$HOME/Applications/Alt-tab.app"
+APP="$APPS/Alt-tab.app"
 
 # First, and with the binary still on disk: a chord bound to ⌘Tab means the system's own
 # switcher is currently off, and that outlives the app. Deleting it before giving the chord

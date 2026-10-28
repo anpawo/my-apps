@@ -41,7 +41,7 @@ one you use wins.
 ## Install
 
 ```sh
-./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
+./install.sh   # builds, runs the self-test, copies to ~/apps (else ~/Applications), starts at login
 ```
 
 Then give it Accessibility (System Settings → Privacy & Security → Accessibility): it waits for it and starts

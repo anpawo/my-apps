@@ -50,7 +50,7 @@ git clone https://github.com/anpawo/my-lab.git && cd my-lab/alt-tab
 ./install.sh
 ```
 
-`install.sh` builds the app, installs it to `~/Applications`, and registers a LaunchAgent so it
+`install.sh` builds the app, installs it to `~/apps` (else `~/Applications`), and registers a LaunchAgent so it
 starts with your session.
 
 ## Permissions

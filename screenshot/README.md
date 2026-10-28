@@ -65,7 +65,7 @@ Security → Open Anyway**. Opened by hand it runs until you log out; building i
 Swift, Command Line Tools only — no Xcode.
 
 ```sh
-./install.sh             # builds, installs to ~/Applications, starts it at login
+./install.sh             # builds, installs to ~/apps (else ~/Applications), starts it at login
 swift run -c release check
 ./build.sh --release     # ad-hoc and zipped: what a download is made of
 ```

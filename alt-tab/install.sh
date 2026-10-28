@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Builds, copies to ~/Applications, and registers a LaunchAgent: it starts at login and comes
+# Builds, copies to ~/apps (else ~/Applications), and registers a LaunchAgent: it starts at login and comes
 # back if anything kills it. Not `open -a`: an app opened from a Claude Code session is reaped by
 # Fleet once that session ends (see screenshot's install.sh).
 set -euo pipefail
+APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 
 cd "$(dirname "$0")"
 
 LABEL="app.alt-tab"
-DEST="$HOME/Applications/Alt-tab.app"
+DEST="$APPS/Alt-tab.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 # The one build path; --arch native because this machine is the only one that will run it.
@@ -16,7 +17,7 @@ python3 build.py --arch native
 echo "==> Installing to $DEST"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 pkill -f "Alt-tab.app/Contents/MacOS/alt-tab" 2>/dev/null || true
-rm -rf "$DEST"; mkdir -p "$HOME/Applications"; cp -R dist/Alt-tab.app "$DEST"
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R dist/Alt-tab.app "$DEST"
 
 echo "==> Starting"
 cat > "$PLIST" <<EOF
