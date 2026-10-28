@@ -67,6 +67,8 @@ final class Glass: NSVisualEffectView {
     private func takeFilters() {
         for sub in layer?.sublayers?.flatMap({ $0.sublayers ?? [] }) ?? [] {
             guard sub.name == "backdrop" else { sub.isHidden = true; continue }
+            // The material captures the screen at 1/8 of its pixels: blurrier than any radius here (28/10/2026).
+            if sub.value(forKey: "scale") as? Double != 1 { sub.setValue(1.0, forKey: "scale") }
             let names = (sub.filters ?? []).compactMap { ($0 as? NSObject)?.value(forKey: "name") as? String }
             guard !names.contains("cssBlur"), let css = filters() else { continue }
             sub.filters = (sub.filters ?? []).filter { ($0 as? NSObject)?.value(forKey: "name") as? String == "sdrNormalize" } + css
