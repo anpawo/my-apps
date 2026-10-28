@@ -14,9 +14,9 @@ final class Glass: NSVisualEffectView {
                 [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]].map { $0.map { $0 * 0.7 * 1.15 } }
     }()
 
-    /// The site's glass fill over the backdrop, and its rims. The fill at 0.075, not 0.4, and the blur 5 pt, not 40:
+    /// The site's glass fill over the backdrop, and its rims. The fill at 0.1, not 0.4, and the blur 5 pt, not 40:
     /// clearer, his pick (28/10/2026).
-    static let tint = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.075)
+    static let tint = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.1)
     static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
     static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
 
