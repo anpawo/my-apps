@@ -14,9 +14,9 @@ final class Glass: NSVisualEffectView {
                 [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]].map { $0.map { $0 * 0.7 * 1.15 } }
     }()
 
-    /// The site's glass fill over the backdrop, and its rims. The fill at 0.1, not 0.4, and the blur 10 pt, not 40:
-    /// clearer, his pick (28/10/2026; 0.3 and 30 pt did not show).
-    static let tint = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.1)
+    /// The site's glass fill over the backdrop, and its rims. The fill at 0.05, not 0.4, and the blur 4 pt, not 40:
+    /// clearer, his pick (28/10/2026).
+    static let tint = Color(red: 220 / 255, green: 224 / 255, blue: 229 / 255).opacity(0.05)
     static let ink = Color(red: 0x1C / 255, green: 0x21 / 255, blue: 0x27 / 255)
     static let line = Color(red: 0xC5 / 255, green: 0xCB / 255, blue: 0xD3 / 255)
 
@@ -78,7 +78,7 @@ final class Glass: NSVisualEffectView {
 
 struct GlassView: NSViewRepresentable {
     let radius: CGFloat
-    func makeNSView(context: Context) -> Glass { Glass(blur: 10, tone: Glass.matrix, radius: radius) }
+    func makeNSView(context: Context) -> Glass { Glass(blur: 4, tone: Glass.matrix, radius: radius) }
     func updateNSView(_ view: Glass, context: Context) {}
 }
 
