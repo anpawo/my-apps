@@ -74,7 +74,8 @@ struct ChecksView: View {
 
     /// A check in one block, as a field of the mail is: its name, the logo of what it reads (its words under the
     /// pointer), then the pills of how often it is read and of its day and time. They keep one width, so the columns
-    /// line up. Under the pointer, a check done shows Add back over its time, unless it is watched again already.
+    /// line up. Under the pointer, a check done shows Add back over its time, unless it is watched again already. A
+    /// click opens its session.
     private func row(_ check: CheckEntry) -> some View {
         let addable = check.state == .arrived && !waiting.contains { $0.id == check.id }
         return HStack(spacing: 16) {
@@ -94,6 +95,9 @@ struct ChecksView: View {
         .padding(.horizontal, 12)
         .frame(height: 38)
         .block()
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture { inbox.open(check) }
+        .pointerStyle(.link)
         .onHover { hovered = $0 ? check.id : hovered == check.id ? nil : hovered }
     }
 

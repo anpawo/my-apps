@@ -140,6 +140,26 @@ enum SelfCheck {
         watcher.addBack(CheckEntry.load(state: state).entries.first { $0.id == "b" }!)
         expect(watcher.current?.id == "r" && !watcher.settings && !FileManager.default.fileExists(atPath: state.appending(path: "b.json").path), true,
                "checks: Add back brings back the line its follow-up left, shown, and watches nothing again")
+        // A check clicked: the session its follow-up ended in, else the one that asked; raised while it runs, else
+        // resumed in the folder its transcript names.
+        let claude = state.appending(path: "claude"), real = Store.claude
+        try? FileManager.default.createDirectory(at: claude.appending(path: "projects/p"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: claude.appending(path: "sessions"), withIntermediateDirectories: true)
+        try? Data(#"{"type":"summary"}\#n{"cwd":"/tmp/a \"b\"","sessionId":"asked"}"#.utf8).write(to: claude.appending(path: "projects/p/asked.jsonl"))
+        try? Data(#"{"pid":\#(getpid()),"sessionId":"live"}"#.utf8).write(to: claude.appending(path: "sessions/\(getpid()).json"))
+        Store.claude = claude
+        var resumed: [String] = [], raised: [pid_t] = []
+        watcher.launch = { resumed = [$0.dir] + $0.options; return true }
+        watcher.focus = { raised.append($0) }
+        try? Data(#"{"id":"c","name":"C","cmd":"x","since":1,"fired":{"at":7},"session":"asked"}"#.utf8).write(to: state.appending(path: "fired/c.json"))
+        let c = CheckEntry.load(state: state).entries.first { $0.id == "c" }!
+        watcher.open(c)
+        expect(resumed == ["/tmp/a \"b\"", "--resume", "asked"] && raised.isEmpty, true, "checks: a click resumes the session that asked, in its folder")
+        try? Data(#"{"id":"f","at":9,"kind":"done","subject":"C","line":"L","dir":"/","options":["--resume","live"],"entries":["c"]}"#.utf8)
+            .write(to: state.appending(path: "inbox/done/f.json"))
+        watcher.open(c)
+        expect(raised == [getpid()] && resumed.count == 3, true, "checks: a click raises the session its follow-up ended in, still running")
+        Store.claude = real
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.items.isEmpty && kept("a"), true, "inbox: the last line set aside leaves none")

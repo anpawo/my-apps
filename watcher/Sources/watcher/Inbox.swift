@@ -31,6 +31,8 @@ final class Inbox: NSObject, ObservableObject {
 
     /// What opening does. A stand-in in the selftest, which must not start a terminal.
     var launch: (InboxItem) -> Bool = Inbox.resume
+    /// What opening a session still running does. A stand-in in the selftest, which must not raise one.
+    var focus: (pid_t) -> Void = Inbox.raise
     private let folder: URL
     private var seen: Date?
     private var status: NSStatusItem?
@@ -160,7 +162,7 @@ final class Inbox: NSObject, ObservableObject {
     /// under Done, then read back from disk once the checker is done, which drops the waiting one if it failed.
     func again(_ check: CheckEntry) {
         checks = [CheckEntry(id: check.id, name: check.name, who: check.who, watching: check.watching, channel: check.channel, state: .waiting,
-                             at: Date().timeIntervalSince1970 * 1000)] + checks
+                             at: Date().timeIntervalSince1970 * 1000, session: check.session)] + checks
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
         task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "again", check.id, "--keep"]
@@ -177,6 +179,30 @@ final class Inbox: NSObject, ObservableObject {
             NSLog("watcher: could not watch \(check.id) again — \(error)")
             (checks, lastCheck) = CheckEntry.load(state: state)
         }
+    }
+
+    /// A check clicked: the session its follow-up ended in (its newest line, waiting or set aside), else the one that
+    /// asked. Still running, its terminal comes up; else it is resumed in a window of its own.
+    func open(_ check: CheckEntry) {
+        let lines = Store.lines(in: folder) + Store.lines(in: folder.appending(path: "done"))
+        let line = lines.filter { $0.entries?.contains(check.id) == true && $0.session != nil }.max { $0.at < $1.at }
+        guard let session = line?.session ?? check.session else { return NSLog("watcher: \(check.id) names no session") }
+        if let pid = Store.pid(of: session) {
+            hide()
+            return focus(pid)
+        }
+        guard let dir = Store.folder(of: session) else { return NSLog("watcher: no transcript of \(session)") }
+        hide()
+        _ = launch(InboxItem(id: check.id, at: 0, kind: "", subject: "", line: "", dir: dir, options: ["--resume", session], prompt: nil))
+    }
+
+    /// Fleet's own raise, as a click on the session's tile does it. Launched as an app of its own, not as a child: its
+    /// Accessibility grant, which takes it across desktops, is then its own and not asked of Watcher.
+    private static func raise(_ pid: pid_t) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-n", NSHomeDirectory() + "/Applications/Fleet.app", "--args", "--focus", "\(pid)"]
+        do { try task.run() } catch { NSLog("watcher: could not raise \(pid) — \(error)") }
     }
 
     private func step(_ by: Int) {

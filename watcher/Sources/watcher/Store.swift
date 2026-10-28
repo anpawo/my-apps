@@ -36,6 +36,33 @@ enum Store {
     static func restore(_ id: String, in folder: URL = inbox) -> Bool {
         (try? FileManager.default.moveItem(at: folder.appending(path: "done/\(id).json"), to: folder.appending(path: "\(id).json"))) != nil
     }
+
+    /// Claude Code's own folder: its transcripts, and a file per running session. Moved aside in the selftest.
+    nonisolated(unsafe) static var claude = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude")
+
+    /// The folder a session ran in, read from its transcript: `claude --resume` finds it only from there.
+    static func folder(of session: String) -> String? {
+        let projects = (try? FileManager.default.contentsOfDirectory(at: claude.appending(path: "projects"), includingPropertiesForKeys: nil)) ?? []
+        for project in projects {
+            guard let file = try? FileHandle(forReadingFrom: project.appending(path: "\(session).jsonl")) else { continue }
+            defer { try? file.close() }
+            let head = String(decoding: (try? file.read(upToCount: 1 << 18)) ?? Data(), as: UTF8.self)
+            guard let r = head.range(of: #""cwd":"(?:[^"\\]|\\.)*""#, options: .regularExpression) else { return nil }
+            return (try? JSONSerialization.jsonObject(with: Data(head[r].dropFirst(6).utf8), options: .fragmentsAllowed)) as? String
+        }
+        return nil
+    }
+
+    /// The session's pid while it still runs, from the file Claude Code keeps for each running session.
+    static func pid(of session: String) -> pid_t? {
+        let files = (try? FileManager.default.contentsOfDirectory(at: claude.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "json" {
+            guard let json = (try? Data(contentsOf: file)).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+                  json["sessionId"] as? String == session, let pid = (json["pid"] as? NSNumber)?.int32Value, kill(pid, 0) == 0 else { continue }
+            return pid
+        }
+        return nil
+    }
 }
 
 /// One line the watcher of awaited answers left for Marius: a headless follow-up that finished something (`done`)
@@ -74,6 +101,8 @@ struct CheckEntry: Equatable {
     let state: State
     /// ms: when it began waiting, arrived or was dropped.
     let at: Double
+    /// The session that asked.
+    var session: String? = nil
 
     /// The name split around the one it is awaited from, matched in any case; not in the name, in front of it.
     var parts: (before: String, who: String, after: String)? {
@@ -122,7 +151,7 @@ struct CheckEntry: Equatable {
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
             return CheckEntry(id: id, name: name, who: json["who"] as? String ?? json["chat"] as? String, watching: watching,
-                              channel: channel, state: state, at: at ?? 0)
+                              channel: channel, state: state, at: at ?? 0, session: json["session"] as? String)
         }
         let all = (read(state) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
