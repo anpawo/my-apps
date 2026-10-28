@@ -4,7 +4,7 @@ Spotlight for apps only, on ⌘Space. Type a few letters of an app, ↵ opens it
 
 ![⌘Space over a desktop: the panel opens empty, typing "saf" narrows the list to Safari and ↵ opens it; ⌘Space again over Safari, "te" lists Terminal then TextEdit, ↓ moves to TextEdit and ↵ opens it](docs/demo.gif)
 
-It reads the app folders (`/Applications`, `/System/Applications`, their `Utilities`, `~/Applications`) each
+It reads the app folders (`/Applications`, `/System/Applications`, their `Utilities`, `~/Applications`, `~/apps`) each
 time it opens, not Spotlight's index: it works with indexing turned off, and an app installed a minute ago is
 already there. No file, contact or web result, no settings.
 
@@ -26,7 +26,7 @@ already there. No file, contact or web result, no settings.
 Spotlight). The chords are in `Sources/opener/main.swift`.
 
 ```sh
-./install.sh   # builds, runs the self-test, copies to ~/Applications, starts at login
+./install.sh   # builds, runs the self-test, copies to ~/apps (else ~/Applications), starts at login
 ```
 
 `opener --selftest` checks the ranking and the keys; `opener --render out.png [query] [--dark]` draws the panel

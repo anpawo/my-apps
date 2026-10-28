@@ -12,7 +12,7 @@ struct AppEntry: Identifiable, Equatable {
 /// an app installed a minute ago is there the next time the panel opens. A hundred names take under a millisecond.
 enum Catalog {
     static let folders = ["/Applications", "/Applications/Utilities", "/System/Applications",
-                          "/System/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+                          "/System/Applications/Utilities", NSHomeDirectory() + "/Applications", NSHomeDirectory() + "/apps"]
 
     static func apps(in folders: [String] = folders) -> [AppEntry] {
         let fm = FileManager.default
