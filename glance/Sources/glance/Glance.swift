@@ -69,6 +69,8 @@ final class Glance: ObservableObject {
     private var mouse: [Any] = []
     /// Where the mouse holds the panel while ⌃ is down over it.
     private var grab: CGPoint?
+    /// Moved by the mouse since the last ⌃ and arrow: its sides are where it stands, not `left` and `bottom`.
+    private var dragged = false
 
     var answering: Bool { turns.last.map { !$0.done } ?? false }
 
@@ -296,12 +298,14 @@ final class Glance: ObservableObject {
             .insetBy(dx: -margin, dy: -margin)
     }
 
-    /// ⌃ and an arrow: to that side of its screen, the other side as it stands, after a drag too.
+    /// ⌃ and an arrow: to that side of its screen, the other side kept, so ⌃↑ then ⌃→ go to the top right even while
+    /// the first move is under way (read off the frame mid-move, it undid it); after a drag, the sides it stands on.
     private func move(left: Bool? = nil, bottom: Bool? = nil) {
         guard let panel, let screen = panel.screen else { return }
         let visible = screen.visibleFrame
-        self.left = left ?? (panel.frame.midX < visible.midX)
-        self.bottom = bottom ?? (panel.frame.midY < visible.midY)
+        self.left = left ?? (dragged ? panel.frame.midX < visible.midX : self.left)
+        self.bottom = bottom ?? (dragged ? panel.frame.midY < visible.midY : self.bottom)
+        dragged = false
         UserDefaults.standard.set(self.left, forKey: "left")
         UserDefaults.standard.set(self.bottom, forKey: "bottom")
         let frame = Self.frame(screen: screen.frame, visible: visible, left: self.left, bottom: self.bottom)
@@ -323,7 +327,7 @@ final class Glance: ObservableObject {
         guard let panel, event.modifierFlags.contains(.control) else { grab = nil; return }
         let at = NSEvent.mouseLocation
         if grab == nil, panel.frame.contains(at) { grab = CGPoint(x: at.x - panel.frame.minX, y: at.y - panel.frame.minY) }
-        if let grab { panel.setFrameOrigin(CGPoint(x: at.x - grab.x, y: at.y - grab.y)) }
+        if let grab { panel.setFrameOrigin(CGPoint(x: at.x - grab.x, y: at.y - grab.y)); dragged = true }
     }
 
     /// Non-activating: after a click in the app behind, a click on it takes the keys without taking that app away

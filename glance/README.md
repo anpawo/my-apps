@@ -43,7 +43,7 @@ anywhere, ⎋ from the panel. Screenshots, screen shares and recordings show it 
 | ⌘C | the selection; with nothing selected, the last answer's code block, or the whole answer |
 | ⌘V | paste text into the question |
 | ⌫, ⌥⌫, ⌘⌫ | take a letter, a word, all of it |
-| ⌃←, ⌃→, ⌃↑, ⌃↓ | move it to that side of the screen: to a corner, where it opens from then on |
+| ⌃←, ⌃→, ⌃↑, ⌃↓ | move it to that side of the screen: to a corner, where it opens from then on; two together, as ⌃↑ and →, to the corner between |
 | ⌃, over it | it follows the mouse until ⌃ is let go |
 | ⎋ | close, end the conversation, drop what was heard, give the focus back |
 
