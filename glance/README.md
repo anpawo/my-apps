@@ -1,5 +1,7 @@
 # glance
 
+**Unfinished.** Not installed on my Mac since 2026-10-29: it stays here as code only, and ⌘⌥J is Jarvis's again.
+
 Ask about what is on the screen, on ⌘⌥J, what happens on it, on ⌘2, and what the computer plays, on ⌘3. With nothing typed, ↵ works
 out what you need from the screen: the fix for the error, the reply to the message, the answer to the exercise;
 after listening, from what was said: the answer to the question asked in the call, the gist of the video, the song.
