@@ -30,7 +30,7 @@ Pick a recording and the button says so:
 
 ![The bar in the area recording mode, its button reading Record](docs/bar-record.png)
 
-- **Keys.** ⌘← ⌘→ step through the modes, the arrows nudge the selection (⇧ by 10, ⌥ resizes),
+- **Keys.** ⌘← ⌘→ step through the modes, the arrows nudge the selection by 10 (⇧ by 100, ⌥ resizes),
   Return takes it, Escape closes. ⌘⇧5 again flips between still and recording, and stops a
   recording that is running.
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag

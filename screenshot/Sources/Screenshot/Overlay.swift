@@ -207,7 +207,7 @@ private final class OverlayView: NSView {
             if mods.contains(.command) {
                 if dx != 0 { session.step(Int(dx)) }
             } else {
-                let step: CGFloat = mods.contains(.shift) ? 10 : 1
+                let step: CGFloat = mods.contains(.shift) ? 100 : 10
                 session.nudge(dx: dx * step, dy: dy * step, resize: mods.contains(.option))
             }
         default: break
