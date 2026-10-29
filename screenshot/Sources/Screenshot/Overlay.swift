@@ -207,7 +207,7 @@ private final class OverlayView: NSView {
             if mods.contains(.command) {
                 if dx != 0 { session.step(Int(dx)) }
             } else {
-                let step: CGFloat = mods.contains(.shift) ? 100 : 10
+                let step: CGFloat = mods.contains(.shift) ? 100 : 20
                 session.nudge(dx: dx * step, dy: dy * step, resize: mods.contains(.option))
             }
         default: break
@@ -229,7 +229,7 @@ private final class OverlayView: NSView {
         case .window:
             if let w = session.hoverWindow { text = w.app }
         case .area:
-            if let sel = session.selection, screen.frame.contains(sel) { cut = local(sel); text = pixels(sel) }
+            if let sel = session.selection, screen.frame.contains(sel) { cut = local(session.drawnSelection ?? sel); text = pixels(sel) }
         }
         let rounded = target != .area
 

@@ -27,6 +27,10 @@ expect(nudge(r, dx: 200, dy: 0, resize: false, bounds: bounds).maxX == 100, "mov
 expect(nudge(r, dx: 0, dy: 5, resize: true, bounds: bounds).height == 25, "resize grows")
 expect(nudge(r, dx: 0, dy: -50, resize: true, bounds: bounds).height == 1, "resize never below 1")
 expect(nudge(r, dx: 500, dy: 0, resize: true, bounds: bounds).maxX == 100, "resize clamps to bounds")
+let far = r.offsetBy(dx: 20, dy: 0)
+expect(glide(r, far, 0) == r && glide(r, far, 1) == far && glide(r, far, 2) == far, "glide starts at a, lands on b")
+let xs = (0...20).map { glide(r, far, CGFloat($0) / 20).minX }
+expect(zip(xs, xs.dropFirst()).allSatisfy { $0 <= $1 } && xs[1] - xs[0] > xs[20] - xs[19], "glide moves one way, eased out")
 
 expect(resized(r, handle: 4, to: CGPoint(x: 50, y: 60)) == CGRect(x: 10, y: 10, width: 40, height: 50),
        "top-right handle keeps the bottom-left corner")

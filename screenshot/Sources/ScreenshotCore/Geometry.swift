@@ -47,6 +47,14 @@ public func nudge(_ r: CGRect, dx: CGFloat, dy: CGFloat, resize: Bool, bounds: C
     return out
 }
 
+/// The box drawn `t` (0…1) of the way from `a` to `b`, eased out; exactly `b` once `t` reaches 1.
+public func glide(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
+    guard t < 1 else { return b }
+    let e = 1 - pow(1 - max(t, 0), 3)
+    func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * e }
+    return CGRect(x: mix(a.minX, b.minX), y: mix(a.minY, b.minY), width: mix(a.width, b.width), height: mix(a.height, b.height))
+}
+
 /// The eight handles as (fx, fy) fractions of the rect; index order is stable for hit-testing.
 public let handles: [(CGFloat, CGFloat)] = [
     (0, 0), (0.5, 0), (1, 0), (1, 0.5), (1, 1), (0.5, 1), (0, 1), (0, 0.5),

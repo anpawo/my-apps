@@ -108,10 +108,39 @@ final class Session {
     func set(_ target: Target) { state.target = target; refresh() }
     func toggleKind() { state.toggleKind(); refresh() }
 
+    /// The arrows glide the drawn box to `selection`, which stays the truth for hits and the shot.
+    /// Each press restarts the glide from where the box is drawn, so a held key moves it smoothly.
+    private var glide: (from: CGRect, start: CFTimeInterval)?
+    private var glideTimer: Timer?
+    private static let glideDuration: CFTimeInterval = 0.12
+
+    var drawnSelection: CGRect? {
+        guard let to = selection, let g = glide else { return selection }
+        return ScreenshotCore.glide(g.from, to, (CACurrentMediaTime() - g.start) / Self.glideDuration)
+    }
+
     func nudge(dx: CGFloat, dy: CGFloat, resize: Bool) {
         guard let r = selection else { return }
+        let from = drawnSelection ?? r
         selection = ScreenshotCore.nudge(r, dx: dx, dy: dy, resize: resize, bounds: NSScreen.containing(r).frame)
+        glide = (from, CACurrentMediaTime())
+        if glideTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { _ in
+                MainActor.assumeIsolated { Session.shared.glideTick() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            glideTimer = timer
+        }
         refresh()
+    }
+
+    private func glideTick() {
+        if let g = glide, CACurrentMediaTime() - g.start >= Self.glideDuration {
+            glide = nil
+            glideTimer?.invalidate()
+            glideTimer = nil
+        }
+        redraw()
     }
 
     /// After a state change: the bar and every overlay. Panels at screen-saver level do not
