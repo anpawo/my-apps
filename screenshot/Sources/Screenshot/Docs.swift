@@ -153,7 +153,7 @@ enum Docs {
         }
         /// Eased, in 40 ms steps, the last one held: ffmpeg reads the frames at 25 fps, and 50 ms
         /// came out 40 and 80 by turns. Each step does what `mouseMoved` does under the pointer:
-        /// the overlay picks the window in window mode, the thumbnail darkens the half.
+        /// the overlay picks the window in window mode, the thumbnail shows its pin.
         func move(to q: CGPoint, steps: Int, hold: Double) {
             let a = p
             for k in 1...steps {
@@ -212,10 +212,10 @@ enum Docs {
             up = false
             card = Thumbnail(.image(shot, dir, r), on: screen)
         }
-        // Low on its left half, the pin glyph in view; the pin that replaces it is shorter, and
+        // Low on the card, the pin glyph in view; the pin that replaces it is shorter, and
         // the notes fall just under it.
         move(to: CGPoint(x: card!.frame.minX + card!.frame.width / 4, y: card!.frame.minY + 20), steps: 18, hold: 0.6)
-        // The left half: `Thumbnail.pin`, a pin in the same corner.
+        // `Thumbnail.pin`, a pin in the same corner.
         click("Pinned", hold: 1) {
             card = nil
             pin = Pin(shot, url: dir, on: screen)

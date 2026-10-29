@@ -14,7 +14,7 @@ final class Thumbnail: NSPanel {
     private static var current: Thumbnail?
     private let content: Content
     private var timer: Timer?
-    private var buttons: [NSImageView] = []
+    private var pinButton: NSImageView?
 
     static func show(_ content: Content) {
         guard Settings.thumbnail else { return }
@@ -60,18 +60,17 @@ final class Thumbnail: NSPanel {
             view.addSubview(label("Recording", in: view.bounds))
         }
         if case .image = content {
-            // Each half of the card is a button: a white symbol on a tint, so it reads on any
-            // picture. Not NSButtons, which would swallow the drag. Shown while hovered.
-            for (i, (symbol, tip)) in [("pin", "Pin"), ("trash", "Delete")].enumerated() {
-                let b = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!)
-                b.contentTintColor = .white
-                b.toolTip = tip
-                b.wantsLayer = true
-                b.frame = CGRect(x: CGFloat(i) * frame.width / 2, y: 0, width: frame.width / 2, height: frame.height)
-                b.isHidden = true
-                view.addSubview(b)
-                buttons.append(b)
-            }
+            // The whole card is the pin button: a white symbol on a tint, so it reads on any
+            // picture. Not an NSButton, which would swallow the drag. Shown while hovered.
+            let b = NSImageView(image: NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin")!)
+            b.contentTintColor = .white
+            b.toolTip = "Pin"
+            b.wantsLayer = true
+            b.layer?.backgroundColor = NSColor(white: 0, alpha: 0.4).cgColor
+            b.frame = view.bounds
+            b.isHidden = true
+            view.addSubview(b)
+            pinButton = b
         }
 
         // Under the pinned cards, if any.
@@ -94,20 +93,10 @@ final class Thumbnail: NSPanel {
         }
     }
     func hold() { timer?.invalidate() }
-    /// The half under the mouse goes darker than the other; nil hides both.
-    func hover(_ p: CGPoint?) {
-        for b in buttons {
-            b.isHidden = p == nil
-            b.layer?.backgroundColor = NSColor(white: 0, alpha: p.map(b.frame.contains) == true ? 0.5 : 0.25).cgColor
-        }
-    }
+    func hover(_ p: CGPoint?) { pinButton?.isHidden = p == nil }
 
     func click(at p: CGPoint) {
-        switch buttons.firstIndex(where: { $0.frame.contains(p) }) {
-        case 0: pin()
-        case 1: trash()
-        default: open()
-        }
+        if pinButton != nil { pin() } else { open() }
     }
 
     func dismiss() {
@@ -129,11 +118,6 @@ final class Thumbnail: NSPanel {
 
     private func pin() {
         if case .image(let img, let url, _) = content { Pin.show(img, url: url) }
-        dismiss()
-    }
-
-    private func trash() {
-        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
         dismiss()
     }
 

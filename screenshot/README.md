@@ -3,7 +3,7 @@
 A ⌘⇧5 replacement for macOS: the same bar, the same six modes, and a file that is on disk the
 moment you click, not five seconds later.
 
-![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on its left half pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](docs/demo.gif)
+![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](docs/demo.gif)
 
 ![The area mode over a desktop: the screen dimmed, a selection with its handles and its size in pixels, the bar underneath](docs/overlay.png)
 
@@ -33,8 +33,8 @@ Pick a recording and the button says so:
 - **Keys.** ⌘← ⌘→ step through the modes, the arrows nudge the selection (⇧ by 10, ⌥ resizes),
   Return takes it, Escape closes. ⌘⇧5 again flips between still and recording, and stops a
   recording that is running.
-- **After the shot.** A thumbnail sits in the corner for eight seconds: its left half pins, its
-  right half deletes, a drag takes the file with it.
+- **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
+  takes the file with it.
   A pinned capture stays in the top-right corner: a click copies it, a double click opens the
   file, a right click unpins it.
 - **Nothing in the menu bar.** It runs as a LaunchAgent, invisible, and only answers ⌘⇧5.
