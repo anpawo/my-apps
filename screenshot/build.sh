@@ -9,9 +9,10 @@ cd "$(dirname "$0")"
 APP="dist/Screenshot.app"
 swift run -c release check
 swift build -c release --product screenshot
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/screenshot" "$APP/Contents/MacOS/Screenshot"
 cp Resources/Info.plist "$APP/Contents/"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 # Not a pipe into grep: under pipefail, grep -q closing early makes the whole test fail and
 # the build silently falls back to ad-hoc — which is how the Screen Recording grant got lost.
 if [[ "${1:-}" != "--release" && "$(security find-identity -v -p codesigning)" == *"Shot Self-Signed"* ]]; then

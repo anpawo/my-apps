@@ -10,7 +10,7 @@ swift build -c release --product autocorrect
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/autocorrect" "$APP/Contents/MacOS/Autocorrect"
 cp Resources/Info.plist "$APP/Contents/"
-cp Resources/words.tsv "$APP/Contents/Resources/"
+cp Resources/words.tsv Resources/AppIcon.icns "$APP/Contents/Resources/"
 "$APP/Contents/MacOS/Autocorrect" --selftest > /dev/null || "$APP/Contents/MacOS/Autocorrect" --selftest
 if [[ "$(security find-identity -v -p codesigning)" == *"$IDENTITY"* ]]; then
   # A keychain dialog would hold a script forever; give up after a minute.

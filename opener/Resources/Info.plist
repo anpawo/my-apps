@@ -6,6 +6,8 @@
 	<string>Opener</string>
 	<key>CFBundleExecutable</key>
 	<string>Opener</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mr.opener</string>
 	<key>CFBundleName</key>

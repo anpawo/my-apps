@@ -6,6 +6,8 @@
 	<string>Autocorrect</string>
 	<key>CFBundleExecutable</key>
 	<string>Autocorrect</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mr.autocorrect</string>
 	<key>CFBundleName</key>

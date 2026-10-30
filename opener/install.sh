@@ -12,6 +12,10 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 pkill -if "opener.app/Contents/MacOS/opener" 2>/dev/null || true
 rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/Opener.app" "$DEST"
+# Login Items draws an agent with the icon of the file it runs, not of the app around it (only a Team ID links
+# the two), so the binary carries the icon itself, as in Fleet's install.sh.
+osascript -l JavaScript -e 'ObjC.import("AppKit"); function run(a) { $.NSWorkspace.sharedWorkspace.setIconForFileOptions($.NSImage.alloc.initWithContentsOfFile(a[0]), a[1], 0) }' \
+	"$DEST/Contents/Resources/AppIcon.icns" "$DEST/Contents/MacOS/Opener" >/dev/null
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

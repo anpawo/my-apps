@@ -83,6 +83,8 @@ def assemble(binaries):
     if APP.exists():
         shutil.rmtree(APP)
     (APP / "Contents/MacOS").mkdir(parents=True)
+    (APP / "Contents/Resources").mkdir()
+    shutil.copy2(ROOT / "Resources/AppIcon.icns", APP / "Contents/Resources/AppIcon.icns")
     if len(binaries) == 1:
         shutil.copy2(binaries[0], APP / "Contents/MacOS/Alt-Tab")
     else:
