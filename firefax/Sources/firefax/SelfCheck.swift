@@ -118,6 +118,33 @@ enum SelfCheck {
         let (codeEx, _, _) = fill(expiredTree, #"{"page":"h/f","steps":[{"id":"x","set":"v"}]}"#)
         expect(codeEx, 3, "session expirée exits 3")
 
+        // ---- challenge lock across calls: set by a challenge, next call refused, expires after an hour, unlock ----
+        let lockClock = FakeClock()
+        let lockNav = FakeNav(lockClock)
+        let lockEngine = Engine(clock: lockClock, store: secrets, files: FakeFiles(values: [:]), nav: lockNav)
+        func lockFill(_ tree: String, _ spec: String) -> (Int32, [String], [String: FakeNode]) {
+            let (page, tagged) = Fixture.load(tree)
+            let (code, lines) = lockEngine.fill(try! SpecParser.parse(Data(spec.utf8)), page)
+            return (code, lines, tagged)
+        }
+        let plain = oneFieldTree(lag: 0, maxlength: nil, drop: false)
+        _ = lockFill(challengeTree, #"{"page":"h/f","steps":[{"id":"x","set":"v"}]}"#)
+        expect(lockNav.lockMinutesLeft("h"), 60, "a challenge locks the host for 60 min")
+        let (codeLk, linesLk, taggedLk) = lockFill(plain, oneSetSpec("hello"))
+        expect(codeLk, 5, "the next call to a locked host exits 5")
+        expect(linesLk.first?.contains("60 min left") ?? false, true, "it says how many minutes are left")
+        expect(taggedLk["f"]!.storedValue, "", "a locked host gets no write")
+        lockClock.sleep(1800)
+        expect(lockNav.lockMinutesLeft("h"), 30, "half an hour later, 30 min left")
+        lockClock.sleep(1801)
+        expect(lockNav.lockMinutesLeft("h") == nil, true, "the lock expires after an hour")
+        expect(lockFill(plain, oneSetSpec("hello")).0, 0, "after expiry the call runs")
+        lockNav.lock("h")
+        lockNav.unlock("h")
+        expect(lockFill(plain, oneSetSpec("hello")).0, 0, "unlock clears the lock")
+        expect(lockFill(expiredTree, #"{"page":"h/f","steps":[{"id":"x","set":"v"}]}"#).0, 3, "session expirée still exits 3")
+        expect(lockNav.lockMinutesLeft("h") == nil, true, "session expirée locks nothing")
+
         // ---- redirect mid-run ----
         let (codeRd, linesRd, _) = fill(redirectTree, #"{"page":"h/f","steps":[{"id":"r1","set":"hello"},{"id":"r2","set":"x"}]}"#)
         expect(codeRd, 3, "a redirect mid-run exits 3")

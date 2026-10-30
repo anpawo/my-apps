@@ -34,6 +34,15 @@ final class FakeNav: NavCounter {
     }
     func recentCount(_ host: String) -> Int { (stamps[host] ?? []).filter { clock.now() - $0 < 3600 }.count }
     func record(_ host: String) { stamps[host, default: []].append(clock.now()) }
+
+    private var locks: [String: Double] = [:]
+    func lockMinutesLeft(_ host: String) -> Int? {
+        guard let t = locks[host] else { return nil }
+        let left = t + challengeLock - clock.now()
+        return left > 0 ? Int((left / 60).rounded(.up)) : nil
+    }
+    func lock(_ host: String) { locks[host] = clock.now() }
+    func unlock(_ host: String) { locks[host] = nil }
 }
 
 final class FakeTree {

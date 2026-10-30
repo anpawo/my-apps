@@ -11,6 +11,7 @@ firefax: fill one web-form page in your logged-in Firefox, in one call, through 
   firefax fill <file|->           fill the page from a JSON spec on that file or stdin
   firefax store <name>            read a value from stdin into keychain com.mr.firefax (prints name + length)
   firefax refs                    list the stored ref names and their lengths
+  firefax unlock <host>           clear a host's 1 h challenge lock once you have solved the captcha
   firefax --selftest              run the checks against the in-memory FakeAX (no window, no keychain)
   firefax --help | --version
 
@@ -31,32 +32,46 @@ spec:
 exit: 0 ok  1 step failed  2 bad spec  3 page or AX absent  4 refused  5 challenge or rate limit
 """
 
-// Per-host navigation count, last hour, under ~/Library/Application Support/firefax. Host names and
-// timestamps only, no paths and no values.
+// Per-host navigation count (last hour) and challenge locks, under ~/Library/Application Support/firefax.
+// Host names and timestamps only, no paths and no values.
 struct FileNavCounter: NavCounter {
     private var stateURL: URL {
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/firefax")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("nav.json")
     }
-    private func load() -> [String: [Double]] {
+    private func load() -> (nav: [String: [Double]], locks: [String: Double]) {
         guard let d = try? Data(contentsOf: stateURL),
               let obj = try? JSONSerialization.jsonObject(with: d),
-              let j = obj as? [String: [Double]] else { return [:] }
-        return j
+              let j = obj as? [String: Any] else { return ([:], [:]) }
+        return (j["nav"] as? [String: [Double]] ?? [:], j["locks"] as? [String: Double] ?? [:])
     }
-    private func save(_ s: [String: [Double]]) {
-        if let d = try? JSONSerialization.data(withJSONObject: s) { try? d.write(to: stateURL) }
+    private func save(_ nav: [String: [Double]], _ locks: [String: Double]) {
+        if let d = try? JSONSerialization.data(withJSONObject: ["nav": nav, "locks": locks]) { try? d.write(to: stateURL) }
     }
+    private var now: Double { Date().timeIntervalSince1970 }
     func recentCount(_ host: String) -> Int {
-        let now = Date().timeIntervalSince1970
-        return (load()[host] ?? []).filter { now - $0 < 3600 }.count
+        (load().nav[host] ?? []).filter { now - $0 < 3600 }.count
     }
     func record(_ host: String) {
-        let now = Date().timeIntervalSince1970
         var s = load()
-        s[host] = (s[host] ?? []).filter { now - $0 < 3600 } + [now]
-        save(s)
+        s.nav[host] = (s.nav[host] ?? []).filter { now - $0 < 3600 } + [now]
+        save(s.nav, s.locks)
+    }
+    func lockMinutesLeft(_ host: String) -> Int? {
+        guard let t = load().locks[host] else { return nil }
+        let left = t + challengeLock - now
+        return left > 0 ? Int((left / 60).rounded(.up)) : nil
+    }
+    func lock(_ host: String) {
+        var s = load()
+        s.locks[host] = now
+        save(s.nav, s.locks)
+    }
+    func unlock(_ host: String) {
+        var s = load()
+        s.locks[host] = nil
+        save(s.nav, s.locks)
     }
 }
 
@@ -67,6 +82,11 @@ func liveEngine(human: Bool, dry: Bool, timing: Bool, finals: [String]) -> Engin
 }
 
 func out(_ lines: [String]) { print(lines.joined(separator: "\n")) }
+
+// Checked before LivePage is built, so a locked host gets no AX work at all.
+func refuseIfLocked(_ host: String) {
+    if let left = FileNavCounter().lockMinutesLeft(host) { print(Engine.lockLine(host, left)); exit(5) }
+}
 
 let args = Array(CommandLine.arguments.dropFirst())
 
@@ -88,8 +108,10 @@ case "scan":
     let scope = positional.count > 1 ? positional[1] : nil
     let page: LivePage?
     if let scope, let slash = scope.firstIndex(of: "/") {
+        refuseIfLocked(String(scope[..<slash]))
         page = LivePage(wantHost: String(scope[..<slash]), wantPath: String(scope[slash...]), clock: RealClock())
     } else if let scope {
+        refuseIfLocked(scope)
         page = LivePage(wantHost: scope, wantPath: "", clock: RealClock())
     } else {
         page = LivePage(clock: RealClock())
@@ -113,6 +135,7 @@ case "fill":
         guard let slash = spec.page.firstIndex(of: "/") else { return (spec.page, "") }
         return (String(spec.page[..<slash]), String(spec.page[slash...]))
     }()
+    refuseIfLocked(wantHost)
     guard let page = LivePage(wantHost: wantHost, wantPath: wantPath, clock: RealClock()) else {
         print("firefax fill: \(spec.page) is not open in Firefox"); exit(3)
     }
@@ -145,6 +168,14 @@ case "refs":
     let names = Keychain().names()
     if names.isEmpty { print("no refs in \(keychainService)") }
     for r in names { print("\(r.name) \(r.length)") }
+
+case "unlock":
+    guard positional.count > 1 else { print("firefax unlock: give a host"); exit(2) }
+    let host = positional[1]
+    let nav = FileNavCounter()
+    guard nav.lockMinutesLeft(host) != nil else { print("\(host) was not locked"); exit(0) }
+    nav.unlock(host)
+    print("unlocked \(host)")
 
 default:
     print(help); exit(2)

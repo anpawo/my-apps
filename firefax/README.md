@@ -18,6 +18,7 @@ take. It never submits on its own: a committing button needs `--final`.
 | `firefax fill <file\|->` | fill the page from a JSON spec on that file or on stdin |
 | `firefax store <name>` | read a value from stdin into keychain `com.mr.firefax` (prints the name and its length only) |
 | `firefax refs` | list the stored ref names and their lengths |
+| `firefax unlock <host>` | clear a host's challenge lock, once you have solved the captcha yourself |
 | `firefax --selftest` | run the checks against an in-memory fake tree (no window, no keychain, no clock) |
 | `firefax --help`, `--version` | |
 
@@ -60,7 +61,7 @@ A step is one locator and one action.
 | 2 | bad spec (unknown key, two actions in a step, a press that is not last) |
 | 3 | the page or its web area is not there (wrong tab, session expired, a redirect mid-run) |
 | 4 | refused (a shaped literal, a password or code field, a committing button without `--final`, the hourly navigation cap) |
-| 5 | a challenge or rate-limit wall (captcha, Cloudflare, "too many requests") |
+| 5 | a challenge or rate-limit wall (captcha, Cloudflare, "too many requests"), or a host still locked by one |
 
 ## Safety
 
@@ -71,6 +72,9 @@ A step is one locator and one action.
   a redirect, an expiry or a challenge stops the run.
 - At most 20 navigating presses per host per hour, kept in a small state file under
   `~/Library/Application Support/firefax/` (host names and timestamps only).
+- A challenge locks its host for an hour in the same file: every later call to it exits 5 before any
+  accessibility work, saying how many minutes are left, until it expires or `firefax unlock <host>`.
+  "Session expirée" exits 3 and locks nothing.
 - The report is one line per step and never prints a field value. A failed `pick` is the only place
   option labels appear, and they pass a word allowlist that keeps 5-digit postal codes and turns any
   other digit token into its length.

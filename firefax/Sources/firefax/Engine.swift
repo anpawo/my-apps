@@ -15,7 +15,12 @@ struct Timing {
 protocol NavCounter {
     func recentCount(_ host: String) -> Int   // navigating presses in the last hour
     func record(_ host: String)
+    func lockMinutesLeft(_ host: String) -> Int?   // a challenge locked this host; nil once it expires
+    func lock(_ host: String)
+    func unlock(_ host: String)
 }
+
+let challengeLock = 3600.0
 
 private let controlRoles: Set<String> = [
     "AXTextField", "AXComboBox", "AXTextArea", "AXPopUpButton",
@@ -44,7 +49,12 @@ struct Engine {
 
     // ---- scan ----
 
+    static func lockLine(_ host: String, _ minutes: Int) -> String {
+        "firefax: \(host) is locked after a challenge, \(minutes) min left; solve it in Firefox, then firefax unlock \(host)"
+    }
+
     func scan(_ page: Page) -> (Int32, [String]) {
+        if let left = nav.lockMinutesLeft(page.host) { return (5, [Engine.lockLine(page.host, left)]) }
         guard let web = page.webArea() else { return (3, ["firefax scan: no web area on the current tab"]) }
         let flats = flatten(web)
         let controls = flats.filter { controlRoles.contains($0.node.role) }
@@ -84,6 +94,7 @@ struct Engine {
 
     func fill(_ spec: Spec, _ page: Page) -> (Int32, [String]) {
         let (wantHost, wantPath) = splitPage(spec.page)
+        if let left = nav.lockMinutesLeft(wantHost) { return (5, [Engine.lockLine(wantHost, left)]) }
         guard page.host == wantHost, page.path.hasPrefix(wantPath) else {
             return (3, ["firefax fill: the current page is \(page.host)\(safePath(page.path)), not \(spec.page)"])
         }
@@ -441,6 +452,7 @@ struct Engine {
 
     private func close(_ code: Int32, _ results: [StepResult], _ page: Page, note: String, from: Int, action: String) -> (Int32, [String]) {
         var rs = results
+        if code == 5 { nav.lock(page.host) }  // a challenge stops this host for later calls too
         rs.append(StepResult(index: from, action: action, status: code == 5 ? .refused : .failed, locator: "-", detail: note))
         if !dryRun { page.restore() }
         return (code, render(rs, page))
