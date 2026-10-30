@@ -116,8 +116,22 @@ case "fill":
     guard let page = LivePage(wantHost: wantHost, wantPath: wantPath, clock: RealClock()) else {
         print("firefax fill: \(spec.page) is not open in Firefox"); exit(3)
     }
-    let (code, lines) = liveEngine(human: human, dry: dry, timing: timing, finals: finals).fill(spec, page)
-    out(lines); exit(code)
+    // fill raises Firefox for the typing lease, so the front app must come back even on SIGINT/SIGTERM.
+    // Run fill off the main thread; the main run loop services the signal sources and restores.
+    for sig in [SIGINT, SIGTERM] { signal(sig, SIG_IGN) }
+    let signals = [SIGINT, SIGTERM].map { s -> DispatchSourceSignal in
+        let src = DispatchSource.makeSignalSource(signal: s, queue: .main)
+        src.setEventHandler { page.restore(); exit(130) }
+        src.resume()
+        return src
+    }
+    DispatchQueue.global().async {
+        let (code, lines) = liveEngine(human: human, dry: dry, timing: timing, finals: finals).fill(spec, page)
+        _ = signals
+        out(lines)
+        exit(code)
+    }
+    dispatchMain()
 
 case "store":
     guard positional.count > 1 else { print("firefax store: give a name"); exit(2) }
