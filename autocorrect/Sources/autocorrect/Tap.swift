@@ -1,5 +1,9 @@
 import AppKit
 
+/// firefax stamps every key it posts with this value; autocorrect lets those pass untouched so a
+/// form it fills is not rewritten. Keep equal to firefaxEventStamp in firefax/Sources/firefax/Keys.swift.
+let firefaxEventStamp: Int64 = 0x6669_7265_6661_78  // "firefax"
+
 /// Every key and click of the session goes through here; the corrections are typed back as
 /// key events of their own, right behind this tap, so they never come through it again.
 final class Tap {
@@ -45,6 +49,7 @@ final class Tap {
             return pass
         }
         guard type == .keyDown else { _ = typist.handle(.focus); return pass }
+        if event.getIntegerValueField(.eventSourceUserData) == firefaxEventStamp { return pass }
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         if let front, skipped.contains(front) {
             _ = typist.handle(.reset)
