@@ -15,6 +15,8 @@ final class Session {
     var hoverWindow: WindowInfo?
     var hoverScreen: NSScreen?
     var windows: [WindowInfo] = []   // set by Docs too
+    /// Floating panels as of ⌘⇧5: Jarvis's closes at the click that picks it, before a live shot.
+    private var stills: [CGWindowID: CGImage] = [:]
     private var overlays: [Overlay] = []
     private var bar: Bar?
     private let recorder = Recorder()
@@ -65,6 +67,8 @@ final class Session {
                 opening = false
                 return
             }
+            stills = [:]
+            for w in windows where w.floating { stills[w.id] = try? await Capture.window(w, shadow: true) }
             opening = false
             guard !isOpen else { return }
             if let r = selection, !NSScreen.screens.contains(where: { $0.frame.contains(r) }) { selection = nil }
@@ -176,6 +180,7 @@ final class Session {
         if state.needsSelection && selection == nil { return }
         if state.target == .window && window == nil { return }
         let frozen = Dictionary(uniqueKeysWithValues: overlays.map { ($0.display.displayID, $0.frozen) })
+        let stills = stills
         close()
         if state.kind == .video { startRecording(state.target, screen: screen, window: window, rect: selection); return }
 
@@ -193,7 +198,7 @@ final class Session {
                     if let (url, image, rect) = last { Thumbnail.show(.image(image, url, rect)) }
                 case .window:
                     let w = window!
-                    let image = try await Capture.window(w, shadow: shadow)
+                    let image = if let still = stills[w.id] { still } else { try await Capture.window(w, shadow: shadow) }
                     let url = try Output.save(image, scale: NSScreen.containing(w.frame).backingScaleFactor, app: w.app)
                     Thumbnail.show(.image(image, url, w.frame))
                 case .area:

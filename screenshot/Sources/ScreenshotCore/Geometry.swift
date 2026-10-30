@@ -19,6 +19,13 @@ public func appKit(_ r: CGRect, mainHeight: CGFloat) -> CGRect {
     CGRect(x: r.minX, y: mainHeight - r.maxY, width: r.width, height: r.height)
 }
 
+/// Whether window mode offers a window: the normal ones and the panels floating above them
+/// (Jarvis), but not the menu bar and its icons (no taller than 40 pt) nor an overlay covering
+/// a whole screen (Fleet, Watcher), which would take every click.
+public func pickable(layer: Int, frame: CGRect, screens: [CGRect]) -> Bool {
+    layer == 0 || layer > 0 && frame.height > 40 && !screens.contains { frame.contains($0) }
+}
+
 /// A corner card: `side` wide for a capture shaped like a screen, and never taller than that
 /// one. A taller capture is scaled to that height and centred on a card at least half as
 /// wide, so a narrow picture keeps ground to click on each side.

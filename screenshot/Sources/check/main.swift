@@ -39,6 +39,14 @@ expect(resized(r, handle: 0, to: CGPoint(x: 50, y: 50)) == CGRect(x: 30, y: 30, 
 expect(resized(r, handle: 3, to: CGPoint(x: 70, y: 0)) == CGRect(x: 10, y: 10, width: 60, height: 20),
        "an edge handle ignores the other axis")
 
+let screen = [CGRect(x: 0, y: 0, width: 1470, height: 956)]
+expect(pickable(layer: 0, frame: CGRect(x: 0, y: 0, width: 1470, height: 956), screens: screen), "a normal window, even full-screen")
+expect(pickable(layer: 25, frame: CGRect(x: 435, y: 287, width: 600, height: 669), screens: screen), "Jarvis's panel")
+expect(!pickable(layer: 24, frame: CGRect(x: 0, y: 923, width: 1470, height: 33), screens: screen), "not the menu bar")
+expect(!pickable(layer: 25, frame: CGRect(x: 1341, y: 923, width: 131, height: 33), screens: screen), "not a menu bar icon")
+expect(!pickable(layer: 3, frame: screen[0], screens: screen), "not a full-screen overlay (Fleet, Watcher)")
+expect(!pickable(layer: -2147483601, frame: CGRect(x: 922, y: 725, width: 180, height: 180), screens: screen), "not a desktop widget")
+
 var bar = BarState(target: .area, kind: .photo)
 bar.step(1); expect(bar == BarState(target: .screen, kind: .video), "⌘→ goes from the last still to the first recording")
 bar.step(-1); expect(bar == BarState(target: .area, kind: .photo), "⌘← comes back")

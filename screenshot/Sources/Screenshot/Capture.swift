@@ -8,6 +8,7 @@ struct WindowInfo {
     let frame: CGRect        // AppKit global points
     let app: String
     var radius: CGFloat = 16 // its corners', as the WindowServer cuts them
+    var floating = false     // above the normal windows, like Jarvis's panel
 }
 
 /// ScreenCaptureKit, one frame at a time. Our own process is excluded from every display
@@ -81,23 +82,26 @@ enum Capture {
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     }
 
-    /// Normal-level windows, frontmost first, ours left out.
+    /// The windows window mode offers (`pickable`), frontmost first, ours left out.
     @MainActor
     static func windows() -> [WindowInfo] {
         let mainHeight = NSScreen.screens[0].frame.height
+        let screens = NSScreen.screens.map(\.frame)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
         let radii = cornerRadii(list.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
         return list.compactMap { w in
-            guard w[kCGWindowLayer as String] as? Int == 0,
+            guard let layer = w[kCGWindowLayer as String] as? Int,
                   w[kCGWindowOwnerPID as String] as? Int32 != pid,
                   (w[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
                   let id = w[kCGWindowNumber as String] as? CGWindowID,
                   let bounds = CGRect(dictionaryRepresentation: w[kCGWindowBounds as String] as! CFDictionary),
-                  bounds.width > 32, bounds.height > 32
+                  bounds.width > 32, bounds.height > 32,
+                  pickable(layer: layer, frame: appKit(bounds, mainHeight: mainHeight), screens: screens)
             else { return nil }
             return WindowInfo(id: id, frame: appKit(bounds, mainHeight: mainHeight),
-                              app: w[kCGWindowOwnerName as String] as? String ?? "", radius: radii[id] ?? 16)
+                              app: w[kCGWindowOwnerName as String] as? String ?? "", radius: radii[id] ?? 16,
+                              floating: layer != 0)
         }
     }
 
