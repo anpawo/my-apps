@@ -2,7 +2,7 @@ import Foundation
 
 // Live wiring and the command line. --selftest, --help and --version never touch AX. scan/fill build
 // a LivePage against his Firefox; store/refs use the real keychain (com.mr.firefax). The engine does
-// the rest. This file is never run against his Firefox in the build; only --selftest/--help/--version.
+// the rest. The build runs only --selftest/--help/--version.
 
 let help = """
 firefax: fill one web-form page in your logged-in Firefox, in one call, through macOS Accessibility.

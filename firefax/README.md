@@ -78,8 +78,9 @@ A step is one locator and one action.
 - The report is one line per step and never prints a field value. A failed `pick` is the only place
   option labels appear, and they pass a word allowlist that keeps 5-digit postal codes and turns any
   other digit token into its length.
-- Keyboard events are posted only when the machine has been idle 2 seconds, with the target focused and
-  Firefox frontmost, checked before each key; the previously front app is restored on every exit path.
+- Keyboard events are posted only after 2 seconds without any input of yours (waiting up to 10 s for that
+  pause), with the target focused and Firefox frontmost, checked before each key; any key or mouse move
+  of yours ends the lease at once, and the previously front app is restored on every exit path.
 
 ```sh
 ./install.sh   # builds, runs the self-test, copies to ~/.local/bin/firefax

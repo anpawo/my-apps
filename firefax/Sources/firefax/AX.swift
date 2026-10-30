@@ -3,7 +3,7 @@ import ApplicationServices
 
 // The accessibility surface the engine runs on, behind a protocol so --selftest drives an in-memory
 // FakeAX and never touches the real tree, a real window, real time or his keychain. LiveAX is the
-// thin shim lifted from ovhax/axprobe; it is never run against his Firefox here.
+// thin shim lifted from ovhax/axprobe, checked live on a local fixture page (2026-10-30).
 
 protocol Clock {
     func now() -> Double
@@ -51,7 +51,7 @@ struct RealClock: Clock {
     func sleep(_ seconds: Double) { Thread.sleep(forTimeInterval: seconds) }
 }
 
-// ---- Live AX (compiled, never exercised here) ----
+// ---- Live AX ----
 
 final class LiveNode: AXNode {
     let el: AXUIElement
@@ -117,7 +117,7 @@ final class LivePage: Page {
             if let wins = LivePage.attr(app, "AXWindows") as? [AXUIElement] {
                 for win in wins {
                     if let area = LivePage.search(win, 0), let url = LivePage.attr(area, "AXURL") as? URL,
-                       let comps = URLComponents(url: url, resolvingAgainstBaseURL: false), let h = comps.host {
+                       let comps = URLComponents(url: url, resolvingAgainstBaseURL: false), let h = LivePage.hostPort(comps) {
                         wantHost = h; wantPath = comps.path; break
                     }
                 }
@@ -134,11 +134,14 @@ final class LivePage: Page {
         AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
     }
 
+    // The port counts: 127.0.0.1/x must not match another local app his Firefox has open on 127.0.0.1:3000.
+    static func hostPort(_ c: URLComponents) -> String? { c.host.map { h in c.port.map { "\(h):\($0)" } ?? h } }
+
     static func findArea(_ app: AXUIElement, wantHost: String, wantPath: String) -> (AXUIElement, AXUIElement)? {
         for win in attr(app, "AXWindows") as? [AXUIElement] ?? [] {
             if let area = search(win, 0), let url = attr(area, "AXURL") as? URL,
                let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               comps.host == wantHost, comps.path.hasPrefix(wantPath) {
+               hostPort(comps) == wantHost, comps.path.hasPrefix(wantPath) {
                 return (win, area)
             }
         }
@@ -169,15 +172,28 @@ final class LivePage: Page {
     }
 
     func typeUnderLease(_ chars: String, into target: AXNode, human: Bool) -> LeaseResult {
-        guard idleSeconds() >= 2 else { return .notIdle }
-        NSRunningApplication(processIdentifier: pid)?.activate()
+        // Wait for him to pause rather than refuse at once: a refusal costs the caller a whole rerun.
+        let waitStart = Date()
+        while !quiet(2) {
+            if Date().timeIntervalSince(waitStart) > 10 { return .notIdle }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        LivePage.bringFront(pid)
         AXUIElementPerformAction(window, "AXRaise" as CFString)
-        Thread.sleep(forTimeInterval: 0.2)
+        let leaseStart = Date()
+        repeat {
+            target.focus()  // a native select is never focused by an earlier write
+            if leaseHeld(target) { break }
+            Thread.sleep(forTimeInterval: 0.025)
+        } while Date().timeIntervalSince(leaseStart) < 1.5
         let gaps = Cadence.gaps(max(chars.count, 1), seed: 0xF1FAC5)
         for (i, c) in chars.enumerated() {
-            guard frontIsFirefox(), let focused = focusedElement(), focused.same(as: target) else {
+            // Once Firefox is in front his own keys would land in the form: any input of his ends the lease.
+            guard untouched(since: leaseStart) else {
+                FileHandle.standardError.write(Data("firefax: lease lost, he used the keyboard or mouse\n".utf8))
                 restore(); return .focusLost
             }
+            guard leaseHeld(target, say: true) else { restore(); return .focusLost }
             post(c)
             let ms = human ? gaps[i] : 30
             Thread.sleep(forTimeInterval: ms / 1000)
@@ -186,14 +202,42 @@ final class LivePage: Page {
         return .typed
     }
 
-    func restore() { previousApp?.activate() }
+    func restore() { if let p = previousApp?.processIdentifier { LivePage.bringFront(p) } }
+
+    // NSRunningApplication.activate() from a background CLI is refused since macOS 14 (cooperative
+    // activation); setting AXFrontmost through accessibility is not.
+    static func bringFront(_ pid: pid_t) {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
+
+    // The HID state counts keys posted at the HID tap too, ours included, so the last post is remembered.
+    private var lastPost = Date.distantPast
 
     private func idleSeconds() -> Double {
         let types: [CGEventType] = [.keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .mouseMoved, .scrollWheel]
-        return types.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
+        return types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? 0
     }
 
-    private func frontIsFirefox() -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
+    private func lastWasOurs(_ idle: Double) -> Bool { abs(idle - Date().timeIntervalSince(lastPost)) < 0.05 }
+    private func quiet(_ need: Double) -> Bool { let idle = idleSeconds(); return idle >= need || lastWasOurs(idle) }
+    private func untouched(since t: Date) -> Bool {
+        let idle = idleSeconds()
+        return idle + 0.05 >= Date().timeIntervalSince(t) || lastWasOurs(idle)
+    }
+
+    // NSWorkspace.frontmostApplication goes stale in a CLI that never runs the main run loop, and the
+    // system-wide AXFocusedApplication answers kAXErrorCannotComplete here; Firefox's own AXFrontmost holds.
+    private func leaseHeld(_ target: AXNode, say: Bool = false) -> Bool {
+        guard (LivePage.attr(app, kAXFrontmostAttribute) as? Bool) == true else {
+            if say { FileHandle.standardError.write(Data("firefax: lease lost, Firefox is not frontmost\n".utf8)) }
+            return false
+        }
+        guard let focused = focusedElement(), focused.same(as: target) else {
+            if say { FileHandle.standardError.write(Data("firefax: lease lost, focus is on \(focusedElement()?.role ?? "nothing")\n".utf8)) }
+            return false
+        }
+        return true
+    }
 
     private func focusedElement() -> AXNode? {
         LivePage.attr(app, "AXFocusedUIElement").map { LiveNode($0 as! AXUIElement) }
@@ -209,5 +253,6 @@ final class LivePage: Page {
             e.setIntegerValueField(.eventSourceUserData, value: firefaxEventStamp)
             e.post(tap: .cghidEventTap)
         }
+        lastPost = Date()
     }
 }

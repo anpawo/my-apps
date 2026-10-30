@@ -8,7 +8,6 @@ struct Timing {
     var poll = 0.025
     var text = 1.0
     var listSelect = 3.0
-    var navigation = 15.0
     var wholeCall = 90.0
 }
 
@@ -172,7 +171,7 @@ struct Engine {
         case .check(let want):
             let cur = (node.num("AXValue") ?? 0) != 0
             if cur != want { if dryRun { r.detail = "dry" } else { node.press() } }
-            r.verified = dryRun ? nil : ((node.num("AXValue") ?? 0) != 0) == want
+            r.verified = dryRun ? nil : poll(timing.text) { ((node.num("AXValue") ?? 0) != 0) == want }  // AXPress lands async
             r.via = "ax"
             if r.verified == false { r.status = .failed }
             return r
@@ -292,8 +291,7 @@ struct Engine {
         if dryRun { r.detail = "dry (would press)"; return r }
         nav.record(page.host)
         node.press()
-        _ = poll(timing.navigation) { page.webArea().map { !$0.same(as: node) } ?? true }
-        r.detail = "navigated to \(page.host)\(safePath(page.path))"
+        r.detail = "pressed"  // the next call's scan waits for whatever page this leads to
         r.via = "ax"
         return r
     }
