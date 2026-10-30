@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>autocorrect</string>
+	<string>Autocorrect</string>
 	<key>CFBundleExecutable</key>
-	<string>autocorrect</string>
+	<string>Autocorrect</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mr.autocorrect</string>
 	<key>CFBundleName</key>
-	<string>autocorrect</string>
+	<string>Autocorrect</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

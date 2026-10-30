@@ -8,17 +8,17 @@ APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 cd "$(dirname "$0")"
 ./build.sh
 LABEL="app.screenshot"
-DEST="$APPS/screenshot.app"
+DEST="$APPS/Screenshot.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 # The agent was `com.mr.screenshot` until 27-09, when app agents took the `app.` prefix. The
 # bundle id keeps the old name: the Screen Recording grant is filed under it.
 launchctl bootout "gui/$UID/com.mr.screenshot" 2>/dev/null || true
 rm -f "$HOME/Library/LaunchAgents/com.mr.screenshot.plist"
-pkill -f "screenshot.app/Contents/MacOS/screenshot" 2>/dev/null || true
+pkill -if "screenshot.app/Contents/MacOS/screenshot" 2>/dev/null || true
 # The app was `mr. screenshot.app` until 02-10: left in place, a second copy takes ⌘⇧5 too.
 rm -rf "$APPS/mr. screenshot.app"
-rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/screenshot.app" "$DEST"
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/Screenshot.app" "$DEST"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28,7 +28,7 @@ cat > "$PLIST" <<EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$DEST/Contents/MacOS/screenshot</string>
+		<string>$DEST/Contents/MacOS/Screenshot</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

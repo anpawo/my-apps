@@ -7,11 +7,11 @@ APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 cd "$(dirname "$0")"
 ./build.sh
 LABEL="app.watcher"
-DEST="$APPS/watcher.app"
+DEST="$APPS/Watcher.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-pkill -f "watcher.app/Contents/MacOS/watcher" 2>/dev/null || true
-rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/watcher.app" "$DEST"
+pkill -if "watcher.app/Contents/MacOS/watcher" 2>/dev/null || true
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/Watcher.app" "$DEST"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,7 +21,7 @@ cat > "$PLIST" <<EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$DEST/Contents/MacOS/watcher</string>
+		<string>$DEST/Contents/MacOS/Watcher</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

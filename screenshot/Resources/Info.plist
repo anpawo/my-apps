@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>screenshot</string>
+	<string>Screenshot</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mr.screenshot</string>
 	<key>CFBundleName</key>
-	<string>screenshot</string>
+	<string>Screenshot</string>
 	<key>CFBundleDisplayName</key>
-	<string>screenshot</string>
+	<string>Screenshot</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

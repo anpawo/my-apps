@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Builds and signs dist/opener.app. Does not install: `./install.sh` does.
+# Builds and signs dist/Opener.app. Does not install: `./install.sh` does.
 # Ad-hoc signed: opener asks macOS for no permission, so no certificate has a grant to keep.
 set -euo pipefail
 cd "$(dirname "$0")"
-APP="dist/opener.app"
+APP="dist/Opener.app"
 swift build -c release --product opener
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
-cp "$(swift build -c release --show-bin-path)/opener" "$APP/Contents/MacOS/opener"
+cp "$(swift build -c release --show-bin-path)/opener" "$APP/Contents/MacOS/Opener"
 cp Resources/Info.plist "$APP/Contents/"
-"$APP/Contents/MacOS/opener" --selftest
+"$APP/Contents/MacOS/Opener" --selftest
 codesign --force --sign - "$APP"
 echo "==> $APP"

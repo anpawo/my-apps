@@ -8,7 +8,7 @@ APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 cd "$(dirname "$0")"
 
 LABEL="app.alt-tab"
-DEST="$APPS/Alt-tab.app"
+DEST="$APPS/Alt-Tab.app"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 # The one build path; --arch native because this machine is the only one that will run it.
@@ -16,8 +16,8 @@ python3 build.py --arch native
 
 echo "==> Installing to $DEST"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-pkill -f "Alt-tab.app/Contents/MacOS/alt-tab" 2>/dev/null || true
-rm -rf "$DEST"; mkdir -p "$APPS"; cp -R dist/Alt-tab.app "$DEST"
+pkill -if "Alt-tab.app/Contents/MacOS/Alt-Tab" 2>/dev/null || true
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R dist/Alt-Tab.app "$DEST"
 
 echo "==> Starting"
 cat > "$PLIST" <<EOF
@@ -29,7 +29,7 @@ cat > "$PLIST" <<EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$DEST/Contents/MacOS/alt-tab</string>
+		<string>$DEST/Contents/MacOS/Alt-Tab</string>
 		<string>--agent</string>
 	</array>
 	<key>RunAtLoad</key>
@@ -57,6 +57,6 @@ echo "The first time you commit a switch, macOS will ask for Accessibility."
 echo "Until it is granted the panel lists applications without window names,"
 echo "and cannot raise anything: System Settings → Privacy & Security → Accessibility."
 echo
-echo "  See what it sees:  $DEST/Contents/MacOS/alt-tab --render"
+echo "  See what it sees:  $DEST/Contents/MacOS/Alt-Tab --render"
 echo "  Logs:              ~/Library/Logs/alt-tab.log"
 echo "  Uninstall:         ./uninstall.sh"

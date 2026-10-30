@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds Alt-tab.app into ./dist.
+"""Builds Alt-Tab.app into ./dist.
 
     python3 build.py                  a universal build, signed with the local identity if
                                       there is one and ad-hoc otherwise
@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
-APP = DIST / "Alt-tab.app"
+APP = DIST / "Alt-Tab.app"
 IDENTITY = "Alt-tab Self-Signed"
 
 
@@ -84,10 +84,10 @@ def assemble(binaries):
         shutil.rmtree(APP)
     (APP / "Contents/MacOS").mkdir(parents=True)
     if len(binaries) == 1:
-        shutil.copy2(binaries[0], APP / "Contents/MacOS/alt-tab")
+        shutil.copy2(binaries[0], APP / "Contents/MacOS/Alt-Tab")
     else:
         run("lipo", "-create", *[str(b) for b in binaries],
-            "-output", str(APP / "Contents/MacOS/alt-tab"))
+            "-output", str(APP / "Contents/MacOS/Alt-Tab"))
     shutil.copy2(ROOT / "Resources/Info.plist", APP / "Contents/Info.plist")
 
 
@@ -105,7 +105,7 @@ def sign(adhoc):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build Alt-tab.app.")
+    parser = argparse.ArgumentParser(description="Build Alt-Tab.app.")
     parser.add_argument("--arch", default="universal",
                         choices=["universal", "native", "arm64", "x86_64"],
                         help="default: universal (Apple Silicon and Intel)")
