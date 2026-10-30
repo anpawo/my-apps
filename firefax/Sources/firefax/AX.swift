@@ -3,7 +3,7 @@ import ApplicationServices
 
 // The accessibility surface the engine runs on, behind a protocol so --selftest drives an in-memory
 // FakeAX and never touches the real tree, a real window, real time or his keychain. LiveAX is the
-// thin shim lifted from ovhax/axprobe, checked live on a local fixture page (2026-10-30).
+// thin shim lifted from the old scratch AX probes, checked live on a local fixture page (2026-10-30).
 
 protocol Clock {
     func now() -> Double
