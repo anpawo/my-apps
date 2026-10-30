@@ -107,16 +107,15 @@ final class Keychain: SecretStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecReturnAttributes as String: true,
-            kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
+        // The login keychain answers errSecParam to data + MatchLimitAll, so each length is a second read.
         var out: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
               let items = out as? [[String: Any]] else { return [] }
         return items.compactMap { item in
             guard let name = item[kSecAttrAccount as String] as? String else { return nil }
-            let len = (item[kSecValueData as String] as? Data)?.count ?? 0
-            return (name, len)
+            return (name, value(name)?.utf8.count ?? 0)
         }.sorted { $0.name < $1.name }
     }
 
