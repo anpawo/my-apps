@@ -26,15 +26,6 @@ public func pickable(layer: Int, frame: CGRect, screens: [CGRect]) -> Bool {
     layer == 0 || layer > 0 && frame.height > 40 && !screens.contains { frame.contains($0) }
 }
 
-/// A corner card: `side` wide for a capture shaped like a screen, and never taller than that
-/// one. A taller capture is scaled to that height and centred on a card at least half as
-/// wide, so a narrow picture keeps ground to click on each side.
-public func cardSize(_ image: CGSize, side: CGFloat) -> CGSize {
-    let scale = min(side / image.width, side * 0.625 / image.height)
-    return CGSize(width: max((image.width * scale).rounded(), (side / 2).rounded()),
-                  height: (image.height * scale).rounded())
-}
-
 public func rect(from a: CGPoint, to b: CGPoint) -> CGRect {
     CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
 }

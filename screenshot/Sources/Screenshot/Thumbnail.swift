@@ -27,15 +27,11 @@ final class Thumbnail: NSPanel {
     /// Off screen until `show` puts it there: Docs draws one without.
     init(_ content: Content, on screen: NSScreen) {
         self.content = content
-        // Top-right corner, a tenth of the screen wide at most, the capture centred on it.
+        // Top-right corner, a tenth of the screen wide and 16:9 like a pin, the capture centred
+        // on black.
         let v = screen.visibleFrame
         let width = (v.width / 10).rounded()
-        var size = CGSize(width: width, height: (width * 0.625).rounded())
-        switch content {
-        case .image(let img, _, _), .movie(.some(let img), _):
-            size = cardSize(CGSize(width: img.width, height: img.height), side: width)
-        default: break
-        }
+        let size = CGSize(width: width, height: (width * 9 / 16).rounded())
         super.init(contentRect: CGRect(origin: .zero, size: size),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .floating
@@ -130,7 +126,7 @@ final class Thumbnail: NSPanel {
             wantsLayer = true
             layer?.cornerRadius = 8
             layer?.masksToBounds = true
-            layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
+            layer?.backgroundColor = NSColor.black.cgColor
             layer?.borderColor = NSColor.white.withAlphaComponent(0.8).cgColor
             layer?.borderWidth = 2
             addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))

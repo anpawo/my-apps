@@ -212,8 +212,8 @@ enum Docs {
             up = false
             card = Thumbnail(.image(shot, dir, r), on: screen)
         }
-        // Low on the card, the pin glyph in view; the pin that replaces it is shorter, and
-        // the notes fall just under it.
+        // Low on the card, the pin glyph in view; the pin that replaces it has the same frame,
+        // and the notes fall just under it.
         move(to: CGPoint(x: card!.frame.minX + card!.frame.width / 4, y: card!.frame.minY + 20), steps: 18, hold: 0.6)
         // `Thumbnail.pin`, a pin in the same corner.
         click("Pinned", hold: 1) {
