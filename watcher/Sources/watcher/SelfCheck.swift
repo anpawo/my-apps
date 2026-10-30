@@ -17,6 +17,9 @@ enum SelfCheck {
         }
         inbox(expect)
         glass(expect)
+        let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: Date())! }
+        expect(Hourly.slot(before: at(14, 5)), at(13, 10), "hourly: at 14:05 the slot owed is 13:10")
+        expect(Hourly.slot(before: at(14, 10)), at(14, 10), "hourly: at 14:10 it is 14:10")
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
     }

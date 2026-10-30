@@ -68,6 +68,7 @@ final class App: NSObject, NSApplicationDelegate {
             exit(0)
         }
         inbox.start()
+        Hourly.start()
         toggle = { [inbox] in MainActor.assumeIsolated { inbox.toggle() } }
         registerChord()
     }

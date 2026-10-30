@@ -84,7 +84,7 @@ struct ChecksView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             logo(check.logo).help(check.watching)
-            // every waiting check is read in the checker's one run, at :10 of every hour (LaunchAgent checker)
+            // every waiting check is read in the checker's one run, at :10 of every hour (Hourly.swift)
             pill("Hourly").opacity(check.state == .waiting ? 1 : 0)
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
