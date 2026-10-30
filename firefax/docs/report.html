@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- Source for docs/report.png (README picture). Placeholder values only. Regenerate: ./make-demo.sh -->
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; }
+  body { background: #0b1020; padding: 26px; font: 15px/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
+  .term { width: 960px; margin: 0 auto; background: #11162a; border-radius: 12px; overflow: hidden;
+          box-shadow: 0 20px 60px rgba(0,0,0,.45); border: 1px solid #1f2742; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #161c33;
+         border-bottom: 1px solid #1f2742; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
+  .title { margin-left: 10px; color: #7f8bb0; font-size: 13px; }
+  pre { margin: 0; padding: 18px 20px 22px; color: #c6cce3; white-space: pre; }
+  .p { color: #5cc8ff; }          /* prompt $ */
+  .c { color: #e8ecf7; }          /* command */
+  .ok { color: #35d07f; }
+  .dim { color: #6b769c; }
+</style>
+<div class="term">
+  <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="title">firefax, one call fills one page</span></div>
+<pre><span class="p">$</span> <span class="c">firefax scan example.gouv.fr/adresse</span>
+page example.gouv.fr/adresse  controls 6  filled 1
+<span class="dim">{"id": "nom"}</span>                          textfield  filled
+<span class="dim">{"id": "voie"}</span>                         textfield  empty
+<span class="dim">{"label": "Code postal"}</span>               textfield  empty
+<span class="dim">{"id": "commune"}</span>                      combobox   empty  disabled
+<span class="dim">{"label": "J'atteste sur l'honneur"}</span>   checkbox   empty
+<span class="dim">{"label": "Suivant"}</span>                   button     empty
+
+<span class="p">$</span> <span class="c">firefax store iban &lt;&lt;&lt; "FR76 XXXX XXXX XXXX XXXX XXXX XXX"</span>
+iban 27
+
+<span class="p">$</span> <span class="c">firefax fill address.json</span>
+firefax fill example.gouv.fr/adresse: 5 steps, <span class="ok">5 ok</span>, 0 failed, mode fast
+1  <span class="ok">ok</span>     set    {"id": "nom"}               by id     len 11  verified  via ax
+2  <span class="ok">ok</span>     split  {"id": "iban0"}             by id     len 25  verified  via ax  7 boxes
+3  <span class="ok">ok</span>     set    {"label": "Code postal"}    by label  len 5   verified  via ax
+4  <span class="ok">ok</span>     pick   {"id": "commune"}           by id     via keys  readback=pick
+5  <span class="ok">ok</span>     press  {"label": "Suivant"}        by label  via ax  navigated to example.gouv.fr/recap
+restored: front app, pointer
+</pre>
+</div>

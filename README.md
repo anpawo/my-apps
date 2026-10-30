@@ -1,7 +1,8 @@
 # my-lab
 
 Little apps made for my needs. Each one is a folder at the root of this repo, and each one
-runs on my Mac today, except glance, which is unfinished.
+runs on my Mac today, except glance, which is unfinished, and firefax, which has not yet
+filled a live page (it is built and self-tested, but not installed).
 
 <!-- apps:start -->
 ### [alt-tab](alt-tab)
@@ -11,6 +12,10 @@ runs on my Mac today, except glance, which is unfinished.
 ### [autocorrect](autocorrect)
 
 [![Three lines typed into a text field, each word fixed on space: ça va très bien, I don't think the plan is ready, and tema, changed to team then put back with ⌫](autocorrect/docs/demo.gif)](autocorrect)
+
+### [firefax](firefax)
+
+[![A terminal session: firefax scan lists a page's controls as ready locators, firefax store keeps an IBAN in the keychain, firefax fill runs a 5-step spec and prints one line per step, each verified](firefax/docs/report.png)](firefax)
 
 ### [glance](glance)
 
