@@ -1,4 +1,4 @@
-# my-lab
+# my-apps
 
 Little apps made for my needs. Each one is a folder at the root of this repo, and each one
 runs on my Mac today, except glance, which is unfinished, and firefax, which has not yet

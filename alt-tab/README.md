@@ -31,7 +31,7 @@ desktop.
 
 ## Install
 
-**Download** [the latest release](https://github.com/anpawo/my-lab/releases/latest), unzip
+**Download** [the latest release](https://github.com/anpawo/my-apps/releases/latest), unzip
 it, and move `Alt-tab.app` to `~/Applications`.
 
 macOS will refuse to open it the first time: the release is signed ad-hoc, which is what an
@@ -46,7 +46,7 @@ build can be signed with a certificate of your own, and macOS then keeps the Acc
 grant across rebuilds instead of asking again every time.
 
 ```sh
-git clone https://github.com/anpawo/my-lab.git && cd my-lab/alt-tab
+git clone https://github.com/anpawo/my-apps.git && cd my-apps/alt-tab
 ./install.sh
 ```
 

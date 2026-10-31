@@ -47,7 +47,7 @@ jobs:
               subprocess.run(["ditto", "-c", "-k", "--keepParent", bundle, f"out/{archive}"], check=True)
               intro = open(f"{app}/README.md").read().split("\n\n")[1].replace("\n", " ")
               does = re.match(r".+?\.(?=\s|$)", intro).group(0)
-              print(f"| [{app}](https://github.com/anpawo/my-lab/tree/{sha}/{app}) | {does} | `{archive}` | {info['LSMinimumSystemVersion']}+ |")
+              print(f"| [{app}](https://github.com/anpawo/my-apps/tree/{sha}/{app}) | {does} | `{archive}` | {info['LSMinimumSystemVersion']}+ |")
           print("""
           ## Install
 
@@ -65,7 +65,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="build-$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
-          gh release create "$tag" out/*.zip --target "$GITHUB_SHA" --title "my-lab $(date -u +%Y-%m-%d)" --notes-file notes.md --latest
+          gh release create "$tag" out/*.zip --target "$GITHUB_SHA" --title "my-apps $(date -u +%Y-%m-%d)" --notes-file notes.md --latest
           for old in $(gh release list --limit 100 --json tagName --jq ".[] | select(.tagName != \"$tag\") | .tagName"); do
             gh release delete "$old" --yes --cleanup-tag
           done
