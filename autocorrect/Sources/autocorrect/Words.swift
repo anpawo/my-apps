@@ -240,13 +240,15 @@ final class Words {
 
     /// Words from his own messages (`seed.tsv`), counted as his so they are never fixed as typos.
     /// Not a lexicon word (nothing to gain, and a big count would tilt close spellings) nor a word
-    /// with its marks left out (tres, dont: putting those back is the app's job). Returns how many
-    /// it took.
+    /// with its marks left out (tres, dont, dautre: putting those back is the app's job, and a
+    /// counted word is no longer `rare`, which the elisions need). Returns how many it took.
     func seed(_ counts: [String: Int]) -> Int {
         var taken = 0
         for (word, n) in counts {
             let key = word.lowercased(), n = min(n, 5)
-            guard (2...30).contains(key.count), !isWord(key), (byBase[Self.fold(key)] ?? []).allSatisfy({ $0 == key }),
+            guard (2...30).contains(key.count), !key.contains("'"), !key.contains("’"), !isWord(key),
+                  (byBase[Self.fold(key)] ?? []).allSatisfy({ $0 == key }),
+                  [0.05, 0.5, 0.95].allSatisfy({ correct(key, fr: $0).map { Self.fold($0) != Self.fold(key) } ?? true }),
                   (mine.counts[key] ?? 0) < n else { continue }
             mine.counts[key] = n
             taken += 1

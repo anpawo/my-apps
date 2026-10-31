@@ -108,8 +108,10 @@ enum SelfCheck {
         expect(Review.Batch(words.mine, seen).isEmpty, true, "and what it read is not sent again")
 
         expect(words.correct("enfusion", fr: 0.5), "effusion", "a word the lexicon lacks may be fixed as a typo")
-        expect(words.seed(["enfusion": 40, "tres": 40, "the": 40]), 1, "a seed takes his own words, not a lexicon word nor one missing its accents")
-        expect([words.correct("enfusion", fr: 0.5), words.correct("tres", fr: 0.95)], [nil, "très"], "and then leaves them, while tres is still fixed")
+        expect(words.seed(["enfusion": 40, "tres": 40, "the": 40, "dautre": 40, "j'aimerais": 40]), 1,
+               "a seed takes his own words, not a lexicon word nor one missing its accents or apostrophe")
+        expect([words.correct("enfusion", fr: 0.5), words.correct("tres", fr: 0.95), words.correct("dautre", fr: 0.95)], [nil, "très", "d'autre"],
+               "and then leaves them, while tres and dautre are still fixed")
         return failures
     }
 }
