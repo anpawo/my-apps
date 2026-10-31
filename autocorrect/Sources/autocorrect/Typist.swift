@@ -33,15 +33,20 @@ struct Typist {
     var clean = false
     var fr = 0.5
     private var undo: (delete: Int, type: String, typed: String, fixed: String)?
-    /// The last word, counted as his once the next key shows he kept it.
-    private var kept: String?
+    /// The last word, counted as his once the next key shows he kept it, with what he had typed
+    /// when it was a fix.
+    private var kept: (word: String, typed: String?)?
 
     init(_ words: Words) { self.words = words }
 
     mutating func handle(_ key: Key) -> Act {
         let last = undo
         undo = nil
-        if case .backspace = key {} else if let w = kept { words.learn(w); kept = nil }
+        if case .backspace = key {} else if let k = kept {
+            words.learn(k.word)
+            if let typed = k.typed { words.keep(typed, k.word) }
+            kept = nil
+        }
         switch key {
         case .reset, .focus:
             word = []; tail = []; clean = key == .focus; fr = 0.5
@@ -49,7 +54,7 @@ struct Typist {
         case .backspace:
             if let u = last {
                 words.reject(u.typed, u.fixed)
-                kept = u.typed
+                kept = (u.typed, nil)
                 word = []; tail = []; clean = true
                 return .edit(delete: u.delete, type: u.type, thenKey: false)
             }
@@ -78,7 +83,7 @@ struct Typist {
             guard eligible else { return .pass }
             let fixed = words.correct(typed, fr: fr) ?? typed
             fr = ended ? 0.5 : words.nextFr(fr, after: fixed)
-            kept = fixed
+            kept = (fixed, fixed == typed ? nil : typed)
             guard fixed != typed else { return .pass }
             let same = zip(typed, fixed).prefix { $0 == $1 }.count
             let typedTail = String(typed.dropFirst(same)) + punctuation, fixedTail = String(fixed.dropFirst(same)) + punctuation

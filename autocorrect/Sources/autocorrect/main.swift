@@ -9,6 +9,10 @@ let learnedFile = FileManager.default.homeDirectoryForCurrentUser
 
 if args.contains("--selftest") { exit(SelfCheck.run(wordsFile) == 0 ? 0 : 1) }
 
+if args.contains("--review") {
+    exit(Review.dryRun(Words(file: wordsFile, learned: learnedFile), in: learnedFile.deletingLastPathComponent(), show: args.contains("--show")))
+}
+
 // `--fix`: stdin as it would read once typed, a line at a time. Learns nothing on disk.
 if args.contains("--fix") {
     var typist = Typist(Words(file: wordsFile, learned: nil))
@@ -32,6 +36,7 @@ final class App: NSObject, NSApplicationDelegate {
         tap = Tap(words)
         // ponytail: what he typed in the last minute is lost if the app is killed; save on SIGTERM if that matters.
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.words.save() }
+        Review.schedule(words, in: learnedFile.deletingLastPathComponent())
         // The first launch asks for Accessibility; the tap starts as soon as it is granted.
         let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)

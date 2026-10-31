@@ -1,9 +1,20 @@
 import AppKit
 
-/// What he types himself: how often each word, and how often he took a correction back.
+/// What he types himself: how often each word, how often he took a correction back, and how
+/// often he let one stand (what the daily review reads for the wrong ones).
 struct Mine: Codable {
     var counts: [String: Int] = [:]
     var rejected: [String: Int] = [:]
+    var fixes: [String: Int] = [:]
+
+    init() {}
+    // A file from before `fixes` lacks the key, and the synthesized decoder would refuse it whole.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        counts = try c.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+        rejected = try c.decodeIfPresent([String: Int].self, forKey: .rejected) ?? [:]
+        fixes = try c.decodeIfPresent([String: Int].self, forKey: .fixes) ?? [:]
+    }
 }
 
 /// The French and English lexicon, and the choice of a spelling for a typed word.
@@ -44,6 +55,9 @@ final class Words {
     }
 
     var count: Int { entries.count }
+
+    /// Said often enough not to be a typo the subtitles made too: the bar of `rare` in `correct`.
+    func isWord(_ word: String) -> Bool { max(entries[word]?.fr ?? 0, entries[word]?.en ?? 0) >= 2e-7 }
 
     static func fold(_ word: String) -> String {
         var out = word.lowercased().folding(options: .diacriticInsensitive, locale: nil)
@@ -88,7 +102,9 @@ final class Words {
         let rare = max(entries[lower]?.fr ?? 0, entries[lower]?.en ?? 0) < 2e-7 && mine.counts[lower] == nil
         var scores: [String: Double] = [:]
         func consider(_ key: String, _ score: Double) {
-            let score = score * pow(0.01, Double(mine.rejected[lower + "\t" + key] ?? 0))
+            // Taken back once is never made again: a penalty did nothing for a word the lexicon
+            // lacks, whose own score is 0 (eip was made épi again after two ⌫).
+            guard mine.rejected[lower + "\t" + key] == nil else { return }
             scores[key] = max(scores[key] ?? 0, score)
         }
         for key in byBase[base] ?? [] where key != lower {
@@ -219,6 +235,28 @@ final class Words {
 
     func reject(_ typed: String, _ fixed: String) {
         mine.rejected[typed.lowercased() + "\t" + fixed.lowercased(), default: 0] += 1
+        dirty = true
+    }
+
+    func keep(_ typed: String, _ fixed: String) {
+        mine.fixes[typed.lowercased() + "\t" + fixed.lowercased(), default: 0] += 1
+        dirty = true
+    }
+
+    /// The daily review's verdicts. `reject` and `unreject` hold "typed\tfixed" keys.
+    func amend(forget: [String], reject: [String], unreject: [String]) {
+        for word in forget { mine.counts[word] = nil }
+        for key in unreject { mine.rejected[key] = nil }
+        for key in reject {
+            let pair = key.components(separatedBy: "\t")
+            guard pair.count == 2 else { continue }
+            // Each time the fix stood it was counted as his word: it was not, the typed one was.
+            if let n = mine.fixes.removeValue(forKey: key), let c = mine.counts[pair[1]] {
+                mine.counts[pair[1]] = c > n ? c - n : nil
+            }
+            mine.rejected[key, default: 0] += 1
+            mine.counts[pair[0], default: 0] += 1
+        }
         dirty = true
     }
 

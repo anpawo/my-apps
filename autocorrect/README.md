@@ -35,8 +35,14 @@ defaults write com.mr.autocorrect skip -array-add <bundle id> && launchctl kicks
 ## What it learns
 
 `~/Library/Application Support/autocorrect/learned.json`, readable by you alone: how often you kept each
-word, and the fixes you took back with ⌫. A word you kept is never fixed again, and among close spellings the
-one you use wins.
+word, the fixes you took back with ⌫, and the ones you let stand. A word you kept is never fixed as a typo
+again, a fix you took back is never made again, and among close spellings the one you use wins.
+
+Once a day it has Claude (`~/.local/bin/claude -p`, Opus, no tools) read what it learned since the last
+time and take the mistakes out: a typo you left, which then counts as your word; a fix you let stand and put
+right by hand later (`eip` made `épi`); a ⌫ that took back a right fix. What it changed, and why, goes to
+`review.log` beside `learned.json`. `autocorrect --review` says what a review would change now, and writes
+nothing.
 
 ## Install
 
