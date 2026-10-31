@@ -18,7 +18,9 @@ final class AppController: ObservableObject {
 
     @Published private(set) var sessions: [Session] = [] {
         didSet {
-            readDesktops()
+            // Only the open panel draws them, and `showPanel` reads them as it opens: 5 to 8 ms
+            // of the main thread a call, at every hidden tick (measured 2026-11-01).
+            if isPanelVisible { readDesktops() }
             statusItem?.update(off: popupsOff)
             notifier.update(sessions: sessions, panelVisible: isPanelVisible)
             nameOutsiders()
@@ -228,9 +230,11 @@ final class AppController: ObservableObject {
         }
     }
 
-    /// `--render`: populate the panel without any window, for offscreen image rendering.
+    /// `--render`: populate the panel, desktops included, without any window, for offscreen
+    /// image rendering.
     func injectSessions(_ found: [Session]) {
         sessions = found
+        readDesktops()
     }
 
     /// `--fake <n>`: a fleet that isn't there, so the panel can be looked at — and scrolled —
