@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes docs/demo.gif: the lines below typed into a text field, each word changed the way
 // `autocorrect --fix` changes it, rendered in headless WebKit (no window) and put together by ffmpeg.
-// Needs `swift build -c release`, ffmpeg, and Playwright (npm i -g @playwright/cli).
+// Needs `swift build -c release`, ffmpeg, and Playwright (npm i playwright).
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -21,8 +21,7 @@ const engine = join(here, "../.build/release/autocorrect");
 const typed = LINES.map((l) => l.replaceAll("⌫", ""));
 const fixed = execFileSync(engine, ["--fix"], { input: typed.join("\n") + "\n" }).toString().trimEnd().split("\n");
 
-const root = execFileSync("npm", ["root", "-g"]).toString().trim();
-const { webkit } = createRequire(import.meta.url)(`${root}/@playwright/cli/node_modules/playwright`);
+const { webkit } = createRequire(import.meta.url)("playwright");
 
 const page_ = `<html><head><style>
   body { margin: 0; width: 960px; height: 290px; display: flex; align-items: center; justify-content: center;
