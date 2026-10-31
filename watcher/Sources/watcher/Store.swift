@@ -9,9 +9,17 @@ enum Store {
     /// Today's line by its hour alone, written the French way (10h40); an older one with its day (13/10 10h40).
     static func when(_ ms: Double, now: Date = Date(), day: Bool = false) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
+        return (!day && Calendar.current.isDate(date, inSameDayAs: now) ? hour : dayAndHour).string(from: date)
+    }
+
+    /// Made once: a formatter made per call was a third of the checks list's redraw.
+    private static let hour = formatter("HH'h'mm")
+    private static let dayAndHour = formatter("dd/MM HH'h'mm")
+
+    private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
-        f.dateFormat = !day && Calendar.current.isDate(date, inSameDayAs: now) ? "HH'h'mm" : "dd/MM HH'h'mm"
-        return f.string(from: date)
+        f.dateFormat = format
+        return f
     }
 
     static func lines(in folder: URL) -> [InboxItem] {

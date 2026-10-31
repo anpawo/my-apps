@@ -18,7 +18,6 @@ struct ChecksView: View {
     private static let blue = (fill: hex(0xDBEAFE), ink: hex(0x1C398E))
 
     @Environment(\.renderBackdrop) private var renderBackdrop
-    @State private var hovered: String?
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
     private var done: [CheckEntry] {
@@ -78,7 +77,7 @@ struct ChecksView: View {
     /// click opens its session.
     private func row(_ check: CheckEntry) -> some View {
         let addable = check.state == .arrived && !waiting.contains { $0.id == check.id }
-        return HStack(spacing: 16) {
+        return Hover { hovering in HStack(spacing: 16) {
             title(check)
                 .fontWeight(.medium)
                 .lineLimit(1)
@@ -89,7 +88,7 @@ struct ChecksView: View {
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
                 .overlay {
-                    if addable && hovered == check.id { addBack(check) }
+                    if addable && hovering { addBack(check) }
                 }
         }
         .padding(.horizontal, 12)
@@ -98,7 +97,7 @@ struct ChecksView: View {
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture { inbox.open(check) }
         .pointerStyle(.link)
-        .onHover { hovered = $0 ? check.id : hovered == check.id ? nil : hovered }
+        }
     }
 
     /// The name, with the one it is awaited from in a blue pill; a space beside the pill becomes its margin.
@@ -168,6 +167,14 @@ struct ChecksView: View {
         .background(.white.opacity(0.25))
         .overlay(alignment: .top) { Rectangle().fill(Site.line).frame(height: 1) }
     }
+}
+
+/// A row's own hover: held by the list, each row the pointer crossed while scrolling redrew all of them (~6 ms each).
+private struct Hover<Content: View>: View {
+    @ViewBuilder let content: (Bool) -> Content
+    @State private var on = false
+
+    var body: some View { content(on).onHover { on = $0 } }
 }
 
 /// The site's `.light` glass, `backdrop-filter: blur(40px) saturate(200%) brightness(1.15)`, on what is behind the
