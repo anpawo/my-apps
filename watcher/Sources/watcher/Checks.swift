@@ -18,6 +18,7 @@ struct ChecksView: View {
     private static let blue = (fill: hex(0xDBEAFE), ink: hex(0x1C398E))
 
     @Environment(\.renderBackdrop) private var renderBackdrop
+    @State private var listHeight: CGFloat = .infinity
 
     private var waiting: [CheckEntry] { inbox.checks.filter { $0.state == .waiting } }
     private var done: [CheckEntry] {
@@ -34,10 +35,16 @@ struct ChecksView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .block()
-                ViewThatFits(in: .vertical) {
-                    sections
+                if renderBackdrop == nil {
+                    // One list, as tall as it is up to the room there is: ViewThatFits built it twice, 116 rows each.
+                    ScrollView { sections.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 } }
+                        .frame(maxHeight: listHeight)
+                } else {
                     // ImageRenderer draws no NSScrollView: a render shows the list's top, as the scroll does at first
-                    if renderBackdrop == nil { ScrollView { sections } } else { sections.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped() }
+                    ViewThatFits(in: .vertical) {
+                        sections
+                        sections.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
+                    }
                 }
             }
             .padding(16)
@@ -65,7 +72,8 @@ struct ChecksView: View {
                 Text(title).font(.system(size: 18, weight: .semibold))
                 pill("\(entries.count)")
             }
-            VStack(spacing: 8) { ForEach(entries, id: \.id) { row($0) } }
+            // lazy: an open builds the rows in sight, not all of them
+            LazyVStack(spacing: 8) { ForEach(entries, id: \.id) { row($0) } }
             if entries.isEmpty { Text("Nothing here") }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
