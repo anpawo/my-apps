@@ -178,6 +178,7 @@ enum Review {
     }
 
     private static func run(_ words: Words, in folder: URL) {
+        takeSeed(words, folder)
         var seen = load(folder)
         guard !running, Date().timeIntervalSince(seen.at) >= every else { return }
         let batch = Batch(words.mine, seen)
@@ -199,6 +200,22 @@ enum Review {
                 }
             }
         }
+    }
+
+    /// A `seed.tsv` (word, tab, count) put beside learned.json is taken in at the next tick and
+    /// removed; the next review reads its words like any new ones.
+    private static func takeSeed(_ words: Words, _ folder: URL) {
+        let file = folder.appendingPathComponent("seed.tsv")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return }
+        var counts: [String: Int] = [:]
+        for line in text.split(separator: "\n") {
+            let cols = line.split(separator: "\t")
+            if cols.count >= 2, let n = Int(cols[1]) { counts[String(cols[0])] = n }
+        }
+        let taken = words.seed(counts)
+        words.save()
+        try? FileManager.default.removeItem(at: file)
+        log(["seeded \(taken) of \(counts.count) words from seed.tsv"], folder)
     }
 
     // MARK: - Files, his alone: they hold the words he types

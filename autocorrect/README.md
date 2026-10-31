@@ -44,6 +44,11 @@ right by hand later (`eip` made `épi`); a ⌫ that took back a right fix. What 
 `review.log` beside `learned.json`. `autocorrect --review` says what a review would change now, and writes
 nothing.
 
+Words you already use elsewhere can be given to it ahead of time: a `seed.tsv` (word, tab, how many times)
+put beside `learned.json` is taken in within the hour and removed. It keeps only words the lexicon lacks
+(`enfusion` would otherwise become `effusion`), never one missing its accents (`tres` is still fixed), and
+the next review reads them like any new word.
+
 ## Install
 
 ```sh
