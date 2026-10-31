@@ -250,8 +250,10 @@ extension Spaces {
     /// front one first, a line between two (asked 2026-10-31; from 2026-10-28 it hid the
     /// others). A session with no terminal belongs to no desktop and stands with the front one.
     /// Matched by process, which is exact for Ghostty (one process per window); a Terminal.app
-    /// holding many windows stands with the first of them.
-    static func desktops(_ sessions: [Session]) -> [pid_t: Int] {
+    /// holding many windows stands with the first of them. Off the main thread for the open
+    /// panel: it touches nothing of Fleet's, and 300 calls on two threads at once gave the same
+    /// answers (2026-11-01).
+    nonisolated static func desktops(_ sessions: [Session]) -> [pid_t: Int] {
         let here = Set(windowsHere().compactMap { $0[kCGWindowOwnerPID as String] as? pid_t })
         let parents = ProcessScanner.parentMap()
         let hosts = sessions.reduce(into: [pid_t: pid_t]()) { hosts, session in
@@ -280,13 +282,13 @@ extension Spaces {
     }
 
     /// The windows on the desktops in front of you, frontmost first, menus and panels left out.
-    private static func windowsHere() -> [[String: Any]] {
+    private nonisolated static func windowsHere() -> [[String: Any]] {
         (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                     kCGNullWindowID) as? [[String: Any]] ?? [])
             .filter { $0[kCGWindowLayer as String] as? Int == 0 }
     }
 
-    private static func spaces(of window: CGWindowID) -> [UInt64] {
+    private nonisolated static func spaces(of window: CGWindowID) -> [UInt64] {
         (CGSCopySpacesForWindows(CGSMainConnectionID(), 0x7, [window] as CFArray)
             as? [NSNumber] ?? []).map(\.uint64Value)
     }

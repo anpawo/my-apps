@@ -29,7 +29,12 @@ final class AppController: ObservableObject {
 
     /// Each session's desktop, the front one 0: see `Spaces.desktops`.
     @Published private(set) var desktops: [pid_t: Int] = [:]
-    private func readDesktops() { desktops = DemoFleet.desktops ?? Spaces.desktops(sessions) }
+    /// Read off the main thread for the sessions about to be set: see `refreshVisible`.
+    private var readAhead: [pid_t: Int]?
+    private func readDesktops() {
+        desktops = DemoFleet.desktops ?? readAhead ?? Spaces.desktops(sessions)
+        readAhead = nil
+    }
 
     /// What to call a session the directory does not name: one outside `~/self`, where the
     /// tile would read "mr" or "Downloads", and one of several sharing a project, where every
@@ -396,8 +401,25 @@ final class AppController: ObservableObject {
         showPanel()
     }
 
+    /// Where the terminals are takes the window server 5 to 8 ms, every second the panel is up:
+    /// asked off the main thread, and the cards take their desktops in the same update.
+    private var readingDesktops = false
     private func refreshVisible() {
-        sessions = registry.refresh()
+        guard !readingDesktops else { return }
+        let found = registry.refresh()
+        readingDesktops = true
+        DispatchQueue.global(qos: .userInteractive).async {
+            let desktops = Spaces.desktops(found)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self else { return }
+                    readingDesktops = false
+                    guard isPanelVisible else { return }
+                    readAhead = desktops
+                    sessions = found
+                }
+            }
+        }
     }
 
     // MARK: - Panel
