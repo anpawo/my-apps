@@ -24,7 +24,41 @@ final class AppController: ObservableObject {
             statusItem?.update(off: popupsOff)
             notifier.update(sessions: sessions, panelVisible: isPanelVisible)
             nameOutsiders()
+            nameFused()
         }
+    }
+
+    /// Qwen's title for each fused session's chat, by session id, with the turn count it was
+    /// made at: see `Qwen.title`. Kept, so a render draws the last ones.
+    private var qwenTitles = UserDefaults.standard.dictionary(forKey: "qwenTitles") as? [String: String] ?? [:] {
+        didSet { UserDefaults.standard.set(qwenTitles, forKey: "qwenTitles") }
+    }
+    /// Asked this run, failures included: a new turn, which needs the PC up, asks again.
+    private var titlingQwen: Set<String> = []
+
+    /// Which sessions `/fuse` joined to Qwen, and Qwen's title for their chat (asked
+    /// 2026-11-01). `FLEET_QWEN=<session id>=<title>` fuses that one in a render.
+    private func nameFused() {
+        if let fake = ProcessInfo.processInfo.environment["FLEET_QWEN"]?.split(separator: "=", maxSplits: 1),
+           fake.count == 2 {
+            Session.qwen = [String(fake[0]): String(fake[1])]
+            return
+        }
+        let fused = Qwen.fused()
+        var shown: [String: String] = [:]
+        for session in sessions {
+            guard let sid = session.sid, let turns = fused[sid] else { continue }
+            let kept = qwenTitles[sid]?.split(separator: Self.fromTitle, maxSplits: 1).map(String.init) ?? []
+            shown[sid] = kept.first ?? ""
+            let basis = String(turns.count)
+            guard Firestore.reads, kept.last != basis, titlingQwen.insert(sid + "#" + basis).inserted
+            else { continue }
+            Task { [weak self] in
+                guard let title = await Qwen.title(of: turns) else { return }
+                self?.qwenTitles[sid] = title + String(Self.fromTitle) + basis
+            }
+        }
+        Session.qwen = shown
     }
 
     /// Each session's desktop, the front one 0: see `Spaces.desktops`.

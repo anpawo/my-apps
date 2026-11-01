@@ -514,7 +514,8 @@ struct OverlayView: View {
             cells(controller.sessions.filter { place($0) == desk })
         }
         // Jarvis's panel opens on whichever desktop he is on: the first grid, the front one's.
-        if let state = controller.jarvisState {
+        // Not beside a session fused with its Qwen chat, whose card is that chat (asked 2026-11-01).
+        if let state = controller.jarvisState, !controller.sessions.contains(where: { $0.qwen != nil }) {
             if sections.isEmpty { sections = [[]] }
             sections[0].append(.jarvis(state))
         }
@@ -1068,8 +1069,17 @@ struct SessionTile: View {
             // room it is given, and was cut in a straight line: by the scroll view over the top
             // row, by a group's border, and over the card beside it in a group (2026-10-20).
             // The pointer no longer brightens it at all (asked the same day).
-            .shadow(color: session.state.tint.opacity(0.18), radius: grouped ? 4 : 8)
+            .shadow(color: state.tint.opacity(0.18), radius: grouped ? 4 : 8)
     }
+
+    /// A session fused with Qwen works while Qwen answers it, which Claude Code knows nothing of.
+    private var state: SessionState {
+        session.qwen != nil && session.transcript?.qwenAsked == true ? .running : session.state
+    }
+
+    /// Fused with Qwen, the card is that chat's, as Jarvis's was, under Qwen's title for it
+    /// (asked 2026-11-01).
+    private var title: String? { session.qwen ?? heading }
 
     var body: some View {
         Button(action: onSelect) {
@@ -1080,6 +1090,17 @@ struct SessionTile: View {
                 name
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Jarvis's mark in its icon's colours (asked 2026-11-01).
+                if session.qwen != nil {
+                    Image(nsImage: Jarvis.mark)
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundStyle(Jarvis.colors)
+                        .frame(width: 20, height: 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(9)
+                }
 
                 // Pills side by side while the two of them fit the tile, stacked in the corner
                 // when they don't — never shrunk: every pill is the same size on every tile. A
@@ -1094,11 +1115,13 @@ struct SessionTile: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                // Clear of Jarvis's mark: on a group's narrower card two pills ran over it.
+                .padding(.leading, session.qwen != nil ? 24 : 0)
                 .padding(11)
 
                 // Bottom left, the top line left to the pills (asked 2026-10-26). In a group, only
                 // a repo inside the group's repo: s14's card names scientcapital's sessions.
-                if !grouped || session.dirName != session.groupKey {
+                if session.qwen != nil || !grouped || session.dirName != session.groupKey {
                     folder
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .padding(11)
@@ -1113,7 +1136,7 @@ struct SessionTile: View {
             .overlay {
                 // Thinner inside a group (asked 2026-10-15), whose own border is round them.
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(session.state.tint, lineWidth: grouped ? 2.5 * 0.75 : 2.5)
+                    .strokeBorder(state.tint, lineWidth: grouped ? 2.5 * 0.75 : 2.5)
             }
             .scaleEffect(hovering ? 1.015 : 1.0)
             // Without this the card snaps to its hovered size in one frame, which reads as a
@@ -1123,7 +1146,7 @@ struct SessionTile: View {
             // and whichever movement the edge was carrying. Crossfaded rather than cut, and
             // short enough that a session which finishes and is prompted again mid-fade turns
             // around on the spot instead of finishing a transition that is already wrong.
-            .animation(.easeInOut(duration: 0.22), value: session.state)
+            .animation(.easeInOut(duration: 0.22), value: state)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -1132,20 +1155,20 @@ struct SessionTile: View {
     private var name: some View {
         // A topic is a sentence where a directory is a word, so it is set smaller and given a
         // second line rather than shrunk to a third of the size to fit on one.
-        Text(heading ?? session.displayName)
+        Text(title ?? session.displayName)
             // Smaller on 2026-10-15: 0.9 of what it was, then on the grid 0.75 of that; on a
             // group's smaller cards bigger again the same day.
-            .font(.system(size: grouped ? 16 : (heading == nil ? 31 : 22) * 0.9 * 0.75,
+            .font(.system(size: grouped ? 16 : (title == nil ? 31 : 22) * 0.9 * 0.75,
                           weight: .semibold))
             .foregroundStyle(.white)
-            .lineLimit(heading == nil ? 1 : 2)
+            .lineLimit(title == nil ? 1 : 2)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var folder: some View {
-        Text(session.folder)
+        Text(session.qwen != nil ? "qwen" : session.folder)
             .font(.system(size: 10.5, design: .monospaced))
             .foregroundStyle(.white.opacity(0.4))
             .lineLimit(1)
@@ -1170,14 +1193,14 @@ struct SessionTile: View {
 
     private var statePill: some View {
         // A workflow's progress rides in the pill that says the session is waiting on it.
-        let label = session.state.label
+        let label = state.label
         let text = session.workflow.map { Text("\(label): \($0.pill())") }
             ?? session.delegatedSince.map {
                 let age = WorkflowProgress.duration(Date().timeIntervalSince($0))
                 // Under any state but its own the shell is named, in its colour: a bare
                 // "WORKING · 28m in" read as a turn 28 minutes long (asked 2026-10-13). And no
                 // "in" after the age: with it, a group's card cut the label from an hour on.
-                return session.state == .delegated
+                return state == .delegated
                     ? Text("\(label) · \(age)")
                     : Text("\(label) · ") + Text("BG-TASK \(age)").foregroundStyle(Self.subagentTint)
             }
@@ -1190,10 +1213,10 @@ struct SessionTile: View {
             // workflow's progress too long even alone on its line is cut, not scaled.
             .lineLimit(1)
             .truncationMode(.middle)
-            .foregroundStyle(session.state.tint)
+            .foregroundStyle(state.tint)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(session.state.tint.opacity(0.14), in: Capsule())
+            .background(state.tint.opacity(0.14), in: Capsule())
     }
 }
 

@@ -357,6 +357,8 @@ struct TranscriptInfo {
     var workflows: [WorkflowLaunch] = []
     /// The newest of them, read off its journal. Filled in after the parse, like `subagents`.
     var workflow: WorkflowProgress?
+    /// A prompt the `fuse` mod sent to Qwen that Qwen has not answered yet: see `Qwen`.
+    var qwenAsked = false
 }
 
 /// One rendered line of the mini-transcript shown on a tile.
@@ -431,6 +433,20 @@ struct Session: Identifiable {
     /// project and two sessions sharing one have nothing in common — "mr" held a bank API and
     /// a question about models — so each keeps a group of its own.
     var groupKey: String { isSelf ? Session.project(for: cwd, outermost: true) : id.description }
+
+    /// Qwen's title for the chat of each session fused with it, by session id, "" until it has
+    /// given one: see `AppController.nameFused`.
+    @MainActor static var qwen: [String: String] = [:]
+
+    /// The session's id, its transcript's name.
+    var sid: String? {
+        transcript.map { (($0.path as NSString).lastPathComponent as NSString).deletingPathExtension }
+    }
+
+    /// Qwen's title for the chat this session is fused with, "Qwen" until it has one; nil unfused.
+    @MainActor var qwen: String? {
+        sid.flatMap { Session.qwen[$0] }.map { $0.isEmpty ? "Qwen" : $0 }
+    }
 
     /// The name Claude was asked to give this session, if it has one.
     @MainActor var label: String? {

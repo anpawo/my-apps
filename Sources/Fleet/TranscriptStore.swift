@@ -421,6 +421,7 @@ private struct ParseState {
     /// A workflow's own files, by the `tool_use` that launched it — the rest of its life is
     /// a shell's, in `shellSpawnedAt`.
     var workflowFiles: [String: (dir: String, script: String)] = [:]
+    var qwenAsked = false
 
     mutating func ingest(_ obj: [String: Any]) {
         guard let type = obj["type"] as? String else { return }
@@ -442,6 +443,14 @@ private struct ParseState {
             return
         case "attachment":
             ingestQueued(obj)
+            return
+        case "system":
+            // The `fuse` mod's two rows: a prompt it sent to Qwen, then each line of the
+            // answer (or of its failure), under the mod's name.
+            if let text = obj["content"] as? String {
+                if text.hasPrefix("Prompt dropped by a hook: to Qwen ›") { qwenAsked = true }
+                else if text.hasPrefix("fuse: ") { qwenAsked = false }
+            }
             return
         case "assistant", "user":
             break
@@ -684,7 +693,8 @@ private struct ParseState {
             workflows: workflowFiles.compactMap { id, files in
                 guard let since = shellSpawnedAt[id], agentEndedAt[id] == nil else { return nil }
                 return WorkflowLaunch(dir: files.dir, script: files.script, since: since)
-            }.sorted { $0.since < $1.since }
+            }.sorted { $0.since < $1.since },
+            qwenAsked: qwenAsked
         )
     }
 

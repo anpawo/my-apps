@@ -36,9 +36,33 @@ enum SelfCheck {
         grid(expect)
         projects(expect)
         reads(expect)
+        fused(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    // MARK: - Fused with Qwen
+
+    /// A session fused with Qwen works from the prompt the `fuse` mod drops to the first row of
+    /// the answer; Qwen's title is cut to plain words.
+    private static func fused(_ expect: (Bool, Bool, String) -> Void) {
+        let path = NSTemporaryDirectory() + "fleet-selftest-fused-\(getpid()).jsonl"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let asked = #"{"type":"system","subtype":"informational","content":"Prompt dropped by a hook: to Qwen › hi"}"#
+        let answered = #"{"type":"system","subtype":"informational","content":"fuse: Qwen: hello"}"#
+        func info(_ rows: [String]) -> TranscriptInfo? {
+            try? (rows.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+            return TranscriptStore().info(for: path)
+        }
+        expect(info([asked])?.qwenAsked == true, true, "fused: a prompt sent to Qwen is work")
+        expect(info([asked, answered])?.qwenAsked == false, true, "fused: and its answer ends it")
+        let reply = { (s: String) in Qwen.title(in: try! JSONSerialization.data(withJSONObject: ["message": ["content": s]])) }
+        expect(reply("<think>\n</think>\n\n\"Carbonara Recipe!\"\nmore") == "carbonara recipe", true,
+               "fused: the title is the answer's first line, lowercase, no quotes")
+        expect(reply("can't decide which fine-tuning method for six gigabytes") == "cant decide which fine tuning", true,
+               "fused: cut to whole words under 32 characters")
+        expect(reply("") == nil, true, "fused: no title from an empty answer")
     }
 
     // MARK: - Reads
