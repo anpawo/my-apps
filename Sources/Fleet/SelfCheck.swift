@@ -36,22 +36,9 @@ enum SelfCheck {
         grid(expect)
         projects(expect)
         reads(expect)
-        jarvis(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
-    }
-
-    /// Jarvis's card stands on the Qwen in ollama's `/api/ps`, by the name it is chatted with.
-    private static func jarvis(_ expect: (String?, String?, String) -> Void) {
-        func qwen(_ json: String) -> String? { Jarvis.qwen(in: Data(json.utf8)) }
-        expect(qwen(#"{"models":[]}"#), nil, "jarvis: no model loaded, no card")
-        expect(qwen(#"{"models":[{"name":"qwen3-8b-abl:latest","size_vram":5}]}"#), "qwen3-8b-abl",
-               "jarvis: the 8B loaded, named without :latest")
-        expect(qwen(#"{"models":[{"name":"llama3:8b"},{"name":"qwen3-vl:4b-instruct"}]}"#),
-               "qwen3-vl:4b-instruct", "jarvis: the Qwen among other models, its tag kept")
-        expect(qwen(#"{"models":[{"name":"llama3:8b"}]}"#), nil, "jarvis: a model that is no Qwen, no card")
-        expect(qwen("<html>"), nil, "jarvis: an answer that is not ollama's, no card")
     }
 
     // MARK: - Reads

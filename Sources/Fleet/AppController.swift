@@ -114,24 +114,14 @@ final class AppController: ObservableObject {
             }
         }
     }
-    /// The Qwen the PC holds while Jarvis runs, for Jarvis's card: see `Jarvis`. `FLEET_QWEN`
-    /// stands in for it in a render.
-    @Published private(set) var qwen = ProcessInfo.processInfo.environment["FLEET_QWEN"]
-    private var askingQwen = false
-    /// Asked only for the open panel, which is all that draws it.
-    private func readQwen() {
-        guard !askingQwen else { return }
-        guard Jarvis.running else {
-            if qwen != nil { qwen = nil }
-            return
-        }
-        askingQwen = true
-        Task { [weak self] in
-            let model = await Jarvis.qwen()
-            guard let self else { return }
-            askingQwen = false
-            if qwen != model { qwen = model }
-        }
+    /// Jarvis running on its Qwen chat, for its card: see `Jarvis`. `FLEET_JARVIS` draws the card
+    /// in a render whatever Jarvis is on.
+    @Published private(set) var jarvisOnQwen = ProcessInfo.processInfo.environment["FLEET_JARVIS"] != nil
+        || Jarvis.onQwen
+    /// Read only for the open panel, which is all that draws it.
+    private func readJarvis() {
+        let on = Jarvis.onQwen
+        if on != jarvisOnQwen { jarvisOnQwen = on }
     }
 
     @Published private(set) var isPanelVisible = false
@@ -425,7 +415,7 @@ final class AppController: ObservableObject {
     /// asked off the main thread, and the cards take their desktops in the same update.
     private var readingDesktops = false
     private func refreshVisible() {
-        readQwen()
+        readJarvis()
         guard !readingDesktops else { return }
         let found = registry.refresh()
         readingDesktops = true
@@ -454,7 +444,7 @@ final class AppController: ObservableObject {
         schedule(Config.visibleRefresh)
         // Read on the desktop it opens on: the last tick's may be another's, up to 5 s old.
         readDesktops()
-        readQwen()
+        readJarvis()
         overlay?.show()
     }
 

@@ -1,41 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The Jarvis app (`~/self/jarvis`), a card on the grid while it runs and the PC's ollama has a
-/// Qwen loaded, which is what `ollama ps` calls running (asked 2026-11-01).
+/// The Jarvis app (`~/self/jarvis`), a card on the grid while it runs on its Qwen chat (asked
+/// 2026-11-01): the screen it keeps in its defaults to open on, panel shown or not.
 enum Jarvis {
     static let bundle = "com.mr.jarvis"
 
-    static var running: Bool {
+    static var onQwen: Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty
-    }
-
-    /// The Qwen ollama holds, without its `:latest`; nil for none, or a PC out of reach. Asked
-    /// as Jarvis's own chat asks, curl through the personal tailnet's SOCKS proxy: ATS refuses
-    /// URLSession a plain HTTP load from inside an app (measured 2026-11-01).
-    static func qwen() async -> String? {
-        await Task.detached {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-            task.arguments = ["-s", "-m", "3", "-x", "socks5h://127.0.0.1:1056",
-                              "http://100.100.151.8:11434/api/ps"]
-            let pipe = Pipe()
-            task.standardOutput = pipe
-            task.standardError = FileHandle.nullDevice
-            guard (try? task.run()) != nil else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
-            return qwen(in: data)
-        }.value
-    }
-
-    static func qwen(in data: Data) -> String? {
-        guard let models = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["models"]
-                as? [[String: Any]]
-        else { return nil }
-        return models.compactMap { $0["name"] as? String }
-            .first { $0.lowercased().contains("qwen") }
-            .map { $0.hasSuffix(":latest") ? String($0.dropLast(7)) : $0 }
+            && UserDefaults(suiteName: bundle)?.bool(forKey: "jarvisChatting") == true
     }
 
     /// Its panel, where he left it. An agent app has no window for `activate` to raise.
@@ -48,11 +21,10 @@ enum Jarvis {
         .map { NSWorkspace.shared.icon(forFile: $0.path) }
 }
 
-/// Jarvis's card: a session card's shape, its icon where a session has nothing, the model under
+/// Jarvis's card: a session card's shape, its icon where a session has nothing, the chat under
 /// the name where a session has its folder, and the border in the icon's own colours, which no
 /// state wears.
 struct JarvisTile: View {
-    let model: String
     let onSelect: () -> Void
 
     @State private var hovering = false
@@ -76,10 +48,9 @@ struct JarvisTile: View {
                         .padding(8)
                 }
 
-                Text(model)
+                Text("qwen")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.4))
-                    .lineLimit(1)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(11)
             }
