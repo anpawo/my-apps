@@ -43,11 +43,19 @@ launchctl kill SIGTERM "gui/$UID/$LABEL" 2>/dev/null || true
 mkdir -p "$DEST"
 rsync -a --delete dist/Fleet.app/ "$DEST/"
 
+# The agent starts through a copy of /usr/bin/env named Fleet, which execs the binary in the same
+# pid (Accessibility still granted). Background Task Management keys the item on the code
+# identity of the program it runs first: with the binary there, every rebuild was a new identity
+# and macOS posted "App Background Activity" on each install (10 on 2026-11-01). env's never
+# changes. A copy, not a link like the routines', so that it can carry the icon below.
+LAUNCHER="$BIN/agents/Fleet"
+mkdir -p "$BIN/agents"
+cp /usr/bin/env "$LAUNCHER"
+
 # Login Items draws an agent with the icon of the file it runs, not of the app around it: only a
-# Team ID links the two, and a self-signed app has none. So the binary carries the icon itself.
-# `codesign --strict` calls that xattr detritus; the default check, which TCC uses, passes.
+# Team ID links the two, and a self-signed app has none. So the launcher carries the icon itself.
 osascript -l JavaScript -e 'ObjC.import("AppKit"); function run(a) { $.NSWorkspace.sharedWorkspace.setIconForFileOptions($.NSImage.alloc.initWithContentsOfFile(a[0]), a[1], 0) }' \
-	"$DEST/Contents/Resources/AppIcon.icns" "$DEST/Contents/MacOS/Fleet" >/dev/null
+	"$DEST/Contents/Resources/AppIcon.icns" "$LAUNCHER" >/dev/null
 
 # Interactive, not Background: the process type covers every thread, the one that draws the
 # panel included. As Background they all ran at priority 4, on the efficiency cores and behind
@@ -66,6 +74,7 @@ cat > "$PLIST.new" <<PLIST_EOF
 	<string>$LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
+		<string>$LAUNCHER</string>
 		<string>$DEST/Contents/MacOS/Fleet</string>
 	</array>
 	<key>RunAtLoad</key>
