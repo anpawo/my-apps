@@ -357,8 +357,6 @@ struct TranscriptInfo {
     var workflows: [WorkflowLaunch] = []
     /// The newest of them, read off its journal. Filled in after the parse, like `subagents`.
     var workflow: WorkflowProgress?
-    /// A prompt the `fuse` mod sent to Qwen that Qwen has not answered yet: see `Qwen`.
-    var qwenAsked = false
 }
 
 /// One rendered line of the mini-transcript shown on a tile.
@@ -446,6 +444,12 @@ struct Session: Identifiable {
     /// Qwen's title for the chat this session is fused with, "Qwen" until it has one; nil unfused.
     @MainActor var qwen: String? {
         sid.flatMap { Session.qwen[$0] }.map { $0.isEmpty ? "Qwen" : $0 }
+    }
+
+    /// Qwen is writing an answer for this fused session. The mod's request gives up after 300 s,
+    /// so a mark older than that is one a closed session left behind.
+    @MainActor var qwenAsking: Bool {
+        sid.flatMap { Qwen.asked[$0] }.map { Date().timeIntervalSince($0) < 310 } ?? false
     }
 
     /// The name Claude was asked to give this session, if it has one.

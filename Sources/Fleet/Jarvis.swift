@@ -72,6 +72,8 @@ enum Qwen {
     typealias Line = (role: String, text: String)
 
     @MainActor private static var kept: (at: Date, turns: [String: [Line]])?
+    /// When the mod asked Qwen for a session, until Qwen answers (`asking` in its store, ms).
+    @MainActor static var asked: [String: Date] = [:]
 
     /// Each fused session's turns, by session id; the store is parsed again only once written.
     @MainActor static func fused() -> [String: [Line]] {
@@ -84,9 +86,12 @@ enum Qwen {
         let store = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: dir + name))))
             as? [String: Any] ?? [:]
         var turns: [String: [Line]] = [:]
+        asked = [:]
         for (key, value) in store where key.hasPrefix("qwen:") {
-            turns[String(key.dropFirst(5))] = ((value as? [String: Any])?["turns"] as? [[String: Any]] ?? [])
+            let sid = String(key.dropFirst(5)), entry = value as? [String: Any]
+            turns[sid] = (entry?["turns"] as? [[String: Any]] ?? [])
                 .map { ($0["role"] as? String ?? "", $0["content"] as? String ?? "") }
+            if let ms = entry?["asking"] as? Double { asked[sid] = Date(timeIntervalSince1970: ms / 1000) }
         }
         kept = (at, turns)
         return turns

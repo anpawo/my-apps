@@ -1074,7 +1074,7 @@ struct SessionTile: View {
 
     /// A session fused with Qwen works while Qwen answers it, which Claude Code knows nothing of.
     private var state: SessionState {
-        session.qwen != nil && session.transcript?.qwenAsked == true ? .running : session.state
+        session.qwen != nil && session.qwenAsking ? .running : session.state
     }
 
     /// Fused with Qwen, the card is that chat's, as Jarvis's was, under Qwen's title for it
