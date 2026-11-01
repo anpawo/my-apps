@@ -60,17 +60,13 @@ enum Jarvis {
     }()
 }
 
-/// Jarvis's card: a session card's shape and pill, its mark where a session has nothing, the
-/// chat under the name where a session has its folder, and the border in the app icon's
-/// colours, which no state wears.
+/// Jarvis's card: a session card's shape, pill and state border (asked 2026-11-01), its mark
+/// where a session has nothing, the chat under the name where a session has its folder.
 struct JarvisTile: View {
     let state: SessionState
     let onSelect: () -> Void
 
     @State private var hovering = false
-
-    private static let colors = [Color(red: 1, green: 0.22, blue: 0.5), Color(red: 0.55, green: 0.3, blue: 1),
-                                 Color(red: 0.1, green: 0.6, blue: 1)]
 
     var body: some View {
         Button(action: onSelect) {
@@ -111,12 +107,11 @@ struct JarvisTile: View {
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color(red: 0.07, green: 0.07, blue: 0.09))
-                    .shadow(color: Self.colors[1].opacity(0.18), radius: 8)
+                    .shadow(color: state.tint.opacity(0.18), radius: 8)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: Self.colors, startPoint: .topLeading,
-                                                 endPoint: .bottomTrailing), lineWidth: 2.5)
+                    .strokeBorder(state.tint, lineWidth: 2.5)
             }
             .scaleEffect(hovering ? 1.015 : 1.0)
             .animation(.easeOut(duration: 0.18), value: hovering)
