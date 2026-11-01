@@ -50,10 +50,6 @@ Quand le changement touche le bloc EPITECH ou la barre d'alerte, lancer aussi
 `./test-epitech.sh` : il rejoue les formes que peuvent prendre `state.json` et
 `sources.json` et vérifie ce que la barre dit de chacune.
 
-When the change touches `serve` or what the hook does at SessionEnd or SessionStart, also run
-`./test-serve.sh` (about 70 s): a server started with `serve` lives through a relaunch, stops
-within 5 s when its session is closed, and within 90 s through its own watcher when no hook fires.
-
 **Pourquoi** : mesuré le 20-09-2026 sur tout le corpus de transcripts, du 18-08
 au 20-09 — 9 défauts de fleet signalés par capture d'écran par Marius, après
 coup, sur des sessions qui s'étaient déclarées terminées.
