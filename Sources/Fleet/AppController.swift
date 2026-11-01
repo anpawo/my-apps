@@ -114,6 +114,26 @@ final class AppController: ObservableObject {
             }
         }
     }
+    /// The Qwen the PC holds while Jarvis runs, for Jarvis's card: see `Jarvis`. `FLEET_QWEN`
+    /// stands in for it in a render.
+    @Published private(set) var qwen = ProcessInfo.processInfo.environment["FLEET_QWEN"]
+    private var askingQwen = false
+    /// Asked only for the open panel, which is all that draws it.
+    private func readQwen() {
+        guard !askingQwen else { return }
+        guard Jarvis.running else {
+            if qwen != nil { qwen = nil }
+            return
+        }
+        askingQwen = true
+        Task { [weak self] in
+            let model = await Jarvis.qwen()
+            guard let self else { return }
+            askingQwen = false
+            if qwen != model { qwen = model }
+        }
+    }
+
     @Published private(set) var isPanelVisible = false
     /// Whether ⌘ is down right now. The todo column grows a ✕ on every row while it is, so a
     /// list you can only read becomes a list you can clear without ever leaving the panel.
@@ -405,6 +425,7 @@ final class AppController: ObservableObject {
     /// asked off the main thread, and the cards take their desktops in the same update.
     private var readingDesktops = false
     private func refreshVisible() {
+        readQwen()
         guard !readingDesktops else { return }
         let found = registry.refresh()
         readingDesktops = true
@@ -433,6 +454,7 @@ final class AppController: ObservableObject {
         schedule(Config.visibleRefresh)
         // Read on the desktop it opens on: the last tick's may be another's, up to 5 s old.
         readDesktops()
+        readQwen()
         overlay?.show()
     }
 
@@ -530,6 +552,11 @@ final class AppController: ObservableObject {
     func activate(_ session: Session) {
         dismissForHandoff()
         TerminalFocus.focus(session: session)
+    }
+
+    func openJarvis() {
+        dismissForHandoff()
+        Jarvis.open()
     }
 
     private func dismissForHandoff() {

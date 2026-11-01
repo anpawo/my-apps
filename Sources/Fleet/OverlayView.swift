@@ -510,8 +510,13 @@ struct OverlayView: View {
     private var grid: some View {
         // One grid a desktop, the front one's first, a line between two (asked 2026-10-31).
         let place = { (session: Session) in controller.desktops[session.id] ?? 0 }
-        let sections = Set(controller.sessions.map(place)).sorted().map { desk in
+        var sections = Set(controller.sessions.map(place)).sorted().map { desk in
             cells(controller.sessions.filter { place($0) == desk })
+        }
+        // Jarvis's panel opens on whichever desktop he is on: the first grid, the front one's.
+        if let qwen = controller.qwen {
+            if sections.isEmpty { sections = [[]] }
+            sections[0].append(.jarvis(qwen))
         }
         // Every directory stands unfolded in the grid itself, its sessions in view with nothing
         // to click (asked 2026-10-12; never folded since 2026-10-18), in one column (asked
@@ -542,6 +547,8 @@ struct OverlayView: View {
                             SessionTile(session: session, heading: heading) {
                                 controller.activate(session)
                             }
+                        case let .jarvis(model):
+                            JarvisTile(model: model) { controller.openJarvis() }
                         }
                     }
                 }
@@ -839,6 +846,8 @@ struct FleetLayout: Layout {
 enum FleetCell: Identifiable {
     case group(String, [Session])
     case session(Session, heading: String?)
+    /// The Jarvis app, by the Qwen it has loaded.
+    case jarvis(String)
 
     /// How many sessions the card stands for.
     var count: Int {
@@ -855,6 +864,7 @@ enum FleetCell: Identifiable {
         switch self {
         case let .group(name, _): return "dir:" + name
         case let .session(session, _): return "pid:\(session.id)"
+        case .jarvis: return "jarvis"
         }
     }
 }
