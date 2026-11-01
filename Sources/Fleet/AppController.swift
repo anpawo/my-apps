@@ -114,14 +114,14 @@ final class AppController: ObservableObject {
             }
         }
     }
-    /// Jarvis running on its Qwen chat, for its card: see `Jarvis`. `FLEET_JARVIS` draws the card
-    /// in a render whatever Jarvis is on.
-    @Published private(set) var jarvisOnQwen = ProcessInfo.processInfo.environment["FLEET_JARVIS"] != nil
-        || Jarvis.onQwen
+    /// Jarvis's chat state while it runs on its Qwen chat, for its card: see `Jarvis`.
+    /// `FLEET_JARVIS=working|ready|fresh` draws the card in a render whatever Jarvis is on.
+    @Published private(set) var jarvisState = ProcessInfo.processInfo.environment["FLEET_JARVIS"]
+        .map { Jarvis.state(named: $0) } ?? Jarvis.state
     /// Read only for the open panel, which is all that draws it.
     private func readJarvis() {
-        let on = Jarvis.onQwen
-        if on != jarvisOnQwen { jarvisOnQwen = on }
+        let state = Jarvis.state
+        if state != jarvisState { jarvisState = state }
     }
 
     @Published private(set) var isPanelVisible = false

@@ -6,9 +6,20 @@ import SwiftUI
 enum Jarvis {
     static let bundle = "com.mr.jarvis"
 
-    static var onQwen: Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty
-            && UserDefaults(suiteName: bundle)?.bool(forKey: "jarvisChatting") == true
+    /// Its chat's state, which Jarvis keeps in its defaults for this card; nil off its Qwen chat.
+    static var state: SessionState? {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty,
+              let kept = UserDefaults(suiteName: bundle), kept.bool(forKey: "jarvisChatting")
+        else { return nil }
+        return state(named: kept.string(forKey: "jarvisChatState"))
+    }
+
+    static func state(named name: String?) -> SessionState {
+        switch name {
+        case "working": return .running
+        case "ready": return .ready
+        default: return .fresh
+        }
     }
 
     /// Its panel, where he left it. An agent app has no window for `activate` to raise.
@@ -17,14 +28,43 @@ enum Jarvis {
             Notification.Name("com.mr.jarvis.open"), object: nil, userInfo: nil, deliverImmediately: true)
     }
 
-    static let icon: NSImage? = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
-        .map { NSWorkspace.shared.icon(forFile: $0.path) }
+    /// Jarvis's mark without its tile (asked 2026-11-01), as `Icon.image` in Jarvis's main.swift
+    /// draws it for the menu bar: a template, worn white.
+    static let mark: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let u = rect.width / 18
+            NSColor.black.set()
+            let border = NSBezierPath(roundedRect: rect.insetBy(dx: 1.75 * u, dy: 1.75 * u),
+                                      xRadius: 4.5 * u, yRadius: 4.5 * u)
+            border.lineWidth = 1.5 * u
+            border.stroke()
+            let star = NSBezierPath()
+            func point(_ r: CGFloat, _ a: CGFloat) -> CGPoint {
+                CGPoint(x: rect.midX + r * u * cos(a), y: rect.midY + r * u * sin(a))
+            }
+            star.move(to: point(6.5, .pi / 2))
+            for i in 1...4 {
+                let a = CGFloat.pi / 2 + CGFloat(i) * .pi / 2
+                let waist = point(0.3, a - .pi / 4)
+                star.curve(to: point(6.5, a), controlPoint1: waist, controlPoint2: waist)
+            }
+            star.close()
+            star.lineJoinStyle = .round
+            star.lineWidth = 1.5 * u
+            star.fill()
+            star.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
 }
 
-/// Jarvis's card: a session card's shape, its icon where a session has nothing, the chat under
-/// the name where a session has its folder, and the border in the icon's own colours, which no
-/// state wears.
+/// Jarvis's card: a session card's shape and pill, its mark where a session has nothing, the
+/// chat under the name where a session has its folder, and the border in the app icon's
+/// colours, which no state wears.
 struct JarvisTile: View {
+    let state: SessionState
     let onSelect: () -> Void
 
     @State private var hovering = false
@@ -35,18 +75,31 @@ struct JarvisTile: View {
     var body: some View {
         Button(action: onSelect) {
             ZStack {
+                // The size of a session's name on the grid, which is its Fleet name.
                 Text("Jarvis")
-                    .font(.system(size: 31 * 0.9 * 0.75, weight: .semibold))
+                    .font(.system(size: 22 * 0.9 * 0.75, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if let icon = Jarvis.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 28, height: 28)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(8)
-                }
+                Image(nsImage: Jarvis.mark)
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(9)
+
+                // As a session's state pill.
+                Text(state.label)
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .foregroundStyle(state.tint)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(state.tint.opacity(0.14), in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(11)
 
                 Text("qwen")
                     .font(.system(size: 10.5, design: .monospaced))
@@ -67,6 +120,7 @@ struct JarvisTile: View {
             }
             .scaleEffect(hovering ? 1.015 : 1.0)
             .animation(.easeOut(duration: 0.18), value: hovering)
+            .animation(.easeInOut(duration: 0.22), value: state)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
