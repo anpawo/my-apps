@@ -239,9 +239,14 @@ struct Engine {
         var r = result
         r.via = "ax"
         if dryRun { r.detail = "dry"; return r }
+        var baseline: Set<String>? = nil
         if let q = type, !q.isEmpty {
+            // A page's own nav lists are AXLists too, and a typeahead menu is plain divs: what appears after the write is the answer.
+            let before = Set(pageTexts(page).map { label(of: $0) })
+            baseline = before
             node.setValue(String(q.dropLast()))
-            if !poll(timing.text, { !listOptions(node: node, page: page).isEmpty }) {
+            let shown = { listOptions(node: node, page: page).contains { normalizeLabel(label(of: $0)) == normalizeLabel(option) } }
+            if !poll(timing.text, { !freshTexts(page, before).isEmpty || shown() }) {
                 switch page.typeUnderLease(String(q.suffix(1)), into: node, human: human) {
                 case .typed: r.via = "keys"
                 case .focusLost: r.status = .refused; r.detail = "focus lost while typing the query"; return r
@@ -250,7 +255,10 @@ struct Engine {
             }
         }
         var options: [AXNode] = []
-        _ = poll(timing.listSelect) { options = listOptions(node: node, page: page); return options.contains { normalizeLabel(label(of: $0)) == normalizeLabel(option) } }
+        _ = poll(timing.listSelect) {
+            options = (baseline.map { freshTexts(page, $0) } ?? []) + listOptions(node: node, page: page)
+            return options.contains { normalizeLabel(label(of: $0)) == normalizeLabel(option) }
+        }
         guard let hit = options.first(where: { normalizeLabel(label(of: $0)) == normalizeLabel(option) }) else {
             r.status = .failed
             r.detail = "no option equal to the pick; " + Report.options(options.map { label(of: $0) })
@@ -359,6 +367,17 @@ struct Engine {
         }
         walk(web, 0)
         return out
+    }
+
+    private func pageTexts(_ page: Page) -> [AXNode] {
+        guard let web = page.webArea() else { return [] }
+        var out: [AXNode] = []
+        collectLeaves(web, into: &out)
+        return out
+    }
+
+    private func freshTexts(_ page: Page, _ before: Set<String>) -> [AXNode] {
+        pageTexts(page).filter { let l = label(of: $0); return !l.isEmpty && !before.contains(l) }
     }
 
     private func collectLeaves(_ n: AXNode, into out: inout [AXNode], _ depth: Int = 0) {

@@ -5,5 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
 mkdir -p "$HOME/.local/bin"
-cp dist/firefax "$HOME/.local/bin/firefax"
+# A copy over the old file keeps its inode and the kernel's cached signature: the new binary dies with SIGKILL.
+cp dist/firefax "$HOME/.local/bin/firefax.new"
+mv -f "$HOME/.local/bin/firefax.new" "$HOME/.local/bin/firefax"
 echo "installed: ~/.local/bin/firefax"
