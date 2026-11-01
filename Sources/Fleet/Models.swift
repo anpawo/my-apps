@@ -446,10 +446,10 @@ struct Session: Identifiable {
         sid.flatMap { Session.qwen[$0] }.map { $0.isEmpty ? "Qwen" : $0 }
     }
 
-    /// Qwen is writing an answer for this fused session. The mod's request gives up after 300 s,
+    /// Qwen is writing an answer for this fused session. The mod's request gives up after 600 s,
     /// so a mark older than that is one a closed session left behind.
     @MainActor var qwenAsking: Bool {
-        sid.flatMap { Qwen.asked[$0] }.map { Date().timeIntervalSince($0) < 310 } ?? false
+        sid.flatMap { Qwen.asked[$0] }.map { Date().timeIntervalSince($0) < 610 } ?? false
     }
 
     /// The name Claude was asked to give this session, if it has one.
