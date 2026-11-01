@@ -210,7 +210,7 @@ enum Hooks {
     /// still works — every field is optional on the reading side — but it costs the session
     /// pairing the hooks are there to make exact, so it counts as not installed and the menu
     /// offers to bring it up to date.
-    static let version = 26
+    static let version = 27
 
     /// Whether the hooks are installed and writing. Checked for the panel's own diagnostics —
     /// the state read above degrades on its own when they are not.
@@ -583,7 +583,7 @@ enum Hooks {
     private static let script = """
     #!/bin/sh
     # Written by Fleet — do not edit; `fleet --install-hooks` overwrites this file.
-    # fleet-hook-version: 26
+    # fleet-hook-version: 27
     #
     # Records what a Claude Code session is doing, so Fleet's panel can show the state Claude
     # Code reports instead of one inferred from the transcript. Called with the state the event
@@ -719,8 +719,14 @@ enum Hooks {
         done
         # That folder outlives the end a relaunch causes, and so does the text left unsent in the
         # prompt, which Fleet's mod keeps beside it: the note is written before the kill.
-        grep -qx -- "$sid" "$HOME/.claude/fleet/restart/$(cut -d' ' -f2 "$dir/$sid.shell" 2>/dev/null)" 2>/dev/null ||
+        if ! grep -qx -- "$sid" "$HOME/.claude/fleet/restart/$(cut -d' ' -f2 "$dir/$sid.shell" 2>/dev/null)" 2>/dev/null; then
             rm -f "$dir/$sid.cwd" "$dir/$sid.draft"
+            # A session closed takes the servers `serve` started for it; a /clear or a /resume goes
+            # on in the same process.
+            str reason "$input"
+            case $v in clear | resume ) ;; * ) [ ! -x "$HOME/.local/bin/serve" ] ||
+                "$HOME/.local/bin/serve" stop --session "$sid" >/dev/null 2>&1 ;; esac
+        fi
         rm -f "$dir/$sid.json" "$dir/$sid.nudge" "$dir/$sid.stopped" "$dir/$sid.prompted" "$dir/$sid.held" "$dir/$sid.reel" "$dir/$sid.context" "$dir/$sid.cfg" "$dir/$sid.ask" "$dir/$sid.answer" "$dir/$sid.shell" "$dir/$sid.bg"
         exit 0
     fi
@@ -759,6 +765,11 @@ enum Hooks {
         was=$(cat "$dir/$sid.cwd"); here=$(printf '%s' "$input" | cwd)
         [ -d "$was" ] && [ -n "$here" ] && [ "$was" != "$here" ] &&
             echo "Fleet: this session was started again in $here, and its shell stood in $was when it stopped. If Marius asked for that folder, cd back to it before anything else; if the shell had only drifted there, stay."
+    fi
+    # The servers `serve` kept up through a restart: said, so the session starts no second copy.
+    if [ "$state" = "start" ] && [ -x "$HOME/.local/bin/serve" ]; then
+        up=$("$HOME/.local/bin/serve" ls --session "$sid" 2>/dev/null)
+        [ -z "$up" ] || printf 'Fleet: these servers, started with serve for this session, are still up: use them, start no second copy (serve log <name>, serve stop <name>).\\n%s\\n' "$up"
     fi
     [ "$state" = "start" ] && exit 0
     [ "$state" = "config" ] && { relaunch "$sid"; exit 0; }
