@@ -37,13 +37,15 @@ fire() {
     rm -f "$FAKE/survived"
     rm -rf "$FAKE/.claude/fleet/restart"
     payload=$(printf '{"session_id":"%s","hook_event_name":"%s","transcript_path":"/tmp/t.jsonl"%s}' "${AS:-$SID}" "$1" "${MORE:-}")
-    HOME="$FAKE" HOOK="$HOOK" PAYLOAD="$payload" ARG="$2" BARE="${3:-}" LIFE="${LIFE:-2}" \
+    HOME="$FAKE" HOOK="$HOOK" PAYLOAD="$payload" ARG="$2" BARE="${3:-}" LIFE="${LIFE:-2}" TASK="${TASK:-}" \
         CLAUDE_CODE_EXECPATH="${BIN:-}" CLAUDE_CODE_SESSION_ID="$SID" sh -c '
         if [ -n "$BARE" ]; then unset FLEET_SHELL; else export FLEET_SHELL=$$; fi
         echo $$ > "$HOME/shell.pid"
-        "$HOME/claude" -c "printf %s \"\$PAYLOAD\" | sh \"\$HOOK\" \"\$ARG\" >/dev/null; sleep \$LIFE; touch \"\$HOME/survived\""
+        "$HOME/claude" -c "${TASK:-}printf %s \"\$PAYLOAD\" | sh \"\$HOOK\" \"\$ARG\" >/dev/null; sleep \$LIFE; touch \"\$HOME/survived\""
     '
 }
+# Set as TASK, the stand-in starts with a child shaped like a shell the Bash tool runs in the background.
+SHELLTASK='sh -c "sleep 3; :" /tmp/shell-snapshots/snapshot-zsh-1.sh & '
 
 # A binary modified after the stand-in started, as a display patch would leave it.
 patched() { touch -t "$(date -v+2M +%Y%m%d%H%M.%S)" "$FAKE/binary"; }
@@ -165,8 +167,25 @@ MORE=',"background_tasks":[{"id":"b1","status":"running"}],"session_crons":[]' f
 check "background work in flight: left alone" kept
 MORE=',"background_tasks":[],"session_crons":[{"id":"c1"}]' fire Stop ready
 check "a wake-up scheduled: left alone" kept
+# A minute after a turn, Claude Code's idle reminder reaches the hook as a turn's end, with no
+# background_tasks in it: it must not clear what the Stop recorded (01-11: a preview server
+# killed twice by a settings change a few minutes after the reminder).
+MORE=',"background_tasks":[{"id":"b1","status":"running"}],"session_crons":[]' fire Stop ready
+MORE=',"message":"Claude is waiting for your input","notification_type":"idle_prompt"' fire Notification awaiting
+check "the idle reminder after a turn with background work: left alone" kept
+fire ConfigChange config
+check "a settings change after that reminder: left alone" kept
 MORE=',"last_assistant_message":"\\"background_tasks\\":[{","background_tasks":[],"session_crons":[]' fire Stop ready
 check "relaunched at the first turn that ends with neither" "$SID --model fable"
+# A turn cut short by Esc or an API error fires no Stop: what it left running in the background
+# is never listed, and only the process table shows it.
+fire SessionStart start
+fire Stop ready
+echo shell > "$FAKE/mod/hooks/register.tsx"
+TASK=$SHELLTASK fire ConfigChange config
+check "a background shell no Stop listed, on a settings change: left alone" kept
+fire ConfigChange config
+check "the same session once that shell is gone: relaunched" "$SID --model fable"
 
 # What must never be ended. The pid a session's claude had, handed to another process since:
 sleep 30 & other=$!

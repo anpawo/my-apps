@@ -210,7 +210,7 @@ enum Hooks {
     /// still works — every field is optional on the reading side — but it costs the session
     /// pairing the hooks are there to make exact, so it counts as not installed and the menu
     /// offers to bring it up to date.
-    static let version = 25
+    static let version = 26
 
     /// Whether the hooks are installed and writing. Checked for the panel's own diagnostics —
     /// the state read above degrades on its own when they are not.
@@ -583,7 +583,7 @@ enum Hooks {
     private static let script = """
     #!/bin/sh
     # Written by Fleet — do not edit; `fleet --install-hooks` overwrites this file.
-    # fleet-hook-version: 25
+    # fleet-hook-version: 26
     #
     # Records what a Claude Code session is doing, so Fleet's panel can show the state Claude
     # Code reports instead of one inferred from the transcript. Called with the state the event
@@ -655,6 +655,9 @@ enum Hooks {
         elif [ "$(printf '%s\\n' "$now" | grep -v '^[0-9]* [0-9]*$')" = "$(grep -v '^[0-9]* [0-9]*$' "$dir/$1.cfg" 2>/dev/null)" ]; then
             why="a mod was edited"
         fi
+        # A shell the Bash tool runs in the background is this claude's child, whatever `.bg` says:
+        # a turn cut short by Esc or an API error fires no Stop to list it.
+        ps -A -o ppid=,command= | grep -q "^ *$cl .*/shell-snapshots/snapshot-" && return 0
         model=$(plutil -extract model raw -o - "$settings" 2>/dev/null)
         /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- /bin/sh -c 'sleep 1
             { [ ! -e "$2" ] || grep -q "$1" "$2"; } && kill -0 "$6" || exit 0
@@ -978,8 +981,11 @@ enum Hooks {
     # A mod edited on disk raises no event in the sessions that did not edit it: the first turn to
     # end once the settings or the mods have moved gives every session its check.
     if [ "$state" = "ready" ]; then
-        # Stop says what the session still has in flight; the sweep has no payload, so it is kept.
-        if printf '%s' "$input" | grep -Eq '"(background_tasks|session_crons)"[[:space:]]*:[[:space:]]*\\[[[:space:]]*[^][:space:]]'
+        # Only a Stop says what the session still has in flight. The idle reminder a minute later
+        # comes here too, with no such list, and keeps what the Stop said (01-11: a preview server
+        # ended by the next settings change, twice).
+        if [ "$event" != "Stop" ]; then :
+        elif printf '%s' "$input" | grep -Eq '"(background_tasks|session_crons)"[[:space:]]*:[[:space:]]*\\[[[:space:]]*[^][:space:]]'
         then : > "$dir/$sid.bg"; else rm -f "$dir/$sid.bg"; fi
         # Where its shell stands, for the start that follows a relaunch.
         here=$(printf '%s' "$input" | cwd); [ -n "$here" ] && printf '%s\\n' "$here" > "$dir/$sid.cwd"
