@@ -182,6 +182,9 @@ exec "$DEST/Contents/MacOS/Fleet" "\$@"
 SHIM_EOF
 chmod +x "$BIN/fleet"
 
+echo "==> Installing serve to $BIN/serve"
+install -m 755 serve "$BIN/serve"
+
 echo
 echo "Installed. Fleet is running and will start at every login."
 echo

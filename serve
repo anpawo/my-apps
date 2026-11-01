@@ -1,0 +1,204 @@
+#!/bin/bash
+# A dev server that outlives its Claude Code session's restarts and stops when the session is
+# closed. Fleet ends an idle session to start it again on new settings or a new Claude Code
+# binary, and a server started by the Bash tool, `run_in_background` or `&`, went with it.
+#
+#   serve <name> [--port N] -- <command>   start it, detached; or say it already runs
+#   serve ls [--session <id>]              the servers up; this session's are marked
+#   serve log <name|pid>                   the last 50 lines of its output
+#   serve stop <name|pid>                  stop it and what it started
+#   serve stop --session <id>              stop every server of a session (Fleet's hook)
+#
+# --port N is put in PORT and waited for; pass it to a command that does not read PORT (vite).
+# Without it, the first localhost URL the server prints is the one waited for.
+#
+# Each server is watched by its own process: it is stopped once no claude has held its session
+# for 60 s. A restart takes 2 s; a closed window or a crash is caught within 60 s, and at once
+# by Fleet's SessionEnd hook.
+set -u
+DIR="$HOME/.claude/fleet/serve"
+SESSIONS="$HOME/.claude/sessions"
+SID="${CLAUDE_CODE_SESSION_ID:-}"
+
+usage() { sed -n '6,13s/^# \{0,1\}//p' "$0" >&2; exit 1; }
+get() { sed -n "s/^$1=//p" "$2" 2>/dev/null; }
+setf() { sed "s|^$1=.*|$1=$2|" "$3" > "$3.$$" && mv "$3.$$" "$3"; }
+
+# A record whose watcher is gone (a reboot, a kill -9) is removed as it is read.
+live() {
+    local p=${1##*/}; p=${p%.rec}
+    case "$(ps -ww -o command= -p "$p" 2>/dev/null)" in *" --run "*) return 0 ;; esac
+    rm -f "$1"; return 1
+}
+each() {
+    local r
+    for r in "$DIR"/*.rec; do [ -f "$r" ] && live "$r" && echo "$r"; done
+}
+# A pid, or a name among this session's servers.
+find_rec() {
+    local r
+    case $1 in *[!0-9]*) ;; *) [ -f "$DIR/$1.rec" ] && live "$DIR/$1.rec" && echo "$DIR/$1.rec"; return ;; esac
+    for r in $(each); do
+        [ "$(get name "$r")" = "$1" ] && [ "$(get sid "$r")" = "$SID" ] && { echo "$r"; return; }
+    done
+}
+line() {
+    local p=${1##*/} port; p=${p%.rec}; port=$(get port "$1")
+    printf '%s  %s  pid %s  up %s  %s  %s  log %s' "$(get name "$1")" "${port:+http://localhost:$port}" \
+        "$p" "$(ps -o etime= -p "$p" | tr -d ' ')" "$(get cwd "$1" | sed "s|^$HOME|~|")" "$(get cmd "$1")" \
+        "$(get log "$1" | sed "s|^$HOME|~|")"
+    [ -n "$SID" ] && [ "$(get sid "$1")" = "$SID" ] && printf '  (this session)'
+    echo
+}
+stop() {
+    local p=${1##*/}; p=${p%.rec}
+    kill -TERM -- "-$p" 2>/dev/null
+}
+sniff() {
+    /usr/bin/perl -ne 's/\e\[[\d;]*m//g; if (m{(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})}) { print $1; exit }' "$1" 2>/dev/null
+}
+
+# --- the watcher: the server's parent, its own session and process group ---
+field() { v=; case $2 in *"\"$1\":\""*) v=${2#*\"$1\":\"}; v=${v%%\"*} ;; esac; }
+# The time and year only: the day and month are in the locale's words.
+when() { grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4}'; }
+started() { [ -n "$1" ] && TZ=UTC ps -o lstart= -p "$1" 2>/dev/null | when; }
+# Whether a claude still holds the session: the one that started the server, or one resumed
+# on its id. Claude Code names each in ~/.claude/sessions/<pid>.json with its start, in UTC,
+# so a pid handed to another process since does not count.
+owned() {
+    local f j p s
+    if [ -n "$ostart" ] && [ "$(started "$owner")" = "$ostart" ]; then
+        # A /clear goes on in the same process under another id.
+        j=$(cat "$SESSIONS/$owner.json" 2>/dev/null); field sessionId "$j"
+        [ -n "$v" ] && [ "$v" != "$sid" ] && { sid=$v; setf sid "$sid" "$rec"; }
+        return 0
+    fi
+    for f in "$SESSIONS"/*.json; do
+        j=$(cat "$f" 2>/dev/null); field sessionId "$j"; [ "$v" = "$sid" ] || continue
+        p=${f##*/}; p=${p%.json}; s=$(started "$p"); [ -n "$s" ] || continue
+        field procStart "$j"; v=$(printf '%s' "$v" | when); [ -z "$v" ] || [ "$v" = "$s" ] || continue
+        owner=$p; ostart=$s; setf owner "$owner" "$rec"; return 0
+    done
+    return 1
+}
+watch() {
+    local seen=$(date +%s)
+    while sleep 15; do
+        if owned; then seen=$(date +%s)
+        elif [ $(($(date +%s) - seen)) -ge 60 ]; then
+            echo "[serve] no claude has held session $sid for 60 s: stopping $name"
+            kill -TERM $$; exit 0
+        fi
+    done
+}
+finish() {
+    trap '' TERM INT HUP
+    rm -f "$rec"
+    kill -TERM -- "-$$" 2>/dev/null
+    local n=0
+    while [ $n -lt 50 ] && kill -0 "$srv" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+    echo "[serve] stopped $name"
+    kill -KILL -- "-$$"
+}
+run() {
+    name=$1 port=$2 sid=$3 owner=$4; shift 4
+    # Still in the session's process group, a stop would end the session itself.
+    [ "$(ps -o pgid= -p $$ | tr -d ' ')" = "$$" ] || exit 1
+    rec="$DIR/$$.rec"; log="$DIR/$name-$$.log"
+    exec >>"$log" 2>&1
+    ostart=$(started "$owner")
+    printf 'name=%s\nsid=%s\nowner=%s\nport=%s\ncwd=%s\nlog=%s\ncmd=%s\n' \
+        "$name" "$sid" "$owner" "$port" "$PWD" "$log" "$*" > "$rec.tmp" && mv "$rec.tmp" "$rec"
+    trap finish TERM INT HUP
+    "$@" </dev/null &
+    srv=$!
+    # Started outside any session, it runs until `serve stop`.
+    [ -z "$sid" ] || watch &
+    wait "$srv"; code=$?
+    trap '' TERM INT HUP
+    rm -f "$rec"
+    echo "[serve] $name exited ($code)"
+    kill -TERM -- "-$$" 2>/dev/null
+    exit $code
+}
+
+start() {
+    local name=$1 port= r p rec log t0 limit=15
+    shift
+    case $name in [A-Za-z]*) ;; *) usage ;; esac
+    case $name in *[!A-Za-z0-9._-]*) usage ;; esac
+    [ "${1:-}" = --port ] && { port=${2:-}; shift 2 || usage; }
+    case $port in *[!0-9]*) usage ;; esac
+    [ "${1:-}" = -- ] && shift
+    [ $# -gt 0 ] || usage
+    r=$(find_rec "$name")
+    if [ -n "$r" ]; then
+        echo "already running, not started again:"; line "$r"
+        [ "$(get cmd "$r")" = "$*" ] || echo "it runs another command: serve stop $name first to change it"
+        return 0
+    fi
+    if [ -n "$port" ] && nc -z -G 1 localhost "$port" >/dev/null 2>&1; then
+        echo "serve: port $port already answers, pid $(lsof -b -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1)" >&2
+        return 1
+    fi
+    mkdir -p "$DIR"
+    find "$DIR" -name '*.log' -mtime +7 -delete 2>/dev/null
+    # setsid: out of the process group a restart ends. No CLAUDE_PID: Fleet's Reaper stops what
+    # carries a dead session's pid when memory runs short, and after a restart that pid is dead.
+    env -u CLAUDE_PID ${port:+PORT=$port} /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- \
+        /bin/bash "$0" --run "$name" "$port" "$SID" "${CLAUDE_PID:-}" "$@" >/dev/null 2>&1 </dev/null &
+    p=$!
+    rec="$DIR/$p.rec"; log="$DIR/$name-$p.log"
+    t0=$(date +%s)
+    until [ -f "$rec" ] || [ $(($(date +%s) - t0)) -ge 5 ]; do sleep 0.1; done
+    [ -f "$rec" ] || { echo "serve: $name did not start" >&2; return 1; }
+    [ -n "$port" ] && limit=90
+    while :; do
+        if ! kill -0 "$p" 2>/dev/null; then
+            echo "serve: $name exited at start:" >&2; tail -n 30 "$log" >&2; return 1
+        fi
+        if [ -z "$port" ]; then port=$(sniff "$log"); [ -z "$port" ] || setf port "$port" "$rec"; fi
+        [ -n "$port" ] && nc -z -G 1 localhost "$port" >/dev/null 2>&1 && { echo "started:"; line "$rec"; return 0; }
+        if [ $(($(date +%s) - t0)) -ge $limit ]; then
+            echo "still starting, ${port:+nothing on port $port }after ${limit} s:"; line "$rec"; tail -n 10 "$log"
+            return 0
+        fi
+        sleep 0.5
+    done
+}
+
+case "${1:-}" in
+    --run) shift; run "$@" ;;
+    ls)
+        for r in $(each); do
+            [ "${2:-}" = --session ] && [ "$(get sid "$r")" != "${3:-}" ] && continue
+            line "$r"
+        done ;;
+    log)
+        [ -n "${2:-}" ] || usage
+        r=$(find_rec "$2")
+        if [ -n "$r" ]; then tail -n 50 "$(get log "$r")"
+        else
+            # Stopped since: its newest log.
+            f=$(ls -t "$DIR/$2"-*.log 2>/dev/null | head -1)
+            [ -n "$f" ] || { echo "serve: no server named $2" >&2; exit 1; }
+            tail -n 50 "$f"
+        fi ;;
+    stop)
+        if [ "${2:-}" = --session ]; then
+            [ -n "${3:-}" ] || usage
+            for r in $(each); do [ "$(get sid "$r")" = "$3" ] && stop "$r"; done
+            exit 0
+        fi
+        [ -n "${2:-}" ] || usage
+        r=$(find_rec "$2")
+        [ -n "$r" ] || { echo "serve: this session has no server $2 (serve ls)" >&2; exit 1; }
+        p=${r##*/}; p=${p%.rec}
+        stop "$r"
+        n=0; while [ $n -lt 70 ] && kill -0 "$p" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+        kill -0 "$p" 2>/dev/null && { echo "serve: $2 (pid $p) still running" >&2; exit 1; }
+        echo "stopped $2 (pid $p)" ;;
+    '' | -h | --help) usage ;;
+    *) start "$@" ;;
+esac
