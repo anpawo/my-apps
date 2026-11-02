@@ -37,6 +37,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("autocorrect", { glyph("character.cursor.ibeam", box: 480) }),
     ("screenshot", { glyph("camera.viewfinder", box: 500) }),
     ("watcher", pinnedNote),
+    ("paperclip", { glyph("paperclip", box: 500) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {
