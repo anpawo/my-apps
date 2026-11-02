@@ -805,8 +805,9 @@ struct FleetLayout: Layout {
 
     /// This grid with every directory one column wide, unless that runs it past `room`: then
     /// the fewest directories stood two cells across, the most sessions first, that end it
-    /// inside `room` (asked 2026-10-28). None does, every one stays one column wide and the
-    /// grid scrolls. Never a directory of two: side by side they share one row, and their
+    /// inside `room` (asked 2026-10-28). None does, the shortest grid that leaves in view every
+    /// other card the one-column grid had in view, and the grid scrolls (asked 2026-11-02: ten
+    /// cards down one column). Never a directory of two: side by side they share one row, and their
     /// cards lose the name's band (2026-10-22). One grid a desktop, `room` shared by them all;
     /// each card given by its parts (see `GroupTile.parts`). `size` takes the parts and the
     /// cells across.
@@ -824,9 +825,23 @@ struct FleetLayout: Layout {
                 return layout
             }
         }
-        return tries.first {
-            zip($0, sections).map { $0.rest($1.count).height }.reduce(0, +) <= room
-        } ?? tries[0]
+        // Each card's foot, the grids stacked, and the whole height.
+        let feet = tries.map { t -> (all: [CGFloat], height: CGFloat) in
+            var top: CGFloat = 0, all: [CGFloat] = []
+            for (layout, cells) in zip(t, sections) {
+                let laid = layout.rest(cells.count)
+                all += laid.frames.map { top + $0.maxY }
+                top += laid.height
+            }
+            return (all, top)
+        }
+        if let k = feet.indices.first(where: { feet[$0].height <= room }) { return tries[k] }
+        let kept = feet.indices.filter { k in
+            feet[0].all.indices.allSatisfy { i in
+                order.prefix(k).contains(i) || feet[0].all[i] > room || feet[k].all[i] <= room
+            }
+        }
+        return tries[kept.min { feet[$0].height < feet[$1].height }!]
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

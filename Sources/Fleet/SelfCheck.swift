@@ -169,6 +169,8 @@ enum SelfCheck {
                "grid: one that does not stands two across, the session beside it")
         expect(standing([5, 2, 1, 1, 1], room: size(3, across: 2).height) == [1, 1, 0, 0, 0], true,
                "grid: not when two across pushes another card past the room")
+        expect(standing([8, 1, 1], room: size(8, across: 2).height - 1) == [2, 0, 0], true,
+               "grid: past the room either way, two across when that pushes no other card out")
         expect(standing([2, 1], room: 10) == [1, 0], true, "grid: never a directory of two")
         expect(standing([3, 6, 1], room: size(6).height - 1) == [1, 2, 0], true,
                "grid: the one with the most sessions stands two across first")
