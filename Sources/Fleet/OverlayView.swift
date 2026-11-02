@@ -931,7 +931,7 @@ struct GroupTile: View {
     private static let nameFoot: CGFloat = 11
     /// The name stands centred over the cards, in a band of its own.
     static let nameBand = nameAir + nameLine + nameFoot
-    /// A repo inside the group's: the line, and its name under it.
+    /// A repo inside the group's: its name, with the line on either side of it.
     static let subBand: CGFloat = 20
     /// One of its cards: the group's cells less the gaps and the names' bands.
     static func card(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
@@ -1000,15 +1000,17 @@ struct GroupTile: View {
             VStack(alignment: .leading, spacing: GroupTile.inset) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { p, part in
                     if p > 0, let first = part.first {
-                        VStack(spacing: 3) {
+                        HStack(spacing: 8) {
                             Rectangle().fill(GroupTile.tint).frame(height: 1)
                             Text(first.dirName)
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.85))
                                 .lineLimit(1)
+                                .fixedSize()
+                            Rectangle().fill(GroupTile.tint).frame(height: 1)
                         }
                         .frame(width: CGFloat(across) * (card.width + GroupTile.inset) - GroupTile.inset,
-                               height: GroupTile.subBand, alignment: .top)
+                               height: GroupTile.subBand)
                     }
                     ForEach(Array(stride(from: 0, to: part.count, by: across)), id: \.self) { start in
                         HStack(spacing: GroupTile.inset) {
