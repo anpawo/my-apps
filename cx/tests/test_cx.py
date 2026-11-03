@@ -221,6 +221,12 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("ctrl+c")
             self.assertEqual(self.client.calls[-1], ("turn/interrupt", {"threadId": "thread-test", "turnId": "turn-test"}))
 
+    async def test_ctrl_c_quits_when_idle(self):
+        async with self.app.run_test() as pilot:
+            self.app.query_one(Prompt).load_text("Unsent prompt")
+            await pilot.press("ctrl+c")
+            self.assertFalse(self.app.is_running)
+
     async def test_resume_restores_history_and_private_last_pointer(self):
         async with self.app.run_test() as pilot:
             await self.app.open_thread("saved-thread")

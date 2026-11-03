@@ -18,7 +18,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="cx-terminal-") as cwd:
             process = subprocess.Popen(
-                [str(Path.home() / ".local/bin/cx"), "--cwd", cwd],
+                ["/bin/zsh", "-f", "-c", '"$@"; result=$?; printf "\\nCX_RETURNED:%s\\n" "$result"; read -r reply; test "$reply" = cx-shell-alive',
+                 "cx-smoke", str(Path.home() / ".local/bin/cx"), "--cwd", cwd],
                 stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True,
             )
             os.close(slave)
@@ -36,16 +37,24 @@ def main():
             assert b"FOCUS" in output, "Focus header absent"
             assert b"\x1b[?1049h" in output, "Alternate screen absent"
             assert b"48;2;" in output, "Truecolor backgrounds absent"
-            os.write(master, b"\x11")
-            while process.poll() is None and time.monotonic() < deadline:
+            os.write(master, b"\x03")
+            output.clear()
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
                 if select.select([master], [], [], 0.1)[0]:
                     try:
-                        os.read(master, 65536)
+                        output.extend(os.read(master, 65536))
                     except OSError:
                         break
+                    if b"CX_RETURNED:0" in output:
+                        break
+            assert b"CX_RETURNED:0" in output, "Ctrl+C did not exit cx cleanly"
+            assert b"\x1b[?1049l" in output, "cx did not restore the terminal screen"
+            assert process.poll() is None, "Ctrl+C killed the shell"
+            os.write(master, b"cx-shell-alive\n")
             process.wait(timeout=5)
-            assert process.returncode == 0, "cx did not exit cleanly"
-            print("PASS: installed cx connects, renders focus mode with truecolor, and Ctrl+Q exits cleanly")
+            assert process.returncode == 0, "Shell did not accept input after cx exited"
+            print("PASS: installed cx connects, Ctrl+C exits cleanly, and the shell still accepts input")
     finally:
         if process and process.poll() is None:
             process.terminate()

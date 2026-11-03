@@ -243,7 +243,7 @@ class CxApp(App):
     TITLE = "cx"
     CSS_PATH = "cx.tcss"
     BINDINGS = [
-        Binding("ctrl+c", "interrupt", "Stop", priority=True),
+        Binding("ctrl+c", "interrupt", "Stop / Quit", priority=True),
         Binding("ctrl+q", "leave", "Quit", priority=True),
         Binding("ctrl+t", "toggle_tools", "Tool details", priority=True),
         Binding("ctrl+n", "new_thread", "New chat", priority=True),
@@ -290,7 +290,7 @@ class CxApp(App):
         with Vertical(id="composer"):
             yield Static("Connecting to Codex...", id="activity", markup=False)
             yield Prompt(id="prompt", soft_wrap=True, show_line_numbers=False)
-            yield Static("Enter send  ·  Alt+Enter newline  ·  Option+←/→ word  ·  Option+Delete word  ·  Ctrl+T details  ·  Ctrl+C stop  ·  /help", id="keys", markup=False)
+            yield Static("Enter send  ·  Alt+Enter newline  ·  Option+←/→ word  ·  Option+Delete word  ·  Ctrl+T details  ·  Ctrl+C stop/quit  ·  /help", id="keys", markup=False)
 
     async def on_mount(self):
         self.query_one("#prompt", Prompt).focus()
@@ -642,7 +642,7 @@ class CxApp(App):
     async def command(self, text):
         name, _, argument = text.strip().partition(" ")
         if name == "/help":
-            await self.notice("/new, /clear: new chat   /resume [id]: resume chat   /compact: summarize chat\n/review: review working changes   /details, /focus: toggle tool output\n/status: session details   /model [name]: show or change model\n/quit: exit   Enter during work: steer   Ctrl+C: stop   Option+Delete: delete word")
+            await self.notice("/new, /clear: new chat   /resume [id]: resume chat   /compact: summarize chat\n/review: review working changes   /details, /focus: toggle tool output\n/status: session details   /model [name]: show or change model\n/quit: exit   Enter during work: steer   Ctrl+C: stop working, quit when idle   Option+Delete: delete word")
         elif name in ("/details", "/focus"):
             self.action_toggle_tools()
         elif name in ("/quit", "/exit"):
@@ -707,8 +707,7 @@ class CxApp(App):
             self.stop_requested = True
             self.status("Stopping as soon as Codex starts the turn...")
         else:
-            self.query_one("#prompt", Prompt).clear()
-            self.status("Ready. Ctrl+Q exits.")
+            await self.action_leave()
 
     async def action_leave(self):
         if self.turn_id:
