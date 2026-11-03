@@ -1185,7 +1185,7 @@ struct SessionTile: View {
     }
 
     private var folder: some View {
-        Text(session.qwen != nil ? "qwen" : session.folder)
+        Text(session.qwen != nil ? "qwen" : session.proc.codex ? "codex · " + session.folder : session.folder)
             .font(.system(size: 10.5, design: .monospaced))
             .foregroundStyle(.white.opacity(0.4))
             .lineLimit(1)

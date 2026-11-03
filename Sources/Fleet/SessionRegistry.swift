@@ -116,9 +116,10 @@ final class SessionRegistry {
         // a hook-named file need not even live in the directory the process reports.
         let told = bindFromHooks(procs)
 
-        // Group by working directory — transcripts are stored per directory.
+        // Group by working directory — transcripts are stored per directory. Codex's apart: its
+        // rollouts are filed by day, and one in the same folder is no Claude session's.
         var byDir: [String: [ClaudeProcess]] = [:]
-        for p in procs { byDir[p.cwd, default: []].append(p) }
+        for p in procs { byDir[p.codex ? "codex " + p.cwd : p.cwd, default: []].append(p) }
 
         for (cwd, group) in byDir {
             // Nothing to resolve when every process is named by its hook or keeps a binding
@@ -129,7 +130,9 @@ final class SessionRegistry {
                     FileManager.default.fileExists(atPath: $0)
                 } ?? false)
             }) else { continue }
-            let files = TranscriptStore.transcripts(for: cwd)
+            let files = group[0].codex
+                ? store.codexRollouts(cwd: group[0].cwd, since: group.map(\.startedAt).min()!)
+                : TranscriptStore.transcripts(for: cwd)
             guard !files.isEmpty else { continue }
 
             var claimed = Set(bindings.filter { live($0.key, in: group) }.map(\.value))
@@ -201,7 +204,7 @@ final class SessionRegistry {
             }
         }
 
-        rescueUnbound(procs)
+        rescueUnbound(procs.filter { !$0.codex })
     }
 
     /// Pass 0: the pairing the hooks name outright, which outranks every guess below.

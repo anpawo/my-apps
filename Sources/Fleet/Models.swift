@@ -228,6 +228,9 @@ struct ClaudeProcess {
     var tty: String           // e.g. "/dev/ttys003"; always present — see ProcessScanner
     var startedAt: Date
     var cpuNanos: UInt64      // cumulative user+system time, for delta-based CPU%
+    /// A Codex CLI session rather than Claude Code's: its transcript is a rollout under
+    /// `~/.codex/sessions`, and no Fleet hook runs inside it.
+    var codex = false
 }
 
 /// A sub-agent the session spawned with `Task` and has not heard back from.

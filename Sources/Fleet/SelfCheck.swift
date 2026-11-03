@@ -37,9 +37,50 @@ enum SelfCheck {
         projects(expect)
         reads(expect)
         fused(expect)
+        codexRollout(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    // MARK: - Codex
+
+    /// A Codex rollout read as a session: its prompt among the messages Codex files as yours,
+    /// a call in flight, then the turn closed by `task_complete`.
+    private static func codexRollout(_ expect: (Bool, Bool, String) -> Void) {
+        let path = NSTemporaryDirectory() + "rollout-selftest-\(getpid()).jsonl"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        func line(_ type: String, _ payload: String) -> String {
+            #"{"timestamp":"2026-11-03T12:42:58.000Z","type":"\#(type)","payload":\#(payload)}"# + "\n"
+        }
+        func user(_ text: String) -> String {
+            line("response_item", #"{"type":"message","role":"user","content":[{"type":"input_text","text":"\#(text)"}]}"#)
+        }
+        let asked = line("session_meta", #"{"cwd":"/tmp","source":"cli"}"#)
+            + line("event_msg", #"{"type":"task_started"}"#)
+            + line("turn_context", #"{"cwd":"/tmp","approval_policy":"never"}"#)
+            + user("# AGENTS.md instructions for /tmp") + user("<environment_context>x</environment_context>")
+            + user("fix the build")
+            + line("response_item", #"{"type":"custom_tool_call","call_id":"c1","name":"exec","input":"x"}"#)
+        try? asked.write(toFile: path, atomically: true, encoding: .utf8)
+        let store = TranscriptStore()
+        let working = store.info(for: path)
+        expect(working?.turnOpen == true && working?.hasPendingTool == true
+               && working?.lastPrompt == "fix the build" && working?.permissionMode == "bypassPermissions",
+               true, "codex: the prompt is yours, not AGENTS.md, and the call is in flight")
+        let done = line("response_item", #"{"type":"custom_tool_call_output","call_id":"c1"}"#)
+            + line("event_msg", #"{"type":"item_completed","item":{"type":"CommandExecution","parsed_cmd":[{"cmd":"swift build"}]}}"#)
+            + line("response_item", #"{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Built."}]}"#)
+            + line("event_msg", #"{"type":"task_complete"}"#)
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(done.utf8))
+            try? handle.close()
+        }
+        let ended = store.info(for: path)
+        expect(ended?.turnOpen == false && ended?.hasPendingTool == false
+               && ended?.preview.map(\.text) == ["fix the build", "Shell swift build", "Built."],
+               true, "codex: task_complete ends the turn, the command and the answer are on the rail")
     }
 
     // MARK: - Fused with Qwen

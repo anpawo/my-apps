@@ -8,6 +8,8 @@ import Darwin
 /// syscalls and costs microseconds.
 enum ProcessScanner {
 
+    private enum Kind { case claude, codex }
+
     /// `proc_name` (the comm field) is NOT a usable identifier.
     ///
     /// It is wrong in both directions. The native installer execs through a version symlink
@@ -34,17 +36,27 @@ enum ProcessScanner {
     /// exec — so it is worth exactly one lookup per process per boot. The start time is the
     /// guard against pid reuse: the kernel hands the same number out again within the hour on
     /// a busy machine, and a recycled pid must not inherit the last tenant's verdict.
-    private nonisolated(unsafe) static var claudeVerdicts: [pid_t: (started: UInt64, is: Bool)] = [:]
+    private nonisolated(unsafe) static var claudeVerdicts: [pid_t: (started: UInt64, kind: Kind?)] = [:]
+
+    /// Codex's subcommands that are tools rather than a conversation. A bare `codex`,
+    /// `codex resume`, `codex fork` and `codex "<prompt>"` are its terminal UI.
+    private static let codexTools: Set<String> = [
+        "exec", "e", "review", "login", "logout", "mcp", "plugin", "app-server", "remote-control",
+        "app", "completion", "update", "doctor", "sandbox", "debug", "apply", "a", "queue",
+        "archive", "delete", "migrate-rollouts", "migrate-nfs-db", "unarchive", "cloud",
+        "exec-server", "features", "help", "agents",
+    ]
 
     /// True when this pid is a Claude Code session.
-    ///
+    static func isClaudeSession(_ pid: pid_t) -> Bool { kind(pid) == .claude }
+
     /// Ordered cheapest-first: the TTY check is a single syscall and eliminates every GUI and
     /// daemon process, leaving only shells and CLI tools to pay for a path lookup — and the
     /// cache above means each of those pays it once rather than once a second.
-    static func isClaudeSession(_ pid: pid_t) -> Bool {
-        guard let bsd = bsdInfo(pid), bsd.e_tdev != UInt32.max else { return false }
+    private static func kind(_ pid: pid_t) -> Kind? {
+        guard let bsd = bsdInfo(pid), bsd.e_tdev != UInt32.max else { return nil }
         let started = UInt64(bsd.pbi_start_tvsec)
-        if let known = claudeVerdicts[pid], known.started == started { return known.is }
+        if let known = claudeVerdicts[pid], known.started == started { return known.kind }
 
         let path = executablePath(pid)
         let args = arguments(pid)
@@ -59,28 +71,34 @@ enum ProcessScanner {
         // a script — not a conversation you can pick back up. It usually has no tty, but an
         // app launched from a terminal hands its own down to every child, tty included.
         if verdict, args.contains("-p") || args.contains("--print") { verdict = false }
+        var kind: Kind? = verdict ? .claude : nil
+        // Codex's `-p` is a profile, not a print: only its subcommand says it is a tool.
+        if kind == nil, (path as NSString).lastPathComponent == "codex",
+           !(args.dropFirst().first.map(codexTools.contains) ?? false) {
+            kind = .codex
+        }
         // A test session a harness drives through a pty says so: `FLEET_TEST_TTY=??` is how
         // the Stop hook knows nobody sits at it. The walk below misses one started by launchd
         // (14-10: the display-patch check of a new version, a READY tile named after `~`).
-        if verdict, environment(pid).contains("FLEET_TEST_TTY=??") { verdict = false }
+        if kind != nil, environment(pid).contains("FLEET_TEST_TTY=??") { kind = nil }
         // Nor is a claude started from inside another one — a test session a tool call drives
         // through a pty (02-10: a NEEDS YOU tile for a terminal nobody sits at). The walk ends
         // by itself at `login`, which is root's and unreadable: a session of yours has only
         // its shell on the way there.
         var up = pid_t(bsd.pbi_ppid)
-        for _ in 0..<12 where verdict {
+        for _ in 0..<12 where kind != nil {
             guard up > 1, let above = bsdInfo(up) else { break }
-            if isClaudeCodePath(executablePath(up)) { verdict = false }
+            if isClaudeCodePath(executablePath(up)) { kind = nil }
             up = pid_t(above.pbi_ppid)
         }
-        claudeVerdicts[pid] = (started, verdict)
+        claudeVerdicts[pid] = (started, kind)
         // Bounded by the process table: a machine that has churned through thousands of shells
         // would otherwise keep a row for every one of them.
         if claudeVerdicts.count > 2048 {
             let live = Set(allPIDs())
             claudeVerdicts = claudeVerdicts.filter { live.contains($0.key) }
         }
-        return verdict
+        return kind
     }
 
     /// One `proc_pidinfo`, shared by everything that needs the tty, the parent or the start
@@ -114,7 +132,7 @@ enum ProcessScanner {
     /// gathering cwd or CPU for anything.
     static func anyClaudeRunning() -> Bool {
         for pid in allPIDs() where pid > 0 {
-            if isClaudeSession(pid) { return true }
+            if kind(pid) != nil { return true }
         }
         return false
     }
@@ -137,7 +155,7 @@ enum ProcessScanner {
     static func scan() -> [ClaudeProcess] {
         var out: [ClaudeProcess] = []
         for pid in allPIDs() where pid > 0 {
-            guard isClaudeSession(pid) else { continue }
+            guard let agent = kind(pid) else { continue }
 
             var bsd = proc_bsdinfo()
             let sz = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd,
@@ -156,7 +174,8 @@ enum ProcessScanner {
                 cwd: cwd,
                 tty: tty,
                 startedAt: Date(timeIntervalSince1970: TimeInterval(bsd.pbi_start_tvsec)),
-                cpuNanos: cpuNanos(pid)
+                cpuNanos: cpuNanos(pid),
+                codex: agent == .codex
             ))
         }
         return out

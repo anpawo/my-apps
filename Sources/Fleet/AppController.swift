@@ -544,7 +544,9 @@ final class AppController: ObservableObject {
         let home = NSHomeDirectory()
         let lead = lastPrompted
         return sessions.compactMap { session in
-            guard session.id != lead?.id, let path = session.transcript?.path else { return nil }
+            // No Fleet hook runs inside Codex to hold it: its card would say PAUSED while it works.
+            guard session.id != lead?.id, !session.proc.codex,
+                  let path = session.transcript?.path else { return nil }
             let cwd = session.cwd
             let owns = cwd != home && reaper.hogs.contains {
                 $0.cwd == cwd || $0.cwd?.hasPrefix(cwd + "/") == true

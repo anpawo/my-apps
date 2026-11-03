@@ -102,9 +102,81 @@ final class TranscriptStore {
         return files.sorted { $0.mtime > $1.mtime }
     }
 
+    /// Codex files a session as `~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`, under
+    /// the local day of its first prompt: no file exists before that.
+    static let codexRoot = NSHomeDirectory() + "/.codex/sessions"
+
+    static func isCodex(_ path: String) -> Bool {
+        (path as NSString).lastPathComponent.hasPrefix("rollout-")
+    }
+
+    /// The directory each rollout's first line names, "" for a `codex exec` run: those have no
+    /// terminal and write beside the sessions that do. Read once per file.
+    private var codexCwds: [String: String] = [:]
+
+    /// Codex rollouts begun in `cwd` from `since`'s day on, and at least the last fortnight: a
+    /// session resumed from the picker writes on into the file of the day it began.
+    func codexRollouts(cwd: String, since: Date) -> [TranscriptFile] {
+        let calendar = Calendar.current
+        var day = calendar.startOfDay(for: min(since, Date().addingTimeInterval(-14 * 86400)))
+        var files: [TranscriptFile] = []
+        while day <= Date() {
+            let d = calendar.dateComponents([.year, .month, .day], from: day)
+            let dir = String(format: "%@/%04d/%02d/%02d", Self.codexRoot, d.year!, d.month!, d.day!)
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+            where name.hasSuffix(".jsonl") {
+                let path = dir + "/" + name
+                guard codexCwd(path) == cwd,
+                      let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { continue }
+                let mtime = (attrs[.modificationDate] as? Date) ?? .distantPast
+                files.append(TranscriptFile(path: path, sessionID: String(name.dropLast(6).suffix(36)),
+                                            birth: (attrs[.creationDate] as? Date) ?? mtime, mtime: mtime))
+            }
+            day = calendar.date(byAdding: .day, value: 1, to: day)!
+        }
+        return files.sorted { $0.mtime > $1.mtime }
+    }
+
+    private func codexCwd(_ path: String) -> String? {
+        if let known = codexCwds[path] { return known }
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        // The first line carries Codex's whole system prompt, some 20 KB.
+        let head = (try? handle.read(upToCount: 256 * 1024)) ?? Data()
+        guard let end = head.firstIndex(of: UInt8(ascii: "\n")) else { return nil }
+        let payload = ((try? JSONSerialization.jsonObject(with: head[..<end])) as? [String: Any])?["payload"]
+            as? [String: Any]
+        let cwd = payload?["source"] as? String == "exec" ? "" : (payload?["cwd"] as? String ?? "")
+        codexCwds[path] = cwd
+        return cwd
+    }
+
+    /// Codex's own name for each thread, by id, reread whenever its index changes.
+    private var codexNames: (mtime: Date, names: [String: String]) = (.distantPast, [:])
+
+    private func codexTitle(_ id: String) -> String? {
+        let index = NSHomeDirectory() + "/.codex/session_index.jsonl"
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: index))?[.modificationDate] as? Date
+        if let mtime, mtime != codexNames.mtime {
+            var names: [String: String] = [:]
+            for line in ((try? String(contentsOfFile: index, encoding: .utf8)) ?? "").split(separator: "\n") {
+                guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                      let id = entry["id"] as? String, let name = entry["thread_name"] as? String else { continue }
+                names[id] = name
+            }
+            codexNames = (mtime, names)
+        }
+        return codexNames.names[id]
+    }
+
     /// Parsed transcript for `path`, plus whatever sub-agents it is currently waiting on.
     func info(for path: String) -> TranscriptInfo? {
         guard var info = parse(path: path, acceptSidechain: false) else { return nil }
+        if Self.isCodex(path) {
+            info.title = codexTitle(String(((path as NSString).lastPathComponent as NSString)
+                .deletingPathExtension.suffix(36)))
+            return info
+        }
         info.subagents = liveSubagents(of: path,
                                        spawns: info.pendingTaskIDs + info.unfinishedAgentIDs,
                                        resumed: Set(info.resumedAgentIDs.map { "agent-" + $0 }))
@@ -279,7 +351,7 @@ final class TranscriptStore {
         guard let handle = FileHandle(forReadingAtPath: path) else { return previous }
         defer { try? handle.close() }
 
-        var state = resumable?.state ?? ParseState(acceptSidechain: acceptSidechain)
+        var state = resumable?.state ?? ParseState(acceptSidechain: acceptSidechain, codex: Self.isCodex(path))
         let start = resumable?.offset ?? Self.tailStart(size: UInt64(size))
         try? handle.seek(toOffset: start)
         // `readToEnd` reports EOF as nil, not as empty data, and seeking to a resume offset that
@@ -375,6 +447,8 @@ private struct ParseState {
     /// Sub-agent transcripts are made *entirely* of sidechain entries, so reading one means
     /// keeping what a main transcript drops. See the filter in `ingest`.
     var acceptSidechain = false
+    /// A Codex rollout — see `ingestCodex`.
+    var codex = false
 
     var title: String?
     var lastPrompt: String?
@@ -422,7 +496,68 @@ private struct ParseState {
     /// a shell's, in `shellSpawnedAt`.
     var workflowFiles: [String: (dir: String, script: String)] = [:]
 
+    /// A line of a Codex rollout: `{timestamp, type, payload}`, the conversation as OpenAI
+    /// Responses items and a turn's bounds as `task_started` / `task_complete` events.
+    mutating func ingestCodex(_ obj: [String: Any]) {
+        guard let payload = obj["payload"] as? [String: Any] else { return }
+        if let stamp = obj["timestamp"] as? String, let at = Self.date(stamp) { lastMessageAt = at }
+        if let d = payload["cwd"] as? String, !d.isEmpty { cwd = d }
+        // Nothing can stop at an approval: a quiet call is a long command, as in bypass mode.
+        if let policy = payload["approval_policy"] as? String {
+            permissionMode = policy == "never" ? "bypassPermissions" : policy
+        }
+        func say(_ kind: PreviewLine.Kind, _ text: String) {
+            let t = text.plainProse.collapsedWhitespace
+            guard !t.isEmpty else { return }
+            preview.append(PreviewLine(kind: kind, text: String(t.prefix(200))))
+            if preview.count > Config.previewLineCount { preview.removeFirst() }
+        }
+        // Items are only written inside a turn: a cold read whose tail starts past a long
+        // turn's `task_started` still finds it open.
+        if obj["type"] as? String == "response_item" { turnOpen = true }
+        switch payload["type"] as? String {
+        case "task_started":
+            turnOpen = true
+        case "task_complete", "turn_aborted":
+            turnOpen = false
+            pending.removeAll()
+        case "message":
+            let text = Self.contentBlocks(payload["content"]).compactMap { $0["text"] as? String }.joined()
+            switch payload["role"] as? String {
+            // AGENTS.md and the environment are filed as user messages too.
+            case "user" where !text.hasPrefix("<") && !text.hasPrefix("# AGENTS.md"):
+                lastPrompt = text
+                lastPromptAt = lastMessageAt
+                say(.user, text)
+            case "assistant":
+                say(.assistant, text)
+            default:
+                break
+            }
+        case "function_call", "custom_tool_call", "local_shell_call":
+            if let id = payload["call_id"] as? String {
+                let name = payload["name"] as? String ?? "shell"
+                issued += 1
+                pending[id] = PendingTool(name: name, label: name, seq: issued, messageID: nil)
+            }
+        case "function_call_output", "custom_tool_call_output":
+            if let id = payload["call_id"] as? String, let done = pending.removeValue(forKey: id) {
+                lastCompleted = done.name
+            }
+        case "item_completed":
+            // One call can run several commands; each is named here once it has run.
+            guard let item = payload["item"] as? [String: Any],
+                  item["type"] as? String == "CommandExecution",
+                  let command = ((item["parsed_cmd"] as? [[String: Any]])?.first?["cmd"] as? String)
+                      ?? (item["command"] as? [String])?.joined(separator: " ") else { return }
+            say(.tool, "Shell " + String(command.collapsedWhitespace.prefix(80)))
+        default:
+            break
+        }
+    }
+
     mutating func ingest(_ obj: [String: Any]) {
+        if codex { return ingestCodex(obj) }
         guard let type = obj["type"] as? String else { return }
 
         // Every conversation entry stamps the session's *current* directory, which is not the
