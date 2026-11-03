@@ -473,9 +473,7 @@ class CxApp(App):
             else:
                 self.widgets[item_id].update(tool_content(item))
             self.update_groups()
-            if tool_failed(item):
-                await self.notice("Action failed: " + tool_title(item), error=True)
-            elif not completed and self.busy:
+            if not tool_failed(item) and not completed and self.busy:
                 self.status("Working: " + tool_title(item))
         self.follow_if_bottom()
 

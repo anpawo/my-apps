@@ -235,11 +235,19 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(json.loads(self.app.last_file.read_text())["threadId"], "thread-test")
             self.assertEqual(self.app.last_file.stat().st_mode & 0o777, 0o600)
 
-    async def test_failed_tool_is_visible_while_folded(self):
+    async def test_failed_tools_stay_in_activity_count_without_notices(self):
         async with self.app.run_test() as pilot:
-            await self.app.show_item({"type": "commandExecution", "id": "cmd", "command": "false", "exitCode": 1})
-            self.assertTrue(self.app.query_one(Collapsible).collapsed)
-            self.assertEqual(len(self.app.query(".error")), 1)
+            await self.app.show_item({"type": "commandExecution", "id": "ok", "command": "true", "exitCode": 0})
+            failed = {"type": "commandExecution", "id": "cmd", "command": "false", "exitCode": 1}
+            await self.app.show_item(failed)
+            await self.app.show_item(failed, completed=True)
+            group = self.app.query_one(Collapsible)
+            self.assertTrue(group.collapsed)
+            self.assertEqual(group.title, "2 actions · 1 failed")
+            self.assertEqual(len(self.app.query(".error")), 0)
+            await pilot.press("ctrl+t")
+            self.assertFalse(group.collapsed)
+            self.assertIn("Exit: 1", self.app.widgets["cmd"].render().plain)
 
     async def test_prompt_survives_a_failed_send(self):
         async def fail(method, params):
