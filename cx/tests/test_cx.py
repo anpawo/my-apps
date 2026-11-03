@@ -12,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rich.console import Console
+from textual.containers import VerticalScroll
 from textual.widgets import Button, Collapsible, Input
 
 from cx import BLUE, GREEN, ORANGE, CxApp, Prompt, Reply, RequestScreen, clean, prompt_input, reply_content, tool_content
@@ -144,6 +145,45 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.tmp.cleanup()
+
+    async def test_stream_follows_until_scrolled_up_and_resumes_at_bottom(self):
+        async with self.app.run_test(size=(80, 24)) as pilot:
+            view = self.app.query_one("#transcript", VerticalScroll)
+            await self.app.show_item({"type": "agentMessage", "id": "reply", "text": "\n\n".join(f"Line {n}" for n in range(30))})
+            await pilot.pause()
+            self.assertGreater(view.max_scroll_y, 0)
+            self.assertTrue(view.is_vertical_scroll_end)
+
+            async def stream(text):
+                await self.app.handle_event({"method": "item/agentMessage/delta", "params": {"itemId": "reply", "delta": text}})
+                self.app.flush()
+                await pilot.pause()
+
+            for n in range(3):
+                await stream(f"\n\nFollowing {n}")
+                self.assertTrue(view.is_vertical_scroll_end)
+
+            view.scroll_up(animate=False, immediate=True)
+            await pilot.pause()
+            detached = view.scroll_y
+            self.assertFalse(view.is_vertical_scroll_end)
+            for n in range(3):
+                await stream(f"\n\nDetached {n}")
+                self.assertEqual(view.scroll_y, detached)
+            await self.app.notice("A new activity notice")
+            await pilot.pause()
+            self.assertEqual(view.scroll_y, detached)
+
+            view.scroll_to(y=view.max_scroll_y, animate=False, immediate=True)
+            await pilot.pause()
+            for n in range(3):
+                await stream(f"\n\nResumed {n}")
+                self.assertTrue(view.is_vertical_scroll_end)
+
+            view.scroll_up(animate=False, immediate=True)
+            await pilot.press("ctrl+l")
+            await stream("\n\nFollowing after Latest")
+            self.assertTrue(view.is_vertical_scroll_end)
 
     async def test_streaming_final_text_and_tool_folding(self):
         async with self.app.run_test(size=(100, 32)) as pilot:

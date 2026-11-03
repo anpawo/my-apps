@@ -294,6 +294,7 @@ class CxApp(App):
 
     async def on_mount(self):
         self.query_one("#prompt", Prompt).focus()
+        self.query_one("#transcript", VerticalScroll).anchor()
         self.set_interval(0.08, self.flush)
         self.update_bar()
         if not self.offline:
@@ -327,12 +328,6 @@ class CxApp(App):
 
     async def notice(self, text, error=False):
         await self.query_one("#transcript", VerticalScroll).mount(Static(clean(text), classes="error" if error else "notice", markup=False))
-        self.follow_if_bottom()
-
-    def follow_if_bottom(self, force=False):
-        view = self.query_one("#transcript", VerticalScroll)
-        if force or view.is_vertical_scroll_end:
-            view.call_after_refresh(view.scroll_end, animate=False)
 
     @property
     def last_file(self):
@@ -416,7 +411,7 @@ class CxApp(App):
         self.ready = True
         self.update_bar()
         self.status("Working..." if self.busy else "Ready")
-        self.follow_if_bottom(force=True)
+        self.action_follow()
 
     async def consume(self):
         while True:
@@ -475,7 +470,6 @@ class CxApp(App):
             self.update_groups()
             if not tool_failed(item) and not completed and self.busy:
                 self.status("Working: " + tool_title(item))
-        self.follow_if_bottom()
 
     def update_groups(self):
         for group, ids in self.groups.items():
@@ -485,7 +479,6 @@ class CxApp(App):
     def flush(self):
         if not self.dirty:
             return
-        follow = self.query_one("#transcript", VerticalScroll).is_vertical_scroll_end
         for item_id in self.dirty:
             item = self.items[item_id]
             widget = self.widgets.get(item_id)
@@ -494,7 +487,6 @@ class CxApp(App):
             elif widget:
                 widget.update(tool_content(item))
         self.dirty.clear()
-        self.follow_if_bottom(force=follow)
 
     async def handle_event(self, message):
         method, p = message.get("method", ""), message.get("params", {})
@@ -619,7 +611,7 @@ class CxApp(App):
             self.seen_users.add(client_id)
             user_widget = await self.add_user(text)
             self.query_one("#prompt", Prompt).clear()
-            self.follow_if_bottom(force=True)
+            self.action_follow()
             result = await self.client.request(method, params)
             if self.busy and self.turn_id is None and result.get("turn"):
                 self.turn_id = result["turn"]["id"]
@@ -687,7 +679,7 @@ class CxApp(App):
         self.update_bar()
 
     def action_follow(self):
-        self.follow_if_bottom(force=True)
+        self.query_one("#transcript", VerticalScroll).scroll_end(animate=False)
 
     async def action_new_thread(self):
         self.run_worker(self.command("/new"), name="new-thread")
