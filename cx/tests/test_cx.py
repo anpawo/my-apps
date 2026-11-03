@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rich.console import Console
 from textual.widgets import Button, Collapsible, Input
 
-from cx import BLUE, GREEN, ORANGE, CxApp, Prompt, Reply, RequestScreen, clean, reply_content, tool_content
+from cx import BLUE, GREEN, ORANGE, CxApp, Prompt, Reply, RequestScreen, clean, prompt_input, reply_content, tool_content
 from rpc import CodexClient, RpcError
 import install
 
@@ -47,6 +47,17 @@ class RenderingTests(unittest.TestCase):
     def test_long_output_cannot_restore_controls_from_its_title(self):
         result = tool_content({"type": "fileChange", "changes": [{"path": "bad\x1b]52;c;secret\x07.py", "diff": "x" * 20000}]})
         self.assertNotIn("\x1b", result.plain)
+
+    def test_image_paths_become_local_image_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "screenshot with spaces.png"
+            image.touch()
+            text, inputs = prompt_input(f"Check this {image} now")
+            self.assertEqual(text, "Check this now")
+            self.assertEqual(inputs, [
+                {"type": "text", "text": "Check this now"},
+                {"type": "localImage", "path": str(image.resolve())},
+            ])
 
 
 class InstallTests(unittest.TestCase):
@@ -166,6 +177,38 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.client.calls[-1][0], "turn/start")
             self.assertEqual(self.client.calls[-1][1]["input"][0]["text"], "hi\nx")
             self.assertEqual(prompt.text, "")
+
+    async def test_option_delete_removes_previous_word(self):
+        async with self.app.run_test() as pilot:
+            prompt = self.app.query_one(Prompt)
+            prompt.load_text("keep this word")
+            prompt.cursor_location = (0, len(prompt.text))
+            await pilot.press("alt+backspace")
+            self.assertEqual(prompt.text, "keep this ")
+
+    async def test_image_path_is_sent_as_attachment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "screenshot with spaces.png"
+            image.touch()
+            async with self.app.run_test() as pilot:
+                self.app.ready, self.app.thread_id = True, "thread-test"
+                await self.app.submit(f"Inspect {image}")
+                self.assertEqual(self.client.calls[-1][1]["input"], [
+                    {"type": "text", "text": "Inspect"},
+                    {"type": "localImage", "path": str(image.resolve())},
+                ])
+
+    async def test_clear_compact_and_review_commands(self):
+        async with self.app.run_test() as pilot:
+            self.app.ready, self.app.thread_id = True, "thread-test"
+            await self.app.command("/compact")
+            self.assertEqual(self.client.calls[-1], ("thread/compact/start", {"threadId": "thread-test"}))
+            await self.app.command("/review")
+            self.assertEqual(self.client.calls[-1], ("review/start", {
+                "threadId": "thread-test", "target": {"type": "uncommittedChanges"}, "delivery": "inline",
+            }))
+            await self.app.command("/clear")
+            self.assertEqual(self.client.calls[-1][0], "thread/start")
 
     async def test_steer_and_interrupt(self):
         async with self.app.run_test() as pilot:

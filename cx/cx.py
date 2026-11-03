@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 import uuid
 from pathlib import Path
@@ -30,10 +31,48 @@ BLUE = "#d6e6ff"
 ORANGE = "#ffe1c3"
 INK = "#27312e"
 ESCAPES = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
 
 
 def clean(text):
     return "".join(c for c in ESCAPES.sub("", str(text)) if c in "\n\t" or (ord(c) >= 32 and not 127 <= ord(c) <= 159))
+
+
+def prompt_input(source):
+    lines, images = [], []
+    for line in source.splitlines():
+        spans = []
+        for match in re.finditer(r"(?i)\.(?:png|jpe?g|gif|webp|bmp|tiff?)(?=$|[\s>'\"])", line):
+            starts = [0] + [i + 1 for i, char in enumerate(line[:match.start()]) if char.isspace()]
+            for start in starts:
+                candidate = line[start:match.end()].strip().strip("'\"<>")
+                try:
+                    words = [candidate] if Path(candidate).expanduser().is_file() else shlex.split(candidate)
+                except ValueError:
+                    continue
+                if len(words) == 1:
+                    path = Path(words[0]).expanduser()
+                    if path.suffix.lower() in IMAGE_SUFFIXES and path.is_file():
+                        images.append({"type": "localImage", "path": str(path.resolve())})
+                        spans.append((start, match.end()))
+                        break
+        for start, end in reversed(spans):
+            line = line[:start] + line[end:]
+        line = re.sub(r"[ \t]{2,}", " ", line)
+        if line.strip():
+            lines.append(line)
+    text = "\n".join(lines).strip()
+    return text, ([{"type": "text", "text": text}] if text else []) + images
+
+
+def user_content_text(content):
+    parts = []
+    for item in content:
+        if item.get("type") == "text":
+            parts.append(item.get("text", ""))
+        elif item.get("type") == "localImage":
+            parts.append(f"Attached: {Path(item.get('path', 'image')).name}")
+    return "\n".join(part for part in parts if part)
 
 
 def reply_content(source):
@@ -119,7 +158,15 @@ class Reply(Static):
 
 
 class Prompt(TextArea):
-    BINDINGS = [Binding("enter", "send", show=False, priority=True), Binding("shift+enter,alt+enter", "newline", show=False)]
+    BINDINGS = [
+        Binding("enter", "send", show=False, priority=True),
+        Binding("shift+enter,alt+enter", "newline", show=False),
+        Binding("alt+backspace,alt+delete", "delete_word_left", show=False),
+        Binding("alt+left", "cursor_word_left", show=False),
+        Binding("alt+right", "cursor_word_right", show=False),
+        Binding("alt+shift+left", "cursor_word_left(True)", show=False),
+        Binding("alt+shift+right", "cursor_word_right(True)", show=False),
+    ]
 
     class Submitted(Message):
         def __init__(self, text):
@@ -242,7 +289,7 @@ class CxApp(App):
         with Vertical(id="composer"):
             yield Static("Connecting to Codex...", id="activity", markup=False)
             yield Prompt(id="prompt", soft_wrap=True, show_line_numbers=False)
-            yield Static("Enter send  ·  Alt+Enter newline  ·  Ctrl+T details  ·  Ctrl+C stop  ·  /help", id="keys", markup=False)
+            yield Static("Enter send  ·  Alt+Enter newline  ·  Option+←/→ word  ·  Option+Delete word  ·  Ctrl+T details  ·  Ctrl+C stop  ·  /help", id="keys", markup=False)
 
     async def on_mount(self):
         self.query_one("#prompt", Prompt).focus()
@@ -379,7 +426,7 @@ class CxApp(App):
             if item_id in self.seen_users or client_id in self.seen_users:
                 return
             self.seen_users.add(item_id)
-            await self.add_user("\n".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "text"))
+            await self.add_user(user_content_text(item.get("content", [])))
             return
         if kind in ("agentMessage", "plan"):
             if item_id not in self.widgets:
@@ -518,8 +565,13 @@ class CxApp(App):
         self.run_worker(self.submit(event.text), name="submit")
 
     async def submit(self, text):
-        if text.startswith("/"):
-            await self.command(text)
+        prompt, inputs = prompt_input(text)
+        if not inputs:
+            if prompt.startswith("/"):
+                await self.command(prompt)
+            return
+        if prompt.startswith("/") and len(inputs) == 1:
+            await self.command(prompt)
             return
         if not self.ready:
             await self.notice("Codex is not connected yet. Your prompt is still in the input.")
@@ -532,7 +584,7 @@ class CxApp(App):
         was_busy = self.busy
         try:
             method = "turn/steer" if self.busy else "turn/start"
-            params = {"threadId": self.thread_id, "input": [{"type": "text", "text": text}], "clientUserMessageId": client_id}
+            params = {"threadId": self.thread_id, "input": inputs, "clientUserMessageId": client_id}
             if self.busy:
                 if not self.turn_id:
                     raise RpcError("The current turn is still starting. Try again in a moment.")
@@ -565,7 +617,7 @@ class CxApp(App):
     async def command(self, text):
         name, _, argument = text.strip().partition(" ")
         if name == "/help":
-            await self.notice("/new: new chat   /resume [id]: resume chat   /details: toggle tool output\n/status: session details   /model [name]: show or change model\n/quit: exit   Enter during work: steer   Ctrl+C: stop   Alt+Enter: newline")
+            await self.notice("/new, /clear: new chat   /resume [id]: resume chat   /compact: summarize chat\n/review: review working changes   /details, /focus: toggle tool output\n/status: session details   /model [name]: show or change model\n/quit: exit   Enter during work: steer   Ctrl+C: stop   Option+Delete: delete word")
         elif name in ("/details", "/focus"):
             self.action_toggle_tools()
         elif name in ("/quit", "/exit"):
@@ -573,7 +625,7 @@ class CxApp(App):
             return
         elif name == "/status":
             await self.notice(f"Session: {self.thread_id or 'not connected'}\nFolder: {self.cwd}\nModel: {self.model}")
-        elif name in ("/new", "/resume", "/model"):
+        elif name in ("/new", "/clear", "/resume", "/model", "/compact", "/review"):
             if not self.ready or self.busy:
                 await self.notice("Stop the current turn before changing sessions or models.")
                 return
@@ -589,6 +641,12 @@ class CxApp(App):
                     else:
                         page = await self.client.request("model/list", {"limit": 100})
                         await self.notice("Available models:\n" + "\n".join(m["id"] for m in page["data"]))
+                elif name == "/compact":
+                    await self.client.request("thread/compact/start", {"threadId": self.thread_id})
+                    await self.notice("Conversation compaction started.")
+                elif name == "/review":
+                    target = {"type": "custom", "instructions": argument} if argument else {"type": "uncommittedChanges"}
+                    await self.client.request("review/start", {"threadId": self.thread_id, "target": target, "delivery": "inline"})
                 else:
                     resume = argument or (json.loads(self.last_file.read_text())["threadId"] if name == "/resume" and self.last_file.exists() else None)
                     await self.open_thread(resume, reset=True)
