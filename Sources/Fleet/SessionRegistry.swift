@@ -55,6 +55,9 @@ final class SessionRegistry {
             // terminal costs a round trip to read.
             var state = twins[proc.pid]
                 ?? state(for: bindings[proc.pid], info: info, cpu: cpu, startedAt: proc.startedAt, now: now)
+            if proc.codex, state == .ready {
+                state = Self.codexScreenState(state, screens.verdict(proc, now: now))
+            }
             // An async agent leaves the session looking finished: its call was answered the
             // moment it launched, the turn closed, and the hook said `ready` — all true of the
             // main thread, and all beside the point while three agents are still out. Only
@@ -402,6 +405,10 @@ final class SessionRegistry {
             return heuristic
         }
         return hook.state
+    }
+
+    static func codexScreenState(_ state: SessionState, _ verdict: TerminalWatch.Verdict) -> SessionState {
+        state == .ready && verdict == .working ? .running : state
     }
 
     /// Red / green / blue, from the transcript tail plus CPU.

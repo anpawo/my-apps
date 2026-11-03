@@ -739,6 +739,9 @@ enum SelfCheck {
         expect(TerminalWatch.read(silent) == .working, true, "a spinner with no token counter yet is work")
         let quoted = "❯ why blue on Billowing… (4m 39s · deep in thought with xhigh effort)\n\n" + box
         expect(TerminalWatch.read(quoted) == .unknown, true, "a spinner quoted in a prompt is not one")
+        let codex = "Working (38m 20s · esc to interrupt)"
+        expect(SessionRegistry.codexScreenState(.ready, TerminalWatch.read(codex)) == .running,
+               true, "Codex's working screen overrides a stale ready rollout")
     }
 
     private static func queuedPrompt(_ expect: (Int, Int, String) -> Void) {
