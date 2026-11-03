@@ -55,9 +55,6 @@ final class SessionRegistry {
             // terminal costs a round trip to read.
             var state = twins[proc.pid]
                 ?? state(for: bindings[proc.pid], info: info, cpu: cpu, startedAt: proc.startedAt, now: now)
-            if proc.codex, state == .ready {
-                state = Self.codexScreenState(state, screens.verdict(proc, now: now))
-            }
             // An async agent leaves the session looking finished: its call was answered the
             // moment it launched, the turn closed, and the hook said `ready` — all true of the
             // main thread, and all beside the point while three agents are still out. Only
@@ -74,7 +71,7 @@ final class SessionRegistry {
                held.contains(((path as NSString).lastPathComponent as NSString).deletingPathExtension) {
                 state = .paused
             }
-            if state == .awaitingAnswer {
+            if state == .awaitingAnswer, !proc.codex {
                 switch screens.verdict(proc, now: now) {
                 case .retrying: state = .apiError
                 case .working: state = .running
@@ -85,7 +82,8 @@ final class SessionRegistry {
             // fires and no transcript is written until they finish, and one that hangs holds
             // it for its whole timeout (01-10: patch-check.sh, 60 s of READY on a session
             // showing its spinner). The screen is the only place that turn is written down.
-            if state == .ready, now.timeIntervalSince(proc.startedAt) < Config.startupWindow,
+            if state == .ready, !proc.codex,
+               now.timeIntervalSince(proc.startedAt) < Config.startupWindow,
                screens.verdict(proc, now: now, recheck: Config.terminalReadInterval) == .working {
                 state = .running
             }
@@ -151,7 +149,7 @@ final class SessionRegistry {
                 }
 
                 // Pass 1: `claude --resume <id>` names its transcript outright.
-                if let id = resumeID(for: proc.pid),
+                if let id = Self.resumeID(in: ProcessScanner.arguments(proc.pid), codex: proc.codex),
                    let match = files.first(where: { $0.sessionID == id }),
                    !claimed.contains(match.path) {
                     bindings[proc.pid] = match.path
@@ -290,7 +288,7 @@ final class SessionRegistry {
             // Failing that, `claude --resume <id>` names its file whichever folder holds it and
             // however long ago it was written: the window loses a session that sat idle through
             // a Fleet restart (12-10: trading, in a renamed folder, "No conversation yet").
-            guard let match = recent ?? resumeID(for: proc.pid)
+            guard let match = recent ?? Self.resumeID(in: ProcessScanner.arguments(proc.pid), codex: false)
                       .flatMap({ $0.contains("/") ? nil : transcript(sessionID: $0) }),
                   !claimed.contains(match) else { continue }
             bindings[proc.pid] = match
@@ -303,9 +301,8 @@ final class SessionRegistry {
         group.contains { $0.pid == pid }
     }
 
-    private func resumeID(for pid: pid_t) -> String? {
-        let args = ProcessScanner.arguments(pid)
-        guard let idx = args.firstIndex(where: { $0 == "--resume" || $0 == "-r" }),
+    static func resumeID(in args: [String], codex: Bool) -> String? {
+        guard let idx = args.firstIndex(where: { $0 == "--resume" || $0 == "-r" || (codex && $0 == "resume") }),
               idx + 1 < args.count else { return nil }
         let value = args[idx + 1]
         return value.hasPrefix("-") ? nil : value
@@ -407,10 +404,6 @@ final class SessionRegistry {
         return hook.state
     }
 
-    static func codexScreenState(_ state: SessionState, _ verdict: TerminalWatch.Verdict) -> SessionState {
-        state == .ready && verdict == .working ? .running : state
-    }
-
     /// Red / green / blue, from the transcript tail plus CPU.
     ///
     /// A pending tool call means Claude asked to do something and no result came back. That is
@@ -423,6 +416,13 @@ final class SessionRegistry {
             // file we could not find. Green is the right guess for the first and a lie for the
             // second, so let sustained CPU speak for a session we otherwise know nothing about.
             return cpu >= Config.busyCPUPercent ? .running : .ready
+        }
+
+        if TranscriptStore.isCodex(info.path) {
+            if info.pendingToolNames.contains(where: { $0 == "request_user_input" || $0 == "functions.request_user_input" }) {
+                return .awaitingAnswer
+            }
+            return info.turnOpen ? .running : .ready
         }
 
         // `--resume` brings back the conversation, not the turn it was cut in: a call or a

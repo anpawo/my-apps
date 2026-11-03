@@ -116,13 +116,13 @@ final class TranscriptStore {
 
     /// Codex rollouts begun in `cwd` from `since`'s day on, and at least the last fortnight: a
     /// session resumed from the picker writes on into the file of the day it began.
-    func codexRollouts(cwd: String, since: Date) -> [TranscriptFile] {
+    func codexRollouts(cwd: String, since: Date, root: String = TranscriptStore.codexRoot) -> [TranscriptFile] {
         let calendar = Calendar.current
         var day = calendar.startOfDay(for: min(since, Date().addingTimeInterval(-14 * 86400)))
         var files: [TranscriptFile] = []
         while day <= Date() {
             let d = calendar.dateComponents([.year, .month, .day], from: day)
-            let dir = String(format: "%@/%04d/%02d/%02d", Self.codexRoot, d.year!, d.month!, d.day!)
+            let dir = String(format: "%@/%04d/%02d/%02d", root, d.year!, d.month!, d.day!)
             for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
             where name.hasSuffix(".jsonl") {
                 let path = dir + "/" + name
@@ -146,7 +146,8 @@ final class TranscriptStore {
         guard let end = head.firstIndex(of: UInt8(ascii: "\n")) else { return nil }
         let payload = ((try? JSONSerialization.jsonObject(with: head[..<end])) as? [String: Any])?["payload"]
             as? [String: Any]
-        let cwd = payload?["source"] as? String == "exec" ? "" : (payload?["cwd"] as? String ?? "")
+        let source = payload?["source"] as? String
+        let cwd = source == nil || source == "exec" ? "" : (payload?["cwd"] as? String ?? "")
         codexCwds[path] = cwd
         return cwd
     }

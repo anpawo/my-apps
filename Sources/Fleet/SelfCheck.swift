@@ -38,12 +38,38 @@ enum SelfCheck {
         reads(expect)
         fused(expect)
         codexRollout(expect)
+        codexBinding(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
     }
 
     // MARK: - Codex
+
+    private static func codexBinding(_ expect: (Bool, Bool, String) -> Void) {
+        let id = "00000000-0000-0000-0000-000000000001"
+        expect(SessionRegistry.resumeID(in: ["codex", "resume", id], codex: true) == id,
+               true, "codex: positional resume names the thread instead of guessing")
+        expect(SessionRegistry.resumeID(in: ["claude", "--resume", id], codex: false) == id,
+               true, "Claude's resume flag still names its transcript")
+        expect(SessionRegistry.resumeID(in: ["codex", "resume", "--last"], codex: true) == nil,
+               true, "codex: a resume option is not a thread id")
+        let root = NSTemporaryDirectory() + "fleet-codex-binding-\(getpid())"
+        let now = Date()
+        let d = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        let dir = String(format: "%@/%04d/%02d/%02d", root, d.year!, d.month!, d.day!)
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        for (name, source) in ["cli": #""cli""#, "app": #""vscode""#,
+                               "exec": #""exec""#,
+                               "reviewer": #"{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}"#] {
+            let json = #"{"type":"session_meta","payload":{"cwd":"/tmp","source":\#(source)}}"# + "\n"
+            try? json.write(toFile: dir + "/rollout-" + name + ".jsonl", atomically: true, encoding: .utf8)
+        }
+        let files = TranscriptStore().codexRollouts(cwd: "/tmp", since: now, root: root)
+        expect(Set(files.map { ($0.path as NSString).lastPathComponent }) == ["rollout-cli.jsonl", "rollout-app.jsonl"],
+               true, "codex: reviewers and exec runs cannot become terminal cards")
+    }
 
     /// A Codex rollout read as a session: its prompt among the messages Codex files as yours,
     /// a call in flight, then the turn closed by `task_complete`.
@@ -81,6 +107,32 @@ enum SelfCheck {
         expect(ended?.turnOpen == false && ended?.hasPendingTool == false
                && ended?.preview.map(\.text) == ["fix the build", "Shell swift build", "Built."],
                true, "codex: task_complete ends the turn, the command and the answer are on the rail")
+        let thinking = line("event_msg", #"{"type":"task_started"}"#)
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(thinking.utf8))
+            try? handle.close()
+        }
+        let info = store.info(for: path)
+        let start = Date(timeIntervalSince1970: 0)
+        let later = (info?.lastWord ?? Date()).addingTimeInterval(300)
+        expect(SessionRegistry.derivedState(info: info, cpu: 0, startedAt: start, now: later) == .running,
+               true, "codex: an explicit open turn stays working during a silent thought")
+        expect(SessionRegistry.derivedState(info: info, cpu: 0, startedAt: later, now: later) == .running,
+               true, "codex: reconnecting the terminal does not end the server's active turn")
+        expect(SessionRegistry.derivedState(info: ended, cpu: 100, startedAt: start, now: later) == .ready,
+               true, "codex: an explicit completion stays ready despite CPU activity")
+        for name in ["request_user_input", "functions.request_user_input"] {
+            let question = line("response_item", #"{"type":"function_call","call_id":"q1","name":"\#(name)","arguments":"{}"}"#)
+            if let handle = FileHandle(forWritingAtPath: path) {
+                handle.seekToEndOfFile()
+                handle.write(Data(question.utf8))
+                try? handle.close()
+            }
+            expect(SessionRegistry.derivedState(info: store.info(for: path), cpu: 0,
+                                               startedAt: start, now: later) == .awaitingAnswer,
+                   true, "codex: a pending \(name) needs you")
+        }
     }
 
     // MARK: - Fused with Qwen
@@ -740,8 +792,7 @@ enum SelfCheck {
         let quoted = "❯ why blue on Billowing… (4m 39s · deep in thought with xhigh effort)\n\n" + box
         expect(TerminalWatch.read(quoted) == .unknown, true, "a spinner quoted in a prompt is not one")
         let codex = "Working (38m 20s · esc to interrupt)"
-        expect(SessionRegistry.codexScreenState(.ready, TerminalWatch.read(codex)) == .running,
-               true, "Codex's working screen overrides a stale ready rollout")
+        expect(TerminalWatch.read(codex) == .working, true, "Codex's working spinner is recognized")
     }
 
     private static func queuedPrompt(_ expect: (Int, Int, String) -> Void) {
