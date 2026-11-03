@@ -14,7 +14,7 @@ from rich.console import Group
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.text import Text
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -67,11 +67,13 @@ def prompt_input(source):
 
 def user_content_text(content):
     parts = []
+    image = 0
     for item in content:
         if item.get("type") == "text":
             parts.append(item.get("text", ""))
-        elif item.get("type") == "localImage":
-            parts.append(f"Attached: {Path(item.get('path', 'image')).name}")
+        elif item.get("type") in ("localImage", "image"):
+            image += 1
+            parts.append(f" ▧ Image {image} ")
     return "\n".join(part for part in parts if part)
 
 
@@ -173,8 +175,25 @@ class Prompt(TextArea):
             super().__init__()
             self.text = text
 
+    class ImagesPasted(Message):
+        def __init__(self, images):
+            super().__init__()
+            self.images = images
+
+    async def _on_paste(self, event: events.Paste):
+        event.prevent_default()
+        event.stop()
+        if self.read_only:
+            return
+        text, inputs = prompt_input(event.text)
+        images = [item for item in inputs if item["type"] == "localImage"]
+        if images:
+            self.post_message(self.ImagesPasted(images))
+            event.text = text
+        await super()._on_paste(event)
+
     def action_send(self):
-        if self.text.strip():
+        if self.text.strip() or self.app.attachments:
             self.post_message(self.Submitted(self.text))
 
     def action_newline(self):
@@ -272,6 +291,7 @@ class CxApp(App):
         self.current_group = None
         self.dirty = set()
         self.seen_users = set()
+        self.attachments = []
         self.model = "Codex"
         self.context = ""
         self.usage = ""
@@ -289,7 +309,9 @@ class CxApp(App):
             yield Static("Your workspace, with less noise.\nType a prompt. Tool activity stays folded until you need it.", id="welcome", markup=False)
         with Vertical(id="composer"):
             yield Static("Connecting to Codex...", id="activity", markup=False)
-            yield Prompt(id="prompt", soft_wrap=True, show_line_numbers=False)
+            with Vertical(id="draft"):
+                yield Horizontal(id="attachments")
+                yield Prompt(id="prompt", soft_wrap=True, show_line_numbers=False)
             yield Static("Enter send  ·  Alt+Enter newline  ·  Option+←/→ word  ·  Option+Delete word  ·  Ctrl+T details  ·  Ctrl+C stop/quit  ·  /help", id="keys", markup=False)
 
     async def on_mount(self):
@@ -394,6 +416,8 @@ class CxApp(App):
             self.dirty.clear()
             self.seen_users.clear()
             self.current_group = None
+            self.attachments.clear()
+            await self.update_attachments()
         self.thread_id = thread["id"]
         self.model = result.get("model") or "Codex"
         self.busy, self.turn_id, self.stop_requested = False, None, False
@@ -427,7 +451,9 @@ class CxApp(App):
         welcome = self.query("#welcome")
         if welcome:
             await welcome.remove()
-        widget = Static(Text(clean(text)), classes="user-message")
+        content = Text(clean(text))
+        content.highlight_regex(r" ▧ Image \d+ ", style="bold #27312e on #ffffff")
+        widget = Static(content, classes="user-message")
         await self.query_one("#transcript", VerticalScroll).mount(widget)
         return widget
 
@@ -579,8 +605,28 @@ class CxApp(App):
         event.stop()
         self.run_worker(self.submit(event.text), name="submit")
 
+    @on(Prompt.ImagesPasted)
+    async def images_pasted(self, event):
+        self.attachments.extend(event.images)
+        await self.update_attachments()
+
+    async def update_attachments(self):
+        row = self.query_one("#attachments", Horizontal)
+        await row.remove_children()
+        if self.attachments:
+            await row.mount(*(Button(f"▧ Image {n + 1} ×", id=f"image-{n}", classes="image-chip") for n in range(len(self.attachments))))
+        row.display = bool(self.attachments)
+
+    @on(Button.Pressed, "#attachments Button")
+    async def remove_image(self, event):
+        event.stop()
+        self.attachments.pop(int(event.button.id.removeprefix("image-")))
+        await self.update_attachments()
+        self.query_one("#prompt", Prompt).focus()
+
     async def submit(self, text):
         prompt, inputs = prompt_input(text)
+        inputs += self.attachments
         if not inputs:
             if prompt.startswith("/"):
                 await self.command(prompt)
@@ -597,6 +643,7 @@ class CxApp(App):
         client_id = str(uuid.uuid4())
         user_widget = None
         was_busy = self.busy
+        attached = self.attachments
         try:
             method = "turn/steer" if self.busy else "turn/start"
             params = {"threadId": self.thread_id, "input": inputs, "clientUserMessageId": client_id}
@@ -609,8 +656,10 @@ class CxApp(App):
                 self.busy = True
                 self.stop_requested = False
             self.seen_users.add(client_id)
-            user_widget = await self.add_user(text)
+            user_widget = await self.add_user(user_content_text(inputs))
             self.query_one("#prompt", Prompt).clear()
+            self.attachments = []
+            await self.update_attachments()
             self.action_follow()
             result = await self.client.request(method, params)
             if self.busy and self.turn_id is None and result.get("turn"):
@@ -618,6 +667,9 @@ class CxApp(App):
                 if self.stop_requested:
                     await self.action_interrupt()
         except (RpcError, asyncio.TimeoutError) as exc:
+            if self.attachments is not attached:
+                self.attachments = attached + self.attachments
+            await self.update_attachments()
             self.seen_users.discard(client_id)
             if not was_busy and not self.turn_id:
                 self.busy = False

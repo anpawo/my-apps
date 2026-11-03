@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rich.console import Console
 from textual.containers import VerticalScroll
+from textual import events
 from textual.widgets import Button, Collapsible, Input
 
 from cx import BLUE, GREEN, ORANGE, CxApp, Prompt, Reply, RequestScreen, clean, prompt_input, reply_content, tool_content
@@ -238,6 +239,88 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
                     {"type": "text", "text": "Inspect"},
                     {"type": "localImage", "path": str(image.resolve())},
                 ])
+
+    async def test_pasted_images_become_removable_chips_and_one_message_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / "first image.png", Path(tmp) / "second image.png"
+            first.touch()
+            second.touch()
+            async with self.app.run_test() as pilot:
+                self.app.ready, self.app.thread_id = True, "thread-test"
+                prompt = self.app.query_one(Prompt)
+                prompt.post_message(events.Paste(str(first)))
+                await pilot.pause()
+                prompt.post_message(events.Paste(str(second)))
+                await pilot.pause()
+                self.assertEqual(prompt.text, "")
+                self.assertEqual(len(self.app.query(".image-chip")), 2)
+                self.assertEqual(self.app.query_one("#attachments").parent.id, "draft")
+                self.assertEqual(prompt.parent.id, "draft")
+                await pilot.click("#image-0")
+                await pilot.pause()
+                self.assertEqual(self.app.attachments, [{"type": "localImage", "path": str(second.resolve())}])
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(self.client.calls[-1][1]["input"], [{"type": "localImage", "path": str(second.resolve())}])
+                self.assertEqual(len(self.app.query(".user-message")), 1)
+                shown = self.app.query_one(".user-message").render().plain
+                self.assertIn("▧ Image 1", shown)
+                self.assertNotIn(str(second), shown)
+                self.assertNotIn("second image.png", shown)
+                self.assertEqual(self.app.attachments, [])
+                self.assertFalse(self.app.query_one("#attachments").display)
+
+    async def test_failed_send_restores_image_chips(self):
+        async def fail(method, params):
+            raise RpcError("Connection lost")
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "attachment.png"
+            image.touch()
+            async with self.app.run_test() as pilot:
+                self.app.ready, self.app.thread_id = True, "thread-test"
+                prompt = self.app.query_one(Prompt)
+                prompt.post_message(events.Paste(str(image)))
+                await pilot.pause()
+                self.client.request = fail
+                await self.app.submit("Inspect")
+                self.assertEqual(prompt.text, "Inspect")
+                self.assertEqual(self.app.attachments, [{"type": "localImage", "path": str(image.resolve())}])
+                self.assertEqual(len(self.app.query(".image-chip")), 1)
+                self.assertEqual(len(self.app.query(".user-message")), 0)
+
+    async def test_image_only_steer_before_turn_starts_keeps_one_attachment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "attachment.png"
+            image.touch()
+            async with self.app.run_test() as pilot:
+                self.app.ready, self.app.busy, self.app.thread_id = True, True, "thread-test"
+                prompt = self.app.query_one(Prompt)
+                prompt.post_message(events.Paste(str(image)))
+                await pilot.pause()
+                await self.app.submit("")
+                self.assertEqual(self.app.attachments, [{"type": "localImage", "path": str(image.resolve())}])
+                self.assertEqual(len(self.app.query(".image-chip")), 1)
+
+    async def test_plain_paste_is_inserted_once(self):
+        async with self.app.run_test() as pilot:
+            prompt = self.app.query_one(Prompt)
+            prompt.post_message(events.Paste("A plain text paste"))
+            await pilot.pause()
+            self.assertEqual(prompt.text, "A plain text paste")
+            self.assertEqual(self.app.attachments, [])
+
+    async def test_restored_images_use_compact_labels(self):
+        async with self.app.run_test() as pilot:
+            await self.app.show_item({"type": "userMessage", "id": "image-history", "content": [
+                {"type": "text", "text": "Check these"},
+                {"type": "localImage", "path": "/private/example.png"},
+                {"type": "image", "url": "data:image/png;base64,example"},
+            ]})
+            shown = self.app.query_one(".user-message").render().plain
+            self.assertIn("Check these", shown)
+            self.assertIn("▧ Image 1", shown)
+            self.assertIn("▧ Image 2", shown)
+            self.assertNotIn("example.png", shown)
 
     async def test_clear_compact_and_review_commands(self):
         async with self.app.run_test() as pilot:
