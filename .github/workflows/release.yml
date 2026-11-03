@@ -45,7 +45,7 @@ jobs:
               archive = f"{os.path.basename(bundle)[:-4]}-{info['CFBundleShortVersionString']}.zip"
               # ditto, not zip: it keeps the signature intact.
               subprocess.run(["ditto", "-c", "-k", "--keepParent", bundle, f"out/{archive}"], check=True)
-              intro = open(f"{app}/README.md").read().split("\n\n")[1].replace("\n", " ")
+              intro = open(f"{app}/README.md").read().split("\n\n")[1].replace("\n", " ") if os.path.exists(f"{app}/README.md") else info["CFBundleGetInfoString"]
               does = re.match(r".+?\.(?=\s|$)", intro).group(0)
               print(f"| [{app}](https://github.com/anpawo/my-apps/tree/{sha}/{app}) | {does} | `{archive}` | {info['LSMinimumSystemVersion']}+ |")
           print("""

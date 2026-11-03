@@ -19,7 +19,7 @@ def install():
     if target.exists() or target.is_symlink():
         codex = shutil.which("codex")
         original_alias = target.is_symlink() and codex and target.resolve() == Path(codex).resolve()
-        our_launcher = target.is_file() and not target.is_symlink() and "# cx launcher\n" in target.read_text()
+        our_launcher = target.is_file() and not target.is_symlink() and any(marker in target.read_text() for marker in ("# cx launcher\n", "# vcx launcher\n"))
         if not original_alias and not our_launcher:
             sys.exit("Refusing to replace an existing cx command that this installer does not own.")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -31,4 +31,7 @@ def install():
 
 
 if __name__ == "__main__":
-    install()
+    if "--terminal" in sys.argv:
+        install()
+    else:
+        subprocess.run([sys.executable, str(Path(__file__).with_name("install-native.py"))], check=True)
