@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from html import unescape
 from pathlib import Path
 from unittest.mock import patch
 
@@ -249,6 +250,44 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
         async with self.app.run_test() as pilot:
             await self.app.handle_event({"method": "configWarning", "params": {"summary": "Invalid setting"}})
             self.assertEqual(len(self.app.query(".notice")), 1)
+
+    async def test_usage_next_to_context_updates_and_survives_new_chat(self):
+        async with self.app.run_test(size=(120, 32)) as pilot:
+            await self.app.handle_event({"method": "thread/tokenUsage/updated", "params": {
+                "tokenUsage": {"last": {"totalTokens": 12000}, "modelContextWindow": 100000},
+            }})
+            await self.app.handle_event({"method": "account/rateLimits/updated", "params": {"rateLimits": {
+                "primary": {"usedPercent": 27, "windowDurationMins": 300},
+                "secondary": {"usedPercent": 20, "windowDurationMins": 10080},
+            }}})
+            await pilot.pause()
+            self.assertIn("12% context", self.app.context)
+            self.assertIn("usage 27% 5h / 20% weekly", self.app.usage)
+            self.assertIn("usage 27% 5h / 20% weekly", unescape(self.app.export_screenshot()).replace("\u00a0", " "))
+            await self.app.open_thread(reset=True)
+            self.assertIn("27% 5h", self.app.usage)
+            await self.app.handle_event({"method": "account/rateLimits/updated", "params": {"rateLimits": {
+                "primary": {"usedPercent": 0, "windowDurationMins": 15},
+            }}})
+            self.assertIn("usage 0% 15m", self.app.usage)
+            self.assertNotIn("weekly", self.app.usage)
+
+    async def test_usage_reads_live_limits_and_handles_unavailable(self):
+        original = self.client.request
+        async def request(method, params=None):
+            if method == "account/rateLimits/read":
+                return {"rateLimits": {"secondary": {"usedPercent": 100, "windowDurationMins": 10080}}}
+            return await original(method, params)
+        self.client.request = request
+        async with self.app.run_test() as pilot:
+            await self.app.refresh_usage()
+            self.assertIn("usage 100% weekly", self.app.usage)
+            async def fail(method, params=None):
+                raise RpcError("Not available for this account")
+            self.client.request = fail
+            await self.app.refresh_usage()
+            self.assertIn("usage unavailable", self.app.usage)
+            self.assertEqual(len(self.app.query(".error")), 0)
 
     async def test_disconnected_answer_does_not_crash(self):
         async def respond(*args, **kwargs):

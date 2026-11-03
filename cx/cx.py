@@ -274,6 +274,7 @@ class CxApp(App):
         self.seen_users = set()
         self.model = "Codex"
         self.context = ""
+        self.usage = ""
         self.register_theme(Theme(
             name="mr", primary="#416d5c", secondary="#56718c", accent="#b57c23",
             foreground=INK, background="#faf9f6", surface="#f1f0eb", panel="#f1f0eb",
@@ -300,7 +301,26 @@ class CxApp(App):
 
     def update_bar(self):
         mode = "FOCUS" if self.focus_view else "DETAILS"
-        self.query_one("#topbar", Static).update(f" cx   {Path(self.cwd).name or '/'}   ·   {self.model}   ·   {mode}{self.context}")
+        self.query_one("#topbar", Static).update(f" cx   {Path(self.cwd).name or '/'}   ·   {self.model}   ·   {mode}{self.context}{self.usage}")
+
+    def update_usage(self, limits):
+        windows = []
+        for name in ("primary", "secondary"):
+            window = (limits or {}).get(name) or {}
+            percent = window.get("usedPercent")
+            if isinstance(percent, (int, float)) and not isinstance(percent, bool):
+                minutes = window.get("windowDurationMins")
+                period = {300: "5h", 10080: "weekly"}.get(minutes, f"{minutes}m" if minutes else name)
+                windows.append(f"{round(percent)}% {period}")
+        self.usage = "   ·   usage " + (" / ".join(windows) if windows else "unavailable")
+        self.update_bar()
+
+    async def refresh_usage(self):
+        try:
+            result = await self.client.request("account/rateLimits/read")
+            self.update_usage(result.get("rateLimits"))
+        except (RpcError, OSError, ValueError, asyncio.TimeoutError):
+            self.update_usage(None)
 
     def status(self, text):
         self.query_one("#activity", Static).update(clean(text))
@@ -330,6 +350,7 @@ class CxApp(App):
         try:
             await self.client.start()
             self.run_worker(self.consume(), name="events")
+            self.run_worker(self.refresh_usage(), name="usage")
             resume = self.resume_id
             if resume == "last":
                 if not self.last_file.exists():
@@ -529,6 +550,10 @@ class CxApp(App):
             if used is not None and limit:
                 self.context = f"   ·   {round(used / limit * 100)}% context"
                 self.update_bar()
+        elif method == "account/rateLimits/updated":
+            self.update_usage(p.get("rateLimits"))
+        elif method == "account/updated":
+            self.run_worker(self.refresh_usage(), name="usage")
         elif method == "serverRequest/resolved":
             request_id = p.get("requestId")
             for screen in list(self.screen_stack):
