@@ -109,6 +109,11 @@ final class App: NSObject, NSApplicationDelegate {
                 config.createsNewApplicationInstance = true
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: config)
             }),
+            (kVK_ANSI_J, cmdKey | optionKey, "⌥⌘J", {
+                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mr.jarvis") {
+                    NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                }
+            }),
         ])
     }
 }
