@@ -24,8 +24,12 @@ enum Jarvis {
 
     /// Its panel, where he left it. An agent app has no window for `activate` to raise.
     static func open() {
-        DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name("com.mr.jarvis.open"), object: nil, userInfo: nil, deliverImmediately: true)
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { return }
+        NSWorkspace.shared.openApplication(at: app, configuration: .init()) { application, _ in
+            guard application != nil else { return }
+            DistributedNotificationCenter.default().postNotificationName(
+                Notification.Name("com.mr.jarvis.open"), object: nil, userInfo: nil, deliverImmediately: true)
+        }
     }
 
     /// Jarvis's mark without its tile (asked 2026-11-01), as `Icon.image` in Jarvis's main.swift
