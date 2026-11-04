@@ -47,6 +47,20 @@ enum Check {
     static func run() async -> Bool {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
+        do {
+            let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
+            let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
+            for width: CGFloat in [420, 760, 1120] {
+                func height(_ text: String) -> CGFloat {
+                    let host = NSHostingView(rootView: MarkdownBody(text: text).frame(width: width))
+                    host.layoutSubtreeIfNeeded()
+                    return host.fittingSize.height
+                }
+                let shortHeight = height(short), longHeight = height(long)
+                print("Table height at \(width): short \(shortHeight), wrapped \(longHeight)")
+                check(longHeight > shortHeight + 100, "wrapped table cells expand their rows at width \(width)")
+            }
+        }
         func composerLine(_ image: Bool) -> (CGFloat, CGFloat) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
             storage.addLayoutManager(manager); manager.addTextContainer(container)
@@ -827,6 +841,18 @@ enum Check {
 enum Render {
     static func run(directory: String) {
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let table = """
+        | What we measure | What the data shows |
+        | --- | --- |
+        | Opinions | Long-term tolerance can improve while recorded incidents increase. These indicators describe different aspects of society and should be assessed separately. |
+        | Recorded incidents | Recorded crimes and offences increased in the latest annual reports. Reporting behaviour and recording practices also affect these figures. |
+        | Public speech | Public expression can become more openly hostile without every member of society adopting more hostile opinions. This is harder to measure directly. |
+
+        This paragraph must remain below the complete table, with every row readable.
+        """
+        for width: CGFloat in [420, 760, 1120] {
+            write(MarkdownBody(text: table).padding(24).foregroundStyle(.white).background(Color(white: 0.035)), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
+        }
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000

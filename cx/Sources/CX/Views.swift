@@ -620,7 +620,7 @@ struct ProseView: View {
                                 if n != 1 {
                                     GridRow {
                                         ForEach(Array(tableCells(line).enumerated()), id: \.offset) { _, cell in
-                                            Text(rich(cell)).font(.system(size: 13, weight: n == 0 ? .semibold : .regular)).frame(maxWidth: 280, alignment: .leading).textSelection(.enabled)
+                                            Text(rich(cell)).font(.system(size: 13, weight: n == 0 ? .semibold : .regular)).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                                         }
                                     }
                                 }
