@@ -1278,7 +1278,7 @@ enum Render {
         work.show(["id": "work-a9", "type": "commandExecution", "command": "swift build", "status": "inProgress"])
         work.busy = true
         write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work.png")
-        work.details = true
+        expansion(directory: directory, session: work)
         write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work-open.png", scrollOffsets: [0])
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
@@ -1296,6 +1296,26 @@ enum Render {
         motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
         motion(directory: directory, name: "tall", text: (1...20).map { "Line \($0) of a pasted text block." }.joined(separator: "\n"), history: true)
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
+    }
+    static func expansion(directory: String, session: Session) {
+        let host = NSHostingView(rootView: CXView(session: session))
+        host.appearance = NSAppearance(named: .aqua)
+        host.sizingOptions = []
+        host.frame = CGRect(x: 0, y: 0, width: 1120, height: 900)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
+        withAnimation(.smooth(duration: 0.28)) { session.details = true }
+        let start = Date()
+        for index in 0..<24 {
+            RunLoop.main.run(until: start.addingTimeInterval(Double(index) / 60))
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("Expansion capture failed") }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory + String(format: "/expand-%03d.png", index)))
+        }
     }
     static func motion(directory: String, name: String, text: String, history: Bool = false) {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/motion-" + name))

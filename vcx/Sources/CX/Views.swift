@@ -671,30 +671,34 @@ struct WorkBlock: View {
     let details: Bool
     @State private var hovering = false
     @State private var pinned = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private func animate(_ change: () -> Void) { withAnimation(reduceMotion ? nil : .smooth(duration: 0.28), change) }
     var body: some View {
         let actions = rows.filter { $0.kind == "activity" }.flatMap(\.items).count, notes = rows.filter { $0.kind == "assistant" }.count
         let open = hovering || pinned || details
         VStack(alignment: .leading, spacing: 12) {
-            Button { if pinned { pinned = false; hovering = false } else { pinned = true } } label: {
+            Button { animate { if pinned { pinned = false; hovering = false } else { pinned = true } } } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).frame(width: 12)
-                    Image(systemName: "terminal").font(.system(size: 11))
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0)).frame(width: 12)
                     Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
                 }.foregroundStyle(.black.opacity(0.6)).contentShape(Rectangle())
             }.buttonStyle(.plain).help(pinned ? "Collapse" : "Keep open (hovering the left edge opens it)")
             if open {
-                ForEach(rows) { row in
-                    if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
-                    else if let item = row.items.first { WorkNote(item: item) }
-                }
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(rows) { row in
+                        if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
+                        else if let item = row.items.first { WorkNote(item: item) }
+                    }
+                }.transition(.opacity)
             }
         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
             .background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let point): if point.x < 72 { hovering = true }
-                case .ended: hovering = false
+                case .active(let point): if point.x < 72, !hovering { animate { hovering = true } }
+                case .ended: if hovering { animate { hovering = false } }
                 }
             }
     }
@@ -707,11 +711,21 @@ struct WorkNote: View {
 
 struct ActionView: View {
     @ObservedObject var item: Item
+    @State private var hovering = false
+    @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right"); Text(item.title).lineLimit(3) }.font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
-            if !item.output.isEmpty { Text(item.output).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-        }.padding(12).background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+            HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right").rotationEffect(.degrees(open && !item.failed ? 90 : 0)); Text(item.title).lineLimit(3) }.font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
+            if open, !item.output.isEmpty { Text(item.output).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).transition(.opacity) }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 8)).clipShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { hovering = $0 }
+            .task(id: hovering) {
+                // A short dwell keeps actions the pointer only crosses from opening and shifting the list.
+                if hovering { try? await Task.sleep(for: .milliseconds(150)); if Task.isCancelled { return } }
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { open = hovering }
+            }
     }
 }
 
