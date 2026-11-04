@@ -8,6 +8,7 @@ let learnedFile = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/autocorrect/learned.json")
 
 if args.contains("--selftest") { exit(SelfCheck.run(wordsFile) == 0 ? 0 : 1) }
+if args.contains("--benchmark") { exit(SelfCheck.benchmark(wordsFile) == 0 ? 0 : 1) }
 
 if args.contains("--review") {
     exit(Review.dryRun(Words(file: wordsFile, learned: learnedFile), in: learnedFile.deletingLastPathComponent(), show: args.contains("--show")))
