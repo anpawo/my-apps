@@ -5,7 +5,9 @@ import Combine
 func runtimeDraft(_ pieces: [JSON]) -> NSAttributedString {
     let value = NSMutableAttributedString(string: "")
     for (index, piece) in pieces.enumerated() {
-        if let text = piece["text"] as? String {
+        if piece["type"] as? String == "paste", let text = piece["text"] as? String {
+            value.append(NSAttributedString(attachment: PasteChip(text: text, number: piece["number"] as? Int ?? 1)))
+        } else if let text = piece["text"] as? String {
             value.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]))
         } else if let path = piece["path"] as? String {
             value.append(NSAttributedString(attachment: ImageChip(path: path, number: index + 1)))

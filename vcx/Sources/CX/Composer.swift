@@ -21,17 +21,33 @@ final class ImageChip: NSTextAttachment {
     init(path: String, number: Int) {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
-        let label = NSAttributedString(string: "[Image #\(number)]", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
-        let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { _ in
-            label.draw(at: NSPoint(x: 6, y: 0))
-            return true
-        }
-        attachmentCell = Cell(imageCell: image)
+        attachmentCell = chipCell("[Image #\(number)]")
     }
     required init?(coder: NSCoder) { nil }
-    private final class Cell: NSTextAttachmentCell {
-        override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
+}
+
+final class PasteChip: NSTextAttachment {
+    let text: String
+    let number: Int
+    init(text: String, number: Int) {
+        self.text = text; self.number = number
+        super.init(data: nil, ofType: nil)
+        attachmentCell = chipCell("[Paste #\(number)]")
     }
+    required init?(coder: NSCoder) { nil }
+}
+
+private final class ChipCell: NSTextAttachmentCell {
+    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
+}
+
+private func chipCell(_ title: String) -> NSTextAttachmentCell {
+    let label = NSAttributedString(string: title, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
+    let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { _ in
+        label.draw(at: NSPoint(x: 6, y: 0))
+        return true
+    }
+    return ChipCell(imageCell: image)
 }
 
 enum InputPiece { case text(String), image(String) }
@@ -128,6 +144,7 @@ struct Composer: NSViewRepresentable {
             if height != session.editorHeight { DispatchQueue.main.async { self.session.editorHeight = height } }
         }
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertTab(_:)), (view as? ComposerText)?.expandPaste() == true { return true }
             if session.commandQuery != nil {
                 if selector == #selector(NSResponder.moveUp(_:)) { session.moveCommand(-1); return true }
                 if selector == #selector(NSResponder.moveDown(_:)) { session.moveCommand(1); return true }
@@ -186,7 +203,7 @@ final class ComposerText: NSTextView {
         typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black]
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
-    override func didChangeText() { super.didChangeText(); needsDisplay = true }
+    override func didChangeText() { lastPaste = nil; super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
@@ -210,19 +227,43 @@ final class ComposerText: NSTextView {
         }
         guard let text = board.string(forType: .string) else { return false }
         for piece in pastedPieces(text) {
-            switch piece { case .text(let words): insertText(words, replacementRange: selectedRange()); case .image(let path): putImage(path) }
+            switch piece {
+            case .text(let words) where words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: insertText(words, replacementRange: selectedRange())
+            case .text(let words): putPaste(words)
+            case .image(let path): putImage(path)
+            }
         }
         return true
     }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { paste(from: sender.draggingPasteboard) }
+    private var lastPaste: PasteChip?
     func putImage(_ path: String) {
         guard session?.frontendReplacing != true else { return }
+        insertPiece(NSAttributedString(attachment: ImageChip(path: path, number: chips(ImageChip.self) + 1)))
+    }
+    func putPaste(_ text: String) {
+        guard session?.frontendReplacing != true else { return }
+        let chip = PasteChip(text: text, number: chips(PasteChip.self) + 1)
+        insertPiece(NSAttributedString(attachment: chip))
+        lastPaste = chip
+    }
+    func expandPaste() -> Bool {
+        let caret = selectedRange()
+        guard let chip = lastPaste, caret.length == 0, caret.location > 0,
+              textStorage?.attribute(.attachment, at: caret.location - 1, effectiveRange: nil) as? PasteChip === chip else { return false }
+        insertPiece(NSAttributedString(string: chip.text), replacing: NSRange(location: caret.location - 1, length: 1))
+        return true
+    }
+    private func chips<Chip>(_ kind: Chip.Type) -> Int {
         var count = 0
-        textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, _, _ in if value is ImageChip { count += 1 } }
-        let piece = NSMutableAttributedString(attachment: ImageChip(path: path, number: count + 1))
+        textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, _, _ in if value is Chip { count += 1 } }
+        return count
+    }
+    private func insertPiece(_ value: NSAttributedString, replacing: NSRange? = nil) {
+        let piece = NSMutableAttributedString(attributedString: value)
         var attributes = typingAttributes; attributes.removeValue(forKey: .attachment)
         piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
-        let range = selectedRange()
+        let range = replacing ?? selectedRange()
         guard shouldChangeText(in: range, replacementString: piece.string) else { return }
         textStorage?.replaceCharacters(in: range, with: piece)
         setSelectedRange(NSRange(location: range.location + piece.length, length: 0))
@@ -244,6 +285,7 @@ final class ComposerText: NSTextView {
         var text = "", images: [String] = []
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             if let chip = value as? ImageChip { images.append(chip.path) }
+            else if let chip = value as? PasteChip { text += chip.text }
             else if value == nil { text += (storage.string as NSString).substring(with: range) }
         }
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), images)
@@ -290,6 +332,7 @@ func draftContent(_ draft: NSAttributedString) -> [JSON] {
     var pieces: [JSON] = []
     draft.enumerateAttribute(.attachment, in: NSRange(location: 0, length: draft.length)) { value, range, _ in
         if let chip = value as? ImageChip { pieces.append(["type": "localImage", "path": chip.path]) }
+        else if let chip = value as? PasteChip { pieces.append(["type": "paste", "text": chip.text, "number": chip.number]) }
         else if value == nil { pieces.append(["type": "text", "text": (draft.string as NSString).substring(with: range)]) }
     }
     return pieces

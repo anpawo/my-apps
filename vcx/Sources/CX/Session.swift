@@ -923,7 +923,8 @@ final class Session: ObservableObject {
         }
         let restoredDraft = NSMutableAttributedString(string: "")
         for (n, piece) in (record["draft"] as? [JSON] ?? []).enumerated() {
-            if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
+            if piece["type"] as? String == "paste", let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(attachment: PasteChip(text: text, number: piece["number"] as? Int ?? 1))) }
+            else if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
             else if let path = piece["path"] as? String { restoredDraft.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
         }
         restoreDraft(restoredDraft, since: generation)
