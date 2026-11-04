@@ -102,6 +102,18 @@ enum Check {
                 check(longHeight > shortHeight + 100, "wrapped table cells expand their rows at width \(width)")
             }
         }
+        do {
+            let host = NSHostingView(rootView: ProseView(text: "Open [compare.png](file:///tmp/compare.png) now.\n\n⟶ Next: open [it](file:///tmp/it.png).\n\nNo link here.").frame(width: 500))
+            host.layoutSubtreeIfNeeded()
+            func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+            var links: Set<String> = []
+            for view in textViews(host) {
+                let storage = view.textStorage ?? NSTextStorage()
+                storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, _, _ in if let url = value as? URL { links.insert(url.path) } }
+                check(view.frame.height >= 15, "a reply link paragraph keeps its height")
+            }
+            check(links == ["/tmp/compare.png", "/tmp/it.png"], "reply links render in clickable text views")
+        }
         func composerLine(_ image: Bool) -> (CGFloat, CGFloat) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
             storage.addLayoutManager(manager); manager.addTextContainer(container)
@@ -1240,6 +1252,8 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
         write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
+        let linkFixture = "Preview the installed logo, fused C and X, white on charcoal black, wrapping onto a second line here."
+        write(ProseView(text: [linkFixture, linkFixture.replacingOccurrences(of: "installed logo", with: "[installed logo](file:///tmp/icon.png)"), "⟶ " + linkFixture, "⟶ Next: open " + "[compare.png](file:///tmp/compare.png) and check the C."].joined(separator: "\n\n")).padding(24).background(Color.white), size: CGSize(width: 520, height: 420), path: directory + "/links.png")
         motion(directory: directory, name: "short", text: "Move this message into the chat.")
         motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")

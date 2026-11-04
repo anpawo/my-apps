@@ -857,6 +857,12 @@ struct ProseView: View {
     let text: String
     private var paragraphs: [String] { text.components(separatedBy: "\n\n").filter { !$0.isEmpty } }
     private func rich(_ text: String) -> AttributedString { (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text) }
+    // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
+    @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
+        let value = rich(text)
+        if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
+        else { Text(value).font(.system(size: 13, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
@@ -868,7 +874,7 @@ struct ProseView: View {
                                 if n != 1 {
                                     GridRow {
                                         ForEach(Array(tableCells(line).enumerated()), id: \.offset) { _, cell in
-                                            Text(rich(cell)).font(.system(size: 13, weight: n == 0 ? .semibold : .regular, design: .monospaced)).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                            prose(cell, weight: n == 0 ? .semibold : .regular).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                                         }
                                     }
                                 }
@@ -877,15 +883,51 @@ struct ProseView: View {
                     }.background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
                 } else if paragraph.hasPrefix("#") {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
-                    Text(rich(String(title))).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
+                    prose(String(title), weight: .semibold)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-                    Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines))).font(.system(size: 13, weight: .medium, design: .monospaced)).lineSpacing(5).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    prose(paragraph.replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines), weight: .medium, lineSpacing: 5).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    Text(rich(paragraph)).font(.system(size: 13, design: .monospaced)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
+                    prose(paragraph, lineSpacing: 6).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
+    }
+}
+
+struct LinkText: NSViewRepresentable {
+    let text: AttributedString
+    let weight: Font.Weight
+    let lineSpacing: CGFloat
+    func makeNSView(context: Context) -> NSTextView {
+        let view = NSTextView(usingTextLayoutManager: false)
+        view.isEditable = false; view.drawsBackground = false; view.isVerticallyResizable = false
+        view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
+        view.linkTextAttributes = [.foregroundColor: NSColor(accent), .cursor: NSCursor.pointingHand]
+        return view
+    }
+    func updateNSView(_ view: NSTextView, context: Context) {
+        let base: NSFont.Weight = weight == .semibold ? .semibold : weight == .medium ? .medium : .regular
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = lineSpacing
+        let string = NSMutableAttributedString()
+        for run in text.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            var font = NSFont.monospacedSystemFont(ofSize: 13, weight: intent.contains(.stronglyEmphasized) ? .bold : base)
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+            if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let link = run.link { attributes[.link] = link }
+            string.append(NSAttributedString(string: String(text[run.range].characters), attributes: attributes))
+        }
+        if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string) }
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let storage = NSTextStorage(attributedString: view.textStorage ?? NSAttributedString()), manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width ?? .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container); manager.ensureLayout(for: container)
+        let used = manager.usedRect(for: container).size
+        return CGSize(width: width ?? ceil(used.width), height: ceil(used.height))
     }
 }
 
