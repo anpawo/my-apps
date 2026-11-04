@@ -178,6 +178,10 @@ final class Session: ObservableObject {
     private var pendingActivation: (Account, String?, Bool, String)?
     private var pendingRestore: String?
     private var pendingLimit: JSON?
+    private var resumeTask: Task<Void, Never>?
+    private var autoResumes = 0
+    var online: () async -> Bool = Session.reachesInternet
+    var resumePoll: UInt64 = 10_000_000_000
     var connectionFactory: ((Account, String) -> any Connection)?
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
     private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
@@ -510,6 +514,7 @@ final class Session: ObservableObject {
             stopSource = nil
             status = needsAttention ? (outcome == "interrupted" ? "Stopped" : "Failed") : "Ready"
             save()
+            resumeWhenOnline(after: turn)
             if let command = pendingModelCommand {
                 pendingModelCommand = nil
                 Task { self.showCommands(command); await self.command(command) }
@@ -839,6 +844,35 @@ final class Session: ObservableObject {
         }
         let text = String(lines.joined(separator: "\n\n").suffix(48000))
         return text.isEmpty ? "" : "Context from this conversation, truncated to the latest 48 KB if necessary. Continue from the work already done. Check the current files before acting; do not repeat successful actions. The latest request follows this context.\n\n" + text + "\n\nEnd of conversation context."
+    }
+
+    // A turn the network killed (Wi-Fi drop, ECONNRESET) continues by itself once the connection is back;
+    // three in a row without a good turn means the network is not the cause, so the user decides.
+    private func resumeWhenOnline(after turn: JSON) {
+        resumeTask?.cancel(); resumeTask = nil
+        guard needsAttention else { autoResumes = 0; return }
+        guard turn["status"] as? String != "interrupted", autoResumes < 3,
+              let message = (turn["error"] as? JSON)?["message"] as? String,
+              message.range(of: "connection|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|fetch failed|network|timed out|reach the API|no response from API|stream disconnected|error sending request", options: [.regularExpression, .caseInsensitive]) != nil
+        else { return }
+        let poll = resumePoll
+        resumeTask = Task { [weak self] in
+            while true {
+                try? await Task.sleep(nanoseconds: poll)
+                guard let self, !Task.isCancelled else { return }
+                guard await self.online() else { continue }
+                guard !Task.isCancelled, self.ready, !self.busy else { return }
+                self.autoResumes += 1
+                await self.send(text: "Keep going: the connection dropped. Retry the step that failed and continue.", images: [], expectedDraft: NSAttributedString(string: ""))
+                return
+            }
+        }
+    }
+
+    nonisolated static func reachesInternet() async -> Bool {
+        let request = URLRequest(url: URL(string: "https://captive.apple.com/hotspot-detect.html")!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return false }
+        return String(decoding: data, as: UTF8.self).contains("Success")
     }
 
     private func queueLimit(_ info: JSON) { pendingLimit = info; drainLimit() }
@@ -1206,5 +1240,5 @@ final class Session: ObservableObject {
             needsAttention = true; status = "Interrupted"; busy = false
             notice("Work interrupted because the session runtime closed. Send a message to continue.")
         }
-        flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
+        flush(); save(); releaseRecord(); flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }

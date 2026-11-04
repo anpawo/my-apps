@@ -523,6 +523,22 @@ enum Check {
                 restored.close()
             }
         }
+        do {
+            let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
+            var connection: FixtureConnection?
+            resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }
+            resumed.online = { true }; resumed.resumePoll = 10_000_000
+            await resumed.connect(resume: nil)
+            resumed.draft = NSAttributedString(string: "Half typed")
+            resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "API Error: Connection dropped (ECONNRESET)."]]]])
+            for _ in 0..<200 where connection?.sent.isEmpty != false || resumed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            let input = connection?.sent.first?["input"] as? [JSON] ?? []
+            check(input.contains { ($0["text"] as? String)?.hasPrefix("Keep going") == true } && resumed.draft.string == "Half typed", "a turn the network killed continues once the connection is back and keeps the draft")
+            resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "Prompt is too long"]]]])
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            check(connection?.sent.count == 1, "other failed turns wait for the user")
+            resumed.close()
+        }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         session.connectionFactory = { account, _ in
             let connection = FixtureConnection(account)
