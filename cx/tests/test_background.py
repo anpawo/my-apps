@@ -286,6 +286,17 @@ class BackgroundTests(unittest.TestCase):
         for tool, status in [('Bash', 0), ('apply_patch', 2), ('Read', 2)]:
             with patch('sys.stdin', io.StringIO(json.dumps({'tool_name': tool}))), patch('sys.stderr', io.StringIO()):
                 self.assertEqual(bg.main(['--check-tools', 'Bash']), status)
+        with patch('sys.stdin', io.StringIO('{"tool_name":"web.run"}')):
+            self.assertEqual(bg.main(['--check-tools', 'WebSearch']), 0)
+
+    def test_codex_startup_warnings_do_not_prevent_quota_fallback(self):
+        runner = self.runner('--provider', 'codex', '--no-session-persistence')
+        events = [{'type': 'item.completed', 'item': {'id': 'warning', 'type': 'error', 'message': 'Hooks are enabled'}},
+                  {'type': 'turn.failed', 'error': {'message': 'Usage limit reached'}}]
+        with patch.object(bg, 'command', return_value=(1, '\n'.join(map(json.dumps, events)).encode(), b'')), patch.object(runner, 'claude', return_value={'result': 'Done'}) as fallback:
+            result = runner.turn([{'type': 'text', 'text': 'Task'}])
+        fallback.assert_called_once()
+        self.assertEqual(result['provider'], 'claude')
 
     def test_qwen_exceptions_keep_completed_or_uncertain_actions(self):
         first = {'message': {'role': 'assistant', 'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'send_once'}}}]}}
