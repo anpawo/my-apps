@@ -23,6 +23,8 @@ let args = CommandLine.arguments
 
 if args.contains("--check-launch") { MainActor.assumeIsolated { exit(SelfCheck.launch() == 0 ? 0 : 1) } }
 
+if args.contains("--selftest-headless") { MainActor.assumeIsolated { exit(SelfCheck.run(headless: true) == 0 ? 0 : 1) } }
+
 if args.contains("--selftest") { MainActor.assumeIsolated { exit(SelfCheck.run() == 0 ? 0 : 1) } }
 
 // `--render <png>`: the panel offscreen, on lines that test it, and on his real checks. Never a window.

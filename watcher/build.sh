@@ -11,6 +11,6 @@ cp Resources/Info.plist "$APP/Contents/"
 cp -R Resources/logos Resources/AppIcon.icns "$APP/Contents/Resources/"
 # Not on CI: the self-test drives the checker skill in ~/.claude and the window server's blur, which a
 # runner has neither of. Every local build still runs it.
-[[ -n "${CI:-}" ]] || "$APP/Contents/MacOS/Watcher" --selftest
+[[ -n "${CI:-}" ]] || "$APP/Contents/MacOS/Watcher" --selftest-headless
 codesign --force --sign - "$APP"
 echo "==> $APP"

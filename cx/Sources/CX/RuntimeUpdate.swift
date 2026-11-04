@@ -105,8 +105,8 @@ enum RuntimeUpdate {
     }
 
     static func restore(_ state: JSON, window: NSWindow, session: Session) {
-        session.follow.attached = state["follow"] as? Bool ?? true
-        session.details = state["details"] as? Bool ?? false
+        if let follow = state["follow"] as? Bool { session.follow.attached = follow }
+        if let details = state["details"] as? Bool { session.details = details }
         DispatchQueue.main.async {
             window.contentView?.layoutSubtreeIfNeeded()
             if let selection = state["selection"] as? [Int], selection.count == 2,
