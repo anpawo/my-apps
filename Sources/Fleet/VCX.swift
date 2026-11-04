@@ -21,6 +21,7 @@ enum VCX {
                   var record = object(path) else { return nil }
             record["pid"] = pid
             record["startedAt"] = bsd.pbi_start_tvsec
+            record["context"] = record["fleetContext"]
             let rows = record["rows"] as? [[String: Any]] ?? []
             record["prompt"] = (rows.last { $0["kind"] as? String == "user" }?["items"] as? [[String: Any]])?
                 .flatMap { $0["content"] as? [[String: Any]] ?? [] }.compactMap { $0["text"] as? String }.joined(separator: "\n")
@@ -64,6 +65,7 @@ enum VCX {
         }
         let started = Date(timeIntervalSince1970: TimeInterval(startedAt))
         let activity = (record["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? started
+        let context = (record["context"] as? String).map { String($0.split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ").prefix(48)) }
         let info = TranscriptInfo(path: path, title: shortTitle(prompt ?? record["title"] as? String ?? "New session"),
                                   lastPrompt: prompt,
                                   lastPromptAt: (record["lastPromptAt"] as? Double).map(Date.init(timeIntervalSince1970:)),
@@ -71,7 +73,7 @@ enum VCX {
                                   cwd: cwd, turnOpen: state == .running, lastActivity: activity, preview: preview)
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
-                       transcript: info, state: state, cpuPercent: 0)
+                       transcript: info, state: state, cpuPercent: 0, context: context.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     static func shortTitle(_ text: String) -> String {

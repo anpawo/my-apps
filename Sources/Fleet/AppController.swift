@@ -113,6 +113,7 @@ final class AppController: ObservableObject {
         // (2026-10-15).
         guard Firestore.reads else { return }
         for session in sessions {
+            if session.proc.vcx, session.context != nil { continue }
             let project = session.isSelf ? session.dirName : nil
                         // A session a peer drives by message gets no `ai-title` from Claude Code, and its
             // card would keep the whole brief for a name. The brief is what names it, and it

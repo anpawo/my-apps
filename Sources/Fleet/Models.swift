@@ -458,6 +458,7 @@ struct Session: Identifiable {
 
     /// The name Claude was asked to give this session, if it has one.
     @MainActor var label: String? {
+        if proc.vcx, let context { return context }
         guard let file = transcript?.path else { return nil }
         return Session.labels[file]
     }

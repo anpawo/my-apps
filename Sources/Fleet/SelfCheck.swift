@@ -73,6 +73,15 @@ enum SelfCheck {
                "VCX: an empty prompt still has a short name")
         expect(VCX.shortTitle("Plan a trip to New York City and Los Angeles").split(whereSeparator: \.isWhitespace).count <= 3, true,
                "VCX: names spanning several words still fit the three-word limit")
+        Session.labels["/tmp/42.json"] = "Old cached name"
+        record["context"] = "  Fix Fleet names\n"
+        expect(read()?.label == "Fix Fleet names" && read()?.topic == "Fix Fleet names", true,
+               "VCX: the session's own context overrides its long prompt and cached name")
+        record["context"] = "Waiting for user decision with extra words"
+        expect(read()?.label == "Waiting for user", true, "VCX: context stays within the three-word card limit")
+        record["context"] = "\n "
+        expect(read()?.context == nil, true, "VCX: empty context uses the existing naming fallback")
+        Session.labels.removeValue(forKey: "/tmp/42.json")
         expect(read(43) == nil && read(42, 101) == nil, true,
                "VCX: stale records cannot attach to a different or recycled process")
         for (value, state) in [("working", SessionState.running), ("waiting", .awaitingAnswer), ("fresh", .fresh)] {
