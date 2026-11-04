@@ -109,12 +109,12 @@ final class App: NSObject, NSApplicationDelegate {
                 config.createsNewApplicationInstance = true
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: config)
             }),
+            // The installed path, as the vcx launcher uses: by bundle id, LaunchServices picked a stale
+            // `.VCX-font-previous` copy on 2026-11-04 and four sessions started on an old build.
             (kVK_ANSI_J, cmdKey | optionKey, "⌥⌘J", {
-                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mr.vcx") {
-                    let config = NSWorkspace.OpenConfiguration()
-                    config.createsNewApplicationInstance = true
-                    NSWorkspace.shared.openApplication(at: url, configuration: config)
-                }
+                let config = NSWorkspace.OpenConfiguration()
+                config.createsNewApplicationInstance = true
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Vibe Code X.app"), configuration: config)
             }),
         ])
     }
