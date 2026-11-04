@@ -1,10 +1,12 @@
 
 - 04/11/2026: Native instances merge shared settings under a process lock and keep account/thread ownership transactional; failed connections must preserve saved conversations, and each editable record has one window owner. Temporary command drafts belong to their source record and must clear before restoring another conversation; asynchronous restores and rollbacks must retain intervening text and image edits through shared user-edit tracking, and connection startup must stay serialized.
 - 04/11/2026: Freeze source edits during Swift builds, including delegated edits; the compiler rejects files modified while it runs.
+- 04/11/2026: Initialize Swift property wrappers from local values until every stored property is initialized; fixture calls keep required optional arguments such as `connect(resume: nil)`.
+- 04/11/2026: Compare shell-reported directories after resolving symlinks; a child process reports `/private/var` for a Foundation temporary path under `/var`.
 - 04/11/2026: Before installing from a worktree, include every source file changed by concurrent commits; updating only the view can roll back installed behavior.
 - 04/11/2026: Check saved configuration formats before tightening validation; Jarvis proxy URLs include the socks5h scheme.
 - 04/11/2026: Swift search filters explicitly allow empty queries: String.contains("") and localizedCaseInsensitiveContains("") return false. Standalone probes of Foundation string methods import Foundation.
-- 04/11/2026: Swift usage fixtures need explicit JSON types and isolated display sessions; inferred dictionaries promote integer fields to Double, and exhausted Codex windows persist fallback settings that affect later checks.
+- 04/11/2026: Swift event and usage fixtures need explicit JSON types and isolated sessions; inserted activity rows and persisted fallback settings change later checks, and inferred dictionaries promote integer fields to Double.
 - 04/11/2026: Composer input checks recreate its retained NSTextStorage, NSLayoutManager and NSTextContainer; a standalone ComposerText with a nil container has no storage and cannot test typed text.
 - 04/11/2026: Typed-command fixtures disable showCommands draft preservation; the shortcut default restores the previous draft after execution and changes the behavior under test.
 - 04/11/2026: Wait for the compiler process to exit before running its binary; a yielded build can leave the previous check executable in place.

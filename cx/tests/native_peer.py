@@ -1,5 +1,6 @@
 import http.server
 import json
+import shlex
 import sys
 
 mode = sys.argv[1]
@@ -20,6 +21,11 @@ if mode == 'http':
                 self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf native-tool-check'}}}]}, 'done': True}) + '\n').encode())
                 return
             text = body['messages'][-1]['content']
+            if text.startswith('DIRECTORY_TOOLS '):
+                commands = ['cd ' + shlex.quote(text.removeprefix('DIRECTORY_TOOLS ')), 'pwd -L']
+                calls = [{'function': {'name': 'run_command', 'arguments': {'command': command}}} for command in commands]
+                self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': calls}, 'done': True}) + '\n').encode())
+                return
             for text in ([body['messages'][0]['content']] if text == 'CONTEXT' else [body['model']] if text == 'MODEL' else ['Hello ', 'from Qwen']):
                 self.wfile.write((json.dumps({'message': {'content': text}, 'done': False}) + '\n').encode())
                 self.wfile.flush()

@@ -213,6 +213,35 @@ enum Check {
         let presenceFile = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
         func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: presenceFile)) as! JSON }
         check(fleetRecord()["state"] as? String == "fresh", "Fleet publishes an unprompted native window")
+        do {
+            let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("directory-fleet-state"))
+            let presence = FleetPresence(session: fleetSession)
+            let file = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
+            func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! JSON }
+            fleetSession.event(["method": "item/completed", "params": ["item": ["id": "project-command", "type": "commandExecution", "command": "pwd", "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+            presence.publish(fleetSession)
+            check(fleetRecord()["cwd"] as? String == repoPath && fleetSession.cwd == repoPath, "successful shell work updates the session and Fleet directory")
+            let target = directory.appendingPathComponent("project with spaces").path
+            try! FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
+            func item(_ command: String, status: String = "completed", exit: Int = 0) -> JSON {
+                ["type": "commandExecution", "command": command, "cwd": directory.path, "status": status, "exitCode": exit]
+            }
+            for command in ["cd '\(target)'", "cd -- \"\(target)\"", "/bin/zsh -lc 'cd \"\(target)\"'", "cd 'project with spaces'"] {
+                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == target, "standalone directory changes support shell wrappers, spaces and relative paths")
+            }
+            for command in ["(cd '\(target)')", "cd '\(target)' && pwd", "echo cd '\(target)'", "cd $(pwd)", "cd '\(target)", "cd /", "cd missing-directory"] {
+                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == nil, "temporary, dynamic, invalid and out-of-scope commands do not move the session")
+            }
+            check(shellDirectory(item("cd '\(target)'", exit: 1), current: repoPath, initial: directory.path) == nil, "failed cd does not change directory")
+            check(shellDirectory(item("cd '\(target)'", status: "inProgress"), current: repoPath, initial: directory.path) == nil, "unfinished cd does not change directory")
+            check(shellDirectory(item("pwd"), current: repoPath, initial: directory.path) == nil, "default shell directories cannot undo an explicit project selection")
+            let snapshotDirectory = fleetSession.nativeDirectory
+            fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(target)'").merging(["id": "cd-project"]) { _, new in new }]])
+            presence.publish(fleetSession)
+            check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
+            check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
+            presence.close(); fleetSession.close()
+        }
         fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
         fleetSession.busy = true
         presence.publish(fleetSession)
@@ -309,6 +338,9 @@ enum Check {
             for _ in 0..<100 where !claudeDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(claudeDone && claudeText == "Hello from ClaudeHello from Claude", "Claude streaming protocol")
             check(claudeStarts == 1 && claudeCompletions == 1, "Claude stays busy until queued guidance is answered")
+            claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
+            claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
+            check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
         } catch { check(false, "Claude integration: " + error.localizedDescription) }
         claude.close()
         let server = Process(), output = Pipe()
@@ -358,6 +390,11 @@ enum Check {
             _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
             for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(bypassDone && !bypassAsked && bypassOutput == "native-tool-check", "Qwen bypass executes without approval")
+            bypassDone = false; bypassOutput = ""
+            _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "DIRECTORY_TOOLS " + repoPath]]])
+            for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
+            let reportedDirectory = URL(fileURLWithPath: bypassOutput.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+            check(bypassDone && bypass.cwd == repoPath && reportedDirectory == URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().path, "Qwen runs the next shell command in the selected directory")
             bypass.close()
             Settings.shared.value = preferences; Settings.shared.value.provider = "qwen"; Settings.shared.save()
             let configured = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-config"))
@@ -506,6 +543,24 @@ enum Check {
         await reopened.connect(resume: "last")
         check(reopened.ready && reopened.draft.string == "Newer draft from first window", "closing a window releases conversation ownership")
         reopened.close()
+        do {
+            let state = directory.appendingPathComponent("directory-resume")
+            let moving = Session(cwd: directory.path, stateDirectory: state)
+            moving.connectionFactory = { account, _ in FixtureConnection(account) }
+            await moving.connect(resume: nil)
+            let conversation = moving.currentConversationID
+            moving.event(["method": "item/completed", "params": ["item": ["id": "cd-resume", "type": "commandExecution", "command": "cd '\(repoPath)'", "cwd": directory.path, "exitCode": 0, "status": "completed"]]])
+            await moving.send(text: "Keep working", images: [])
+            check((moving.rpc as? FixtureConnection)?.sent.last?["cwd"] as? String == repoPath, "the next turn uses the selected project directory")
+            check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
+            moving.close()
+            let resumed = Session(cwd: directory.path, stateDirectory: state)
+            resumed.connectionFactory = { account, _ in FixtureConnection(account) }
+            await resumed.connect(resume: "last")
+            check(resumed.ready && resumed.cwd == repoPath && resumed.currentConversationID == conversation, "resume restores the selected working directory and same conversation")
+            check((resumed.rpc as? FixtureConnection)?.opened.first?["cwd"] as? String == repoPath, "the resumed backend opens in the selected project")
+            resumed.close()
+        }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))
         let envB = agentEnvironment(Account(name: "B", provider: "codex", home: "/tmp/account-b"))
         check(envA["CODEX_HOME"] == "/tmp/account-a" && envB["CODEX_HOME"] == "/tmp/account-b", "account homes stay isolated")
