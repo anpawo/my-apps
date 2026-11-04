@@ -67,7 +67,7 @@ struct Composer: NSViewRepresentable {
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
-        field.textStorage?.setAttributedString(session.draft)
+        field.setDraft(session.draft)
         let scroll = NSScrollView()
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.documentView = field
         field.resized = { [weak field, coordinator = context.coordinator] in if let field { coordinator.measure(field) } }
@@ -81,7 +81,7 @@ struct Composer: NSViewRepresentable {
         context.coordinator.revision = session.draftRevision
         context.coordinator.syncing = true
         defer { context.coordinator.syncing = false }
-        field.textStorage?.setAttributedString(session.draft)
+        field.setDraft(session.draft)
         field.setSelectedRange(NSRange(location: session.draft.length, length: 0))
         field.needsDisplay = true
         context.coordinator.measure(field)
@@ -147,6 +147,11 @@ final class ComposerText: NSTextView {
         registerForDraggedTypes([.fileURL, .png, .tiff])
     }
     required init?(coder: NSCoder) { nil }
+    func setDraft(_ draft: NSAttributedString) {
+        textStorage?.setAttributedString(draft)
+        textColor = .white
+        typingAttributes = [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]
+    }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
