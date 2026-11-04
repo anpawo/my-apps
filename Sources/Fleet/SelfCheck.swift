@@ -39,9 +39,40 @@ enum SelfCheck {
         fused(expect)
         codexRollout(expect)
         codexBinding(expect)
+        vcx(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    private static func vcx(_ expect: (Bool, Bool, String) -> Void) {
+        var record: [String: Any] = ["pid": 42, "startedAt": 100, "cwd": "/tmp/project", "state": "ready",
+                                     "prompt": "Fix the layout", "lastPromptAt": 105.0, "updatedAt": 110.0,
+                                     "preview": [["kind": "user", "text": "Fix the layout"],
+                                                 ["kind": "tool", "text": "swift build"],
+                                                 ["kind": "assistant", "text": "Fixed"]]]
+        let data = try! JSONSerialization.data(withJSONObject: record)
+        record = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        func read(_ pid: pid_t = 42, _ started: UInt64 = 100) -> Session? {
+            VCX.session(record, pid: pid, startedAt: started, path: "/tmp/42.json")
+        }
+        let session = read()
+        expect(session?.proc.vcx == true && session?.proc.tty == "" && session?.state == .ready,
+               true, "VCX: a native window is a ready session without a terminal")
+        expect(session?.topic == "Fix the layout" && session?.steps.map(\.text) == ["Fix the layout", "swift build", "Fixed"],
+               true, "VCX: the card keeps its prompt and conversation rail")
+        expect(session?.lastTouched == Date(timeIntervalSince1970: 105), true,
+               "VCX: prompt time sorts the native card with terminal sessions")
+        expect(read(43) == nil && read(42, 101) == nil, true,
+               "VCX: stale records cannot attach to a different or recycled process")
+        for (value, state) in [("working", SessionState.running), ("waiting", .awaitingAnswer), ("fresh", .fresh)] {
+            record["state"] = value
+            expect(read()?.state == state, true, "VCX: \(value) uses the existing card state")
+        }
+        record["state"] = "invalid"
+        expect(read() == nil, true, "VCX: an unknown bridge state is rejected")
+        record["state"] = "ready"; record["cwd"] = "relative"
+        expect(read() == nil, true, "VCX: an invalid working directory is rejected")
     }
 
     // MARK: - Codex

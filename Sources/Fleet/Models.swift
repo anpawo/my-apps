@@ -225,12 +225,13 @@ struct ClaudeProcess {
     var pid: pid_t
     var ppid: pid_t
     var cwd: String
-    var tty: String           // e.g. "/dev/ttys003"; always present — see ProcessScanner
+    var tty: String           // Empty for a native VCX window.
     var startedAt: Date
     var cpuNanos: UInt64      // cumulative user+system time, for delta-based CPU%
     /// A Codex CLI session rather than Claude Code's: its transcript is a rollout under
     /// `~/.codex/sessions`, and no Fleet hook runs inside it.
     var codex = false
+    var vcx = false
 }
 
 /// A sub-agent the session spawned with `Task` and has not heard back from.

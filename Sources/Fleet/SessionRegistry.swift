@@ -105,7 +105,7 @@ final class SessionRegistry {
         // The one you have left alone longest first, top left, and so on across the grid: the
         // panel is for picking a session back up, so the most neglected is the nearest to hand.
         // A tile moves only when you prompt it, which is the one moment you know where it is.
-        return sessions.sorted { $0.lastTouched < $1.lastTouched }
+        return (sessions + VCX.sessions()).sorted { $0.lastTouched < $1.lastTouched }
     }
 
     // MARK: - Process to transcript binding
