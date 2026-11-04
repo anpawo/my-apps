@@ -176,6 +176,11 @@ enum Check {
             check(sections.count == 3 && sections[0].question == nil && sections[0].rows.map(\.id) == [notice.id], "notices before the first question remain in the transcript")
             check(sections[1].question?.id == question.id && sections[1].rows.map(\.id) == [activity.id, answer.id], "each question heads its actions and answer in order")
             check(sections[2].id == nextQuestion.id && sections[2].rows.isEmpty, "a new unanswered question starts its own stable section")
+            let thought = Row("assistant", []), later = Row("activity", [])
+            let parts = sectionParts([activity, thought, later, answer, notice])
+            check(parts.trail.map(\.id) == [activity.id, thought.id, later.id] && parts.last?.id == answer.id && parts.notices.map(\.id) == [notice.id], "only the last message stays out of the folded work")
+            check(sectionParts([activity]).last == nil && sectionParts([activity]).trail.count == 1, "actions alone fold with no message")
+            check(answerParagraphs("✓ Done: x\n\n⟶ Next: y\n\nDetail\n⟶ Short\n") == ["⟶ Short", "Detail", "✓ Done: x", "⟶ Next: y"], "answers read short answer, details, done, next")
         }
         check(usageLimit(["error": ["codexErrorInfo": "usageLimitExceeded"]]), "Codex usage limit")
         check(usageLimit(["error": "rate_limit"]), "Claude usage limit")
@@ -1258,6 +1263,23 @@ enum Render {
             sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
         }
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
+        let work = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/work"))
+        work.ready = true; work.status = "Ready"
+        work.show(["id": "work-q1", "type": "userMessage", "content": [["type": "text", "text": "The first option button has a weird size. Make it the same as the others."]]])
+        work.show(["id": "work-t1", "type": "agentMessage", "provider": "Claude", "text": "Measuring the buttons in your screenshot to see what differs."])
+        for n in 1...6 { work.show(["id": "work-a\(n)", "type": "commandExecution", "command": "grep -n Button Sources/ControlCenter.swift", "status": "completed", "exitCode": 0]) }
+        work.show(["id": "work-t2", "type": "agentMessage", "provider": "Claude", "text": "Rendering the settings window offscreen to measure the button."])
+        work.show(["id": "work-a7", "type": "commandExecution", "command": "swift build", "status": "completed", "exitCode": 0])
+        work.show(["id": "work-t3", "type": "agentMessage", "provider": "Claude", "text": "✓ Done: the first button now matches the others, you can close this session.\n\n⟶ Next: open Fleet's settings and compare the buttons.\n\nDetails:\n- `ControlCenter.swift:88`: the first button used a fixed 44 pt height.\n- It now takes the shared button style.\n\n⟶ The first option button now has the same size and height as the others."])
+        work.show(["id": "work-q2", "type": "userMessage", "content": [["type": "text", "text": "Now align the labels."]]])
+        work.show(["id": "work-t4", "type": "agentMessage", "provider": "Claude", "text": "Reading the label layout."])
+        work.show(["id": "work-a8", "type": "commandExecution", "command": "sed -n 80,120p Sources/ControlCenter.swift", "status": "completed", "exitCode": 0])
+        work.show(["id": "work-t5", "type": "agentMessage", "provider": "Claude", "text": "The labels use two different paddings; unifying them."])
+        work.show(["id": "work-a9", "type": "commandExecution", "command": "swift build", "status": "inProgress"])
+        work.busy = true
+        write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work.png")
+        work.details = true
+        write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work-open.png", scrollOffsets: [0])
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
         session.contextUsed = 0; session.contextLimit = 258400

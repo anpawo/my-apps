@@ -24,6 +24,13 @@ func conversationSections(_ rows: [Row]) -> [ConversationSection] {
     return sections
 }
 
+// The last message (the latest thought while working, the answer once done) stays visible; the rest folds into one block.
+func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row]) {
+    var work = rows.filter { $0.kind != "notice" }
+    let last = work.lastIndex(where: { $0.kind == "assistant" }).map { work.remove(at: $0) }
+    return (work, last, rows.filter { $0.kind == "notice" })
+}
+
 struct RoundButton: View {
     let icon: String
     let label: String
@@ -329,10 +336,13 @@ struct CXView: View {
                         let sections = conversationSections(session.rows)
                         ForEach(sections) { section in
                             Section {
-                                ForEach(section.rows) { row in ConversationRow(row: row, session: session, details: session.details).equatable().id(row.id) }
+                                let parts = sectionParts(section.rows)
+                                if !parts.trail.isEmpty { WorkBlock(rows: parts.trail, details: session.details).id("work-\(section.id)") }
+                                if let last = parts.last { ConversationRow(row: last, session: session).equatable().id(last.id) }
+                                ForEach(parts.notices) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                             } header: {
                                 if let question = section.question {
-                                    ConversationRow(row: question, session: session, details: session.details).equatable()
+                                    ConversationRow(row: question, session: session).equatable()
                                         .background(Color.white)
                                         .padding(.bottom, section.rows.isEmpty && section.id != sections.last?.id ? -16 : 0)
                                         .id(question.id)
@@ -646,34 +656,53 @@ struct CommandPalette: View {
 struct ConversationRow: View, Equatable {
     @ObservedObject var row: Row
     let session: Session
-    let details: Bool
-    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id && left.details == right.details }
-    @State private var expanded = false
+    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id }
     var body: some View {
-        Group {
-            if row.kind == "activity" {
-                DisclosureGroup(isExpanded: $expanded) {
-                    VStack(alignment: .leading, spacing: 12) { ForEach(row.items) { ActionView(item: $0) } }.padding(.top, 12)
-                } label: { ActivityLabel(items: row.items) }
-                    .tint(.black.opacity(0.35)).padding(14).background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
-                    .onChange(of: details) { _, value in expanded = value }.onAppear { expanded = details }
-            } else if let item = row.items.first {
-                if row.kind == "user" { UserBubble(item: item, session: session) }
-                else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
-                else { AssistantBubble(item: item) }
-            }
+        if let item = row.items.first {
+            if row.kind == "user" { UserBubble(item: item, session: session) }
+            else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
+            else { AssistantBubble(item: item) }
         }
     }
 }
 
-struct ActivityLabel: View {
-    let items: [Item]
+struct WorkBlock: View {
+    let rows: [Row]
+    let details: Bool
+    @State private var hovering = false
+    @State private var pinned = false
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "terminal").font(.system(size: 11))
-            Text("\(items.count) \(items.count == 1 ? "action" : "actions")").font(.system(size: 12, weight: .medium))
-        }.foregroundStyle(.black.opacity(0.6))
+        let actions = rows.filter { $0.kind == "activity" }.flatMap(\.items).count, notes = rows.filter { $0.kind == "assistant" }.count
+        let open = hovering || pinned || details
+        VStack(alignment: .leading, spacing: 12) {
+            Button { if pinned { pinned = false; hovering = false } else { pinned = true } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).frame(width: 12)
+                    Image(systemName: "terminal").font(.system(size: 11))
+                    Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")"].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 12, weight: .medium))
+                }.foregroundStyle(.black.opacity(0.6)).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(pinned ? "Collapse" : "Keep open (hovering the left edge opens it)")
+            if open {
+                ForEach(rows) { row in
+                    if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
+                    else if let item = row.items.first { WorkNote(item: item) }
+                }
+            }
+        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point): if point.x < 72 { hovering = true }
+                case .ended: hovering = false
+                }
+            }
     }
+}
+
+struct WorkNote: View {
+    @ObservedObject var item: Item
+    var body: some View { MarkdownBody(text: item.text).opacity(0.6) }
 }
 
 struct ActionView: View {
@@ -856,9 +885,27 @@ func questionAnswers(_ questions: [JSON], text: [String: String], selections: [S
     return result
 }
 
+// Each ⟶ / ✓ line is its own block, in the order short answer, details, done, next.
+func answerParagraphs(_ text: String) -> [String] {
+    var parts: [String] = []
+    for paragraph in text.components(separatedBy: "\n\n") {
+        var plain: [String] = []
+        func close() {
+            if !plain.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(plain.joined(separator: "\n")) }
+            plain = []
+        }
+        for line in paragraph.components(separatedBy: "\n") {
+            if line.hasPrefix("⟶ ") || line.hasPrefix("✓ Done:") { close(); parts.append(line) } else { plain.append(line) }
+        }
+        close()
+    }
+    func rank(_ part: String) -> Int { part.hasPrefix("✓ Done:") ? 2 : part.hasPrefix("⟶ Next:") ? 3 : part.hasPrefix("⟶ ") ? 0 : 1 }
+    return parts.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+}
+
 struct ProseView: View {
     let text: String
-    private var paragraphs: [String] { text.components(separatedBy: "\n\n").filter { !$0.isEmpty } }
+    private var paragraphs: [String] { answerParagraphs(text) }
     private func rich(_ text: String) -> AttributedString { (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
