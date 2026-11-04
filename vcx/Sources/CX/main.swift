@@ -336,16 +336,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if terminating || closing.contains(ObjectIdentifier(sender)) { return true }
         guard let entry = windows.first(where: { $0.window === sender }) else { return true }
-        guard !entry.session.frontendReplacing else { return false }
-        entry.session.frontendReplacing = true
-        Task {
-            do {
-                try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: sender, session: entry.session))
-                _ = try await entry.session.runtimeClient?.perform("close")
-                closing.insert(ObjectIdentifier(sender)); sender.close()
-            } catch { entry.session.frontendReplacing = false; entry.session.notice("Cannot close before saving the draft: " + error.localizedDescription) }
+        guard !entry.session.frontendReplacing, sender.attachedSheet == nil else { return false }
+        let close = { [self] in
+            entry.session.frontendReplacing = true
+            Task {
+                do {
+                    try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: sender, session: entry.session))
+                    _ = try await entry.session.runtimeClient?.perform("close")
+                    closing.insert(ObjectIdentifier(sender)); sender.close()
+                } catch { entry.session.frontendReplacing = false; entry.session.notice("Cannot close before saving the draft: " + error.localizedDescription) }
+            }
         }
+        if !headless, let work = runningWork(entry.session) {
+            closeAlert("Close \(entry.session.folder)?", work).beginSheetModal(for: sender) { if $0 == .alertFirstButtonReturn { close() } }
+        } else { close() }
         return false
+    }
+    func runningWork(_ session: Session) -> String? {
+        if session.backgroundTasks > 0 { return session.backgroundTasks == 1 ? "A background task is still running." : "\(session.backgroundTasks) background tasks are still running." }
+        return session.busy ? "The agent is still working." : nil
+    }
+    private func closeAlert(_ title: String, _ detail: String, button: String = "Close") -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = title; alert.informativeText = detail
+        alert.addButton(withTitle: button); alert.addButton(withTitle: "Cancel")
+        return alert
     }
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, let index = windows.firstIndex(where: { $0.window === window }) else { return }
@@ -355,6 +370,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !headless }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminating || windows.isEmpty { return .terminateNow }
+        let busy = windows.compactMap { entry in runningWork(entry.session).map { "\(entry.session.folder): \($0)" } }
+        if !headless, !busy.isEmpty, closeAlert("Quit Vibe Code X?", busy.joined(separator: "\n"), button: "Quit").runModal() != .alertFirstButtonReturn { return .terminateCancel }
         Task {
             do {
                 for entry in windows {

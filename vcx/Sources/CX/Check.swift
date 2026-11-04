@@ -93,6 +93,14 @@ enum Check {
             check(dot.animationKeys()?.isEmpty != false, "reduce motion stops dot animation")
         }
         do {
+            let frontend = AppDelegate(), session = Session(cwd: "/fixture")
+            check(frontend.runningWork(session) == nil, "idle session closes without asking")
+            session.backgroundTasks = 2
+            check(frontend.runningWork(session) == "2 background tasks are still running.", "background tasks ask before closing")
+            session.backgroundTasks = 0; session.busy = true
+            check(frontend.runningWork(session) == "The agent is still working.", "running turn asks before closing")
+        }
+        do {
             let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
             let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
             for width: CGFloat in [420, 760, 1120] {
