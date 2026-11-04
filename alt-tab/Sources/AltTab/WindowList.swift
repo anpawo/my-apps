@@ -120,6 +120,13 @@ enum WindowList {
     /// sweep is a couple of milliseconds; this only ever fires when an app is wedged.
     private static let deadline = 0.030
 
+    /// Each app's last usable reply, kept past the sweep that asked for it. An app with many
+    /// windows on a busy main thread (VCX: a dozen streaming windows, four calls each) answers
+    /// after the deadline, and without this its windows came back unnamed and could only be
+    /// raised as an app, so switching between two of them did nothing.
+    private static let knownLock = NSLock()
+    private static var known: [CGWindowID: (title: String, element: AXUIElement, pid: pid_t)] = [:]
+
     @MainActor
     static func snapshot() -> [WindowInfo] {
         let selfPID = getpid()
@@ -227,6 +234,11 @@ enum WindowList {
                 // lenient path below then keeps those windows, unnamed but reachable.
                 if identified > 0 { answered.insert(pid) }
                 lock.unlock()
+                guard identified > 0 else { return }
+                knownLock.lock()
+                known = known.filter { $0.value.pid != pid }
+                for (id, hit) in found { known[id] = (hit.0, hit.1, pid) }
+                knownLock.unlock()
             }
         }
         _ = group.wait(timeout: .now() + deadline)
@@ -235,6 +247,10 @@ enum WindowList {
         let resolved = seen
         let replied = answered
         lock.unlock()
+        knownLock.lock()
+        known = known.filter { pids.contains($0.value.pid) }
+        let late = known
+        knownLock.unlock()
 
         var rows: [WindowInfo] = ordered.compactMap { entry in
             let name = names[entry.pid] ?? "—"
@@ -255,8 +271,10 @@ enum WindowList {
             // system processes like WindowManager (Stage Manager) own on-screen 1×1 layer-0
             // windows that Accessibility never answers for, and landed here as blank rows.
             guard regular.contains(entry.pid) else { return nil }
-            return WindowInfo(id: entry.id, pid: entry.pid, appName: name, title: name,
-                              element: nil, size: entry.size)
+            let hit = late[entry.id]
+            return WindowInfo(id: entry.id, pid: entry.pid, appName: name,
+                              title: hit.map { $0.title.isEmpty ? name : $0.title } ?? name,
+                              element: hit?.element, size: entry.size)
         }
 
         // The windows that are not on the screen, after all of the ones that are. There is no
@@ -297,6 +315,21 @@ enum WindowList {
                                             &value) == .success else { return nil }
         guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return windowID(of: unsafeBitCast(value, to: AXUIElement.self))
+    }
+
+    /// The handle a sweep missed, asked for again at the switch, where half a second is
+    /// affordable and a window that stays behind is not.
+    @MainActor
+    static func element(of window: WindowInfo) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement] else { return nil }
+        return windows.first {
+            AXUIElementSetMessagingTimeout($0, 0.5)
+            return windowID(of: $0) == window.id
+        }
     }
 
     private static func windowID(of element: AXUIElement) -> CGWindowID? {

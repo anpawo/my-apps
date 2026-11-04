@@ -35,7 +35,7 @@ enum WindowAction {
         guard trusted() else { return false }
 
         let app = NSRunningApplication(processIdentifier: window.pid)
-        guard let element = window.element else {
+        guard let element = window.element ?? WindowList.element(of: window) else {
             // The app never answered Accessibility in time, so there is no handle to the
             // window itself. Its application can still be brought forward.
             return app?.activate() ?? false
