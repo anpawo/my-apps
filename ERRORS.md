@@ -1,6 +1,7 @@
 
 - 04/11/2026: Native instances merge shared settings under a process lock and keep account/thread ownership transactional; failed connections must preserve saved conversations, and each editable record has one window owner. Temporary command drafts belong to their source record and must clear before restoring another conversation; asynchronous restores and rollbacks must retain intervening text and image edits through shared user-edit tracking, and connection startup must stay serialized.
 - 04/11/2026: Freeze source edits during Swift builds, including delegated edits; the compiler rejects files modified while it runs.
+- 04/11/2026: Before installing from a worktree, include every source file changed by concurrent commits; updating only the view can roll back installed behavior.
 - 04/11/2026: Check saved configuration formats before tightening validation; Jarvis proxy URLs include the socks5h scheme.
 - 04/11/2026: Swift search filters explicitly allow empty queries: String.contains("") and localizedCaseInsensitiveContains("") return false. Standalone probes of Foundation string methods import Foundation.
 - 04/11/2026: Swift usage fixtures need explicit JSON types and isolated display sessions; inferred dictionaries promote integer fields to Double, and exhausted Codex windows persist fallback settings that affect later checks.
