@@ -22,3 +22,4 @@
 - 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.
 - 04/11/2026: Watcher binary updates use kickstart -k on the existing LaunchAgent; replacing its registration is unnecessary.
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
+- 04/11/2026: Replace signed app bundles through a clean staging copy; merging with ditto preserves generated Python caches and invalidates the resource seal.
