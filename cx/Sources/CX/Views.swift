@@ -215,8 +215,8 @@ struct CXView: View {
     private var composer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                ActivityDot(busy: session.busy, action: session.performingAction)
-                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.performingAction ? accent : .green)
+                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Reading")
+                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.busy ? accent : .green)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
@@ -231,12 +231,17 @@ struct CXView: View {
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
 
-    private var statusBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
-            ViewThatFits(in: .horizontal) { usageStatus; ScrollView(.horizontal) { usageStatus } }
-            ViewThatFits(in: .horizontal) { quotaStatus; ScrollView(.horizontal) { quotaStatus } }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    var statusBar: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                identityStatus
+                separator
+                usageStatus
+                separator
+                quotaStatus
+            }.fixedSize()
+        }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var identityStatus: some View {
         HStack(spacing: 8) {
@@ -263,18 +268,61 @@ struct CXView: View {
     private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.25)) }
 }
 
-struct ActivityDot: View {
+struct ActivityDot: NSViewRepresentable {
     let busy: Bool
-    let action: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !busy || action || reduceMotion)) { timeline in
-            let phase = timeline.date.timeIntervalSinceReferenceDate * 5
-            Circle().fill(action ? accent : .green)
-                .frame(width: 6, height: 6)
-                .offset(x: busy && !action && !reduceMotion ? CGFloat(sin(phase)) * 3 : 0)
-        }.frame(width: 12, height: 10)
-            .accessibilityLabel(action ? "Performing action" : busy ? "Thinking" : "Idle")
+
+    func makeNSView(context: Context) -> ActivityDotView { ActivityDotView() }
+    func updateNSView(_ view: ActivityDotView, context: Context) { view.update(busy: busy, reduceMotion: reduceMotion) }
+}
+
+final class ActivityDotView: NSView {
+    private let dot = CALayer()
+    private var reduceMotion = false
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        dot.bounds = CGRect(x: 0, y: 0, width: 6, height: 6)
+        dot.cornerRadius = 3
+        layer?.addSublayer(dot)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dot.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        if let window { NotificationCenter.default.addObserver(self, selector: #selector(updateMotion), name: NSWindow.didChangeOcclusionStateNotification, object: window) }
+        updateMotion()
+    }
+    override func viewDidHide() { super.viewDidHide(); updateMotion() }
+    override func viewDidUnhide() { super.viewDidUnhide(); updateMotion() }
+
+    func update(busy: Bool, reduceMotion: Bool) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dot.backgroundColor = NSColor(busy ? accent : .green).cgColor
+        CATransaction.commit()
+        self.reduceMotion = reduceMotion
+        updateMotion()
+    }
+    @objc private func updateMotion() {
+        setMoving(!reduceMotion && !isHiddenOrHasHiddenAncestor && window?.occlusionState.contains(.visible) == true)
+    }
+    func setMoving(_ moving: Bool) {
+        guard moving else { dot.removeAnimation(forKey: "drift"); return }
+        guard dot.animation(forKey: "drift") == nil else { return }
+        let animation = CABasicAnimation(keyPath: "transform.translation.x")
+        animation.fromValue = -3; animation.toValue = 3
+        animation.duration = 0.6; animation.autoreverses = true; animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dot.add(animation, forKey: "drift")
     }
 }
 
@@ -552,6 +600,7 @@ struct PermissionView: View {
     @ObservedObject var session: Session
     let request: Permission
     @State private var answers: [String: String] = [:]
+    @State private var selections: [String: Set<String>] = [:]
     var questions: [JSON] { request.params["questions"] as? [JSON] ?? [] }
     var input: Bool { request.method == "item/tool/requestUserInput" }
     var body: some View {
@@ -566,9 +615,16 @@ struct PermissionView: View {
                                     Text(question["question"] as? String ?? "Question").font(.system(size: 14, weight: .medium))
                                     ForEach(Array((question["options"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, option in
                                         let label = option["label"] as? String ?? "Option"
-                                        Button { answers[id] = label } label: {
+                                        let multiple = question["multiSelect"] as? Bool == true
+                                        let selected = multiple ? selections[id, default: []].contains(label) : answers[id] == label
+                                        Button {
+                                            if multiple {
+                                                if selections[id, default: []].contains(label) { selections[id]?.remove(label) }
+                                                else { selections[id, default: []].insert(label) }
+                                            } else { answers[id] = label }
+                                        } label: {
                                             HStack(alignment: .top) {
-                                                Image(systemName: answers[id] == label ? "checkmark.circle.fill" : "circle").foregroundStyle(accent)
+                                                Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(accent)
                                                 VStack(alignment: .leading, spacing: 3) { Text(label); Text(option["description"] as? String ?? "").foregroundStyle(.secondary) }
                                             }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                                         }.buttonStyle(.plain)
@@ -588,8 +644,8 @@ struct PermissionView: View {
                     Spacer()
                     if input {
                         Button("Send answer") {
-                            session.answer(request, result: ["answers": answers.mapValues { ["answers": [$0]] }])
-                        }.buttonStyle(.borderedProminent).tint(accent).disabled(questions.enumerated().contains { n, q in (answers[q["id"] as? String ?? "\(n)"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                            session.answer(request, result: ["answers": questionAnswers(questions, text: answers, selections: selections).mapValues { ["answers": $0] }])
+                        }.buttonStyle(.borderedProminent).tint(accent).disabled(questionAnswers(questions, text: answers, selections: selections).count != questions.count)
                     } else {
                         Button("Decline") { session.answer(request, result: ["decision": "decline"]) }
                         Button("Allow") { session.answer(request, result: ["decision": "accept"]) }.buttonStyle(.borderedProminent).tint(accent)
@@ -598,6 +654,17 @@ struct PermissionView: View {
                 }
             }.padding(16).frame(maxWidth: 750).background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.1)))
     }
+}
+
+func questionAnswers(_ questions: [JSON], text: [String: String], selections: [String: Set<String>]) -> [String: [String]] {
+    var result: [String: [String]] = [:]
+    for (index, question) in questions.enumerated() {
+        let id = question["id"] as? String ?? "\(index)"
+        var values = question["multiSelect"] as? Bool == true ? (question["options"] as? [JSON] ?? []).compactMap { $0["label"] as? String }.filter { selections[id, default: []].contains($0) } : []
+        if let answer = text[id], !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { values.append(answer) }
+        if !values.isEmpty { result[id] = values }
+    }
+    return result
 }
 
 struct ProseView: View {

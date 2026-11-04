@@ -23,6 +23,10 @@ extension Session {
             ("new", "Start a new conversation; current work stays saved", false),
             ("clear", "Start a new conversation", false),
             ("resume", "Choose a saved conversation", true),
+            ("fork", "Branch the current Codex conversation", false),
+            ("rename", "Name the current conversation", true),
+            ("plan", "Use Codex plan mode; off returns to implementation", true),
+            ("effort", "Set reasoning effort for the active model", true),
             ("reconnect", "Reconnect the current conversation", false),
             ("stop", "Interrupt the current response", false),
             ("settings", "Show configuration and available settings commands", false),
@@ -52,7 +56,7 @@ extension Session {
 
     // shortcut: built-ins follow Codex 0.166.0; refresh this catalog when the CLI changes.
     var codexNativeNames: [String] { "model presets daybreak ide permissions keymap vim setup-default-sandbox experimental approve memories skills import hooks review rename new archive delete resume fork worktree app init compact config recap plan voice goal agents side btw copy export raw tui diff mention status daemon warnings cd pwd usage debug-config title statusline theme pets mcp apps plugins logout quit exit feedback ps stop clear subagents cwd pet clean".split(separator: " ").map(String.init) }
-    var codexAliases: [String: String] { ["permissions": "mode", "config": "settings", "cd": "dir", "pwd": "dir", "cwd": "dir", "clean": "stop"] }
+    var codexAliases: [String: String] { claudeAliases.merging(["pwd": "dir", "cwd": "dir", "clean": "stop"]) { _, value in value } }
     var codexNativeCommands: [ChatCommand] {
         codexNativeNames.map { name in
             let mapped = codexAliases[name] ?? name
@@ -63,7 +67,7 @@ extension Session {
 
     // shortcut: CLI reference built-ins are a snapshot; refresh after upstream changes. SDK skills stay live.
     var claudeNativeNames: [String] { "add-dir advisor agents artifact-capabilities artifact-diagramming artifacts auto-mode-setup autocompact autofix-pr background batch branch btw bug cd chrome claude-api claude-in-chrome clear code-review color compact config context copy cost dataviz debug deep-research design design-login design-sync desktop diff doctor effort exit export fast feedback fewer-permission-prompts focus fork goal heapdump help hooks ide import init insights install-github-app install-slack-app keybindings list-agents login logout loop mcp memory mobile model output-style passes permissions plan plugin plugin-authoring powerup pr-comments privacy-settings radio rate-limit-options recap release-notes reload-plugins reload-skills remote-control remote-env rename restart resume review rewind run run-skill-generator sandbox schedule scroll-speed security-review setup-bedrock setup-vertex simplify skill-doctor skills slides stats status statusline stickers stop subtask tasks team-onboarding teleport terminal-setup theme tui ultraplan ultrareview update-config upgrade usage usage-credits verify vim voice web-setup workflow-authoring workflows".split(separator: " ").map(String.init) }
-    var claudeAliases: [String: String] { ["permissions": "mode", "config": "settings", "cd": "dir", "context": "tokens", "cost": "tokens", "restart": "reconnect"] }
+    var claudeAliases: [String: String] { ["permissions": "mode", "config": "settings", "cd": "dir", "context": "tokens", "cost": "tokens", "memory": "instructions", "restart": "reconnect", "reload-skills": "skills", "reload-plugins": "reconnect"] }
     var claudeNativeCommands: [ChatCommand] {
         claudeNativeNames.map { name in
             let mapped = claudeAliases[name] ?? name
@@ -80,7 +84,7 @@ extension Session {
             let native = String(verb.dropFirst(7))
             if codexNativeNames.contains(native) { verb = "/" + (codexAliases[native] ?? native) }
         }
-        if account.provider == "claude", verb.hasPrefix("/claude:") {
+        if ["claude", "codex"].contains(account.provider), verb.hasPrefix("/claude:") {
             let native = String(verb.dropFirst(8))
             if claudeNativeNames.contains(native) { verb = "/" + (claudeAliases[native] ?? native) }
         }
@@ -109,6 +113,8 @@ extension Session {
                 }
                 return choices
             case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
+            case "/plan": choices = [option("on", "Plan without implementing"), option("off", "Return to implementation")]
+            case "/effort": choices = (modelEfforts[model] ?? []).map { option($0, "Reasoning effort", isCurrent: $0 == effort) }
             case "/account":
                 choices = Settings.shared.value.accounts.map { option($0.id, $0.provider.capitalized + ($0.enabled ? " · enabled" : " · disabled"), label: $0.name) }
                 choices += ["enable ", "disable ", "rename "].map { option($0, "Account ID follows") }
@@ -125,7 +131,10 @@ extension Session {
             return choices.filter { argument.isEmpty || $0.name.lowercased().contains(argument) || $0.insert.lowercased().contains(query.lowercased()) }
         }
         var commands = appCommands + providerCommands
-        if account.provider == "codex" { commands += codexNativeCommands }
+        if account.provider == "codex" {
+            commands += codexNativeCommands
+            commands += claudeAliases.keys.sorted().filter { !codexNativeNames.contains($0) }.map { ChatCommand(name: "/" + $0, detail: "Claude alias for /" + claudeAliases[$0]!, source: "Claude compatibility", insert: "/" + $0) }
+        }
         if account.provider == "claude" { commands += claudeNativeCommands }
         if ["claude", "codex"].contains(account.provider) { commands += [ChatCommand(name: "/compact", detail: "Compact the current context", source: providerLabel, insert: "/compact"), ChatCommand(name: "/review", detail: "Review uncommitted changes or custom instructions", source: providerLabel, insert: "/review ")] }
         if query.hasPrefix("/vcx:") { commands = appCommands.map { var c = $0; c.insert = c.insert.replacingOccurrences(of: "/", with: "/vcx:"); return c } }
@@ -201,10 +210,11 @@ extension Session {
         if account.provider == "codex", original.hasPrefix("/codex:"), codexNativeNames.contains(String(original.dropFirst(7))) {
             let name = String(original.dropFirst(7)); verb = "/" + (codexAliases[name] ?? name)
         } else if account.provider == "codex", !original.hasPrefix("/vcx:"), let mapped = codexAliases[String(original.dropFirst())] { verb = "/" + mapped }
-        if account.provider == "claude", original.hasPrefix("/claude:"), claudeNativeNames.contains(String(original.dropFirst(8))) {
+        if ["claude", "codex"].contains(account.provider), original.hasPrefix("/claude:"), claudeNativeNames.contains(String(original.dropFirst(8))) {
             let name = String(original.dropFirst(8)); verb = "/" + (claudeAliases[name] ?? name)
         } else if account.provider == "claude", !original.hasPrefix("/vcx:"), let mapped = claudeAliases[String(original.dropFirst())] { verb = "/" + mapped }
-        let argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        var argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        if ["/reload-skills", "/claude:reload-skills"].contains(original) { argument = "reload" }
         let settings = Settings.shared
         let commandDraft = draft, commandGeneration = draftGeneration
         commandQuery = nil
@@ -219,9 +229,14 @@ extension Session {
             }
             if !changing { save() }
         }
-        if !original.hasPrefix("/vcx:"), let native = providerCommands.first(where: { ($0.insert.trimmingCharacters(in: .whitespaces) == original || original == "/" + account.provider + ":" + $0.name.dropFirst()) && $0.insert.hasPrefix("/" + account.provider + ":") || $0.name == original && !appCommands.contains(where: { $0.name == original }) }) {
+        let skillVerb = account.provider == "codex" ? original.replacingOccurrences(of: "/claude:", with: "/codex:") : original
+        if !original.hasPrefix("/vcx:"), let native = providerCommands.first(where: { ($0.insert.trimmingCharacters(in: .whitespaces) == skillVerb || skillVerb == "/" + account.provider + ":" + $0.name.dropFirst()) && $0.insert.hasPrefix("/" + account.provider + ":") || $0.name == original && !appCommands.contains(where: { $0.name == original }) }) {
             let name = native.name.dropFirst()
             if draft.string == source { commandQuery = nil }
+            if let path = legacyCommandPaths[String(name)] {
+                await send(text: "Run the Claude command /\(name) from \(path) using the available Codex tools. Read the complete command file first. Substitute $ARGUMENTS with the following arguments, and $1, $2, etc. with their positional values. Preserve the command's restrictions and use normal approval checks for shell commands. If an instruction cannot be enforced, stop and explain it.\nArguments: " + argument, images: [], commandHandled: true)
+                return
+            }
             let prefix = account.provider == "codex" ? "$" : "/"
             let skill = skillPaths[String(name)].map { ["type": "skill", "name": String(name), "path": $0] }
             await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true, skill: skill)
@@ -285,6 +300,31 @@ extension Session {
             case "/dir":
                 if argument.isEmpty { notice(cwd + "\nUse /dir <folder> to change directory.") }
                 else { try await changeDirectory(unquoted(argument)) }
+            case "/fork":
+                try idle(); guard ready, account.provider == "codex" else { throw CXError(message: "Fork is available for Codex conversations.") }
+                let sourcePlanning = planning, sourceName = conversationName
+                let result = try await rpc.request("thread/fork", ["threadId": threadID ?? "", "excludeTurns": true])
+                guard let id = (result["thread"] as? JSON)?["id"] as? String else { throw CXError(message: "Codex did not return a forked conversation.") }
+                if await switchThread(id, fromCommand: true) { planning = sourcePlanning; conversationName = sourceName; save() }
+                return
+            case "/rename":
+                try idle(); guard ready, !argument.isEmpty else { throw CXError(message: "Use /rename <name> in a connected conversation.") }
+                if account.provider == "codex" { _ = try await rpc.request("thread/name/set", ["threadId": threadID ?? "", "name": argument]) }
+                conversationName = argument
+                save(); await refreshCatalog()
+            case "/plan":
+                try idle(); guard ready else { throw CXError(message: "Reconnect first.") }
+                if account.provider == "claude" { await send(text: "/plan" + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true); return }
+                guard account.provider == "codex" else { throw CXError(message: "Qwen has no native plan mode.") }
+                planning = !["off", "execute", "default"].contains(argument)
+                if !argument.isEmpty, !["on", "off", "execute", "default"].contains(argument) {
+                    await send(text: argument, images: [], commandHandled: true); return
+                }
+                notice(planning ? "Plan mode enabled. Use /plan off to implement." : "Implementation mode enabled.")
+            case "/effort":
+                try idle()
+                guard (modelEfforts[model] ?? []).contains(argument) else { throw CXError(message: "Choose an effort supported by the active model: " + (modelEfforts[model] ?? []).joined(separator: ", ")) }
+                await changeModel(model, effort: argument)
             case "/window":
                 let path = argument.isEmpty ? cwd : resolvedPath(argument)
                 var isDirectory: ObjCBool = false

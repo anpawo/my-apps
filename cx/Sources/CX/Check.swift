@@ -45,8 +45,37 @@ enum Check {
     }
 
     static func run() async -> Bool {
+        await ClaudeParityCheck.run()
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
+        do {
+            let session = Session(cwd: "/fixture")
+            session.model = "gpt-6-astra"; session.effort = "high"
+            session.contextLimit = 258400; session.usage = "16% wk - reset 1h"
+            for width: CGFloat in [300, 540, 840] {
+                let host = NSHostingView(rootView: CXView(session: session).statusBar.frame(width: width))
+                host.layoutSubtreeIfNeeded()
+                let height = host.fittingSize.height
+                print("Status bar at \(Int(width)): \(height)pt")
+                check(height > 0 && height <= 32, "status bar stays on one line at width \(width)")
+            }
+        }
+        do {
+            let view = ActivityDotView()
+            view.frame = NSRect(x: 0, y: 0, width: 12, height: 10)
+            view.layoutSubtreeIfNeeded()
+            view.update(busy: false, reduceMotion: false)
+            let dot = view.layer!.sublayers!.first!
+            check(dot.backgroundColor == NSColor(Color.green).cgColor, "reading dot is green")
+            check(dot.animationKeys()?.isEmpty != false, "offscreen dot does not animate")
+            view.update(busy: true, reduceMotion: false)
+            check(dot.backgroundColor == NSColor(accent).cgColor, "thinking dot is purple")
+            view.setMoving(true)
+            let animation = dot.animation(forKey: "drift") as? CABasicAnimation
+            check(animation?.keyPath == "transform.translation.x" && animation?.autoreverses == true && animation?.repeatCount == .infinity, "dot motion uses a repeating compositor animation")
+            view.update(busy: true, reduceMotion: true)
+            check(dot.animationKeys()?.isEmpty != false, "reduce motion stops dot animation")
+        }
         do {
             let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
             let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
@@ -439,7 +468,7 @@ enum Check {
         check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
         for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
-        check(session.fleetContext == "Build feature" && connections["codex-default"]?.opened.first?["developerInstructions"] as? String == session.fleetInstructions, "provider fallback retains context and supplies it to Codex")
+        check(session.fleetContext == "Build feature" && (connections["codex-default"]?.opened.first?["developerInstructions"] as? String)?.hasSuffix(session.fleetInstructions) == true, "provider fallback retains context and supplies it to Codex")
         check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
         check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
         check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
@@ -810,7 +839,7 @@ enum Check {
             Settings.shared.value.provider = "codex"; Settings.shared.save()
         }
         codexCommands.updateCommands("/", caret: 1)
-        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source == "Codex terminal" }, "the native Codex catalog lists unavailable terminal actions explicitly")
+        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source != "Codex terminal" }, "the native Codex catalog exposes implemented fork support")
         let editor = ComposerText(frame: .zero, textContainer: nil)
         editor.session = codexCommands; editor.string = "/"
         let coordinator = Composer.Coordinator(codexCommands)
@@ -1149,6 +1178,9 @@ final class FixtureConnection: Connection {
     let account: Account
     var sent: [JSON] = []
     var opened: [JSON] = []
+    var forkID: String?
+    var renamed: JSON?
+    var responses: [JSON] = []
     var sendDelay: UInt64 = 0
     var startDelay: UInt64 = 0
     var catalogDelay: UInt64 = 0
@@ -1166,6 +1198,8 @@ final class FixtureConnection: Connection {
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
     func request(_ method: String, _ params: JSON, timeout: Double) async throws -> JSON {
         switch method {
+        case "thread/fork": return ["thread": ["id": forkID ?? "fixture-fork"]]
+        case "thread/name/set": renamed = params; return [:]
         case "config/read":
             if let contextDuringConfig { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringConfig]]]) }
             return [:]
@@ -1199,7 +1233,7 @@ final class FixtureConnection: Connection {
         default: return [:]
         }
     }
-    func respond(_ id: Any, _ result: JSON) throws {}
+    func respond(_ id: Any, _ result: JSON) throws { responses.append(result) }
     func reject(_ id: Any, method: String) throws {}
     func close() { closed = true }
 }

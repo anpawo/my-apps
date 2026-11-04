@@ -110,6 +110,9 @@ final class Session: ObservableObject {
     @Published var activeMode = Settings.shared.value.mode
     @Published var providerCommands: [ChatCommand] = []
     var skillPaths: [String: String] = [:]
+    var legacyCommandPaths: [String: String] = [:]
+    var planning = false
+    var conversationName: String?
     var focusComposer: () -> Void = {}
     var savedCommandDraft: NSAttributedString?
     var draftGeneration = 0
@@ -284,7 +287,8 @@ final class Session: ObservableObject {
         }
         activeMode = Settings.shared.value.mode
         var params: JSON = ["cwd": cwd, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
-        params["developerInstructions"] = fleetInstructions
+        params["developerInstructions"] = developerInstructions
+        if account.provider == "codex", resume == nil { params["dynamicTools"] = [ClaudeCompatibility.questionTool] }
         if let selectedModel { params["model"] = selectedModel }
         if let resume { params["threadId"] = resume; params["excludeTurns"] = true }
         let result = try await rpc.request(resume == nil ? "thread/start" : "thread/resume", params)
@@ -305,6 +309,7 @@ final class Session: ObservableObject {
         promptHistoryIndex = nil
         group = nil
         threadID = id
+        if !keepRows { planning = false; conversationName = thread["name"] as? String }
         turnID = nil; busy = false; stopRequested = false
         model = result["model"] as? String ?? "Codex"
         defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
@@ -366,6 +371,11 @@ final class Session: ObservableObject {
         let p = message["params"] as? JSON ?? [:]
         if let id = p["threadId"] as? String, id != threadID { return }
         if let id = message["id"], message["method"] != nil {
+            if method == "item/tool/call", p["tool"] as? String == "AskUserQuestion" {
+                if let params = ClaudeCompatibility.questions(p) { permissions.append(Permission(rpcID: id, method: "item/tool/requestUserInput", params: params)) }
+                else { try? rpc.respond(id, ["success": false, "contentItems": [["type": "inputText", "text": "Invalid question. Supply 1 to 4 questions with 2 to 4 distinct options each."]]]) }
+                return
+            }
             if ["item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval"].contains(method) {
                 var params = p
                 if method == "item/fileChange/requestApproval", let itemID = p["itemId"] as? String { params["changes"] = itemMap[itemID]?.data["changes"] }
@@ -548,6 +558,9 @@ final class Session: ObservableObject {
         var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
         if !wasBusy { params["cwd"] = cwd }
         if !wasBusy, let effort { params["effort"] = effort }
+        if !wasBusy, account.provider == "codex" {
+            params["collaborationMode"] = ["mode": planning ? "plan" : "default", "settings": ["model": model, "reasoning_effort": (effort ?? defaultEffort) as Any? ?? NSNull(), "developer_instructions": NSNull()]]
+        }
         if wasBusy { params["expectedTurnId"] = turnID }
         do {
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
@@ -577,7 +590,19 @@ final class Session: ObservableObject {
     }
 
     func answer(_ request: Permission, result: JSON) {
-        do { try rpc.respond(request.rpcID, result); permissions.removeAll { $0.id == request.id } }
+        do {
+            var response = result
+            if request.params["vcxQuestionTool"] as? Bool == true {
+                let values = result["answers"] as? [String: JSON] ?? [:]
+                var answers: [JSON] = []
+                for question in request.params["questions"] as? [JSON] ?? [] {
+                    if let id = question["id"] as? String, let value = values[id]?["answers"] as? [String] { answers.append(["id": id, "question": question["question"] as? String ?? "", "header": question["header"] as? String ?? "", "answers": value]) }
+                }
+                let text = String(decoding: try JSONSerialization.data(withJSONObject: ["answers": answers, "cancelled": answers.isEmpty]), as: UTF8.self)
+                response = ["success": !answers.isEmpty, "contentItems": [["type": "inputText", "text": text]]]
+            }
+            try rpc.respond(request.rpcID, response); permissions.removeAll { $0.id == request.id }
+        }
         catch { notice("Could not send your answer: " + error.localizedDescription) }
     }
 
@@ -593,7 +618,7 @@ final class Session: ObservableObject {
             if let id, id.hasPrefix("native:") { try await restore(String(id.dropFirst(7))) }
             else {
                 recordID = UUID().uuidString
-                let next = id != nil ? Settings.shared.value.accounts.first { $0.provider == "codex" && $0.enabled } : available.first
+                let next = id != nil ? (account.provider == "codex" ? account : Settings.shared.value.accounts.first { $0.provider == "codex" && $0.enabled }) : available.first
                 guard let next else { throw CXError(message: "No enabled account available.") }
                 try await activate(next, resume: id, keepRows: false)
             }
@@ -610,7 +635,7 @@ final class Session: ObservableObject {
         if account.provider == "codex", value != model { contextLimit = nil }
         do {
             var params: JSON = ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
-            params["developerInstructions"] = fleetInstructions
+            params["developerInstructions"] = developerInstructions
             params["effort"] = selectedEffort as Any? ?? NSNull()
             let result = try await rpc.request("thread/resume", params)
             model = result["model"] as? String ?? value
@@ -647,7 +672,7 @@ final class Session: ObservableObject {
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll()
-        providerCommands = []; skillPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
+        providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
@@ -777,9 +802,11 @@ final class Session: ObservableObject {
                 releaseRecord(); recordLock = (recordID, fd)
             }
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let title = rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
+            let title = conversationName ?? rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
             var record: JSON = ["cwd": conversationDirectory, "workingDirectory": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
             record["effort"] = effort
+            record["planning"] = planning
+            record["conversationName"] = conversationName
             record["fleetContext"] = fleetContext
             try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
@@ -814,6 +841,8 @@ final class Session: ObservableObject {
         do { try (record["fleetContext"] as? String ?? "").write(to: fleetContextFile, atomically: true, encoding: .utf8) }
         catch { NSLog("VCX: could not restore Fleet context: %@", error.localizedDescription) }
         effort = selected.id == accountID ? record["effort"] as? String : nil
+        planning = selected.provider == "codex" && record["planning"] as? Bool == true
+        conversationName = record["conversationName"] as? String
         recordID = id
         if let claimed { releaseRecord(); recordLock = (id, claimed) }
         accepted = true

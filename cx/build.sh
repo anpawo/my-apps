@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-swift build -c release -j 5
+swift build -c release -j 2
 app="dist/Vibe Code X.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/VCX "$app/Contents/MacOS/VCX"
