@@ -1259,12 +1259,18 @@ enum Render {
         write(ProseView(text: [linkFixture, linkFixture.replacingOccurrences(of: "installed logo", with: "[installed logo](file:///tmp/icon.png)"), "⟶ " + linkFixture, "⟶ Next: open " + "[compare.png](file:///tmp/compare.png) and check the C."].joined(separator: "\n\n")).padding(24).background(Color.white), size: CGSize(width: 520, height: 420), path: directory + "/links.png")
         motion(directory: directory, name: "short", text: "Move this message into the chat.")
         motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
+        motion(directory: directory, name: "tall", text: (1...20).map { "Line \($0) of a pasted text block." }.joined(separator: "\n"), history: true)
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
-    static func motion(directory: String, name: String, text: String) {
+    static func motion(directory: String, name: String, text: String, history: Bool = false) {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/motion-" + name))
         session.ready = true; session.status = "Ready"
         session.draft = NSAttributedString(string: text)
+        if history {
+            session.show(["id": "earlier-question", "type": "userMessage", "content": [["type": "text", "text": "Earlier question"]]])
+            session.show(["id": "earlier-answer", "type": "agentMessage", "text": (1...40).map { "Line \($0) of an earlier answer." }.joined(separator: "\n\n")])
+            session.revision += 1
+        }
         let animation = SendAnimation()
         let host = NSHostingView(rootView: CXView(session: session, sending: animation))
         host.appearance = NSAppearance(named: .aqua)
@@ -1293,7 +1299,7 @@ enum Render {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             let file = String(format: "/send-%@-%03d.png", name, index)
             try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory + file))
-            samples.append(["time": Date().timeIntervalSince(start), "flying": animation.flight != nil, "frame": [animation.frame.minX, animation.frame.minY, animation.frame.width, animation.frame.height], "blend": animation.blend, "textScale": animation.textScale])
+            samples.append(["time": Date().timeIntervalSince(start), "flying": animation.flight != nil, "frame": [animation.frame.minX, animation.frame.minY, animation.frame.width, animation.frame.height], "blend": animation.blend])
         }
         try! JSONSerialization.data(withJSONObject: samples).write(to: URL(fileURLWithPath: directory + "/send-" + name + ".json"))
         precondition(samples.contains { $0["flying"] as? Bool == true }, "Send animation never started")

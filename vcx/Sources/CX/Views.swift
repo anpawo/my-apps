@@ -65,11 +65,11 @@ final class SendAnimation: ObservableObject {
         let origin: CGRect
         var destination: CGRect
         let snapshot: ComposerSnapshot?
+        var tall = false
     }
     @Published var flight: Flight?
     @Published var frame = CGRect.zero
     @Published var blend: CGFloat = 0
-    @Published var textScale: CGFloat = 13 / 11
     @Published private var pending: Pending?
     private var composer = CGRect.zero
     private var editor = CGRect.zero
@@ -100,7 +100,7 @@ final class SendAnimation: ObservableObject {
         if let frame = frames["composer"] { composer = frame }
         if let frame = frames["editor"] { editor = frame }
         let viewport = frames["transcript"] ?? CGRect(x: 0, y: 0, width: composer.maxX, height: composer.minY)
-        func target(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: 0, dy: min(0, viewport.maxY - 28 - rect.maxY)) }
+        func target(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: 0, dy: min(0, viewport.maxY - 28 - rect.maxY)).intersection(viewport) }
         if let flight {
             if reduceMotion || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
                 self.flight = nil; generation += 1; moving = false
@@ -115,12 +115,12 @@ final class SendAnimation: ObservableObject {
         guard let item = rows.filter({ $0.kind == "user" }).flatMap(\.items).first(where: {
             !pending.previous.contains($0.id) && NSArray(array: $0.data["content"] as? [JSON] ?? []).isEqual(to: pending.content)
         }), let measured = frames[item.id] else { return }
-        guard measured.height < viewport.height else { self.pending = nil; return }
         let destination = target(measured)
         self.pending = nil
+        guard !destination.isEmpty else { return }
         generation += 1; moving = false
-        frame = pending.origin; blend = 0; textScale = 13 / 11
-        flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot)
+        frame = pending.origin; blend = 0
+        flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot, tall: destination.height < measured.height)
     }
 
     func launch() {
@@ -134,7 +134,7 @@ final class SendAnimation: ObservableObject {
         generation += 1
         let current = generation
         withAnimation(.spring(duration: 0.42, bounce: 0.08), completionCriteria: .removed) {
-            frame = destination; textScale = 1
+            frame = destination
         } completion: {
             guard self.generation == current else { return }
             self.flight = nil; self.moving = false
@@ -146,21 +146,22 @@ struct FlyingMessage: View {
     let flight: SendAnimation.Flight
     let frame: CGRect
     let blend: CGFloat
-    let textScale: CGFloat
     private var fittedScale: CGFloat {
-        min(textScale, max(0.01, (frame.width - 32) / max(1, flight.destination.width - 32)), max(0.01, (frame.height - 32) / max(1, flight.destination.height - 32)))
+        let width = max(0.01, (frame.width - 32) / max(1, flight.destination.width - 32))
+        return flight.tall ? min(1, width) : min(1, width, max(0.01, (frame.height - 32) / max(1, flight.destination.height - 32)))
     }
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        // A message taller than the transcript shows its last lines, as the composer and the scrolled bubble do.
+        let anchor: UnitPoint = flight.tall ? .bottomLeading : .topLeading, inset: CGFloat = flight.tall ? -16 : 16
+        ZStack(alignment: flight.tall ? .bottomLeading : .topLeading) {
             if let snapshot = flight.snapshot {
                 Image(nsImage: snapshot.image).resizable().frame(width: snapshot.image.size.width, height: snapshot.image.size.height)
-                    .scaleEffect(textScale * 11 / 13, anchor: .topLeading)
-                    .animation(.linear(duration: 0.06)) { $0.opacity(1 - blend) }.offset(x: 16, y: 16)
+                    .animation(.linear(duration: 0.06)) { $0.opacity(1 - blend) }.offset(x: 16, y: inset)
             }
             MessageContent(item: flight.item).frame(width: max(1, flight.destination.width - 32), alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true).scaleEffect(fittedScale, anchor: .topLeading)
-                .animation(.linear(duration: 0.06)) { $0.opacity(flight.snapshot == nil ? 1 : blend) }.offset(x: 16, y: 16)
-        }.frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                .fixedSize(horizontal: false, vertical: true).scaleEffect(fittedScale, anchor: anchor)
+                .animation(.linear(duration: 0.06)) { $0.opacity(flight.snapshot == nil ? 1 : blend) }.offset(x: 16, y: inset)
+        }.frame(width: frame.width, height: frame.height, alignment: flight.tall ? .bottomLeading : .topLeading)
             .background(accent.opacity(0.08 * blend), in: RoundedRectangle(cornerRadius: 17))
             .clipShape(RoundedRectangle(cornerRadius: 17))
             .offset(x: frame.minX, y: frame.minY)
@@ -210,7 +211,7 @@ struct CXView: View {
         }
         .overlay(alignment: .topLeading) {
             if let flight = sending.flight {
-                FlyingMessage(flight: flight, frame: sending.frame, blend: sending.blend, textScale: sending.textScale)
+                FlyingMessage(flight: flight, frame: sending.frame, blend: sending.blend)
                     .id(flight.item.id).onAppear { sending.launch() }.allowsHitTesting(false).accessibilityHidden(true)
             }
         }
@@ -704,7 +705,7 @@ struct MessageContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
-                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                 else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
                 else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
             }
