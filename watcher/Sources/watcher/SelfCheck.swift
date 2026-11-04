@@ -52,7 +52,8 @@ enum SelfCheck {
         } catch { print("FAIL: launcher check: \(error)"); return 1 }
     }
 
-    static func run() -> Int {
+    static func run(headless: Bool = false) -> Int {
+        if headless { NSApplication.shared.setActivationPolicy(.prohibited) }
         var failures = 0
         func expect<T: Equatable>(_ got: T, _ want: T, _ what: String) {
             if got == want { print("  ok    \(what)") } else {
@@ -61,11 +62,12 @@ enum SelfCheck {
             }
         }
         expect(launch(), 0, "Notifications open the VCX app")
-        inbox(expect)
+        inbox(expect, headless: headless)
         glass(expect)
         let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: Date())! }
         expect(Hourly.slot(before: at(14, 5)), at(13, 10), "hourly: at 14:05 the slot owed is 13:10")
         expect(Hourly.slot(before: at(14, 10)), at(14, 10), "hourly: at 14:10 it is 14:10")
+        if headless { expect(NSApplication.shared.windows.allSatisfy { !$0.isVisible }, true, "headless checks never display a window") }
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
     }
@@ -92,7 +94,7 @@ enum SelfCheck {
 
     /// The watcher's lines: in time order, ←→ wrap and take nothing away, ↵ opens and sets the line aside in `done/`
     /// once its terminal has started; ↓ only asks, however often, and only ↵ says yes (to `done/`).
-    private static func inbox(_ expect: (Bool, Bool, String) -> Void) {
+    private static func inbox(_ expect: (Bool, Bool, String) -> Void, headless: Bool) {
         let folder = FileManager.default.temporaryDirectory.appending(path: "watcher-inbox-\(getpid())")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -219,6 +221,7 @@ enum SelfCheck {
         expect(Store.when(morning, now: now) == "09h05" && Store.when(morning - 86_400_000, now: now) == "13/10 09h05", true,
                "inbox: today's line by its hour, written 09h05; an older one with its day")
 
+        guard !headless else { return }
         // The entrance, read at every frame on a panel put off every screen, where nothing of it can be seen.
         NSApplication.shared.setActivationPolicy(.accessory)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
