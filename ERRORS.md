@@ -46,7 +46,7 @@
 - 04/11/2026: Reject UI stream notification changes that regress worker checkpoint cost or rendering; benchmark both in matched fresh processes before accepting an aggregate CPU improvement.
 - 04/11/2026: Tests assert environment membership with a boolean and a fixed message; collection assertions print the entire environment on failure.
 - 04/11/2026: Swift Foundation Process workers have separate process groups; track direct-child PID and start identity and clean each worker explicitly when interrupting a test frontend.
-- 04/11/2026: Run repo-relative verification scripts from the repository root and Swift builds in a separate call from the package directory; a failed setup command must not silently run a stale executable.
+- 04/11/2026: Run each command from its owning directory: repository scripts from the root, Swift from Package.swift, web tools from package.json; verify workdir when switching projects, and stop after setup fails.
 - 04/11/2026: Import Combine explicitly when using Empty or publisher helpers; SwiftUI's observable wrappers do not expose every Combine type.
 - 04/11/2026: Inspect optional temporary-file matches with Path.glob; zsh aborts unmatched shell globs before the inspection command runs.
 - 04/11/2026: Run relocation preflight from the destination repository, outside the source and linked worktrees; its active-working-directory guard includes the invoking shell.
