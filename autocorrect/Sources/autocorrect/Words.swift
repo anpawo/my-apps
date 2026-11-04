@@ -35,7 +35,9 @@ final class Words {
     private(set) var mine = Mine()
     private let learned: URL?
     private var dirty = false
+    private var spelling: [String: (known: Bool, until: TimeInterval)] = [:]
 
+    static let maxLength = 30
     static let elisions = ["c", "j", "l", "d", "n", "m", "t", "s", "qu", "jusqu", "lorsqu", "puisqu", "quelqu", "presqu"]
 
     init(file: URL, learned: URL?) {
@@ -74,7 +76,8 @@ final class Words {
     /// The spelling to put in place of `typed`, or nil to leave it. `fr`: how French the
     /// sentence is so far, 0 to 1.
     func correct(_ typed: String, fr: Double) -> String? {
-        guard let last = typed.last, last.isLetter, !typed.contains(where: \.isNumber),
+        guard typed.utf8.count <= Self.maxLength * 4, typed.count <= Self.maxLength,
+              let last = typed.last, last.isLetter, !typed.contains(where: \.isNumber),
               // A capital inside the word: a name or an acronym (GitHub, macOS, NEPH).
               !typed.dropFirst().contains(where: \.isUppercase),
               // An accent French has not: another language (já, aí).
@@ -121,7 +124,7 @@ final class Words {
             for prefix in Self.elisions where prefix != "c" && base.count > prefix.count && base.hasPrefix(prefix) {
                 let rest = String(base.dropFirst(prefix.count))
                 guard rest.count >= 3, let first = rest.first, "aeiouyh".contains(first) else { continue }
-                for key in byBase[rest] ?? [] where Self.stripped(lower, of: prefix + "'" + key) && Self.known(key, in: ["fr"]) {
+                for key in byBase[rest] ?? [] where Self.stripped(lower, of: prefix + "'" + key) && known(key, in: ["fr"]) {
                     consider(prefix + "'" + key, 0.05 * fr * Double(entries[key]?.fr ?? 0) * 0.7)
                 }
             }
@@ -132,12 +135,14 @@ final class Words {
         // ones (teh) count there. Two swaps when one slip finds nothing (vraiemtn), from five
         // letters on: a swap with another slip turns distnoted into distorted, pyright upright.
         if rare, scores.isEmpty, typedMarks.1 == 0, chars.count >= 3, chars[0].isLowercase,
-           base.contains(where: { "aeiouy".contains($0) }), !Self.known(lower) {
-            let first = Array(Self.edits(base, swapsOnly: chars.count < 4))
-            let second = chars.count < 5 ? [] : Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) }
-            for (edits, channel) in [(first, 0.01), (second, 0.0001)] where scores.isEmpty {
+           base.contains(where: { "aeiouy".contains($0) }), !known(lower) {
+            for (second, channel) in [(false, 0.01), (true, 0.0001)] where scores.isEmpty {
+                if second && chars.count < 5 { break }
+                let edits = second
+                    ? Set(Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) })
+                    : Self.edits(base, swapsOnly: chars.count < 4)
                 for edit in edits {
-                    for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && Self.known(key) {
+                    for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && known(key) {
                         consider(key, prior(key, fr: fr) * channel)
                     }
                 }
@@ -173,11 +178,18 @@ final class Words {
 
     /// Whether the macOS spell checker takes `word` in one of `languages`. It knows far more
     /// technical words than film subtitles do, and his own additions to it.
-    static func known(_ word: String, in languages: [String] = ["en", "fr"]) -> Bool {
-        languages.contains { language in
+    private func known(_ word: String, in languages: [String] = ["en", "fr"]) -> Bool {
+        let key = languages.joined(separator: ",") + "\t" + word
+        let now = Date.timeIntervalSinceReferenceDate
+        if let saved = spelling[key], saved.until > now { return saved.known }
+        let result = languages.contains { language in
             NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0, language: language, wrap: false,
                                                 inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
         }
+        if spelling.count >= 2048 { spelling.removeAll(keepingCapacity: true) }
+        // Expire results so edits to the macOS user dictionary take effect without a restart.
+        spelling[key] = (result, now + 60)
+        return result
     }
 
     /// Whether `typed` is `key` with some of its accents, apostrophes and hyphens left out
@@ -228,7 +240,7 @@ final class Words {
 
     func learn(_ word: String) {
         let key = word.lowercased()
-        guard (2...30).contains(key.count) else { return }
+        guard (2...Self.maxLength).contains(key.count) else { return }
         mine.counts[key, default: 0] += 1
         dirty = true
     }
@@ -246,7 +258,7 @@ final class Words {
         var taken = 0
         for (word, n) in counts {
             let key = word.lowercased(), n = min(n, 5)
-            guard (2...30).contains(key.count), !key.contains("'"), !key.contains("’"), !isWord(key),
+            guard (2...Self.maxLength).contains(key.count), !key.contains("'"), !key.contains("’"), !isWord(key),
                   (byBase[Self.fold(key)] ?? []).allSatisfy({ $0 == key }),
                   [0.05, 0.5, 0.95].allSatisfy({ correct(key, fr: $0).map { Self.fold($0) != Self.fold(key) } ?? true }),
                   (mine.counts[key] ?? 0) < n else { continue }

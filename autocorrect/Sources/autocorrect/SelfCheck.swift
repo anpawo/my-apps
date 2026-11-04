@@ -112,6 +112,72 @@ enum SelfCheck {
                "a seed takes his own words, not a lexicon word nor one missing its accents or apostrophe")
         expect([words.correct("enfusion", fr: 0.5), words.correct("tres", fr: 0.95), words.correct("dautre", fr: 0.95)], [nil, "très", "d'autre"],
                "and then leaves them, while tres and dautre are still fixed")
+
+        var long = Typist(words)
+        long.clean = true
+        for c in String(repeating: "abcd", count: 16) { _ = long.handle(.char(c)) }
+        expect(long.word.count <= 30, true, "long tokens keep the keyboard buffer bounded")
+        expect(long.handle(.char(" ")), .pass, "a long token is left untouched")
+        for c in "tres" { _ = long.handle(.char(c)) }
+        expect(long.handle(.char(" ")), .edit(delete: 2, type: "ès", thenKey: true), "correction resumes after a long token")
+        for c in "word" + String(repeating: ".", count: 1000) { _ = long.handle(.char(c)) }
+        expect(long.tail.count <= 30, true, "punctuation cannot grow the keyboard buffer without a limit")
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let seed = folder.appendingPathComponent("seed.tsv")
+            let text = (0..<100).map { "qza\(Character(UnicodeScalar(97 + $0 / 26)!))\(Character(UnicodeScalar(97 + $0 % 26)!))\t1" }.joined(separator: "\n")
+            try text.write(to: seed, atomically: true, encoding: .utf8)
+            let imported = Words(file: file, learned: folder.appendingPathComponent("learned.json"))
+            var finished = false, yielded = false
+            Review.takeSeed(imported, folder) { finished = true }
+            expect(finished, false, "seed import returns before doing its spellchecks")
+            DispatchQueue.main.async {
+                yielded = !finished
+                try? "enfusion\t1\n".write(to: seed, atomically: true, encoding: .utf8)
+            }
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while !finished && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
+            expect(finished && yielded, true, "seed import yields to input handling before it finishes")
+            expect(imported.mine.counts.count > 0, true, "batched seed import still learns its words")
+            expect((try? String(contentsOf: seed, encoding: .utf8)), "enfusion\t1\n", "a new seed arriving during import is preserved")
+            let restored = Words(file: file, learned: folder.appendingPathComponent("learned.json"))
+            expect(restored.mine.counts, imported.mine.counts, "batched seed import saves what it learned")
+            finished = false
+            Review.takeSeed(imported, folder) { finished = true }
+            while !finished && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
+            expect(finished && imported.mine.counts["enfusion"] == 1, true, "the next import takes the new seed")
+            expect(FileManager.default.fileExists(atPath: seed.path), false, "completed seed import removes its input")
+        } catch {
+            expect(false, true, "seed fixture: \(error)")
+        }
+        return failures
+    }
+
+    static func benchmark(_ file: URL) -> Int {
+        let words = Words(file: file, learned: nil)
+        var failures = 0
+        for (label, text) in [("known", "hello"), ("accent", "tres"), ("typo", "becuase"),
+                              ("two_swaps", "vraiemtn"), ("identifier", "dependencyresolver"),
+                              ("long_token", String(repeating: "abcd", count: 16))] {
+            var times: [Double] = []
+            for _ in 0..<30 {
+                var typist = Typist(words)
+                typist.clean = true
+                for c in text { _ = typist.handle(.char(c)) }
+                let start = ProcessInfo.processInfo.systemUptime
+                _ = typist.handle(.char(" "))
+                times.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            }
+            times.sort()
+            let maximum = times.last!
+            let row: [String: Any] = ["case": label, "samples": times.count, "median_ms": times[times.count / 2],
+                                      "p95_ms": times[Int(Double(times.count - 1) * 0.95)], "max_ms": maximum, "budget_ms": 16]
+            print(String(decoding: try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), as: UTF8.self))
+            if maximum > 16 { failures += 1 }
+        }
         return failures
     }
 }

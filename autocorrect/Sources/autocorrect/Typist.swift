@@ -63,11 +63,19 @@ struct Typist {
             return .pass
         case .char(let c):
             if tail.isEmpty, c.isLetter || (!word.isEmpty && (c == "'" || c == "’" || c == "-")) {
+                guard word.count < Words.maxLength else {
+                    word = []; clean = false
+                    return .pass
+                }
                 word.append(c)
                 return .pass
             }
             if word.isEmpty, Self.before.contains(c) || Self.after.contains(c) { return .pass }
             if Self.after.contains(c) {
+                guard tail.count < Words.maxLength else {
+                    word = []; tail = []; clean = false
+                    return .pass
+                }
                 tail.append(c)
                 return .pass
             }
