@@ -213,7 +213,8 @@ extension Session {
         if ["claude", "codex"].contains(account.provider), original.hasPrefix("/claude:"), claudeNativeNames.contains(String(original.dropFirst(8))) {
             let name = String(original.dropFirst(8)); verb = "/" + (claudeAliases[name] ?? name)
         } else if account.provider == "claude", !original.hasPrefix("/vcx:"), let mapped = claudeAliases[String(original.dropFirst())] { verb = "/" + mapped }
-        let argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        var argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        if ["/reload-skills", "/claude:reload-skills"].contains(original) { argument = "reload" }
         let settings = Settings.shared
         let commandDraft = draft, commandGeneration = draftGeneration
         commandQuery = nil
@@ -301,9 +302,10 @@ extension Session {
                 else { try await changeDirectory(unquoted(argument)) }
             case "/fork":
                 try idle(); guard ready, account.provider == "codex" else { throw CXError(message: "Fork is available for Codex conversations.") }
+                let sourcePlanning = planning, sourceName = conversationName
                 let result = try await rpc.request("thread/fork", ["threadId": threadID ?? "", "excludeTurns": true])
                 guard let id = (result["thread"] as? JSON)?["id"] as? String else { throw CXError(message: "Codex did not return a forked conversation.") }
-                _ = await switchThread(id, fromCommand: true)
+                if await switchThread(id, fromCommand: true) { planning = sourcePlanning; conversationName = sourceName; save() }
                 return
             case "/rename":
                 try idle(); guard ready, !argument.isEmpty else { throw CXError(message: "Use /rename <name> in a connected conversation.") }

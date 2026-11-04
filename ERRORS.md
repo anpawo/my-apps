@@ -1,6 +1,8 @@
 
 - 04/11/2026: Canonicalize both a directory enumerator root and its files before deriving relative names; Foundation can return /private/var entries for a /var root, corrupting command names and overrides.
 - 04/11/2026: Fixture account selections use explicit account IDs; Settings.save merges existing accounts instead of replacing the list, so index zero can still select Claude.
+- 04/11/2026: Fork preserves the source collaboration mode after opening its new thread; open resets that mode for fresh conversations.
+- 04/11/2026: Question replies retain generated IDs and headers; visible question text can be identical and cannot safely key answers.
 - 04/11/2026: Native instances merge shared settings under a process lock and keep account/thread ownership transactional; failed connections must preserve saved conversations, and each editable record has one window owner. Temporary command drafts belong to their source record and must clear before restoring another conversation; asynchronous restores and rollbacks must retain intervening text and image edits through shared user-edit tracking, and connection startup must stay serialized.
 - 04/11/2026: Freeze source edits during Swift builds, including delegated edits; the compiler rejects files modified while it runs.
 - 04/11/2026: Before installing from a worktree, include every source file changed by concurrent commits; updating only the view can roll back installed behavior.

@@ -581,9 +581,9 @@ final class Session: ObservableObject {
             var response = result
             if request.params["vcxQuestionTool"] as? Bool == true {
                 let values = result["answers"] as? [String: JSON] ?? [:]
-                var answers: [String: [String]] = [:]
+                var answers: [JSON] = []
                 for question in request.params["questions"] as? [JSON] ?? [] {
-                    if let id = question["id"] as? String, let text = question["question"] as? String, let value = values[id]?["answers"] as? [String] { answers[text] = value }
+                    if let id = question["id"] as? String, let value = values[id]?["answers"] as? [String] { answers.append(["id": id, "question": question["question"] as? String ?? "", "header": question["header"] as? String ?? "", "answers": value]) }
                 }
                 let text = String(decoding: try JSONSerialization.data(withJSONObject: ["answers": answers, "cancelled": answers.isEmpty]), as: UTF8.self)
                 response = ["success": !answers.isEmpty, "contentItems": [["type": "inputText", "text": text]]]

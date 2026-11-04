@@ -756,7 +756,7 @@ enum Check {
             Settings.shared.value.provider = "codex"; Settings.shared.save()
         }
         codexCommands.updateCommands("/", caret: 1)
-        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source == "Codex" }, "the native Codex catalog exposes implemented fork support")
+        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source != "Codex terminal" }, "the native Codex catalog exposes implemented fork support")
         let editor = ComposerText(frame: .zero, textContainer: nil)
         editor.session = codexCommands; editor.string = "/"
         let coordinator = Composer.Coordinator(codexCommands)

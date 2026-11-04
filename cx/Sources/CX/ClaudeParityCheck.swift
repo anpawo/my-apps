@@ -89,15 +89,20 @@ enum ClaudeParityCheck {
         await session.command("/rename Parity fixture")
         check(session.conversationName == "Parity fixture" && session.nativeRecent().first?.title == "Parity fixture" && connection.renamed?["name"] as? String == "Parity fixture", "conversation rename persists in both Codex and the vcx catalog")
         let originalRecord = session.currentConversationID
+        session.planning = true
         connection.forkID = "parity-fork"
         await session.command("/claude:fork")
         check(session.currentConversationID != originalRecord && connection.opened.last?["threadId"] as? String == "parity-fork", "fork switches to a separate conversation on the active account")
+        check(session.planning && session.conversationName == "Parity fixture", "fork retains plan mode and the source conversation name")
+        await session.send(text: "Continue planning", images: [])
+        check((connection.sent.last?["collaborationMode"] as? JSON)?["mode"] as? String == "plan", "the first forked turn remains in plan mode")
+        for _ in 0..<100 where session.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
         session.updateCommands("/", caret: 1)
         check(session.commandOptions.contains { $0.name == "/memory" && $0.source == "Claude compatibility" }, "Claude aliases remain discoverable on Codex")
         check((connection.opened.first?["dynamicTools"] as? [JSON])?.first?["name"] as? String == "AskUserQuestion", "normal Codex conversations expose the Claude question tool")
         let options: [JSON] = [["label": "First", "description": "First choice"], ["label": "Second", "description": "Second choice"]]
         let question: JSON = ["question": "Which choices?", "header": "Choices", "multiSelect": true, "options": options]
-        let call: JSON = ["tool": "AskUserQuestion", "arguments": ["questions": [question]], "threadId": session.threadID ?? ""]
+        let call: JSON = ["tool": "AskUserQuestion", "arguments": ["questions": [question]], "threadId": session.threadID ?? "", "callId": "fixture-question-call", "turnId": "fixture-turn"]
         session.event(["id": "question-call", "method": "item/tool/call", "params": call])
         check(session.permissions.count == 1 && session.permissions.first?.method == "item/tool/requestUserInput", "question calls use the existing inline question interface")
         let pending = session.permissions[0]
@@ -110,10 +115,27 @@ enum ClaudeParityCheck {
         session.event(["id": "cancel-question", "method": "item/tool/call", "params": call])
         session.answer(session.permissions[0], result: ["answers": [:]])
         check(connection.responses.last?["success"] as? Bool == false && session.permissions.isEmpty, "cancellation resolves the tool without inventing an answer")
+        var duplicate = call
+        duplicate["arguments"] = ["questions": [question, question.merging(["header": "Other choices"]) { _, value in value }]]
+        session.event(["id": "duplicate-question", "method": "item/tool/call", "params": duplicate])
+        session.answer(session.permissions[0], result: ["answers": ["question-0": ["answers": ["First"]], "question-1": ["answers": ["Second"]]]])
+        let duplicateText = (connection.responses.last?["contentItems"] as? [JSON])?.first?["text"] as! String
+        let duplicateResult = try! JSONSerialization.jsonObject(with: Data(duplicateText.utf8)) as! JSON
+        let duplicateAnswers = duplicateResult["answers"] as! [JSON]
+        check(duplicateAnswers.count == 2 && duplicateAnswers.map { $0["id"] as! String } == ["question-0", "question-1"] && duplicateAnswers.last?["header"] as? String == "Other choices", "identically worded questions retain separate identities, headers, and answers")
         var invalid = call; invalid["arguments"] = ["questions": []]
         session.event(["id": "invalid-question", "method": "item/tool/call", "params": invalid])
         check(connection.responses.last?["success"] as? Bool == false && session.permissions.isEmpty, "malformed question calls fail without blocking the conversation")
+        let catalogRequests = connection.catalogRequests
+        await session.command("/reload-skills")
+        check(connection.catalogRequests > catalogRequests, "reload-skills refreshes the catalog instead of displaying cached entries")
+        let savedConversation = session.currentConversationID
         session.close()
+        let restored = Session(cwd: child.path, stateDirectory: root.appendingPathComponent("state"))
+        restored.connectionFactory = { account, _ in FixtureConnection(account) }
+        await restored.connect(resume: savedConversation)
+        check(restored.planning && restored.conversationName == "Parity fixture", "saved conversations restore planning and their explicit name")
+        restored.close()
         print("\(count) Claude-to-Codex parity checks passed")
     }
 }
