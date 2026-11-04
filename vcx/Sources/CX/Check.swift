@@ -1365,8 +1365,23 @@ final class FixtureConnection: Connection {
 struct AppIcon: View {
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 185, style: .continuous).fill(userGradient).frame(width: 824, height: 824)
-            Text("vcx").font(.system(size: 270, weight: .bold, design: .rounded)).tracking(-16).foregroundStyle(.white).offset(x: -8)
+            RoundedRectangle(cornerRadius: 185, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.24, green: 0.25, blue: 0.28), Color(red: 0.09, green: 0.09, blue: 0.11)], startPoint: .top, endPoint: .bottom))
+                .frame(width: 824, height: 824)
+            Path { path in
+                path.move(to: CGPoint(x: 30, y: 36))
+                path.addLine(to: CGPoint(x: 104, y: 224))
+                path.addLine(to: CGPoint(x: 178, y: 36))
+                path.move(to: CGPoint(x: 310, y: 55))
+                path.addCurve(to: CGPoint(x: 242, y: 45), control1: CGPoint(x: 282, y: 22), control2: CGPoint(x: 274, y: 20))
+                path.addCurve(to: CGPoint(x: 240, y: 208), control1: CGPoint(x: 199, y: 77), control2: CGPoint(x: 202, y: 169))
+                path.addCurve(to: CGPoint(x: 323, y: 213), control1: CGPoint(x: 262, y: 231), control2: CGPoint(x: 298, y: 236))
+                path.addLine(to: CGPoint(x: 500, y: 36))
+                path.move(to: CGPoint(x: 363, y: 36))
+                path.addLine(to: CGPoint(x: 500, y: 224))
+            }
+            .stroke(.white, style: StrokeStyle(lineWidth: 32, lineCap: .round, lineJoin: .round))
+            .frame(width: 530, height: 260)
         }
     }
 }
