@@ -168,7 +168,7 @@ final class Session: ObservableObject {
             .replacingOccurrences(of: "-", with: " ").capitalized
     }
     var contextLabel: String {
-        guard let limit = contextLimit, limit > 0 else { return "0% token - ?" }
+        guard let limit = contextLimit, limit > 0 else { return "\((contextUsed ?? 0).formatted()) tokens" }
         let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%gK", Double(limit) / 1000)
         let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "0"
         return percentage + "% token - " + capacity
@@ -231,9 +231,19 @@ final class Session: ObservableObject {
                 return (id, effort)
             }, uniquingKeysWith: { first, _ in first })
             if defaultEffort == nil { defaultEffort = modelDefaultEfforts[model] }
+            if contextLimit == nil { await refreshContextLimit() }
             await refreshUsage()
             await refreshCapabilities()
         } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
+    }
+
+    private func refreshContextLimit() async {
+        guard account.provider == "codex" else { return }
+        let connection = rpc, selectedModel = model
+        let result = try? await connection.request("config/read", ["cwd": cwd, "includeLayers": false], timeout: 5)
+        guard rpc === connection, model == selectedModel, contextLimit == nil else { return }
+        let home = agentEnvironment(account)["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex"
+        contextLimit = codexContextWindow(model: model, home: home, configured: (result?["config"] as? JSON)?["model_context_window"] as? Int)
     }
 
     func refreshUsage(force: Bool = true) async {
@@ -466,7 +476,7 @@ final class Session: ObservableObject {
                 let countdown: String
                 if reset <= Date().timeIntervalSince1970 { countdown = "now" }
                 else if minutes == 10080 {
-                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE HH'h'"
+                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE d MMM HH:mm z"
                     countdown = formatter.string(from: Date(timeIntervalSince1970: reset))
                 } else { countdown = [(remaining / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }.joined() }
                 text += " - reset " + (countdown.isEmpty ? "0m" : countdown)
@@ -573,6 +583,8 @@ final class Session: ObservableObject {
         guard !disabled else { return }
         guard models.contains(value) else { notice("Unknown model. Choose one from the model menu."); return }
         changing = true; defer { changing = false }
+        let previousContextLimit = contextLimit
+        if account.provider == "codex", value != model { contextLimit = nil }
         do {
             var params: JSON = ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
             params["effort"] = selectedEffort as Any? ?? NSNull()
@@ -580,7 +592,11 @@ final class Session: ObservableObject {
             model = result["model"] as? String ?? value
             defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : modelDefaultEfforts[model])
             effort = selectedEffort
-        } catch { notice(error.localizedDescription) }
+            if contextLimit == nil { await refreshContextLimit() }
+        } catch {
+            if contextLimit == nil { contextLimit = previousContextLimit }
+            notice(error.localizedDescription)
+        }
     }
 
     private func activateAvailable(keepRows: Bool) async throws {

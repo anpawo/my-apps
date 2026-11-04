@@ -196,6 +196,9 @@ enum Check {
         effortSession.models = ["other-model"]
         await effortSession.changeModel("other-model")
         check(effortSession.modelStatusLabel == "Other Model - high", "Claude model changes restore the configured default effort")
+        effortSession.contextLimit = 1000000
+        await effortSession.changeModel("other-model", effort: "high")
+        check(effortSession.contextLimit == 1000000, "Claude effort changes retain reported context capacity")
         effortSession.close()
         let codexDefaults = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-effort-state"))
         codexDefaults.connectionFactory = { account, _ in FixtureConnection(account) }
@@ -687,9 +690,41 @@ enum Check {
         codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
         check(codexCommands.contextLabel == "24% token - 1M", "context matches the Claude Code status line")
         codexCommands.contextLimit = nil
-        check(codexCommands.contextLabel == "0% token - ?", "unknown context displays zero usage without inventing capacity")
+        check(codexCommands.contextLabel == "240,000 tokens", "unreported capacity retains the known token count without a placeholder")
         codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
         check(codexCommands.contextLabel == "0% token - 1M", "unreported token usage defaults to zero")
+        do {
+            let home = directory.appendingPathComponent("codex-context")
+            try! FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            let cache: JSON = ["models": [["slug": "fixture-model", "context_window": 500000, "effective_context_window_percent": 95] as JSON, ["slug": "other-model", "context_window": 1000000, "effective_context_window_percent": 95] as JSON]]
+            try! JSONSerialization.data(withJSONObject: cache).write(to: home.appendingPathComponent("models_cache.json"))
+            check(codexContextWindow(model: "fixture-model", home: home.path) == 475000, "Codex capacity uses the catalog and its effective context percentage")
+            check(codexContextWindow(model: "fixture-model", home: home.path, configured: 1000000) == 950000, "configured Codex capacity overrides the catalog size")
+            check(codexContextWindow(model: "unknown", home: home.path) == nil, "unknown models do not borrow another capacity")
+            check(codexContextWindow(model: "fixture-model", home: directory.path) == nil, "missing catalogs do not invent capacity")
+            let contextSession = Session(cwd: directory.path, stateDirectory: home.appendingPathComponent("state"))
+            contextSession.connectionFactory = { account, _ in FixtureConnection(account) }
+            let savedAccounts = Settings.shared.value.accounts
+            Settings.shared.value.accounts = [Account(id: "codex-context", name: "Fixture", provider: "codex", home: home.path)]
+            await contextSession.connect(resume: nil)
+            check(contextSession.contextLabel == "0% token - 475K", "Codex capacity is available before the first turn")
+            contextSession.models.append("other-model")
+            (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = 900000
+            await contextSession.changeModel("other-model")
+            check(contextSession.contextLimit == 900000, "live capacity arriving during config lookup takes precedence over cached metadata")
+            (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = nil
+            (contextSession.rpc as? FixtureConnection)?.contextDuringResume = 800000
+            await contextSession.changeModel("fixture-model")
+            check(contextSession.contextLimit == 800000, "live capacity arriving during model resume takes precedence over cached metadata")
+            (contextSession.rpc as? FixtureConnection)?.contextDuringResume = nil
+            await contextSession.changeModel("fixture-model", effort: "high")
+            check(contextSession.contextLimit == 800000, "Codex effort-only changes preserve live capacity")
+            (contextSession.rpc as? FixtureConnection)?.failResume = true
+            await contextSession.changeModel("other-model")
+            check(contextSession.model == "fixture-model" && contextSession.contextLimit == 800000, "failed model switches restore the previous capacity")
+            contextSession.close()
+            Settings.shared.value.accounts = savedAccounts
+        }
         let claudeContext = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: directory.path)
         let usageDisplay = Session(cwd: directory.path)
         claudeContext.usageReader = { account in
@@ -701,7 +736,9 @@ enum Check {
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage.hasPrefix("100% wk - reset ") && usageDisplay.usage.hasSuffix("h"), "inactive Claude windows show weekly usage with a weekday reset")
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE d MMM HH:mm z"
+            let expectedReset = formatter.string(from: Date(timeIntervalSince1970: (rate["secondary"] as! JSON)["resetsAt"] as! Double))
+            check(usageDisplay.usage == "100% wk - reset " + expectedReset, "weekly reset includes the full date, minutes and local timezone")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
@@ -919,6 +956,8 @@ enum Render {
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
+        session.contextUsed = 0; session.contextLimit = 475000
+        session.updateUsage(["primary": ["usedPercent": 11.0, "windowDurationMins": 10080, "resetsAt": 1794357394.0] as JSON])
         session.repositoryStatus = "uncommitted"
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
@@ -961,6 +1000,9 @@ final class FixtureConnection: Connection {
     var startDelay: UInt64 = 0
     var catalogDelay: UInt64 = 0
     var catalogRequests = 0
+    var contextDuringConfig: Int?
+    var contextDuringResume: Int?
+    var failResume = false
     var failStart = false
     var failSend = false
     var limit = false
@@ -971,7 +1013,15 @@ final class FixtureConnection: Connection {
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
     func request(_ method: String, _ params: JSON, timeout: Double) async throws -> JSON {
         switch method {
-        case "thread/start", "thread/resume": opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
+        case "config/read":
+            if let contextDuringConfig { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringConfig]]]) }
+            return [:]
+        case "thread/start", "thread/resume":
+            if method == "thread/resume" {
+                if failResume { throw CXError(message: "Expected resume failure") }
+                if let contextDuringResume { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringResume]]]) }
+            }
+            opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
         case "thread/list":
             catalogRequests += 1
             if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }

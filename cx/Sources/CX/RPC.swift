@@ -2,6 +2,16 @@ import Foundation
 
 typealias JSON = [String: Any]
 
+func codexContextWindow(model: String, home: String, configured: Int? = nil) -> Int? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("models_cache.json")),
+          let cache = try? JSONSerialization.jsonObject(with: data) as? JSON,
+          let entry = (cache["models"] as? [JSON])?.first(where: { $0["slug"] as? String == model }),
+          let window = configured ?? entry["context_window"] as? Int, window > 0 else { return nil }
+    let percent = entry["effective_context_window_percent"] as? Int ?? 100
+    guard percent > 0, percent <= 100 else { return nil }
+    return window * percent / 100
+}
+
 struct CXError: LocalizedError {
     let message: String
     var errorDescription: String? { message }

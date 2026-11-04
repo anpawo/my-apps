@@ -9,4 +9,6 @@
 - 04/11/2026: Asynchronous selection checks wait for command completion, not a selected value that may already equal the target.
 - 04/11/2026: Scope new fixture variables in Check.run in a do block; shared local names can collide with later checks and fail compilation.
 - 04/11/2026: A local Swift function's default argument cannot capture an outer local; use a nil default and resolve it in the function body.
+- 04/11/2026: Session.connectionFactory fixture closures name both account and cwd arguments; omitting one produces an opaque Swift compiler diagnostic.
+- 04/11/2026: Capacity metadata fallbacks recheck live context after awaiting and invalidate only their own provider; otherwise live values and other providers lose their reported capacity.
 - 04/11/2026: Git merge takes a commit reference; use git -C to address a worktree path.

@@ -128,7 +128,7 @@ struct CXView: View {
                 }
             } else { session.statusCommand(command) }
         } label: {
-            Text(value).font(.system(size: 13, weight: .medium)).foregroundStyle(color).lineLimit(1).fixedSize()
+            Text(value).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
@@ -226,24 +226,16 @@ struct CXView: View {
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop() } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.09), lineWidth: 1))
-            ViewThatFits(in: .horizontal) {
-                statusBar
-                VStack(alignment: .leading, spacing: 8) {
-                    ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
-                    ViewThatFits(in: .horizontal) {
-                        usageStatus
-                        VStack(alignment: .leading, spacing: 8) {
-                            ViewThatFits(in: .horizontal) { quotaStatus; ScrollView(.horizontal) { quotaStatus } }
-                            repositoryStatus
-                        }
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.padding(.leading, 10)
+            statusBar.padding(.leading, 10)
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
 
     private var statusBar: some View {
-        HStack(spacing: 8) { identityStatus; separator; usageStatus }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
+            ViewThatFits(in: .horizontal) { usageStatus; ScrollView(.horizontal) { usageStatus } }
+            ViewThatFits(in: .horizontal) { quotaStatus; ScrollView(.horizontal) { quotaStatus } }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var identityStatus: some View {
         HStack(spacing: 8) {
@@ -257,19 +249,19 @@ struct CXView: View {
         }
     }
     private var usageStatus: some View {
-        HStack(spacing: 8) { quotaStatus; separator; repositoryStatus }
-    }
-    private var quotaStatus: some View {
         HStack(spacing: 8) {
             setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.36, green: 0.66, blue: 1))
             separator
-            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.8, brightness: 0.9) } ?? .white.opacity(0.45))
+            repositoryStatus
         }
+    }
+    private var quotaStatus: some View {
+        setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.8, brightness: 0.9) } ?? .white.opacity(0.45))
     }
     private var repositoryStatus: some View {
         setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 215/255, green: 95/255, blue: 135/255) : session.repositoryStatus == "unpushed" ? Color(red: 215/255, green: 175/255, blue: 95/255) : session.repositoryStatus == "up to date" ? Color(red: 95/255, green: 175/255, blue: 95/255) : .white.opacity(0.45))
     }
-    private var separator: some View { Text("|").font(.system(size: 13)).foregroundStyle(.white.opacity(0.25)) }
+    private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.25)) }
 }
 
 struct ActivityDot: View {
