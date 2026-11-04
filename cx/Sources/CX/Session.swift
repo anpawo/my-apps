@@ -1075,7 +1075,8 @@ final class Session: ObservableObject {
     func applyInterruptedRecovery(_ state: JSON) {
         applyRuntimeDraft(state)
         busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll(); pendingInput = nil
-        needsAttention = true; status = "Interrupted"
+        needsAttention = needsAttention || state["interrupted"] as? Bool == true
+        if needsAttention { status = "Interrupted" }
         notice("Recovered saved conversation and unsent draft. The runtime was interrupted; previous tools were not replayed.")
     }
 

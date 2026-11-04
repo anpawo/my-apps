@@ -108,6 +108,12 @@ enum BugCheck {
         await backendSession.send(text: "close fixture", images: [])
         _ = try await backend.perform(action: "close", params: [:])
         check(!backendSession.busy && backendSession.needsAttention && backendSession.rows.last?.items.first?.text.contains("Close Session") == true, "closing records why active work stopped")
+        let recovered = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("recovered"))
+        recovered.applyInterruptedRecovery(["interrupted": false])
+        check(!recovered.needsAttention, "recovering an idle runtime does not report interrupted work")
+        recovered.applyInterruptedRecovery(["interrupted": true])
+        check(recovered.needsAttention, "recovering active work requests attention")
+        recovered.close()
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }
