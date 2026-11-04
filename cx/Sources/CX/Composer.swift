@@ -21,7 +21,7 @@ final class ImageChip: NSTextAttachment {
     init(path: String, number: Int) {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
-        let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
+        let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
         let image = NSImage(size: NSSize(width: label.size().width + 42, height: 18), flipped: false) { rect in
             NSColor.white.withAlphaComponent(0.15).setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 0), xRadius: 6, yRadius: 6).fill()
@@ -153,10 +153,10 @@ final class ComposerText: NSTextView {
     var resized: () -> Void = {}
     override init(frame: NSRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
-        font = .systemFont(ofSize: 16); textColor = .white; insertionPointColor = .white
+        font = .monospacedSystemFont(ofSize: 16, weight: .regular); textColor = .white; insertionPointColor = .white
         drawsBackground = false; isRichText = true; importsGraphics = false; allowsUndo = true; usesFontPanel = false
         textContainerInset = .zero
-        typingAttributes = [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white]
         isVerticallyResizable = true; isHorizontallyResizable = false; autoresizingMask = [.width]
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textContainer?.widthTracksTextView = true
@@ -166,14 +166,15 @@ final class ComposerText: NSTextView {
     required init?(coder: NSCoder) { nil }
     func setDraft(_ draft: NSAttributedString) {
         textStorage?.setAttributedString(draft)
+        textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), range: NSRange(location: 0, length: draft.length))
         textColor = .white
-        typingAttributes = [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white]
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands · drop an image…", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands · drop an image…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {

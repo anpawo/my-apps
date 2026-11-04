@@ -484,7 +484,7 @@ final class Session: ObservableObject {
                 let countdown: String
                 if reset <= Date().timeIntervalSince1970 { countdown = "now" }
                 else if minutes == 10080 {
-                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE d MMM HH:mm z"
+                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Europe/Paris"); formatter.dateFormat = "EEE H'h'"
                     countdown = formatter.string(from: Date(timeIntervalSince1970: reset))
                 } else { countdown = [(remaining / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }.joined() }
                 text += " - reset " + (countdown.isEmpty ? "0m" : countdown)

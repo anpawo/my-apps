@@ -799,10 +799,10 @@ enum Check {
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE d MMM HH:mm z"
-            let expectedReset = formatter.string(from: Date(timeIntervalSince1970: (rate["secondary"] as! JSON)["resetsAt"] as! Double))
-            check(usageDisplay.usage == "100% wk - reset " + expectedReset, "weekly reset includes the full date, minutes and local timezone")
+            check(usageDisplay.usage == "100% wk - reset Wed 17h", "weekly reset shows the weekday and Paris hour in winter")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
+            usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
+            check(usageDisplay.usage == "10% wk - reset Sat 18h", "weekly reset follows Paris daylight saving time")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")

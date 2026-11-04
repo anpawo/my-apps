@@ -65,6 +65,7 @@ struct CXView: View {
                     .zIndex(1)
             }
         }
+        .fontDesign(.monospaced)
         .foregroundStyle(.white.opacity(0.92))
         .background(Color(red: 0.035, green: 0.035, blue: 0.045))
         .preferredColorScheme(.dark)
@@ -241,11 +242,9 @@ struct CXView: View {
         HStack(spacing: 8) {
             setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 0.55, green: 0.64, blue: 1))
             separator
-            setting("Provider", value: session.providerLabel, command: "/model ", color: .green)
+            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 1, green: 0.47, blue: 0.78))
             separator
             setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: .red)
-            separator
-            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 1, green: 0.47, blue: 0.78))
         }
     }
     private var usageStatus: some View {
