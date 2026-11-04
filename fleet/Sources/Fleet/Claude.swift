@@ -429,8 +429,12 @@ enum Claude {
                 let stdout = output.finish()
                 let stderr = errors.finish()
                 guard proc.terminationStatus == 0 else {
-                    continuation.resume(throwing: Failure.failed(
-                        stderr.isEmpty ? "exit \(proc.terminationStatus)" : stderr))
+                    // `-p --output-format json` exits 1 with the reason in the stdout envelope's
+                    // `result`, stderr empty or a log tag (probed 2026-11-04): three Reels gave
+                    // up overnight on "exit 1" alone, the reason thrown away.
+                    let reply = (try? JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any])?["result"] as? String
+                    let why = [reply ?? "", stderr, stdout].first { !$0.isEmpty } ?? "exit \(proc.terminationStatus)"
+                    continuation.resume(throwing: Failure.failed(why))
                     return
                 }
                 do {
