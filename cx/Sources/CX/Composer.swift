@@ -71,13 +71,15 @@ func pastedPieces(_ source: String) -> [InputPiece] {
 
 struct Composer: NSViewRepresentable {
     @ObservedObject var session: Session
-    var willSubmit: (String, [String]) -> Void = { _, _ in }
+    var hidingPlaceholder = false
+    var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     func makeCoordinator() -> Coordinator { Coordinator(session) }
     func makeNSView(context: Context) -> NSScrollView {
         let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
+        field.hidingPlaceholder = hidingPlaceholder
         field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         field.setDraft(session.draft)
@@ -91,6 +93,7 @@ struct Composer: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let field = scroll.documentView as? ComposerText else { return }
+        if field.hidingPlaceholder != hidingPlaceholder { field.hidingPlaceholder = hidingPlaceholder; field.needsDisplay = true }
         field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         guard context.coordinator.revision != session.draftRevision else { return }
@@ -150,9 +153,15 @@ struct Composer: NSViewRepresentable {
     }
 }
 
+struct ComposerSnapshot {
+    let image: NSImage
+    let bounds: CGRect
+}
+
 final class ComposerText: NSTextView {
     weak var session: Session?
-    var willSubmit: (String, [String]) -> Void = { _, _ in }
+    var hidingPlaceholder = false
+    var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     var heldStorage: NSTextStorage?
     var resized: () -> Void = {}
     override init(frame: NSRect, textContainer: NSTextContainer?) {
@@ -180,7 +189,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
@@ -239,11 +248,23 @@ final class ComposerText: NSTextView {
         }
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), images)
     }
+    func sendSnapshot() -> ComposerSnapshot? {
+        guard let manager = layoutManager, let container = textContainer else { return nil }
+        manager.ensureLayout(for: container)
+        let visible = visibleRect
+        let glyphs = manager.glyphRange(forBoundingRect: visible.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y), in: container)
+        let rect = manager.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y).intersection(visible).integral
+        guard !rect.isEmpty, let bitmap = bitmapImageRepForCachingDisplay(in: rect) else { return nil }
+        cacheDisplay(in: rect, to: bitmap)
+        let image = NSImage(size: rect.size)
+        image.addRepresentation(bitmap)
+        return ComposerSnapshot(image: image, bounds: rect.offsetBy(dx: -visible.minX, dy: -visible.minY))
+    }
     func submit() {
         guard let session, !session.frontendReplacing else { return }
         let (text, images) = message()
         let draft = NSAttributedString(attributedString: session.draft), generation = session.draftGeneration
-        if session.ready, !session.changing, !text.hasPrefix("/"), !text.isEmpty || !images.isEmpty { willSubmit(text, images) }
+        if session.ready, !session.changing, !text.hasPrefix("/"), !text.isEmpty || !images.isEmpty { willSubmit(text, images, sendSnapshot()) }
         Task { await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation) }
     }
 }

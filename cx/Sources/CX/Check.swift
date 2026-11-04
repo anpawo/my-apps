@@ -999,7 +999,7 @@ enum Check {
             let field = ComposerText(frame: .zero, textContainer: container)
             field.heldStorage = storage; field.session = submission
             var prepared = false
-            field.willSubmit = { text, images in prepared = text == "Animate this message" && images.isEmpty }
+            field.willSubmit = { text, images, _ in prepared = text == "Animate this message" && images.isEmpty }
             submission.editDraft(NSAttributedString(string: "Animate this message")); field.setDraft(submission.draft)
             let input = Composer.Coordinator(submission)
             check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && prepared, "Return prepares the composer morph before sending")
@@ -1216,14 +1216,47 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
         write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
-        let flightItem = Item(["content": [["type": "text", "text": "Move this text smoothly into the conversation."]]])
-        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
-            write(ZStack(alignment: .topLeading) {
-                Color.white
-                FlyingMessage(item: flightItem, origin: CGRect(x: 40, y: 500, width: 700, height: 60), destination: CGRect(x: 360, y: 100, width: 380, height: 60), progress: progress)
-            }, size: CGSize(width: 780, height: 600), path: directory + "/send-\(Int(progress * 100)).png")
-        }
+        motion(directory: directory, name: "short", text: "Move this message into the chat.")
+        motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
+    }
+    static func motion(directory: String, name: String, text: String) {
+        let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/motion-" + name))
+        session.ready = true; session.status = "Ready"
+        session.draft = NSAttributedString(string: text)
+        let animation = SendAnimation()
+        let host = NSHostingView(rootView: CXView(session: session, sending: animation))
+        host.appearance = NSAppearance(named: .aqua)
+        host.sizingOptions = []
+        host.frame = CGRect(x: 0, y: 0, width: 780, height: 560)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
+        func editor(_ view: NSView) -> ComposerText? {
+            if let field = view as? ComposerText { return field }
+            return view.subviews.lazy.compactMap { editor($0) }.first
+        }
+        guard let field = editor(host), let snapshot = field.sendSnapshot() else { fatalError("Composer snapshot is missing") }
+        field.willSubmit(text, [], snapshot)
+        session.draft = NSAttributedString(string: ""); session.draftRevision += 1
+        session.show(["id": "motion-message", "type": "userMessage", "content": [["type": "text", "text": text]]])
+        session.revision += 1
+        let start = Date()
+        var samples: [JSON] = []
+        for index in 0..<75 {
+            RunLoop.main.run(until: start.addingTimeInterval(Double(index) / 60))
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("Motion capture failed") }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let file = String(format: "/send-%@-%03d.png", name, index)
+            try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory + file))
+            samples.append(["time": Date().timeIntervalSince(start), "flying": animation.flight != nil, "frame": [animation.frame.minX, animation.frame.minY, animation.frame.width, animation.frame.height], "blend": animation.blend, "textScale": animation.textScale])
+        }
+        try! JSONSerialization.data(withJSONObject: samples).write(to: URL(fileURLWithPath: directory + "/send-" + name + ".json"))
+        precondition(samples.contains { $0["flying"] as? Bool == true }, "Send animation never started")
+        precondition(animation.flight == nil, "Send animation did not finish")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
         let host = NSHostingView(rootView: view)

@@ -40,6 +40,7 @@
 - 04/11/2026: Headless frontend fixtures disable automatic update discovery and notifications; only the injected launcher may replace them, so verification cannot launch the installed GUI.
 
 - 04/11/2026: AppKit shortcut fixtures use Swift names makeKey() and performKeyEquivalent(with:); Objective-C spellings are unavailable.
+- 04/11/2026: Timed SwiftUI animation captures attach the hosting view to a never-shown window so onAppear runs; staged progress images do not verify the send lifecycle.
 - 04/11/2026: Scope scripted replacements to the intended function; identical draft RPC fragments also occur in thread switching and reconnecting.
 
 - 04/11/2026: Mark nested async fixture peers MainActor explicitly; the enclosing type's actor does not isolate their mutable response dictionaries from main-queue callbacks.

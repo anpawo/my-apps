@@ -63,54 +63,107 @@ final class SendAnimation: ObservableObject {
     struct Flight {
         let item: Item
         let origin: CGRect
-        let destination: CGRect
+        var destination: CGRect
+        let snapshot: ComposerSnapshot?
     }
     @Published var flight: Flight?
-    @Published var progress: CGFloat = 0
+    @Published var frame = CGRect.zero
+    @Published var blend: CGFloat = 0
+    @Published var textScale: CGFloat = 13 / 11
+    @Published private var pending: Pending?
     private var composer = CGRect.zero
-    private var pending: (content: [JSON], previous: Set<String>, origin: CGRect, date: Date)?
+    private var editor = CGRect.zero
+    private var generation = 0
+    private var moving = false
+    private struct Pending {
+        let content: [JSON]
+        let previous: Set<String>
+        let origin: CGRect
+        let snapshot: ComposerSnapshot?
+        let date = Date()
+    }
+    var hasPending: Bool { pending != nil }
 
-    func prepare(text: String, images: [String], rows: [Row]) {
+    func prepare(text: String, images: [String], rows: [Row], snapshot: ComposerSnapshot? = nil) {
         let content: [JSON] = (text.isEmpty ? [] : [["type": "text", "text": text]]) + images.map { ["type": "localImage", "path": $0] }
-        pending = (content, Set(rows.flatMap(\.items).map(\.id)), composer, Date())
+        let origin = snapshot.map { $0.bounds.offsetBy(dx: editor.minX, dy: editor.minY).insetBy(dx: -16, dy: -16) } ?? composer
+        pending = Pending(content: content, previous: Set(rows.flatMap(\.items).map(\.id)), origin: origin, snapshot: snapshot)
+    }
+
+    func hides(_ item: Item) -> Bool {
+        if flight?.item.id == item.id { return true }
+        guard let pending, Date().timeIntervalSince(pending.date) < 5 else { return false }
+        return !pending.previous.contains(item.id) && NSArray(array: item.data["content"] as? [JSON] ?? []).isEqual(to: pending.content)
     }
 
     func update(frames: [String: CGRect], rows: [Row], reduceMotion: Bool) {
         if let frame = frames["composer"] { composer = frame }
-        if let flight, !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) { self.flight = nil }
+        if let frame = frames["editor"] { editor = frame }
+        let viewport = frames["transcript"] ?? CGRect(x: 0, y: 0, width: composer.maxX, height: composer.minY)
+        func target(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: 0, dy: min(0, viewport.maxY - 28 - rect.maxY)) }
+        if let flight {
+            if reduceMotion || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
+                self.flight = nil; generation += 1; moving = false
+            } else if let measured = frames[flight.item.id], target(measured) != flight.destination {
+                let destination = target(measured)
+                self.flight?.destination = destination
+                if moving { move(to: destination) }
+            }
+        }
         guard let pending else { return }
         guard !reduceMotion, Date().timeIntervalSince(pending.date) < 5, pending.origin.width > 0 else { self.pending = nil; return }
         guard let item = rows.filter({ $0.kind == "user" }).flatMap(\.items).first(where: {
             !pending.previous.contains($0.id) && NSArray(array: $0.data["content"] as? [JSON] ?? []).isEqual(to: pending.content)
-        }), let destination = frames[item.id], destination.minY >= 0, destination.maxY <= composer.minY else { return }
+        }), let measured = frames[item.id] else { return }
+        guard measured.height < viewport.height else { self.pending = nil; return }
+        let destination = target(measured)
         self.pending = nil
-        progress = 0
-        flight = Flight(item: item, origin: pending.origin, destination: destination)
-        DispatchQueue.main.async {
-            guard self.flight?.item.id == item.id else { return }
-            withAnimation(.smooth(duration: 0.45)) { self.progress = 1 }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if self.flight?.item.id == item.id { self.flight = nil }
+        generation += 1; moving = false
+        frame = pending.origin; blend = 0; textScale = 13 / 11
+        flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot)
+    }
+
+    func launch() {
+        guard let flight, !moving else { return }
+        moving = true
+        withAnimation(.easeOut(duration: 0.18)) { blend = 1 }
+        move(to: flight.destination)
+    }
+
+    private func move(to destination: CGRect) {
+        generation += 1
+        let current = generation
+        withAnimation(.spring(duration: 0.42, bounce: 0.08), completionCriteria: .removed) {
+            frame = destination; textScale = 1
+        } completion: {
+            guard self.generation == current else { return }
+            self.flight = nil; self.moving = false
         }
     }
 }
 
-struct FlyingMessage: View, Animatable {
-    let item: Item
-    let origin: CGRect
-    let destination: CGRect
-    var progress: CGFloat
-    var animatableData: CGFloat { get { progress } set { progress = newValue } }
-    private func mix(_ start: CGFloat, _ end: CGFloat) -> CGFloat { start + (end - start) * progress }
+struct FlyingMessage: View {
+    let flight: SendAnimation.Flight
+    let frame: CGRect
+    let blend: CGFloat
+    let textScale: CGFloat
+    private var fittedScale: CGFloat {
+        min(textScale, max(0.01, (frame.width - 32) / max(1, flight.destination.width - 32)), max(0.01, (frame.height - 32) / max(1, flight.destination.height - 32)))
+    }
     var body: some View {
-        MessageContent(item: item, fontSize: mix(13, 11))
-            .padding(mix(14, 16))
-            .frame(width: mix(origin.width, destination.width), height: mix(origin.height, destination.height), alignment: .topLeading)
-            .background(Color.black.opacity(0.065 * (1 - progress)))
-            .background(accent.opacity(0.08 * progress))
-            .clipShape(RoundedRectangle(cornerRadius: mix(18, 17)))
-            .offset(x: mix(origin.minX, destination.minX), y: mix(origin.minY, destination.minY))
+        ZStack(alignment: .topLeading) {
+            if let snapshot = flight.snapshot {
+                Image(nsImage: snapshot.image).resizable().frame(width: snapshot.image.size.width, height: snapshot.image.size.height)
+                    .scaleEffect(textScale * 11 / 13, anchor: .topLeading)
+                    .animation(.linear(duration: 0.06)) { $0.opacity(1 - blend) }.offset(x: 16, y: 16)
+            }
+            MessageContent(item: flight.item).frame(width: max(1, flight.destination.width - 32), alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true).scaleEffect(fittedScale, anchor: .topLeading)
+                .animation(.linear(duration: 0.06)) { $0.opacity(flight.snapshot == nil ? 1 : blend) }.offset(x: 16, y: 16)
+        }.frame(width: frame.width, height: frame.height, alignment: .topLeading)
+            .background(accent.opacity(0.08 * blend), in: RoundedRectangle(cornerRadius: 17))
+            .clipShape(RoundedRectangle(cornerRadius: 17))
+            .offset(x: frame.minX, y: frame.minY)
     }
 }
 
@@ -119,7 +172,7 @@ struct CXView: View {
     @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
     @State private var openCapability: String?
-    @StateObject private var sending = SendAnimation()
+    @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
@@ -157,8 +210,8 @@ struct CXView: View {
         }
         .overlay(alignment: .topLeading) {
             if let flight = sending.flight {
-                FlyingMessage(item: flight.item, origin: flight.origin, destination: flight.destination, progress: sending.progress)
-                    .allowsHitTesting(false).accessibilityHidden(true)
+                FlyingMessage(flight: flight, frame: sending.frame, blend: sending.blend, textScale: sending.textScale)
+                    .id(flight.item.id).onAppear { sending.launch() }.allowsHitTesting(false).accessibilityHidden(true)
             }
         }
         .preferredColorScheme(.light)
@@ -292,7 +345,11 @@ struct CXView: View {
                 } action: { _, distance in if userScrolling { session.follow.userScroll(distance: distance) } }
                 .onChange(of: session.revision) { _, _ in
                     guard session.follow.attached else { return }
-                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                    let animate = !reduceMotion && (sending.hasPending || sending.flight != nil)
+                    DispatchQueue.main.async {
+                        if animate { withAnimation(.spring(duration: 0.42, bounce: 0.08)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+                        else { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
                 }
                 .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
                 if !session.follow.attached {
@@ -302,6 +359,7 @@ struct CXView: View {
                 }
             }
         }
+        .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["transcript": geometry.frame(in: .named("conversation"))]) })
     }
 
     private var composer: some View {
@@ -309,15 +367,16 @@ struct CXView: View {
             HStack(spacing: 8) {
                 ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
                 Text(session.busy ? "Thinking" : session.needsAttention ? session.status : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5).opacity(sending.flight == nil ? 1 : 0)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(alignment: .bottom, spacing: 12) {
-                Composer(session: session) { text, images in
-                    sending.prepare(text: text, images: images, rows: session.rows)
+                Composer(session: session, hidingPlaceholder: sending.hasPending || sending.flight != nil) { text, images, snapshot in
+                    sending.prepare(text: text, images: images, rows: session.rows, snapshot: snapshot)
                 }.frame(height: session.editorHeight)
+                    .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
@@ -631,19 +690,18 @@ struct UserBubble: View {
             MessageContent(item: item) { session.preview = $0 }
                 .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: [item.id: geometry.frame(in: .named("conversation"))]) })
-                .opacity(sending.flight?.item.id == item.id ? 0 : 1)
+                .opacity(sending.hides(item) ? 0 : 1)
         }
     }
 }
 
 struct MessageContent: View {
     @ObservedObject var item: Item
-    var fontSize: CGFloat = 11
     var preview: (String) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
-                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: fontSize, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                 else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
                 else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
             }
