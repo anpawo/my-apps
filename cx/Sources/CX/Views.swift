@@ -1,7 +1,8 @@
 import SwiftUI
 import AppKit
 
-let accent = Color(red: 0.65, green: 0.44, blue: 1)
+let accent = Color(red: 0.43, green: 0.23, blue: 0.75)
+let readyColor = Color(red: 0.1, green: 0.45, blue: 0.18)
 let userGradient = LinearGradient(colors: [Color(red: 0.93, green: 0.23, blue: 0.51), Color(red: 0.55, green: 0.3, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct ConversationSection: Identifiable {
@@ -28,7 +29,7 @@ struct RoundButton: View {
     let label: String
     var action: () -> Void
     var body: some View {
-        Button(action: action) { Image(systemName: icon).font(.system(size: 17.5, weight: .medium)).frame(width: 34, height: 34).background(.white.opacity(0.07), in: Circle()) }
+        Button(action: action) { Image(systemName: icon).font(.system(size: 17.5, weight: .medium)).frame(width: 34, height: 34).background(.black.opacity(0.07), in: Circle()) }
             .buttonStyle(.plain).help(label).accessibilityLabel(label)
     }
 }
@@ -41,15 +42,15 @@ struct CXView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
-            sessionPanel.frame(width: 205)
-            Rectangle().fill(.white.opacity(0.07)).frame(width: 1)
+            sessionPanel.frame(width: 150)
+            Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
             VStack(spacing: 0) {
                 transcript
                     .overlay(alignment: .bottom) {
                         if session.commandQuery != nil {
                             GeometryReader { geometry in
                                 CommandPalette(session: session, maxListHeight: max(40, min(250, geometry.size.height - 90)))
-                                    .frame(maxWidth: 850).padding(.horizontal, 24).padding(.bottom, 8)
+                                    .padding(.horizontal, 24).padding(.bottom, 8)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                             }
                             .transition(reduceMotion ? .opacity : .offset(y: 70).combined(with: .opacity))
@@ -66,9 +67,9 @@ struct CXView: View {
             }
         }
         .fontDesign(.monospaced)
-        .foregroundStyle(.white.opacity(0.92))
-        .background(Color(red: 0.035, green: 0.035, blue: 0.045))
-        .preferredColorScheme(.dark)
+        .foregroundStyle(.black.opacity(0.92))
+        .background(Color.white)
+        .preferredColorScheme(.light)
         .task {
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
@@ -82,7 +83,7 @@ struct CXView: View {
         .overlay {
             if let path = session.preview {
                 ZStack(alignment: .topTrailing) {
-                    Color.black.opacity(0.94)
+                    Color.white.opacity(0.96)
                     if let image = thumbnail(path, size: 1600) { Image(nsImage: image).resizable().scaledToFit().padding(50) }
                     else { Text("This image is no longer available.").frame(maxWidth: .infinity, maxHeight: .infinity) }
                     RoundButton(icon: "xmark", label: "Close image") { session.preview = nil }.padding(20)
@@ -102,23 +103,24 @@ struct CXView: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { session.showingSettings = true } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "gearshape").foregroundStyle(accent.opacity(0.7)).frame(width: 18)
                     Text("SETTINGS").tracking(1.2)
                     Spacer()
-                    Image(systemName: "chevron.right")
-                }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
-                    .padding(20).frame(maxWidth: .infinity).contentShape(Rectangle())
+                }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
+                    .padding(12).frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
+                    .contentShape(Rectangle()).padding(10)
             }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
-            Divider().overlay(.white.opacity(0.04))
+            Divider().overlay(.black.opacity(0.04))
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    capability("Hooks", icon: "arrow.turn.down.right")
-                    capability("Skills", icon: "sparkle")
-                    capability("MCP", icon: "link")
-                    capability("Instructions", icon: "doc.text")
-                }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    capability("Hooks")
+                    capability("Skills")
+                    capability("MCP")
+                    capability("Instructions")
+                }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.background(Color.white.opacity(0.025))
+        }.background(Color.black.opacity(0.025))
     }
 
     private func setting(_ title: String, value: String, command: String, color: Color) -> some View {
@@ -137,16 +139,17 @@ struct CXView: View {
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
-    private func capability(_ title: String, icon: String) -> some View {
+    private func capability(_ title: String) -> some View {
         Button { openCapability = title } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: icon).font(.system(size: 13.75)).foregroundStyle(accent.opacity(0.7)).frame(width: 18)
-                    Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.2)
+                    Text(title == "Instructions" ? ".md" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2)
                     Spacer()
-                    Text("\(session.capabilityItems(title).count)").font(.system(size: 10, design: .monospaced))
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }.foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 20).padding(.vertical, 14)
-                    .frame(maxWidth: .infinity).contentShape(Rectangle())
+                    Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                }.foregroundStyle(.black.opacity(0.75)).padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
+                    .contentShape(Rectangle())
             }.buttonStyle(.plain).help("Browse " + title.lowercased())
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
@@ -161,10 +164,10 @@ struct CXView: View {
                 Button(settings.signingIn ? "Cancel" : "Dismiss") {
                     if settings.signingIn { settings.cancelSignIn() }
                     else { settings.loginMessage = "" }
-                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6))
             }
             ScrollView { Text(settings.loginMessage).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 90)
-        }.padding(14).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 32).padding(.bottom, 8)
+        }.padding(14).background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 32).padding(.bottom, 8)
     }
 
     private var transcript: some View {
@@ -176,7 +179,7 @@ struct CXView: View {
                             VStack(spacing: 16) {
                                 Image(systemName: "sparkle").font(.system(size: 40, weight: .light)).foregroundStyle(accent)
                                 Text("A clear space to build.").font(.system(size: 28, weight: .semibold))
-                                Text("Your code, your agents, one conversation.").font(.system(size: 14)).foregroundStyle(.white.opacity(0.4))
+                                Text("Your code, your agents, one conversation.").font(.system(size: 14)).foregroundStyle(.black.opacity(0.6))
                             }.frame(maxWidth: .infinity).padding(.vertical, 100)
                         }
                         ForEach(conversationSections(session.rows)) { section in
@@ -185,7 +188,7 @@ struct CXView: View {
                             } header: {
                                 if let question = section.question {
                                     ConversationRow(row: question, session: session, details: session.details).equatable()
-                                        .background(Color(red: 0.035, green: 0.035, blue: 0.045))
+                                        .background(Color.white)
                                         .id(question.id)
                                 }
                             }
@@ -217,20 +220,20 @@ struct CXView: View {
     private var composer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Reading")
-                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.busy ? accent : .green)
+                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
+                Text(session.busy ? "Thinking" : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
-                Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
+                Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(alignment: .bottom, spacing: 12) {
                 Composer(session: session).frame(height: session.editorHeight)
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop() } } }
-                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
-            }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.09), lineWidth: 1))
+                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
+            }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
             statusBar.padding(.leading, 10)
-        }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
+        }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
     }
 
     var statusBar: some View {
@@ -240,34 +243,34 @@ struct CXView: View {
                 separator
                 usageStatus
                 separator
-                quotaStatus
+                repositoryStatus
             }.fixedSize()
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var identityStatus: some View {
         HStack(spacing: 8) {
-            setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 0.55, green: 0.64, blue: 1))
+            setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 0.28, green: 0.36, blue: 0.7))
             separator
-            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 1, green: 0.47, blue: 0.78))
+            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 0.68, green: 0.18, blue: 0.45))
             separator
-            setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: .red)
+            setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
         }
     }
     private var usageStatus: some View {
         HStack(spacing: 8) {
-            setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.36, green: 0.66, blue: 1))
+            setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.13, green: 0.39, blue: 0.67))
             separator
-            repositoryStatus
+            quotaStatus
         }
     }
     private var quotaStatus: some View {
-        setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.8, brightness: 0.9) } ?? .white.opacity(0.45))
+        setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.85, brightness: 0.45) } ?? .black.opacity(0.6))
     }
     private var repositoryStatus: some View {
-        setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 215/255, green: 95/255, blue: 135/255) : session.repositoryStatus == "unpushed" ? Color(red: 215/255, green: 175/255, blue: 95/255) : session.repositoryStatus == "up to date" ? Color(red: 95/255, green: 175/255, blue: 95/255) : .white.opacity(0.45))
+        setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 0.68, green: 0.18, blue: 0.38) : session.repositoryStatus == "unpushed" ? Color(red: 0.55, green: 0.36, blue: 0.08) : session.repositoryStatus == "up to date" ? readyColor : .black.opacity(0.6))
     }
-    private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.25)) }
+    private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
 }
 
 struct ActivityDot: NSViewRepresentable {
@@ -280,6 +283,7 @@ struct ActivityDot: NSViewRepresentable {
 
 final class ActivityDotView: NSView {
     private let dot = CALayer()
+    private var busy = false
     private var reduceMotion = false
 
     init() {
@@ -309,16 +313,16 @@ final class ActivityDotView: NSView {
 
     func update(busy: Bool, reduceMotion: Bool) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        dot.backgroundColor = NSColor(busy ? accent : .green).cgColor
+        dot.backgroundColor = NSColor(busy ? accent : readyColor).cgColor
         CATransaction.commit()
-        self.reduceMotion = reduceMotion
+        self.busy = busy; self.reduceMotion = reduceMotion
         updateMotion()
     }
     @objc private func updateMotion() {
         setMoving(!reduceMotion && !isHiddenOrHasHiddenAncestor && window?.occlusionState.contains(.visible) == true)
     }
     func setMoving(_ moving: Bool) {
-        guard moving else { dot.removeAnimation(forKey: "drift"); return }
+        guard moving && busy && !reduceMotion else { dot.removeAnimation(forKey: "drift"); return }
         guard dot.animation(forKey: "drift") == nil else { return }
         let animation = CABasicAnimation(keyPath: "transform.translation.x")
         animation.fromValue = -3; animation.toValue = 3
@@ -337,7 +341,7 @@ struct SettingsPopup: View {
             session.showCommands(command)
         } label: {
             HStack(alignment: .top) {
-                Text(title).foregroundStyle(.white.opacity(0.55))
+                Text(title).foregroundStyle(.black.opacity(0.55))
                 Spacer()
                 Text(value).multilineTextAlignment(.trailing)
             }.font(.system(size: 12)).padding(.vertical, 8).frame(maxWidth: .infinity).contentShape(Rectangle())
@@ -377,7 +381,7 @@ struct SettingsPopup: View {
                     setting("Vision model", settings.value.qwenVisionModel, "/qwen vision ")
                 }.padding(20)
             }
-        }.frame(width: 480, height: 520).background(Color(red: 0.06, green: 0.055, blue: 0.075)).preferredColorScheme(.dark)
+        }.frame(width: 480, height: 520).background(Color(white: 0.98)).preferredColorScheme(.light)
             .onExitCommand { session.showingSettings = false }
     }
 }
@@ -397,14 +401,14 @@ struct CapabilityPopup: View {
                 RoundButton(icon: "xmark", label: "Close " + title.lowercased(), action: dismiss)
             }.padding(14)
             TextField("Search " + title.lowercased(), text: $query).textFieldStyle(.plain).focused($searching)
-                .padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)).padding(.horizontal, 14).padding(.bottom, 12)
+                .padding(10).background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)).padding(.horizontal, 14).padding(.bottom, 12)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(matches) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.name).font(.system(size: 12, weight: .medium))
-                            Text(item.detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                            Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                     }
                     if matches.isEmpty {
@@ -412,7 +416,7 @@ struct CapabilityPopup: View {
                     }
                 }.padding(16)
             }
-        }.frame(width: 380, height: 440).background(Color(red: 0.06, green: 0.055, blue: 0.075)).preferredColorScheme(.dark)
+        }.frame(width: 380, height: 440).background(Color(white: 0.98)).preferredColorScheme(.light)
             .onAppear { searching = true }.onExitCommand(perform: dismiss)
     }
 }
@@ -425,11 +429,11 @@ struct CommandPalette: View {
             HStack {
                 Image(systemName: "command").foregroundStyle(accent)
                 Text("Commands").font(.system(size: 12, weight: .semibold))
-                Text("\(session.commandOptions.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+                Text("\(session.commandOptions.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.black.opacity(0.6))
                 Spacer()
-                Text("esc").font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+                Text("esc").font(.system(size: 10, design: .monospaced)).foregroundStyle(.black.opacity(0.6))
             }.padding(.horizontal, 14).padding(.vertical, 12)
-            Divider().overlay(.white.opacity(0.03))
+            Divider().overlay(.black.opacity(0.03))
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 3) {
@@ -438,14 +442,14 @@ struct CommandPalette: View {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(command.name).font(.system(size: 12, weight: .medium, design: .monospaced)).lineLimit(1)
-                                        Text(command.detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).lineLimit(1)
+                                        Text(command.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).lineLimit(1)
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                     Text(command.source).font(.system(size: 9, weight: .medium)).foregroundStyle(accent.opacity(0.9)).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.1), in: Capsule())
                                 }.padding(.horizontal, 10).padding(.vertical, 9).background(index == session.commandSelection ? accent.opacity(0.17) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
                             }.buttonStyle(.plain).id(command.id)
                         }
                         if session.commandOptions.isEmpty {
-                            Text("No matching commands").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity).padding(.vertical, 25)
+                            Text("No matching commands").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).frame(maxWidth: .infinity).padding(.vertical, 25)
                         }
                     }.padding(6)
                 }
@@ -456,14 +460,14 @@ struct CommandPalette: View {
                     if session.commandOptions.indices.contains(session.commandSelection) { proxy.scrollTo(session.commandOptions[session.commandSelection].id, anchor: .center) }
                 }
             }.frame(height: min(max(CGFloat(session.commandOptions.count) * 51 + 12, 65), maxListHeight))
-            Divider().overlay(.white.opacity(0.03))
+            Divider().overlay(.black.opacity(0.03))
             HStack {
                 Text("↑ ↓ navigate"); Text("Return select"); Text("Tab complete")
                 Spacer(minLength: 0)
-            }.font(.system(size: 9)).foregroundStyle(.white.opacity(0.3)).padding(.horizontal, 14).padding(.vertical, 9)
-        }.background(Color(red: 0.075, green: 0.068, blue: 0.095), in: RoundedRectangle(cornerRadius: 14))
+            }.font(.system(size: 9)).foregroundStyle(.black.opacity(0.6)).padding(.horizontal, 14).padding(.vertical, 9)
+        }.background(Color.white, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(0.22)))
-            .shadow(color: .black.opacity(0.45), radius: 22, y: 8)
+            .shadow(color: .black.opacity(0.12), radius: 22, y: 8)
             .accessibilityLabel("Command suggestions")
     }
 }
@@ -480,11 +484,11 @@ struct ConversationRow: View, Equatable {
                 DisclosureGroup(isExpanded: $expanded) {
                     VStack(alignment: .leading, spacing: 12) { ForEach(row.items) { ActionView(item: $0) } }.padding(.top, 12)
                 } label: { ActivityLabel(items: row.items) }
-                    .tint(.white.opacity(0.35)).padding(14).background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
+                    .tint(.black.opacity(0.35)).padding(14).background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
                     .onChange(of: details) { _, value in expanded = value }.onAppear { expanded = details }
             } else if let item = row.items.first {
                 if row.kind == "user" { UserBubble(item: item, session: session) }
-                else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5)).textSelection(.enabled) }
+                else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
                 else { AssistantBubble(item: item) }
             }
         }
@@ -497,7 +501,7 @@ struct ActivityLabel: View {
         HStack(spacing: 8) {
             Image(systemName: "terminal").font(.system(size: 11))
             Text("\(items.count) \(items.count == 1 ? "action" : "actions")").font(.system(size: 12, weight: .medium))
-        }.foregroundStyle(.white.opacity(0.4))
+        }.foregroundStyle(.black.opacity(0.6))
     }
 }
 
@@ -505,9 +509,9 @@ struct ActionView: View {
     @ObservedObject var item: Item
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right"); Text(item.title).lineLimit(3) }.font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? .orange.opacity(0.8) : .white.opacity(0.65))
-            if !item.output.isEmpty { Text(item.output).font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.45)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-        }.padding(12).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+            HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right"); Text(item.title).lineLimit(3) }.font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
+            if !item.output.isEmpty { Text(item.output).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+        }.padding(12).background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -523,7 +527,7 @@ struct UserBubble: View {
                     else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { session.preview = path } }
                     else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
                 }
-            }.padding(16).background(userGradient, in: RoundedRectangle(cornerRadius: 17))
+            }.padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
         }
     }
 }
@@ -536,10 +540,10 @@ struct PictureView: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 if let image { Image(nsImage: image).resizable().scaledToFill().frame(width: 64, height: 52).clipped().clipShape(RoundedRectangle(cornerRadius: 7)) }
-                else { Image(systemName: "photo").frame(width: 64, height: 52).background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 7)) }
+                else { Image(systemName: "photo").frame(width: 64, height: 52).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 7)) }
                 VStack(alignment: .leading, spacing: 4) { Text("Image").font(.system(size: 12, weight: .semibold)); Text("Click to preview").font(.system(size: 10)).opacity(0.6) }
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).opacity(0.5)
-            }.padding(8).background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
+            }.padding(8).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
         }.buttonStyle(.plain).task(id: path) { image = await Task.detached { thumbnail(path) }.value }
     }
 }
@@ -548,7 +552,7 @@ struct AssistantBubble: View {
     @ObservedObject var item: Item
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 7) { Image(systemName: "sparkle").foregroundStyle(accent); Text(item.data["provider"] as? String ?? "Codex").foregroundStyle(.white.opacity(0.4)) }.font(.system(size: 11, weight: .medium))
+            HStack(spacing: 7) { Image(systemName: "sparkle").foregroundStyle(accent); Text(item.data["provider"] as? String ?? "Codex").foregroundStyle(.black.opacity(0.6)) }.font(.system(size: 11, weight: .medium))
             MarkdownBody(text: item.text.isEmpty ? "…" : item.text)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -584,12 +588,12 @@ struct MarkdownBody: View {
                     VStack(alignment: .leading, spacing: 0) {
                         Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string) } label: {
                             HStack {
-                                Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.white.opacity(0.4)); Spacer()
+                                Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
                                 Image(systemName: "doc.on.doc")
-                            }.padding(10).background(.white.opacity(0.025)).contentShape(Rectangle())
+                            }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Copy code").accessibilityLabel("Copy code")
                         ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) }
-                    }.background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.06)))
+                    }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
                 } else {
                     ProseView(text: block.text)
                 }
@@ -628,7 +632,7 @@ struct PermissionView: View {
                                             HStack(alignment: .top) {
                                                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(accent)
                                                 VStack(alignment: .leading, spacing: 3) { Text(label); Text(option["description"] as? String ?? "").foregroundStyle(.secondary) }
-                                            }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                            }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                                         }.buttonStyle(.plain)
                                     }
                                     if question["isSecret"] as? Bool == true { SecureField("Your answer", text: Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })) }
@@ -654,7 +658,7 @@ struct PermissionView: View {
                             .disabled(request.method == "item/fileChange/requestApproval" && (request.params["changes"] as? [JSON] ?? []).isEmpty)
                     }
                 }
-            }.padding(16).frame(maxWidth: 750).background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.1)))
+            }.padding(16).frame(maxWidth: 750).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.black.opacity(0.1)))
     }
 }
 
@@ -690,13 +694,13 @@ struct ProseView: View {
                                 }
                             }
                         }.padding(14)
-                    }.background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                    }.background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
                 } else if paragraph.hasPrefix("#") {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
                     Text(rich(String(title))).font(.system(size: paragraph.hasPrefix("###") ? 16 : 20, weight: .semibold)).textSelection(.enabled)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
                     Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: ""))).font(.system(size: 14, weight: .medium)).lineSpacing(5).textSelection(.enabled)
-                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background((paragraph.hasPrefix("✓") ? Color.orange : paragraph.contains("Next:") ? Color.blue : Color.green).opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     Text(rich(paragraph)).font(.system(size: 15)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }

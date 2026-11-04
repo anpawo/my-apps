@@ -5,10 +5,12 @@
 - 04/11/2026: Question replies retain generated IDs and headers; visible question text can be identical and cannot safely key answers.
 - 04/11/2026: Native instances merge shared settings under a process lock and keep account/thread ownership transactional; failed connections must preserve saved conversations, and each editable record has one window owner. Temporary command drafts belong to their source record and must clear before restoring another conversation; asynchronous restores and rollbacks must retain intervening text and image edits through shared user-edit tracking, and connection startup must stay serialized.
 - 04/11/2026: Freeze source edits during Swift builds, including delegated edits; the compiler rejects files modified while it runs.
+- 04/11/2026: Initialize Swift property wrappers from local values until every stored property is initialized; fixture calls keep required optional arguments such as `connect(resume: nil)`.
+- 04/11/2026: Compare shell-reported directories after resolving symlinks; a child process reports `/private/var` for a Foundation temporary path under `/var`.
 - 04/11/2026: Before installing from a worktree, include every source file changed by concurrent commits; updating only the view can roll back installed behavior.
 - 04/11/2026: Check saved configuration formats before tightening validation; Jarvis proxy URLs include the socks5h scheme.
 - 04/11/2026: Swift search filters explicitly allow empty queries: String.contains("") and localizedCaseInsensitiveContains("") return false. Standalone probes of Foundation string methods import Foundation.
-- 04/11/2026: Swift usage fixtures need explicit JSON types and isolated display sessions; inferred dictionaries promote integer fields to Double, and exhausted Codex windows persist fallback settings that affect later checks.
+- 04/11/2026: Swift event and usage fixtures need explicit JSON types and isolated sessions; inserted activity rows and persisted fallback settings change later checks, and inferred dictionaries promote integer fields to Double.
 - 04/11/2026: Composer input checks recreate its retained NSTextStorage, NSLayoutManager and NSTextContainer; a standalone ComposerText with a nil container has no storage and cannot test typed text.
 - 04/11/2026: Typed-command fixtures disable showCommands draft preservation; the shortcut default restores the previous draft after execution and changes the behavior under test.
 - 04/11/2026: Wait for the compiler process to exit before running its binary; a yielded build can leave the previous check executable in place.
@@ -25,7 +27,11 @@
 - 04/11/2026: Engine adapters enforce accepted deny flags and preserve variadic caller arguments; silently dropping a restriction changes permissions.
 - 04/11/2026: Codex dotted CLI override keys retain quote characters; pass dynamic MCP names inside a TOML table value instead.
 - 04/11/2026: Add the Codex hook-trust bypass once where hooks are enabled; duplicate flags abort the task before it starts.
+- 04/11/2026: The installed Qwen model can include inline thinking despite think=false; remove the thinking wrapper before returning a background answer.
 - 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.
 - 04/11/2026: Watcher binary updates use kickstart -k on the existing LaunchAgent; replacing its registration is unnecessary.
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
 - 04/11/2026: Replace signed app bundles through a clean staging copy; merging with ditto preserves generated Python caches and invalidates the resource seal.
+- 04/11/2026: After merging concurrent changes into a worktree, read its new HEAD before integrating it; the earlier feature commit still diverges from main.
+- 04/11/2026: Run install-native.py without an outer build-stack wrapper; its nested Swift build otherwise waits on the installer's own queue slot.
+- 04/11/2026: Before cancelling a queued build, verify its ancestry reaches this tool's parent PID; queue position and matching installer names do not establish ownership.

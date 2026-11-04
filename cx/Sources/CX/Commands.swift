@@ -166,7 +166,7 @@ extension Session {
     func showCommands(_ text: String, preserveDraft: Bool = true) {
         guard !changing || !preserveDraft else { notice("Wait for the connection change before opening session settings."); return }
         if preserveDraft, draft.length > 0, savedCommandDraft == nil { savedCommandDraft = draft }
-        editDraft(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]))
+        editDraft(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]))
         commandQuery = text; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0; focusComposer()
     }
     func dismissCommands() {

@@ -112,14 +112,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         session.frontendReplacing = restoreFile != nil
         let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath)
         session.runtimeClient = client
-        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = NSAppearance(named: .aqua)
         window.minSize = NSSize(width: 780, height: 560)
         window.contentView = NSHostingView(rootView: CXView(session: session))
-        window.backgroundColor = NSColor(white: 0.035, alpha: 1)
+        window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
         else { window.setFrameAutosaveName("VCXWindow"); window.center() }
@@ -233,6 +233,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else { createWindow(options) }
     }
     func closeWindow(session: Session) { windows.first { $0.session === session }?.window.performClose(nil) }
+    func updateTitle(session: Session) {
+        windows.first { $0.session === session }?.window.title = session.folder + " · Vibe Code X"
+    }
     func windowDidBecomeKey(_ notification: Notification) { FleetPresence.refreshFocus() }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if terminating || closing.contains(ObjectIdentifier(sender)) { return true }

@@ -54,6 +54,9 @@ enum Check {
             let session = Session(cwd: "/fixture")
             session.model = "gpt-6-astra"; session.effort = "high"
             session.contextLimit = 258400; session.usage = "16% wk - reset 1h"
+            check(session.contextLabel == "0% token - 258K", "context capacity rounds to whole thousands")
+            session.contextLimit = 258600
+            check(session.contextLabel == "0% token - 259K", "context capacity rounds up at half a thousand")
             for width: CGFloat in [300, 540, 840] {
                 let host = NSHostingView(rootView: CXView(session: session).statusBar.frame(width: width))
                 host.layoutSubtreeIfNeeded()
@@ -68,14 +71,19 @@ enum Check {
             view.layoutSubtreeIfNeeded()
             view.update(busy: false, reduceMotion: false)
             let dot = view.layer!.sublayers!.first!
-            check(dot.backgroundColor == NSColor(Color.green).cgColor, "reading dot is green")
+            check(dot.backgroundColor == NSColor(readyColor).cgColor, "ready dot matches the light-theme green")
             check(dot.animationKeys()?.isEmpty != false, "offscreen dot does not animate")
+            view.setMoving(true)
+            check(dot.animationKeys()?.isEmpty != false, "idle dot stays still when visible")
             view.update(busy: true, reduceMotion: false)
             check(dot.backgroundColor == NSColor(accent).cgColor, "thinking dot is purple")
             view.setMoving(true)
             let animation = dot.animation(forKey: "drift") as? CABasicAnimation
             check(animation?.keyPath == "transform.translation.x" && animation?.autoreverses == true && animation?.repeatCount == .infinity, "dot motion uses a repeating compositor animation")
+            view.update(busy: false, reduceMotion: false)
+            check(dot.animationKeys()?.isEmpty != false, "finished turn stops dot animation")
             view.update(busy: true, reduceMotion: true)
+            view.setMoving(true)
             check(dot.animationKeys()?.isEmpty != false, "reduce motion stops dot animation")
         }
         do {
@@ -140,9 +148,9 @@ enum Check {
         inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))
-        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.usingColorSpace(.deviceRGB)?.redComponent ?? 0 > 0.9, "typing after an empty draft remains white")
-        typingField.setDraft(NSAttributedString(string: "Restored text", attributes: [.foregroundColor: NSColor.black]))
-        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .white, "restored composer text is white")
+        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .black, "typing after an empty draft remains black")
+        typingField.setDraft(NSAttributedString(string: "Restored text", attributes: [.foregroundColor: NSColor.white]))
+        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .black, "restored dark-theme drafts use black composer text")
         var follow = FollowState()
         check(follow.attached, "starts attached")
         follow.userScroll(distance: 120); check(!follow.attached, "scroll up detaches")
@@ -244,6 +252,35 @@ enum Check {
         let presenceFile = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
         func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: presenceFile)) as! JSON }
         check(fleetRecord()["state"] as? String == "fresh", "Fleet publishes an unprompted native window")
+        do {
+            let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("directory-fleet-state"))
+            let presence = FleetPresence(session: fleetSession)
+            let file = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
+            func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! JSON }
+            fleetSession.event(["method": "item/completed", "params": ["item": ["id": "project-command", "type": "commandExecution", "command": "pwd", "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+            presence.publish(fleetSession)
+            check(fleetRecord()["cwd"] as? String == repoPath && fleetSession.cwd == repoPath, "successful shell work updates the session and Fleet directory")
+            let target = directory.appendingPathComponent("project with spaces").path
+            try! FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
+            func item(_ command: String, status: String = "completed", exit: Int = 0) -> JSON {
+                ["type": "commandExecution", "command": command, "cwd": directory.path, "status": status, "exitCode": exit]
+            }
+            for command in ["cd '\(target)'", "cd -- \"\(target)\"", "/bin/zsh -lc 'cd \"\(target)\"'", "cd 'project with spaces'"] {
+                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == target, "standalone directory changes support shell wrappers, spaces and relative paths")
+            }
+            for command in ["(cd '\(target)')", "cd '\(target)' && pwd", "echo cd '\(target)'", "cd $(pwd)", "cd '\(target)", "cd /", "cd missing-directory"] {
+                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == nil, "temporary, dynamic, invalid and out-of-scope commands do not move the session")
+            }
+            check(shellDirectory(item("cd '\(target)'", exit: 1), current: repoPath, initial: directory.path) == nil, "failed cd does not change directory")
+            check(shellDirectory(item("cd '\(target)'", status: "inProgress"), current: repoPath, initial: directory.path) == nil, "unfinished cd does not change directory")
+            check(shellDirectory(item("pwd"), current: repoPath, initial: directory.path) == nil, "default shell directories cannot undo an explicit project selection")
+            let snapshotDirectory = fleetSession.nativeDirectory
+            fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(target)'").merging(["id": "cd-project"]) { _, new in new }]])
+            presence.publish(fleetSession)
+            check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
+            check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
+            presence.close(); fleetSession.close()
+        }
         fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
         fleetSession.busy = true
         presence.publish(fleetSession)
@@ -340,6 +377,9 @@ enum Check {
             for _ in 0..<100 where !claudeDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(claudeDone && claudeText == "Hello from ClaudeHello from Claude", "Claude streaming protocol")
             check(claudeStarts == 1 && claudeCompletions == 1, "Claude stays busy until queued guidance is answered")
+            claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
+            claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
+            check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
         } catch { check(false, "Claude integration: " + error.localizedDescription) }
         claude.close()
         let server = Process(), output = Pipe()
@@ -389,6 +429,11 @@ enum Check {
             _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
             for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(bypassDone && !bypassAsked && bypassOutput == "native-tool-check", "Qwen bypass executes without approval")
+            bypassDone = false; bypassOutput = ""
+            _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "DIRECTORY_TOOLS " + repoPath]]])
+            for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
+            let reportedDirectory = URL(fileURLWithPath: bypassOutput.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+            check(bypassDone && bypass.cwd == repoPath && reportedDirectory == URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().path, "Qwen runs the next shell command in the selected directory")
             bypass.close()
             Settings.shared.value = preferences; Settings.shared.value.provider = "qwen"; Settings.shared.save()
             let configured = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-config"))
@@ -537,6 +582,24 @@ enum Check {
         await reopened.connect(resume: "last")
         check(reopened.ready && reopened.draft.string == "Newer draft from first window", "closing a window releases conversation ownership")
         reopened.close()
+        do {
+            let state = directory.appendingPathComponent("directory-resume")
+            let moving = Session(cwd: directory.path, stateDirectory: state)
+            moving.connectionFactory = { account, _ in FixtureConnection(account) }
+            await moving.connect(resume: nil)
+            let conversation = moving.currentConversationID
+            moving.event(["method": "item/completed", "params": ["item": ["id": "cd-resume", "type": "commandExecution", "command": "cd '\(repoPath)'", "cwd": directory.path, "exitCode": 0, "status": "completed"]]])
+            await moving.send(text: "Keep working", images: [])
+            check((moving.rpc as? FixtureConnection)?.sent.last?["cwd"] as? String == repoPath, "the next turn uses the selected project directory")
+            check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
+            moving.close()
+            let resumed = Session(cwd: directory.path, stateDirectory: state)
+            resumed.connectionFactory = { account, _ in FixtureConnection(account) }
+            await resumed.connect(resume: "last")
+            check(resumed.ready && resumed.cwd == repoPath && resumed.currentConversationID == conversation, "resume restores the selected working directory and same conversation")
+            check((resumed.rpc as? FixtureConnection)?.opened.first?["cwd"] as? String == repoPath, "the resumed backend opens in the selected project")
+            resumed.close()
+        }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))
         let envB = agentEnvironment(Account(name: "B", provider: "codex", home: "/tmp/account-b"))
         check(envA["CODEX_HOME"] == "/tmp/account-a" && envB["CODEX_HOME"] == "/tmp/account-b", "account homes stay isolated")
@@ -865,10 +928,12 @@ enum Check {
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage == "100% wk - reset Wed 17h", "weekly reset shows the weekday and Paris hour in winter")
+            check(usageDisplay.usage == "100% wk - reset Wed 17:59", "weekly reset shows the weekday and precise Paris time in winter")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "10% wk - reset Sat 18h", "weekly reset follows Paris daylight saving time")
+            check(usageDisplay.usage == "10% wk - reset Sat 18:59", "weekly reset follows Paris daylight saving time")
+            usageDisplay.updateUsage(["primary": ["usedPercent": 20.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-11-04T17:00:00Z")!.timeIntervalSince1970] as JSON])
+            check(usageDisplay.usage == "20% wk - reset Wed 18:00", "evening weekly reset retains both hour digits")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
@@ -1017,7 +1082,7 @@ enum Render {
         This paragraph must remain below the complete table, with every row readable.
         """
         for width: CGFloat in [420, 760, 1120] {
-            write(MarkdownBody(text: table).padding(24).foregroundStyle(.white).background(Color(white: 0.035)), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
+            write(MarkdownBody(text: table).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
         }
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
@@ -1046,7 +1111,7 @@ enum Render {
         session.show(["id": "user", "type": "userMessage", "content": [["type": "text", "text": "Make the workspace feel like this, with compact image attachments."], ["type": "localImage", "path": imagePath]]])
         session.show(["id": "tool", "type": "commandExecution", "command": "swift build -c release", "status": "completed", "exitCode": 0, "aggregatedOutput": "Build complete."])
         session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nType / to find commands, change settings, or resume a conversation."])
-        let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])
+        let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])
         session.draft = NSAttributedString(attributedString: draft)
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
@@ -1062,11 +1127,12 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
         session.commandQuery = nil
         session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
-        session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]); session.draftRevision += 1
+        session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]); session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
         write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
+        write(CXView(session: empty), size: CGSize(width: 1280, height: 820), path: directory + "/empty-wide.png")
         let modelMenu = Session(cwd: "/Users/example/projects/atlas")
         modelMenu.model = "claude-opus-5-5"; modelMenu.effort = "high"
         modelMenu.models = ["claude-haiku-4-5", "claude-opus-5-5"]
@@ -1085,16 +1151,18 @@ enum Render {
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
-        session.contextUsed = 0; session.contextLimit = 475000
+        session.contextUsed = 0; session.contextLimit = 258400
         session.updateUsage(["primary": ["usedPercent": 11.0, "windowDurationMins": 10080, "resetsAt": 1794357394.0] as JSON])
         session.repositoryStatus = "uncommitted"
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
+        write(CXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
+        write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
         let host = NSHostingView(rootView: view)
-        host.appearance = NSAppearance(named: .darkAqua)
+        host.appearance = NSAppearance(named: .aqua)
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()

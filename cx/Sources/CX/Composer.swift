@@ -21,11 +21,11 @@ final class ImageChip: NSTextAttachment {
     init(path: String, number: Int) {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
-        let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
+        let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.black])
         let image = NSImage(size: NSSize(width: label.size().width + 42, height: 18), flipped: false) { rect in
-            NSColor.white.withAlphaComponent(0.15).setFill()
+            NSColor.black.withAlphaComponent(0.08).setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 0), xRadius: 6, yRadius: 6).fill()
-            NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?.withSymbolConfiguration(.init(paletteColors: [.white]))?.draw(in: NSRect(x: 9, y: 3, width: 13, height: 12))
+            NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?.withSymbolConfiguration(.init(paletteColors: [.black]))?.draw(in: NSRect(x: 9, y: 3, width: 13, height: 12))
             label.draw(at: NSPoint(x: 27, y: (18 - label.size().height) / 2))
             return true
         }
@@ -156,10 +156,10 @@ final class ComposerText: NSTextView {
     var resized: () -> Void = {}
     override init(frame: NSRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
-        font = .monospacedSystemFont(ofSize: 16, weight: .regular); textColor = .white; insertionPointColor = .white
+        font = .monospacedSystemFont(ofSize: 16, weight: .regular); textColor = .black; insertionPointColor = .black
         drawsBackground = false; isRichText = true; importsGraphics = false; allowsUndo = true; usesFontPanel = false
         textContainerInset = .zero
-        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white]
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.black]
         isVerticallyResizable = true; isHorizontallyResizable = false; autoresizingMask = [.width]
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textContainer?.widthTracksTextView = true
@@ -170,14 +170,14 @@ final class ComposerText: NSTextView {
     func setDraft(_ draft: NSAttributedString) {
         textStorage?.setAttributedString(draft)
         textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), range: NSRange(location: 0, length: draft.length))
-        textColor = .white
-        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white]
+        textColor = .black
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.black]
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands · drop an image…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
