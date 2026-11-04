@@ -533,10 +533,12 @@ struct MarkdownBody: View {
             ForEach(markdownBlocks(text)) { block in
                 if block.code {
                     VStack(alignment: .leading, spacing: 0) {
-                        HStack {
-                            Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.white.opacity(0.4)); Spacer()
-                            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain).help("Copy code")
-                        }.padding(10).background(.white.opacity(0.025))
+                        Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string) } label: {
+                            HStack {
+                                Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.white.opacity(0.4)); Spacer()
+                                Image(systemName: "doc.on.doc")
+                            }.padding(10).background(.white.opacity(0.025)).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("Copy code").accessibilityLabel("Copy code")
                         ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) }
                     }.background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.06)))
                 } else {
