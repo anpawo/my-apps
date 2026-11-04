@@ -1,13 +1,6 @@
 import Foundation
 
-/// Asks Claude things, through the `claude` binary rather than the HTTP API.
-///
-/// The API would want its own key and its own prepaid credits — a second bill on top of the
-/// Claude Code subscription that is already installed on this machine and already paid for.
-/// Fleet's whole job is watching `claude` processes, so the binary is guaranteed to be here;
-/// `claude -p` runs one headless turn against that same subscription. The cost is a couple of
-/// seconds of process startup per request, which for a prompt nobody is watching a
-/// spinner through is the right trade.
+/// Routes background requests through VCX using the configured subscription or local model.
 enum Claude {
 
     /// What the router decided to do with an utterance.
@@ -34,11 +27,11 @@ enum Claude {
         var errorDescription: String? {
             switch self {
             case .notInstalled:
-                return "Could not find the claude command. Fleet runs it to route what you say."
+                return "Could not find the vcx command. Fleet runs it to route what you say."
             case .failed(let why):
-                return "claude exited with an error: \(why)"
+                return "vcx exited with an error: \(why)"
             case .malformed(let what):
-                return "Unexpected reply from claude: \(what)"
+                return "Unexpected reply from vcx: \(what)"
             }
         }
     }
@@ -519,11 +512,9 @@ enum Claude {
     private static func locateBinary() -> String? {
         let home = NSHomeDirectory()
         let candidates = [
-            "\(home)/.local/bin/claude",                 // native installer
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
-            "\(home)/.bun/bin/claude",
-            "\(home)/.npm-global/bin/claude",
+            "\(home)/.local/bin/vcx",
+            "/opt/homebrew/bin/vcx",
+            "/usr/local/bin/vcx",
         ]
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
             return path
@@ -538,7 +529,7 @@ enum Claude {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-l", "-c", "command -v claude"]
+        process.arguments = ["-l", "-c", "command -v vcx"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
