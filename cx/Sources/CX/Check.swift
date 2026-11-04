@@ -372,6 +372,19 @@ enum Check {
         if server.isRunning { server.terminate() }
         Settings.shared.value = Preferences()
         var connections: [String: FixtureConnection] = [:]
+        do {
+            for (resume, provider) in [("claude:legacy-watcher", "claude"), ("legacy-watcher", "codex")] {
+                let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("legacy-" + provider))
+                var connection: FixtureConnection?
+                restored.connectionFactory = { account, _ in
+                    let fixture = FixtureConnection(account); connection = fixture; return fixture
+                }
+                await restored.connect(resume: resume)
+                check(restored.ready && restored.account.provider == provider && connection?.opened.first?["threadId"] as? String == resume,
+                      "Watcher legacy resume keeps its original provider and conversation")
+                restored.close()
+            }
+        }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         session.connectionFactory = { account, _ in
             let connection = FixtureConnection(account)

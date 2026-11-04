@@ -223,18 +223,32 @@ final class Inbox: NSObject, ObservableObject {
         if items.isEmpty { hide() }
     }
 
-    /// The session it ended in, back in a Ghostty window of his login shell, as `spawn` opens one.
-    private static func resume(_ item: InboxItem) -> Bool {
+    static func launchProcess(_ item: InboxItem) throws -> Process {
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/bash")
-        task.arguments = [NSHomeDirectory() + "/.claude/skills/spawn/open.sh", item.dir, item.prompt ?? ""]
-            + item.options
+        task.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
+        task.currentDirectoryURL = URL(fileURLWithPath: item.dir, isDirectory: true)
+        var args = ["--cwd", item.dir]
+        if let session = item.session {
+            let id = session.hasPrefix("native:") || session.hasPrefix("claude:") || item.options.contains("--codex") ? session : "claude:" + session
+            args += ["--resume", id]
+        }
+        if let prompt = item.prompt { args += ["--", try String(contentsOfFile: prompt, encoding: .utf8)] }
+        task.arguments = args
+        task.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE") && !$0.key.hasPrefix("CODEX") }
         task.standardOutput = FileHandle.nullDevice
+        return task
+    }
+
+    private static func resume(_ item: InboxItem) -> Bool {
+        let task: Process
+        do { task = try launchProcess(item) } catch {
+            NSLog("watcher: could not read follow-up: \(error)")
+            return false
+        }
         do { try task.run() } catch {
             NSLog("watcher: could not resume \(item.id) — \(error)")
             return false
         }
-        // `open.sh` is back as soon as Ghostty has the request; its status says whether the line may go.
         task.waitUntilExit()
         return task.terminationStatus == 0
     }

@@ -203,8 +203,9 @@ final class Session: ObservableObject {
                         guard let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON, let thread = saved["threadId"] as? String else { throw CXError(message: "No saved conversation in this folder.") }
                         id = thread
                     }
-                    let codex = Settings.shared.value.accounts.first { $0.provider == "codex" && $0.enabled } ?? Account(id: "codex-default", name: "Default Codex", provider: "codex")
-                    try await activate(codex, resume: id, keepRows: false)
+                    let provider = id.hasPrefix("claude:") ? "claude" : "codex"
+                    let account = Settings.shared.value.accounts.first { $0.provider == provider && $0.enabled } ?? Account(id: provider + "-default", name: "Default " + provider.capitalized, provider: provider)
+                    try await activate(account, resume: id, keepRows: false)
                 }
             } else {
                 try await activateAvailable(keepRows: false)

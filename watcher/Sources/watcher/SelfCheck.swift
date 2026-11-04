@@ -7,6 +7,51 @@ import Foundation
 @MainActor
 enum SelfCheck {
 
+    static func launch() -> Int {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "watcher-launch-\(UUID())")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let prompt = folder.appending(path: "prompt")
+            let text = "Fix the check.\nKeep '$HOME' and `quotes` literal."
+            try text.write(to: prompt, atomically: true, encoding: .utf8)
+            let stub = folder.appending(path: "vcx")
+            try "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$0.args\"\n".write(to: stub, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stub.path)
+            for (options, file, expected) in [
+                ([String](), prompt.path, ["--", text]),
+                (["--resume", "native:saved"], "", ["--resume", "native:saved"]),
+                (["--resume", "legacy"], "", ["--resume", "claude:legacy"]),
+                (["--codex", "--resume", "legacy"], "", ["--resume", "legacy"]),
+            ] {
+                let item = InboxItem(id: "fixture", at: 0, kind: "needs", subject: "Check", line: "Check", dir: folder.path,
+                                     options: options, prompt: file.isEmpty ? nil : file)
+                let task = try Inbox.launchProcess(item)
+                guard task.executableURL?.path == NSHomeDirectory() + "/.local/bin/vcx" else {
+                    print("FAIL: notification launches a terminal instead of the VCX app")
+                    return 1
+                }
+                guard task.arguments == ["--cwd", folder.path] + expected else {
+                    print("FAIL: notification lost its conversation or task text")
+                    return 1
+                }
+                guard task.environment != nil, task.environment!.keys.allSatisfy({ !$0.hasPrefix("CLAUDE") && !$0.hasPrefix("CODEX") }) else {
+                    print("FAIL: notification inherits the launching agent's state")
+                    return 1
+                }
+                task.executableURL = stub
+                try task.run(); task.waitUntilExit()
+                let captured = try String(contentsOfFile: stub.path + ".args", encoding: .utf8)
+                guard task.terminationStatus == 0, captured == (["--cwd", folder.path] + expected).joined(separator: "\0") + "\0" else {
+                    print("FAIL: notification arguments changed at the process boundary")
+                    return 1
+                }
+            }
+            print("PASS: 4 notification paths open the VCX app with their conversation and task intact")
+            return 0
+        } catch { print("FAIL: launcher check: \(error)"); return 1 }
+    }
+
     static func run() -> Int {
         var failures = 0
         func expect<T: Equatable>(_ got: T, _ want: T, _ what: String) {
@@ -15,6 +60,7 @@ enum SelfCheck {
                 failures += 1
             }
         }
+        expect(launch(), 0, "Notifications open the VCX app")
         inbox(expect)
         glass(expect)
         let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: Date())! }
