@@ -921,14 +921,14 @@ enum Check {
         let usageDisplay = Session(cwd: directory.path)
         claudeContext.usageReader = { account in
             guard account.name == "Fixture" else { throw CXError(message: "Incorrect usage profile") }
-            return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T16:59:59.934184+00:00"]]
+            return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T00:59:59.934184+00:00"]]
         }
         do {
             let result = try await claudeContext.request("account/rateLimits/read")
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage == "100% wk - reset Wed 17h59", "weekly reset shows the weekday and precise Paris time in winter")
+            check(usageDisplay.usage == "100% wk - reset Wed 1h59", "weekly reset shows Paris time without a leading hour zero")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
             check(usageDisplay.usage == "10% wk - reset Sat 18h59", "weekly reset follows Paris daylight saving time")
