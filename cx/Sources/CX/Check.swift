@@ -102,6 +102,14 @@ enum Check {
         check(follow.attached, "starts attached")
         follow.userScroll(distance: 120); check(!follow.attached, "scroll up detaches")
         follow.userScroll(distance: 0); check(follow.attached, "return to bottom attaches")
+        do {
+            let notice = Row("notice", []), question = Row("user", []), activity = Row("activity", []), answer = Row("assistant", []), nextQuestion = Row("user", [])
+            let sections = conversationSections([notice, question, activity, answer, nextQuestion])
+            check(conversationSections([]).isEmpty, "an empty transcript has no pinned question")
+            check(sections.count == 3 && sections[0].question == nil && sections[0].rows.map(\.id) == [notice.id], "notices before the first question remain in the transcript")
+            check(sections[1].question?.id == question.id && sections[1].rows.map(\.id) == [activity.id, answer.id], "each question heads its actions and answer in order")
+            check(sections[2].id == nextQuestion.id && sections[2].rows.isEmpty, "a new unanswered question starts its own stable section")
+        }
         check(usageLimit(["error": ["codexErrorInfo": "usageLimitExceeded"]]), "Codex usage limit")
         check(usageLimit(["error": "rate_limit"]), "Claude usage limit")
         check(!usageLimit(["error": "Network unavailable"]), "network failure is not a usage limit")
@@ -769,17 +777,40 @@ enum Render {
             modelMenu.showCommands(query, preserveDraft: false)
             write(CommandPalette(session: modelMenu), size: CGSize(width: 700, height: 260), path: directory + "/selected-" + name + ".png")
         }
+        let sticky = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/sticky"))
+        sticky.ready = true; sticky.status = "Ready"
+        for turn in 1...2 {
+            sticky.show(["id": "question-\(turn)", "type": "userMessage", "content": [["type": "text", "text": "Question \(turn): Keep this question visible while I read its answer."]]])
+            sticky.show(["id": "action-\(turn)", "type": "commandExecution", "command": "swift build", "status": "completed", "exitCode": 0])
+            sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
+        }
+        write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
-    static func write(_ view: some View, size: CGSize, path: String) {
+    static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: .darkAqua)
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        let offsets: [CGFloat?] = scrollOffsets.isEmpty ? [nil] : scrollOffsets.map { $0 }
+        for (index, scrollOffset) in offsets.enumerated() {
+            if let scrollOffset {
+                func findScroll(_ view: NSView) -> NSScrollView? {
+                    if let scroll = view as? NSScrollView, scroll.frame.width > 300 { return scroll }
+                    return view.subviews.lazy.compactMap { findScroll($0) }.first
+                }
+                guard let scroll = findScroll(host) else { fatalError("Transcript scroll view not found") }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: scrollOffset))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
+                print("Offscreen transcript offset: \(scroll.contentView.bounds.origin.y)")
+            }
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let output = scrollOffset == nil ? path : (path as NSString).deletingPathExtension + "-\(index).png"
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
+        }
     }
 }
 

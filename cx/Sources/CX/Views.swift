@@ -4,6 +4,25 @@ import AppKit
 let accent = Color(red: 0.65, green: 0.44, blue: 1)
 let userGradient = LinearGradient(colors: [Color(red: 0.93, green: 0.23, blue: 0.51), Color(red: 0.55, green: 0.3, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)
 
+struct ConversationSection: Identifiable {
+    let id: UUID
+    var question: Row?
+    var rows: [Row] = []
+}
+
+func conversationSections(_ rows: [Row]) -> [ConversationSection] {
+    var sections: [ConversationSection] = []
+    for row in rows {
+        if row.kind == "user" {
+            sections.append(ConversationSection(id: row.id, question: row))
+        } else {
+            if sections.isEmpty { sections.append(ConversationSection(id: row.id)) }
+            sections[sections.count - 1].rows.append(row)
+        }
+    }
+    return sections
+}
+
 struct RoundButton: View {
     let icon: String
     let label: String
@@ -138,7 +157,7 @@ struct CXView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .bottom) {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24) {
+                    LazyVStack(alignment: .leading, spacing: 24, pinnedViews: [.sectionHeaders]) {
                         if session.rows.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: "sparkle").font(.system(size: 40, weight: .light)).foregroundStyle(accent)
@@ -146,7 +165,17 @@ struct CXView: View {
                                 Text("Your code, your agents, one conversation.").font(.system(size: 14)).foregroundStyle(.white.opacity(0.4))
                             }.frame(maxWidth: .infinity).padding(.vertical, 100)
                         }
-                        ForEach(session.rows) { row in ConversationRow(row: row, session: session, details: session.details).equatable().id(row.id) }
+                        ForEach(conversationSections(session.rows)) { section in
+                            Section {
+                                ForEach(section.rows) { row in ConversationRow(row: row, session: session, details: session.details).equatable().id(row.id) }
+                            } header: {
+                                if let question = section.question {
+                                    ConversationRow(row: question, session: session, details: session.details).equatable()
+                                        .background(Color(red: 0.035, green: 0.035, blue: 0.045))
+                                        .id(question.id)
+                                }
+                            }
+                        }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.vertical, 28)
                 }
