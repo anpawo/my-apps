@@ -15,7 +15,15 @@ final class Item: ObservableObject, Identifiable {
     }
     var title: String {
         switch kind {
-        case "commandExecution": return (data["command"] as? String ?? "Command").components(separatedBy: "\n").first ?? "Command"
+        case "commandExecution":
+            if let name = data["description"] as? String, !name.isEmpty { return name }
+            let lines = (data["command"] as? String ?? "Command").components(separatedBy: "\n")
+            // Claude's other tools arrive as their name above their JSON input.
+            if lines.count > 1, let input = (try? JSONSerialization.jsonObject(with: Data(lines.dropFirst().joined(separator: "\n").utf8))) as? JSON {
+                let file = ["file_path", "notebook_path"].lazy.compactMap { input[$0] as? String }.first.map { URL(fileURLWithPath: $0).lastPathComponent }
+                return (file ?? ["description", "pattern", "url", "query", "skill"].lazy.compactMap { input[$0] as? String }.first).map { lines[0] + " " + $0 } ?? lines[0]
+            }
+            return lines.first ?? "Command"
         case "fileChange": return "Edit " + (data["changes"] as? [JSON] ?? []).compactMap { ($0["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent } }.joined(separator: ", ")
         case "mcpToolCall", "dynamicToolCall": return ["server", "namespace", "tool"].compactMap { data[$0] as? String }.joined(separator: ".")
         case "webSearch": return "Search: " + (data["query"] as? String ?? "web")

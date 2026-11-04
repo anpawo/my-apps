@@ -291,7 +291,8 @@ final class ClaudeConnection: Connection {
                     emit("item/completed", ["item": ["id": streamed ?? id + "-\(index)", "type": "agentMessage", "text": text, "provider": "Claude"]])
                 } else if block["type"] as? String == "tool_use", let toolID = block["id"] as? String {
                     let input = block["input"] as? JSON ?? [:], name = block["name"] as? String ?? "Tool"
-                    let tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]
+                    var tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]
+                    if name == "Bash", let description = input["description"] as? String { tool["description"] = description }
                     tools[toolID] = tool; emit("item/started", ["item": tool])
                 }
             }

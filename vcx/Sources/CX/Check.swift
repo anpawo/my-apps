@@ -192,6 +192,10 @@ enum Check {
             let parts = sectionParts([activity, thought, later, answer, notice])
             check(parts.trail.map(\.id) == [activity.id, thought.id, later.id] && parts.last?.id == answer.id && parts.notices.map(\.id) == [notice.id], "only the last message stays out of the folded work")
             check(sectionParts([activity]).last == nil && sectionParts([activity]).trail.count == 1, "actions alone fold with no message")
+            check(Item(["type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/a/b/Views.swift", "limit": 40])]).title == "Read Views.swift", "a read names its file")
+            check(Item(["type": "commandExecution", "command": "Edit\n" + pretty(["file_path": "/a/Check.swift", "old_string": "x\ny", "new_string": "z"])]).title == "Edit Check.swift", "an edit names its file")
+            check(Item(["type": "commandExecution", "command": "cd /a; swift build -j 2\necho done", "description": "Build VCX in debug"]).title == "Build VCX in debug", "a described command shows its name")
+            check(Item(["type": "commandExecution", "command": "swift build\necho done"]).title == "swift build", "an undescribed command shows its first line")
             check(answerParagraphs("✓ Done: x\n\n⟶ Next: y\n\nDetail\n⟶ Short\n") == ["⟶ Short", "Detail", "✓ Done: x", "⟶ Next: y"], "answers read short answer, details, done, next")
         }
         check(usageLimit(["error": ["codexErrorInfo": "usageLimitExceeded"]]), "Codex usage limit")
@@ -1288,7 +1292,12 @@ enum Render {
         work.ready = true; work.status = "Ready"
         work.show(["id": "work-q1", "type": "userMessage", "content": [["type": "text", "text": "The first option button has a weird size. Make it the same as the others."]]])
         work.show(["id": "work-t1", "type": "agentMessage", "provider": "Claude", "text": "Measuring the buttons in your screenshot to see what differs."])
-        for n in 1...6 { work.show(["id": "work-a\(n)", "type": "commandExecution", "command": "grep -n Button Sources/ControlCenter.swift", "status": "completed", "exitCode": 0]) }
+        work.show(["id": "work-a1", "type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/Users/example/projects/atlas/Sources/ControlCenter.swift"]), "status": "completed"])
+        work.show(["id": "work-a2", "type": "commandExecution", "command": "cd ~/projects/atlas; grep -n 'Button(' Sources/*.swift | head -40", "description": "Find every button in the sources", "status": "completed", "exitCode": 0])
+        work.show(["id": "work-a3", "type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/Users/example/projects/atlas/Sources/Theme.swift"]), "status": "completed"])
+        work.show(["id": "work-a4", "type": "commandExecution", "command": "Edit\n" + pretty(["file_path": "/Users/example/projects/atlas/Sources/ControlCenter.swift", "old_string": ".frame(height: 44)", "new_string": ""]), "status": "completed"])
+        work.show(["id": "work-a5", "type": "commandExecution", "command": "Grep\n" + pretty(["pattern": "buttonStyle", "path": "Sources"]), "status": "completed"])
+        work.show(["id": "work-a6", "type": "commandExecution", "command": "swift test --filter ControlCenterTests 2>&1 | tail -20", "status": "completed", "exitCode": 0])
         work.show(["id": "work-t2", "type": "agentMessage", "provider": "Claude", "text": "Rendering the settings window offscreen to measure the button."])
         work.show(["id": "work-a7", "type": "commandExecution", "command": "swift build", "status": "completed", "exitCode": 0])
         work.show(["id": "work-t3", "type": "agentMessage", "provider": "Claude", "text": "✓ Done: the first button now matches the others, you can close this session.\n\n⟶ Next: open Fleet's settings and compare the buttons.\n\nDetails:\n- `ControlCenter.swift:88`: the first button used a fixed 44 pt height.\n- It now takes the shared button style.\n\n⟶ The first option button now has the same size and height as the others."])
