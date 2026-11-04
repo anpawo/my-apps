@@ -519,9 +519,9 @@ enum Check {
         check(commands.commandOptions.map(\.name) == ["bypass", "ask"], "permission choices autocomplete")
         commands.updateCommands("/answer yes", caret: 11)
         check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
-        commands.updateCommands("/mode ", caret: 6)
-        commands.chooseCommand(commands.commandOptions[1])
-        check(commands.draft.string == "/mode ask" && commands.commandQuery == nil, "command selection fills the composer without executing")
+        commands.updateCommands("/qwen ", caret: 6)
+        commands.chooseCommand(commands.commandOptions[0])
+        check(commands.draft.string == "/qwen url " && commands.commandQuery != nil, "freeform settings wait for their value")
         commands.draft = NSAttributedString(string: "Keep this prompt")
         commands.showCommands("/provider ")
         commands.dismissCommands()
@@ -531,6 +531,19 @@ enum Check {
         check(commands.draft.string == "Keep this prompt", "settings commands restore an existing draft")
         await commands.connect(resume: nil)
         check(commands.ready && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never" && (commands.rpc as? FixtureConnection)?.opened.first?["sandbox"] as? String == "danger-full-access", "Codex-compatible threads apply bypass, not only the label")
+        commands.draft = NSAttributedString(string: "Keep this prompt")
+        commands.statusCommand("/mode ")
+        commands.chooseCommand(commands.commandOptions[1])
+        for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "footer mode selection executes the permission command without Return")
+        check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
+        commands.statusCommand("/tokens")
+        for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(commands.draft.string == "Keep this prompt" && commands.rows.last?.items.first?.text.contains("Not reported") == true, "footer token button executes its command and preserves the draft")
+        commands.draft = NSAttributedString(string: "")
+        commands.statusCommand("/repo")
+        for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
         commands.draft = NSAttributedString(string: "/mode ask")
         await commands.command("/mode ask")
         check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "chat mode change reconnects using the requested policy")
@@ -673,12 +686,14 @@ enum Check {
             let result = try await claudeContext.request("account/rateLimits/read")
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
+            check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
             check(usageDisplay.usage.hasPrefix("100% wk - reset ") && usageDisplay.usage.hasSuffix("h"), "inactive Claude windows show weekly usage with a weekday reset")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
             usageDisplay.updateUsage(["primary": ["usedPercent": 25.0, "windowDurationMins": 1440] as JSON, "secondary": ["usedPercent": 40.0, "windowDurationMins": 10080] as JSON])
+            check(usageDisplay.usagePercent == 40, "footer color follows the most depleted quota")
             check(usageDisplay.usage == "25% 1d - 40% wk", "reported daily and weekly windows retain their units")
             usageDisplay.updateUsage(["primary": ["usedPercent": 18.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 10230] as JSON, "secondary": ["usedPercent": 32.0, "windowDurationMins": 10080] as JSON])
             check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk", "active usage matches Claude Code wording and compact countdown")
@@ -686,6 +701,7 @@ enum Check {
             do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage == "Usage unavailable", "failed usage refresh stays explicit without disconnecting")
+            check(usageDisplay.usagePercent == nil, "unavailable usage clears the old quota color")
         } catch { check(false, "Claude usage: " + error.localizedDescription) }
         claudeContext.event = { message in
             var message = message, params = message["params"] as? JSON ?? [:]
@@ -815,6 +831,7 @@ enum Render {
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000
         session.context = "24% context"; session.usage = "18% usage - reset 2h50m - 32% wk"; session.tokens = "48,320"
+        session.usagePercent = 32
         session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"; session.repositoryDirectory = "atlas"; session.repositoryStatus = "up to date"; session.effort = "high"
         session.hooks = [hookSummary(["command": "python3 /hooks/context.py", "statusMessage": "Load project context."], event: "SessionStart"), hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted", "statusMessage": "Check commands before execution."], event: "PreToolUse", matcher: "Bash"), hookSummary(["command": "bash /hooks/verify.sh", "enabled": false], event: "PostToolUse")]
         session.skills = ["ponytail", "ui-tweak", "swift-macos", "diagnosing-bugs", "playwright-cli", "writing-style"]

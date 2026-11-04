@@ -119,8 +119,18 @@ struct CXView: View {
     }
 
     private func setting(_ title: String, value: String, command: String, color: Color) -> some View {
-        Button { session.showCommands(command) } label: {
-            Text(value).font(.system(size: 10, weight: .medium)).foregroundStyle(color).lineLimit(1).fixedSize().contentShape(Rectangle())
+        Button {
+            if command == "/dir " {
+                let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+                panel.directoryURL = URL(fileURLWithPath: session.cwd, isDirectory: true)
+                panel.begin { result in
+                    if result == .OK, let url = panel.url { session.statusCommand("/dir " + url.path) }
+                }
+            } else { session.statusCommand(command) }
+        } label: {
+            Text(value).font(.system(size: 13, weight: .medium)).foregroundStyle(color).lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).padding(.vertical, 5)
+                .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
@@ -218,9 +228,15 @@ struct CXView: View {
                 statusBar
                 VStack(alignment: .leading, spacing: 8) {
                     ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
-                    ViewThatFits(in: .horizontal) { usageStatus; ScrollView(.horizontal) { usageStatus } }
+                    ViewThatFits(in: .horizontal) {
+                        usageStatus
+                        VStack(alignment: .leading, spacing: 8) {
+                            ViewThatFits(in: .horizontal) { quotaStatus; ScrollView(.horizontal) { quotaStatus } }
+                            repositoryStatus
+                        }
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }
+            }.padding(.leading, 10)
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
 
@@ -229,25 +245,29 @@ struct CXView: View {
     }
     private var identityStatus: some View {
         HStack(spacing: 8) {
-            setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 95/255, green: 95/255, blue: 215/255))
+            setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 0.55, green: 0.64, blue: 1))
             separator
             setting("Provider", value: session.providerLabel, command: "/model ", color: .green)
             separator
-            setting("Mode", value: session.activeMode == "bypass" ? "⏵⏵ bypass permissions on" : "Ask", command: "/mode ", color: .red)
+            setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: .red)
             separator
-            setting("Model", value: session.modelStatusLabel, command: "/model ", color: .pink)
+            setting("Model", value: session.modelStatusLabel, command: "/model ", color: Color(red: 1, green: 0.47, blue: 0.78))
         }
     }
     private var usageStatus: some View {
+        HStack(spacing: 8) { quotaStatus; separator; repositoryStatus }
+    }
+    private var quotaStatus: some View {
         HStack(spacing: 8) {
-            setting("Tokens", value: session.contextLabel, command: "/tokens", color: .green)
+            setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.36, green: 0.66, blue: 1))
             separator
-            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: .green)
-            separator
-            setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 215/255, green: 95/255, blue: 135/255) : session.repositoryStatus == "unpushed" ? Color(red: 215/255, green: 175/255, blue: 95/255) : session.repositoryStatus == "up to date" ? Color(red: 95/255, green: 175/255, blue: 95/255) : .white.opacity(0.45))
+            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.8, brightness: 0.9) } ?? .white.opacity(0.45))
         }
     }
-    private var separator: some View { Text("|").font(.system(size: 10)).foregroundStyle(.white.opacity(0.25)) }
+    private var repositoryStatus: some View {
+        setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 215/255, green: 95/255, blue: 135/255) : session.repositoryStatus == "unpushed" ? Color(red: 215/255, green: 175/255, blue: 95/255) : session.repositoryStatus == "up to date" ? Color(red: 95/255, green: 175/255, blue: 95/255) : .white.opacity(0.45))
+    }
+    private var separator: some View { Text("|").font(.system(size: 13)).foregroundStyle(.white.opacity(0.25)) }
 }
 
 struct ActivityDot: View {

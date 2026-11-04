@@ -164,9 +164,19 @@ extension Session {
         commandQuery = nil
         if let saved = savedCommandDraft { editDraft(saved); savedCommandDraft = nil }
     }
+    func statusCommand(_ source: String) {
+        guard !changing else { return }
+        if savedCommandDraft == nil { savedCommandDraft = draft }
+        showCommands(source)
+        if source != "/mode " && source != "/model " { Task { await command(source) } }
+    }
     func chooseCommand(_ command: ChatCommand) {
-        if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider "),
+        if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider ") || command.insert.hasPrefix("/mode "),
            command.insert.split(separator: " ").count > 1 {
+            if command.insert.hasPrefix("/mode ") {
+                if savedCommandDraft == nil { savedCommandDraft = NSAttributedString(string: "") }
+                showCommands(command.insert, preserveDraft: false)
+            }
             Task { await self.command(command.insert) }
             return
         }

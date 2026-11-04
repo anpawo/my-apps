@@ -96,6 +96,7 @@ final class Session: ObservableObject {
     @Published var commandQuery: String?
     @Published var commandSelection = 0
     @Published var tokens = "Not reported"
+    @Published var usagePercent: Double?
     @Published var contextUsed: Int?
     @Published var contextLimit: Int?
     @Published var repository = "Checking…"
@@ -244,7 +245,7 @@ final class Session: ObservableObject {
             guard rpc === connection else { return }
             updateUsage(result["rateLimits"] as? JSON ?? [:])
         } catch {
-            if rpc === connection { usage = "Usage unavailable" }
+            if rpc === connection { usage = "Usage unavailable"; usagePercent = nil }
         }
     }
 
@@ -454,6 +455,7 @@ final class Session: ObservableObject {
             return window
         }
         let hasWeekly = windows.contains { $0["windowDurationMins"] as? Int == 10080 }
+        usagePercent = windows.compactMap { $0["usedPercent"] as? Double }.max()
         usage = windows.filter { !(hasWeekly && $0["windowDurationMins"] as? Int == 300 && $0["usedPercent"] as? Double == 0 && $0["resetsAt"] == nil) }.enumerated().compactMap { index, window -> String? in
             guard let used = window["usedPercent"] as? Double else { return nil }
             let minutes = window["windowDurationMins"] as? Int ?? 0
@@ -600,6 +602,7 @@ final class Session: ObservableObject {
         changing = true
         defer { changing = false }
         let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
+        let previousUsagePercent = usagePercent
         flush()
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
@@ -609,7 +612,7 @@ final class Session: ObservableObject {
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
         activeMode = Settings.shared.value.mode
-        context = ""; usage = ""; status = "Connecting to " + providerLabel + "…"
+        context = ""; usage = ""; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         if let connectionFactory { rpc = connectionFactory(next, cwd) } else { switch next.provider {
         case "claude": rpc = ClaudeConnection(account: next, cwd: cwd)
         case "qwen": rpc = QwenConnection(preferences: Settings.shared.value, cwd: cwd)
@@ -629,6 +632,7 @@ final class Session: ObservableObject {
             account = previous.0; threadID = previous.1; model = previous.2
             context = previous.3; usage = previous.4; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
             defaultEffort = previous.8
+            usagePercent = previousUsagePercent
             providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
             pendingActivation = (next, resume, keepRows, recordID)
             ready = false
