@@ -146,6 +146,14 @@ enum RuntimeCheck {
         let cpuNanoseconds = Double(afterCPU - beforeCPU) * Double(timebase.numer) / Double(timebase.denom)
         let elapsedNanoseconds = Double(afterWall - beforeWall)
         print(String(format: "Idle worker sample: %.3f ms CPU / %.3f s wall (%.3f%% of one core)", cpuNanoseconds / 1_000_000, elapsedNanoseconds / 1_000_000_000, cpuNanoseconds / elapsedNanoseconds * 100))
+        worker.terminate()
+        await Task.detached { worker.waitUntilExit() }.value
+        let stoppedSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("stopped-frontend"))
+        let stoppedClient = RuntimeClient(session: stoppedSession, cwd: directory.path, resumeRuntimeID: sessionID, socketPath: directory.appendingPathComponent("worker.sock").path)
+        defer { stoppedClient.close(); stoppedSession.close() }
+        var rejectedStoppedRuntime = false
+        do { try await stoppedClient.connect(resume: nil) } catch { rejectedStoppedRuntime = true }
+        try check(rejectedStoppedRuntime, "replacement silently started an empty session after the runtime stopped")
         print("\(total) runtime continuity checks passed")
         return total
     }
