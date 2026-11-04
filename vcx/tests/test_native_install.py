@@ -15,10 +15,42 @@ spec.loader.exec_module(installer)
 
 
 class NativeInstallTests(unittest.TestCase):
+    def test_install_uses_the_production_name_and_cleans_staging(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                target = home / 'Applications/Vibe Code X (VCX).app'
+                calls = []
+                staged = []
+
+                def run(command, **kwargs):
+                    calls.append(command)
+                    if command[0] == '/usr/bin/ditto':
+                        staging = Path(command[2])
+                        staging.mkdir(parents=True)
+                        staged.append(staging)
+                    if fail and '--check' in command:
+                        raise subprocess.CalledProcessError(1, command)
+
+                with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
+                    if fail:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            installer.install()
+                    else:
+                        installer.install()
+
+                self.assertEqual(staged[0].name, target.name)
+                self.assertFalse(staged[0].parent.exists())
+                self.assertEqual(target.exists(), not fail)
+                registrations = [call[1:] for call in calls if Path(call[0]).name == 'lsregister']
+                self.assertIn(['-u', str(staged[0])], registrations)
+                if not fail:
+                    self.assertEqual(registrations[-1], ['-f', str(target)])
+
     def test_failed_staged_checks_preserve_installed_app(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            app = home / 'Applications/Vibe Code X.app'
+            app = home / 'Applications/Vibe Code X (VCX).app'
             (app / 'Contents').mkdir(parents=True)
             marker = app / 'Contents/Info.plist'
             original = plistlib.dumps({'CFBundleIdentifier': 'com.mr.vcx'})
@@ -116,7 +148,7 @@ class NativeInstallTests(unittest.TestCase):
     def test_unrelated_app_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            app = home / 'Applications/Vibe Code X.app'
+            app = home / 'Applications/Vibe Code X (VCX).app'
             app.mkdir(parents=True)
             with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run') as run:
                 with self.assertRaises(SystemExit):

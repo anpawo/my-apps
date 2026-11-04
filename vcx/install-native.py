@@ -6,12 +6,13 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
 def install():
     root = Path(__file__).resolve().parent
-    target = Path.home() / 'Applications/Vibe Code X.app'
+    target = Path.home() / 'Applications/Vibe Code X (VCX).app'
     launchers = [Path.home() / '.local/bin' / name for name in ('vcx', 'cx')]
     codex = shutil.which('codex')
     for launcher in launchers:
@@ -29,25 +30,31 @@ def install():
             raise SystemExit('Refusing to replace an unrelated application.')
     subprocess.run([str(root / 'build.sh')], check=True)
 
-    source = root / 'dist/Vibe Code X.app'
+    source = root / 'dist/Vibe Code X (VCX).app'
     target.parent.mkdir(parents=True, exist_ok=True)
-    staging = target.with_name(f'.VCX-install-{os.getpid()}.app')
     backup = target.with_name(f'.VCX-backup-{os.getpid()}.app')
-    subprocess.run(['/usr/bin/ditto', str(source), str(staging)], check=True)
-    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(staging)], check=True)
-    subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--version'], check=True)
-    subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--check'], check=True)
-    had_target = target.exists()
-    if had_target:
-        target.rename(backup)
-    try:
-        staging.rename(target)
-    except OSError:
-        if had_target:
-            backup.rename(target)
-        raise
-    if had_target:
-        shutil.rmtree(backup)
+    lsregister = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
+    with tempfile.TemporaryDirectory(prefix='.VCX-install-', dir=target.parent) as directory:
+        staging = Path(directory) / target.name
+        try:
+            subprocess.run(['/usr/bin/ditto', str(source), str(staging)], check=True)
+            subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(staging)], check=True)
+            subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--version'], check=True)
+            subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--check'], check=True)
+            had_target = target.exists()
+            if had_target:
+                target.rename(backup)
+            try:
+                staging.rename(target)
+            except OSError:
+                if had_target:
+                    backup.rename(target)
+                raise
+            if had_target:
+                shutil.rmtree(backup)
+        finally:
+            subprocess.run([lsregister, '-u', str(staging)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([lsregister, '-f', str(target)], check=True)
     binary = target / 'Contents/MacOS/VCX'
 
     python = root / '.venv/bin/python'
@@ -94,7 +101,7 @@ exec /usr/bin/open -n -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
             with os.fdopen(fd, 'w') as stream:
                 json.dump(values, stream)
     subprocess.run([str(binary), '--publish-update'], check=True)
-    print('Installed Vibe Code X. Compatible open frontends update automatically; agent runtimes keep running.')
+    print('Installed Vibe Code X (VCX). Compatible open frontends update automatically; agent runtimes keep running.')
 
 
 if __name__ == '__main__':
