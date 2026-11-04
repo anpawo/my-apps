@@ -83,6 +83,7 @@ enum VCX {
         case "waiting": state = .awaitingAnswer
         case "failed": state = .apiError
         case "fresh": state = .fresh
+        case "pending": state = .delegated
         case "ready": state = prompt == nil ? .fresh : .ready
         default: return nil
         }

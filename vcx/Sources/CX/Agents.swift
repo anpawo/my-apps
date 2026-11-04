@@ -241,6 +241,11 @@ final class ClaudeConnection: Connection {
             }
         case "system":
             if message["subtype"] as? String == "init", let model = message["model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
+            if message["subtype"] as? String == "background_tasks_changed" { emit("cx/backgroundTasks", ["count": (message["tasks"] as? [Any])?.count ?? 0]) }
+            // Idle Claude answers a finished background task with a turn of its own.
+            if message["subtype"] as? String == "task_notification", pendingUsers.isEmpty {
+                turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]])
+            }
         case "control_cancel_request":
             if let id = message["request_id"] as? String { controls.removeValue(forKey: id); emit("serverRequest/resolved", ["requestId": id]) }
         case "control_request":

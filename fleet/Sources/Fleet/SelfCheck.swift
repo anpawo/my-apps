@@ -84,7 +84,7 @@ enum SelfCheck {
         Session.labels.removeValue(forKey: "/tmp/42.json")
         expect(read(43) == nil && read(42, 101) == nil, true,
                "VCX: stale records cannot attach to a different or recycled process")
-        for (value, state) in [("working", SessionState.running), ("waiting", .awaitingAnswer), ("failed", .apiError), ("fresh", .fresh)] {
+        for (value, state) in [("working", SessionState.running), ("waiting", .awaitingAnswer), ("failed", .apiError), ("fresh", .fresh), ("pending", .delegated)] {
             record["state"] = value
             expect(read()?.state == state, true, "VCX: \(value) uses the existing card state")
         }

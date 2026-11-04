@@ -3,6 +3,7 @@ import AppKit
 
 let accent = Color(red: 0.43, green: 0.23, blue: 0.75)
 let readyColor = Color(red: 0.1, green: 0.45, blue: 0.18)
+let pendingColor = Color(red: 0.87, green: 0.42, blue: 0)
 let userGradient = LinearGradient(colors: [Color(red: 0.93, green: 0.23, blue: 0.51), Color(red: 0.55, green: 0.3, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct ConversationSection: Identifiable {
@@ -384,8 +385,9 @@ struct CXView: View {
     private var composer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
-                Text(session.busy ? "Thinking" : session.needsAttention ? session.status : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
+                let pending = !session.busy && !session.needsAttention && session.backgroundTasks > 0
+                ActivityDot(busy: session.busy, pending: pending).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : pending ? "Pending action" : "Ready")
+                Text(session.busy ? "Thinking" : session.needsAttention ? session.status : pending ? "Pending action" : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : pending ? pendingColor : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5).opacity(sending.flight == nil ? 1 : 0)
             if (!session.permissions.isEmpty && session.questionFlow == nil) || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
@@ -450,10 +452,11 @@ struct CXView: View {
 
 struct ActivityDot: NSViewRepresentable {
     let busy: Bool
+    var pending = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> ActivityDotView { ActivityDotView() }
-    func updateNSView(_ view: ActivityDotView, context: Context) { view.update(busy: busy, reduceMotion: reduceMotion) }
+    func updateNSView(_ view: ActivityDotView, context: Context) { view.update(busy: busy, pending: pending, reduceMotion: reduceMotion) }
 }
 
 final class ActivityDotView: NSView {
@@ -486,9 +489,9 @@ final class ActivityDotView: NSView {
     override func viewDidHide() { super.viewDidHide(); updateMotion() }
     override func viewDidUnhide() { super.viewDidUnhide(); updateMotion() }
 
-    func update(busy: Bool, reduceMotion: Bool) {
+    func update(busy: Bool, pending: Bool = false, reduceMotion: Bool) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        dot.backgroundColor = NSColor(busy ? accent : readyColor).cgColor
+        dot.backgroundColor = NSColor(busy ? accent : pending ? pendingColor : readyColor).cgColor
         CATransaction.commit()
         self.busy = busy; self.reduceMotion = reduceMotion
         updateMotion()

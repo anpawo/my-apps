@@ -1018,6 +1018,13 @@ enum Check {
         claudeContext.receive(["type": "assistant", "message": ["model": "fixture-served", "usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
         claudeContext.receive(["type": "result", "modelUsage": ["fixture-served": ["contextWindow": 1000000]]])
         check(codexCommands.contextUsed == 203100 && codexCommands.contextLabel == "20% token - 1M", "Claude context counts the last message's input and cached tokens like Claude Code, under the model that served it")
+        claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": [["task_id": "fixture-task", "task_type": "local_bash"]]])
+        check(codexCommands.backgroundTasks == 1 && !codexCommands.busy, "a Claude background task leaves the idle session pending")
+        claudeContext.receive(["type": "system", "subtype": "task_notification", "task_id": "fixture-task", "status": "completed"])
+        claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": []])
+        check(codexCommands.backgroundTasks == 0 && codexCommands.busy, "a finished background task starts Claude's own turn")
+        claudeContext.receive(["type": "result"])
+        check(!codexCommands.busy && codexCommands.status == "Ready", "Claude's background-task turn ends on its result")
         do {
             let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
             fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])

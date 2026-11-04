@@ -43,7 +43,7 @@ final class FleetPresence {
             }
         }
         let state = session.needsAttention && session.status == "Failed" && session.permissions.isEmpty ? "failed"
-            : session.needsAttention || !session.permissions.isEmpty ? "waiting" : session.busy || session.changing ? "working" : user == nil ? "fresh" : "ready"
+            : session.needsAttention || !session.permissions.isEmpty ? "waiting" : session.busy || session.changing ? "working" : session.backgroundTasks > 0 ? "pending" : user == nil ? "fresh" : "ready"
         var record: JSON = ["pid": getpid(), "startedAt": startedAt, "cwd": session.cwd,
                             "state": state, "preview": preview, "updatedAt": Date().timeIntervalSince1970]
         record["prompt"] = prompt.map { String($0.prefix(2000)) }

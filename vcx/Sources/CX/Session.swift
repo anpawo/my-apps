@@ -110,6 +110,7 @@ final class Session: ObservableObject {
     @Published var status = "Connecting…"
     @Published var ready = false
     @Published var busy = false
+    @Published var backgroundTasks = 0
     @Published var needsAttention = false
     private var stopSource: String?
     @Published private var activeActions: Set<String> = []
@@ -366,7 +367,7 @@ final class Session: ObservableObject {
         group = nil
         threadID = id
         if !keepRows { planning = false; conversationName = thread["name"] as? String }
-        turnID = nil; busy = false; stopRequested = false
+        turnID = nil; busy = false; stopRequested = false; backgroundTasks = 0
         model = result["model"] as? String ?? "Codex"
         defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
@@ -458,6 +459,7 @@ final class Session: ObservableObject {
                 contextLimit = limit
                 if let served, contextWindows[served] != limit { contextWindows[served] = limit }
             } else if let served, let known = contextWindows[served] { contextLimit = known }
+        case "cx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
         case "cx/model":
             model = p["model"] as? String ?? model
             if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
@@ -515,7 +517,7 @@ final class Session: ObservableObject {
         case "error", "cx/error", "cx/disconnected":
             if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
             notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.")
-            if method == "cx/disconnected" { needsAttention = true; ready = false; busy = false; turnID = nil; status = "Disconnected"; permissions.removeAll(); save() }
+            if method == "cx/disconnected" { needsAttention = true; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = "Disconnected"; permissions.removeAll(); save() }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
@@ -1063,7 +1065,7 @@ final class Session: ObservableObject {
     func runtimeMetadata() -> JSON {
         var value: JSON = [
             "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
-            "needsAttention": needsAttention, "changing": changing, "activeActions": Array(activeActions), "context": context,
+            "needsAttention": needsAttention, "backgroundTasks": backgroundTasks, "changing": changing, "activeActions": Array(activeActions), "context": context,
             "usage": usage, "usageLoading": usageLoading, "tokens": tokens, "repository": repository, "branch": branch,
             "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
@@ -1099,6 +1101,7 @@ final class Session: ObservableObject {
         status = value["status"] as? String ?? status
         ready = value["ready"] as? Bool ?? ready; busy = value["busy"] as? Bool ?? busy
         needsAttention = value["needsAttention"] as? Bool ?? false
+        backgroundTasks = value["backgroundTasks"] as? Int ?? 0
         changing = value["changing"] as? Bool ?? changing
         activeActions = Set(value["activeActions"] as? [String] ?? [])
         context = value["context"] as? String ?? context; usage = value["usage"] as? String ?? usage
