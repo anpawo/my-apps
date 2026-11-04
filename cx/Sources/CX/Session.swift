@@ -168,7 +168,8 @@ final class Session: ObservableObject {
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
     var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
-    var modelStatusLabel: String { modelLabel + " - " + (effort ?? defaultEffort ?? (account.provider == "qwen" ? "off" : "default")) }
+    var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }
+    var modelStatusLabel: String { modelLabel + (effectiveEffort.map { " - " + $0 } ?? "") }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
@@ -206,8 +207,9 @@ final class Session: ObservableObject {
                         guard let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON, let thread = saved["threadId"] as? String else { throw CXError(message: "No saved conversation in this folder.") }
                         id = thread
                     }
-                    let codex = Settings.shared.value.accounts.first { $0.provider == "codex" && $0.enabled } ?? Account(id: "codex-default", name: "Default Codex", provider: "codex")
-                    try await activate(codex, resume: id, keepRows: false)
+                    let provider = id.hasPrefix("claude:") ? "claude" : "codex"
+                    let account = Settings.shared.value.accounts.first { $0.provider == provider && $0.enabled } ?? Account(id: provider + "-default", name: "Default " + provider.capitalized, provider: provider)
+                    try await activate(account, resume: id, keepRows: false)
                 }
             } else {
                 try await activateAvailable(keepRows: false)

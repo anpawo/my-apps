@@ -527,7 +527,7 @@ class Runner:
         activity = {}
         for event in events:
             item = event.get('item', {})
-            if event.get('type') in ('item.started', 'item.completed') and item.get('type') not in (None, 'agent_message', 'reasoning'):
+            if event.get('type') in ('item.started', 'item.completed') and item.get('type') not in (None, 'agent_message', 'reasoning', 'error'):
                 activity[item.get('id', str(uuid.uuid4()))] = (item, event['type'] == 'item.completed')
         rows = [{'kind': 'activity', 'items': [dict(id=ident, type='commandExecution', command=item.get('command', item['type']),
                  aggregatedOutput=item.get('aggregated_output', json.dumps(item)) if complete else 'Outcome unknown: do not repeat without checking.', status=item.get('status', 'completed') if complete else 'failed')]}
@@ -649,8 +649,11 @@ def main(argv=None):
     values = sys.argv[1:] if argv is None else argv
     if len(values) == 2 and values[0] == '--check-tools':
         payload = json.load(sys.stdin)
-        if payload.get('tool_name') not in values[1].split(','):
-            print('This task does not allow that tool.', file=sys.stderr)
+        allowed = set(values[1].split(','))
+        tool = payload.get('tool_name', '')
+        web = tool in ('web', 'web.run', 'webrun', 'web_search', 'web_search_preview', 'web_fetch', 'mcp__web__run')
+        if tool not in allowed and not (web and allowed & {'WebSearch', 'WebFetch'}):
+            print('This task does not allow tool ' + tool + '.', file=sys.stderr)
             return 2
         return 0
     if (argv or sys.argv[1:]) == ['--ensure-qwen']:

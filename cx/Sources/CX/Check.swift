@@ -373,6 +373,19 @@ enum Check {
         if server.isRunning { server.terminate() }
         Settings.shared.value = Preferences()
         var connections: [String: FixtureConnection] = [:]
+        do {
+            for (resume, provider) in [("claude:legacy-watcher", "claude"), ("legacy-watcher", "codex")] {
+                let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("legacy-" + provider))
+                var connection: FixtureConnection?
+                restored.connectionFactory = { account, _ in
+                    let fixture = FixtureConnection(account); connection = fixture; return fixture
+                }
+                await restored.connect(resume: resume)
+                check(restored.ready && restored.account.provider == provider && connection?.opened.first?["threadId"] as? String == resume,
+                      "Watcher legacy resume keeps its original provider and conversation")
+                restored.close()
+            }
+        }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         session.connectionFactory = { account, _ in
             let connection = FixtureConnection(account)
@@ -431,14 +444,17 @@ enum Check {
         session.showCommands("/model codex fixture-model ", preserveDraft: false)
         check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
         check(session.commandOptions[session.commandSelection].name == "high", "keeping the current model highlights its current effort")
+        session.modelDefaultEfforts["other-model"] = "high"
         session.showCommands("/model codex other-model ", preserveDraft: false)
-        check(session.commandSelection == 0, "a different model starts with its first effort option")
+        check(session.commandOptions[session.commandSelection].name == "high", "a different model highlights its catalog default effort")
         session.effort = nil
+        session.defaultEffort = "high"
         session.showCommands("/model codex fixture-model ", preserveDraft: false)
-        check(session.commandOptions[session.commandSelection].name == "Default", "an inherited effort remains selected instead of becoming low")
+        check(session.commandOptions.map(\.name) == ["low", "high"], "inherited effort menus contain only concrete levels")
+        check(session.commandOptions[session.commandSelection].name == "high", "an inherited effort highlights the provider's configured level")
         session.dismissCommands()
-        await session.command("/model codex fixture-model default")
-        check(session.effort == nil && (connections["codex-default"]?.opened.last?["effort"] is NSNull), "confirming Default preserves the provider's configured effort")
+        await session.command("/model codex fixture-model high")
+        check(session.effort == "high" && connections["codex-default"]?.opened.last?["effort"] as? String == "high", "confirming an inherited level applies the displayed effort")
         session.dismissCommands()
         await session.command("/model codex fixture-model high")
         check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
@@ -661,6 +677,25 @@ enum Check {
         let codexCommands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
         codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
         await codexCommands.connect(resume: nil)
+        do {
+            let claudePalette = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unique-commands"))
+            for palette in [codexCommands, claudePalette] {
+                palette.providerCommands = [ChatCommand(name: "/MODEL", detail: "Model skill collision", source: "Fixture skill", insert: "/" + palette.account.provider + ":skill:model ")]
+                for query in ["/", "/model", "/compact", "/status"] {
+                    palette.commandQuery = query
+                    let names = palette.commandOptions.map { $0.name.lowercased() }
+                    check(Set(names).count == names.count, "command names are unique for \(palette.account.provider) query \(query)")
+                }
+                palette.commandQuery = "/model"
+                check(palette.commandOptions.filter { $0.name.lowercased() == "/model" }.map(\.source) == ["vcx"], "application commands win name collisions")
+                palette.commandQuery = "/" + palette.account.provider + ":model"
+                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == palette.account.provider.capitalized, "explicit provider aliases remain accessible")
+                palette.commandQuery = "/" + palette.account.provider + ":skill:model"
+                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == "Fixture skill", "namespaced skills remain accessible despite name collisions")
+                palette.providerCommands = []; palette.commandQuery = nil
+            }
+            claudePalette.close()
+        }
         do {
             let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
             ranking.providerCommands = [
