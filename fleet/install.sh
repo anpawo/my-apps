@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Builds, installs to ~/apps (else ~/Applications), and registers a LaunchAgent so Fleet
+# starts at login and stays running.
+set -euo pipefail
+APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
+
+cd "$(dirname "$0")"
+
+LABEL="app.fleet"
+DEST="$APPS/Fleet.app"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+BIN="$HOME/.local/bin"
+
+./build.sh
+
+# One-time migration: the app used to install itself as ClaudeFleet. Leaving that copy in
+# place would mean two agents scanning and two Spotlight hits for the same tool.
+if [ -e "$APPS/ClaudeFleet.app" ] || [ -e "$HOME/Library/LaunchAgents/com.mr.claudefleet.plist" ]; then
+	echo "==> Removing the previous ClaudeFleet install"
+	launchctl bootout "gui/$UID/com.mr.claudefleet" 2>/dev/null || true
+	rm -f "$HOME/Library/LaunchAgents/com.mr.claudefleet.plist"
+	rm -rf "$APPS/ClaudeFleet.app"
+fi
+# One-time migration: the agent was `com.mr.fleet` until 2026-09-27, when app agents took the
+# `app.` prefix. The bundle id stays `com.mr.fleet` — the TCC grants and the Keychain items are
+# filed under it.
+if [ -e "$HOME/Library/LaunchAgents/com.mr.fleet.plist" ]; then
+	launchctl bootout "gui/$UID/com.mr.fleet" 2>/dev/null || true
+	rm -f "$HOME/Library/LaunchAgents/com.mr.fleet.plist"
+fi
+
+echo "==> Installing to $DEST"
+mkdir -p "$APPS"
+# Stop the running copy, but do NOT bootout: unregistering the agent and registering it again
+# is what makes macOS post the "App Background Activity" banner on every install. `kill` stops
+# the process and KeepAlive is suppressed until we kickstart it below.
+launchctl kill SIGTERM "gui/$UID/$LABEL" 2>/dev/null || true
+
+# Replaced in place rather than removed and re-copied, for the same reason. Background Task
+# Management watches the bundle it was told about; delete it and put a new one at the same path
+# and that is a new background item as far as it is concerned. `--delete` still clears out
+# anything the new build dropped.
+mkdir -p "$DEST"
+rsync -a --delete dist/Fleet.app/ "$DEST/"
+
+# The agent starts through a copy of /usr/bin/env named Fleet, which execs the binary in the same
+# pid (Accessibility still granted). Background Task Management keys the item on the code
+# identity of the program it runs first: with the binary there, every rebuild was a new identity
+# and macOS posted "App Background Activity" on each install (10 on 2026-11-01). env's never
+# changes. A copy, not a link like the routines', so that it can carry the icon below.
+LAUNCHER="$BIN/agents/Fleet"
+mkdir -p "$BIN/agents"
+cp /usr/bin/env "$LAUNCHER"
+
+# Login Items draws an agent with the icon of the file it runs, not of the app around it: only a
+# Team ID links the two, and a self-signed app has none. So the launcher carries the icon itself.
+osascript -l JavaScript -e 'ObjC.import("AppKit"); function run(a) { $.NSWorkspace.sharedWorkspace.setIconForFileOptions($.NSImage.alloc.initWithContentsOfFile(a[0]), a[1], 0) }' \
+	"$DEST/Contents/Resources/AppIcon.icns" "$LAUNCHER" >/dev/null
+
+# Interactive, not Background: the process type covers every thread, the one that draws the
+# panel included. As Background they all ran at priority 4, on the efficiency cores and behind
+# every session on the machine: a fold cost 9 ms of CPU a frame against 0.9 (`--bench-panel`
+# under `taskpolicy -b`), and a tick came seconds late, which Fleet then read as the machine
+# struggling (2026-10-12). LowPriorityIO went with it, since the tick reads its files on that
+# same thread.
+echo "==> Writing $PLIST"
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$PLIST.new" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$LABEL</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$LAUNCHER</string>
+		<string>$DEST/Contents/MacOS/Fleet</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/fleet.log</string>
+</dict>
+</plist>
+PLIST_EOF
+
+# Only replaced when it actually differs. Rewriting the plist byte-for-byte identically is
+# still a write, and a modified login item is the other thing that provokes the banner.
+if cmp -s "$PLIST.new" "$PLIST"; then
+	rm -f "$PLIST.new"
+else
+	mv "$PLIST.new" "$PLIST"
+	launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
+fi
+
+echo "==> Starting"
+# Bootstrap only when it is not already loaded — `kickstart` restarts what is there, which is
+# the quiet path. The `|| true` covers the already-loaded case, which bootstrap calls an error.
+launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null || true
+launchctl kickstart -k "gui/$UID/$LABEL"
+
+# The hook script lives in ~/.claude, not in the bundle: a rebuilt app with an old hook on
+# disk is the one thing install.sh used to leave behind, and it costs the exact session state
+# the hooks exist for. Rewriting it here is idempotent — same marker, same entries, replaced
+# rather than stacked.
+echo "==> Installing the Claude Code hooks"
+"$DEST/Contents/MacOS/Fleet" --install-hooks
+
+# Register the bundle with LaunchServices so Spotlight can find "Fleet" straight away
+# instead of waiting for the next indexing pass.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+	-f "$DEST" 2>/dev/null || true
+
+# The Reels analyser is not the app: the app reads the collection, this job does the work —
+# yt-dlp, whisper and the read. Once an hour rather than at four fixed times: what it costs is
+# a folder listing when there is nothing new, and a Reel saved at 10:20 is read at 11 instead
+# of waiting until 13:15. A run missed while the lid is shut is coalesced by launchd into one
+# catch-up run on waking, not twelve; one missed while the Mac was off is `catchup`'s, at login.
+# Through `online` like every routine that needs the network: on 31-10 the Wi-Fi carried nothing
+# from 09:55 to 10:53, both runs timed out on Firestore, and a dead connection raised an ALERT.
+REELS="fleet.reels"
+REELS_PLIST="$HOME/Library/LaunchAgents/$REELS.plist"
+# Named firestore.reels until 2026-09-28, then reels.scan until 2026-10-30: the old agent goes,
+# or two would run the same backlog.
+for old in firestore.reels reels.scan; do
+	launchctl bootout "gui/$UID/$old" 2>/dev/null || true
+	rm -f "$HOME/Library/LaunchAgents/$old.plist"
+done
+# First through its link to /usr/bin/env, like every routine since 2026-10-30: Login Items
+# names the row after the program's file, so without it the row reads `catchup`.
+mkdir -p "$BIN/agents"
+ln -sf /usr/bin/env "$BIN/agents/$REELS"
+echo "==> Writing $REELS_PLIST"
+cat > "$REELS_PLIST.new" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$REELS</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$BIN/agents/$REELS</string>
+		<string>$BIN/catchup</string>
+		<string>$BIN/online</string>
+		<string>$DEST/Contents/MacOS/Fleet</string>
+		<string>--reels-run</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>3600</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>5</integer>
+	<key>StandardOutPath</key>
+	<string>/tmp/fleet-reels.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/fleet-reels.log</string>
+</dict>
+</plist>
+PLIST_EOF
+if cmp -s "$REELS_PLIST.new" "$REELS_PLIST"; then
+	rm -f "$REELS_PLIST.new"
+else
+	mv "$REELS_PLIST.new" "$REELS_PLIST"
+	launchctl bootout "gui/$UID/$REELS" 2>/dev/null || true
+fi
+launchctl bootstrap "gui/$UID" "$REELS_PLIST" 2>/dev/null || true
+
+echo "==> Installing the fleet command to $BIN/fleet"
+mkdir -p "$BIN"
+cat > "$BIN/fleet" <<SHIM_EOF
+#!/usr/bin/env bash
+# Toggles the Fleet panel now, without waiting to go idle.
+# Arguments (--scan, --idle …) go straight to the binary and print here; with no
+# arguments we go through 'open', which reaches the resident agent — and starts it
+# first if it happens to be stopped — without tying up this terminal.
+if [ \$# -eq 0 ]; then
+	exec open "$DEST" --args --show
+fi
+exec "$DEST/Contents/MacOS/Fleet" "\$@"
+SHIM_EOF
+chmod +x "$BIN/fleet"
+
+echo
+echo "Installed. Fleet is running and will start at every login."
+echo
+echo "To see the panel on demand, without waiting for the idle delay:"
+echo "  • Spotlight (Cmd-Space) → \"Fleet\""
+echo "  • or run: fleet"
+echo "Either one toggles the panel — trigger it again to dismiss."
+echo
+echo "The first time you click a session tile, macOS will ask permission for"
+echo "Fleet to control Terminal. Approve it, or the click can only raise"
+echo "the app instead of the exact tab."
+echo
+echo "  Check what it sees:  fleet --scan"
+echo "  Logs:                /tmp/fleet.log"
+echo "  Uninstall:           ./uninstall.sh"
