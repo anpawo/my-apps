@@ -61,6 +61,22 @@ enum Check {
             }
         }
         do {
+            let view = ActivityDotView()
+            view.frame = NSRect(x: 0, y: 0, width: 12, height: 10)
+            view.layoutSubtreeIfNeeded()
+            view.update(busy: false, reduceMotion: false)
+            let dot = view.layer!.sublayers!.first!
+            check(dot.backgroundColor == NSColor(Color.green).cgColor, "reading dot is green")
+            check(dot.animationKeys()?.isEmpty != false, "offscreen dot does not animate")
+            view.update(busy: true, reduceMotion: false)
+            check(dot.backgroundColor == NSColor(accent).cgColor, "thinking dot is purple")
+            view.setMoving(true)
+            let animation = dot.animation(forKey: "drift") as? CABasicAnimation
+            check(animation?.keyPath == "transform.translation.x" && animation?.autoreverses == true && animation?.repeatCount == .infinity, "dot motion uses a repeating compositor animation")
+            view.update(busy: true, reduceMotion: true)
+            check(dot.animationKeys()?.isEmpty != false, "reduce motion stops dot animation")
+        }
+        do {
             let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
             let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
             for width: CGFloat in [420, 760, 1120] {

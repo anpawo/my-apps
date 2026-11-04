@@ -215,8 +215,8 @@ struct CXView: View {
     private var composer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                ActivityDot(busy: session.busy, action: session.performingAction)
-                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.performingAction ? accent : .green)
+                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Reading")
+                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.busy ? accent : .green)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
@@ -268,18 +268,61 @@ struct CXView: View {
     private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.25)) }
 }
 
-struct ActivityDot: View {
+struct ActivityDot: NSViewRepresentable {
     let busy: Bool
-    let action: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !busy || action || reduceMotion)) { timeline in
-            let phase = timeline.date.timeIntervalSinceReferenceDate * 5
-            Circle().fill(action ? accent : .green)
-                .frame(width: 6, height: 6)
-                .offset(x: busy && !action && !reduceMotion ? CGFloat(sin(phase)) * 3 : 0)
-        }.frame(width: 12, height: 10)
-            .accessibilityLabel(action ? "Performing action" : busy ? "Thinking" : "Idle")
+
+    func makeNSView(context: Context) -> ActivityDotView { ActivityDotView() }
+    func updateNSView(_ view: ActivityDotView, context: Context) { view.update(busy: busy, reduceMotion: reduceMotion) }
+}
+
+final class ActivityDotView: NSView {
+    private let dot = CALayer()
+    private var reduceMotion = false
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        dot.bounds = CGRect(x: 0, y: 0, width: 6, height: 6)
+        dot.cornerRadius = 3
+        layer?.addSublayer(dot)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dot.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.commit()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        if let window { NotificationCenter.default.addObserver(self, selector: #selector(updateMotion), name: NSWindow.didChangeOcclusionStateNotification, object: window) }
+        updateMotion()
+    }
+    override func viewDidHide() { super.viewDidHide(); updateMotion() }
+    override func viewDidUnhide() { super.viewDidUnhide(); updateMotion() }
+
+    func update(busy: Bool, reduceMotion: Bool) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dot.backgroundColor = NSColor(busy ? accent : .green).cgColor
+        CATransaction.commit()
+        self.reduceMotion = reduceMotion
+        updateMotion()
+    }
+    @objc private func updateMotion() {
+        setMoving(!reduceMotion && !isHiddenOrHasHiddenAncestor && window?.occlusionState.contains(.visible) == true)
+    }
+    func setMoving(_ moving: Bool) {
+        guard moving else { dot.removeAnimation(forKey: "drift"); return }
+        guard dot.animation(forKey: "drift") == nil else { return }
+        let animation = CABasicAnimation(keyPath: "transform.translation.x")
+        animation.fromValue = -3; animation.toValue = 3
+        animation.duration = 0.6; animation.autoreverses = true; animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dot.add(animation, forKey: "drift")
     }
 }
 
