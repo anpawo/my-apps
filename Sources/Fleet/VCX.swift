@@ -9,6 +9,7 @@ enum VCX {
     static func sessions() -> [Session] {
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
         let found = apps.flatMap { app -> [Session] in
+            guard app.activationPolicy != .prohibited else { return [] }
             let pid = app.processIdentifier
             guard let bsd = ProcessScanner.bsdInfo(pid) else { return [] }
             let file = root + "/fleet/\(pid).json"
