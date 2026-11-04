@@ -71,15 +71,14 @@ struct ControlCenterView: View {
     // the picker would snap back to the old row until something else redrew the view.
     @State private var idle = Settings.idleThreshold
     @State private var onlyWhenReady = Settings.onlyWhenReady
-    @State private var panelChord = Settings.panelChord
 
     static let background = Color(red: 0.055, green: 0.055, blue: 0.07)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             header
-            status
-            section("WHEN IT APPEARS") {
+            VStack(alignment: .leading, spacing: 12) {
+                status
                 idlePicker
                 row("Show by itself when") {
                     menu([false, true], label: { $0 ? "A session is ready" : "Any session runs" },
@@ -89,16 +88,13 @@ struct ControlCenterView: View {
                          }))
                 }
             }
-            section("SHORTCUTS") {
-                chordPicker("Open the panel", choices: Settings.panelChoices,
-                            selection: Binding(get: { panelChord }, set: {
-                                panelChord = $0
-                                Settings.panelChord = $0
-                                controller.bindHotKeys()
-                            }))
-            }
+            Text("\(Settings.panelChord.label) opens the panel at any time.")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.45))
             hooks
-            footer
+            // "until login" is not hedging: the LaunchAgent has KeepAlive set, so a plain
+            // terminate would have launchd start us again a second later.
+            wideButton("Quit until next login", width: 368) { quit() }
         }
         .padding(.horizontal, 26)
         .padding(.top, 18)
@@ -133,28 +129,25 @@ struct ControlCenterView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Says the state, not the action: "Turn on" beside a red dot read as "on" (04-11).
     private var status: some View {
         let off = controller.popupsOff
-        return HStack(spacing: 12) {
-            Circle()
-                .fill(off ? SessionState.running.tint : SessionState.ready.tint)
-                .frame(width: 8, height: 8)
-            Text(off ? "Never shows itself" : "May show itself")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            wideButton(off ? "Turn on" : "Turn off") {
+        return row("Show by itself") {
+            Button {
                 controller.popupsOff.toggle()
                 if controller.popupsOff, controller.isPanelVisible { controller.hidePanel() }
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(off ? SessionState.running.tint : SessionState.ready.tint)
+                        .frame(width: 7, height: 7)
+                    Text(off ? "Off" : "On")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
             }
+            .buttonStyle(LineButton())
         }
-        .padding(.vertical, 14)
-        // The card bleeds past the column instead of padding its content in, so the button
-        // ends on the same right edge as every control below it.
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(.white.opacity(0.06))
-            .padding(.horizontal, -14))
     }
 
     private var idlePicker: some View {
@@ -165,46 +158,13 @@ struct ControlCenterView: View {
         }
     }
 
-    private func chordPicker(_ title: String, choices: [Settings.Chord],
-                             selection: Binding<Settings.Chord>) -> some View {
-        row(title) {
-            // A list of chords rather than a recorder that captures whatever you press: the
-            // recorder is a window's worth of code, and these are the combinations that are
-            // actually free.
-            menu(choices, label: \.label, selection: selection)
-        }
-    }
-
     @ViewBuilder private var hooks: some View {
         if !Hooks.isInstalled {
             wideButton(Hooks.isOutdated ? "Update Hooks…" : "Install Hooks…") { installHooks() }
         }
     }
 
-    private var footer: some View {
-        // No spacing of its own: two control widths and two gaps came to 12pt more than the
-        // column, and the right button stood past the edge the popups end on.
-        HStack(spacing: 0) {
-            wideButton("Show Panel") { controller.forceShow() }
-            Spacer(minLength: 0)
-            // "until login" is not hedging: the LaunchAgent has KeepAlive set, so a plain
-            // terminate would have launchd start us again a second later.
-            wideButton("Quit until next login") { quit() }
-        }
-    }
-
     // MARK: - Layout helpers
-
-    private func section<Content: View>(_ title: String,
-                                        @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(2)
-                .foregroundStyle(.white.opacity(0.35))
-            content()
-        }
-    }
 
     /// Every control in the window lives in a slot this wide, against the same right edge —
     /// pickers, buttons, both footer buttons. They were each their own width before, which put
