@@ -197,6 +197,14 @@ final class Session: ObservableObject {
         let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "0"
         return percentage + "% token - " + capacity
     }
+    // Claude reports a model's window only when a turn ends; remembering it shows the percentage from a new session's first message.
+    private var contextWindows: [String: Int] {
+        get { (try? JSONSerialization.jsonObject(with: Data(contentsOf: stateDirectory.appendingPathComponent("claude-context-windows.json")))) as? [String: Int] ?? [:] }
+        set {
+            try? FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try? JSONSerialization.data(withJSONObject: newValue).write(to: stateDirectory.appendingPathComponent("claude-context-windows.json"), options: [.atomic])
+        }
+    }
 
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
         if let runtimeClient {
@@ -415,7 +423,11 @@ final class Session: ObservableObject {
             if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
         case "cx/context":
             if let used = p["used"] as? Int { contextUsed = used }
-            if let limit = p["limit"] as? Int, limit > 0 { contextLimit = limit }
+            let served = p["model"] as? String
+            if let limit = p["limit"] as? Int, limit > 0 {
+                contextLimit = limit
+                if let served, contextWindows[served] != limit { contextWindows[served] = limit }
+            } else if let served, let known = contextWindows[served] { contextLimit = known }
         case "cx/model":
             model = p["model"] as? String ?? model
             defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)

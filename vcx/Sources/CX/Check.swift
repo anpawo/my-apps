@@ -966,9 +966,14 @@ enum Check {
             params.removeValue(forKey: "threadId"); message["params"] = params
             codexCommands.event(message)
         }
-        claudeContext.receive(["type": "assistant", "message": ["usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
-        claudeContext.receive(["type": "result", "modelUsage": [claudeContext.model: ["contextWindow": 1000000]]])
-        check(codexCommands.contextUsed == 203600 && codexCommands.contextLabel == "20% token - 1M", "Claude context uses the last message and includes cached tokens")
+        claudeContext.receive(["type": "assistant", "message": ["model": "fixture-served", "usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
+        claudeContext.receive(["type": "result", "modelUsage": ["fixture-served": ["contextWindow": 1000000]]])
+        check(codexCommands.contextUsed == 203100 && codexCommands.contextLabel == "20% token - 1M", "Claude context counts the last message's input and cached tokens like Claude Code, under the model that served it")
+        do {
+            let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
+            fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])
+            check(fresh.contextLabel == "5% token - 1M", "a new Claude session shows the remembered window before its first turn ends")
+        }
         codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
         check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
         codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]

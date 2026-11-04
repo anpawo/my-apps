@@ -106,6 +106,7 @@ final class ClaudeConnection: Connection {
     private var blocks: [Int: (id: String, text: String)] = [:]
     private var messageID = ""
     private var lastAnswer = ""
+    private var servedModel: String?
     private var limit: JSON?
     private var stopped = false
     private var command: [String]?
@@ -278,8 +279,9 @@ final class ClaudeConnection: Connection {
             if message["error"] as? String == "rate_limit" { limit = ["error": "rate_limit"]; return }
             let body = message["message"] as? JSON ?? [:], id = body["id"] as? String ?? UUID().uuidString
             if let usage = body["usage"] as? JSON {
-                let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
-                emit("cx/context", ["used": used])
+                let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
+                servedModel = body["model"] as? String ?? servedModel
+                emit("cx/context", ["used": used, "model": servedModel ?? model])
             }
             for (index, block) in (body["content"] as? [JSON] ?? []).enumerated() {
                 if block["type"] as? String == "text", let text = block["text"] as? String {
@@ -305,7 +307,9 @@ final class ClaudeConnection: Connection {
             emit("cx/claudeLimit", info)
             if info["status"] as? String == "rejected" { limit = info }
         case "result":
-            if let models = message["modelUsage"] as? [String: JSON], let limit = models[model]?["contextWindow"] as? Int { emit("cx/context", ["limit": limit]) }
+            // `model` can be "Claude" or an alias; modelUsage is keyed by the model that served the turn.
+            let served = servedModel ?? model
+            if let models = message["modelUsage"] as? [String: JSON], let limit = (models[served] ?? models[model])?["contextWindow"] as? Int { emit("cx/context", ["limit": limit, "model": served]) }
             if let usage = message["usage"] as? JSON {
                 let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
                 emit("cx/tokens", ["input": input, "output": usage["output_tokens"] as? Int ?? 0])
