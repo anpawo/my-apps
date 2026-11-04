@@ -131,7 +131,13 @@ extension Session {
         if ["claude", "codex"].contains(account.provider) { commands += [ChatCommand(name: "/compact", detail: "Compact the current context", source: providerLabel, insert: "/compact"), ChatCommand(name: "/review", detail: "Review uncommitted changes or custom instructions", source: providerLabel, insert: "/review ")] }
         if query.hasPrefix("/vcx:") { commands = appCommands.map { var c = $0; c.insert = c.insert.replacingOccurrences(of: "/", with: "/vcx:"); return c } }
         let needle = query.replacingOccurrences(of: "/vcx:", with: "/").lowercased()
-        return commands.filter { needle == "/" || $0.name.lowercased().contains(needle) || $0.insert.lowercased().hasPrefix(query.lowercased()) || $0.detail.lowercased().contains(String(needle.dropFirst())) }
+        func rank(_ command: ChatCommand) -> Int {
+            let name = command.name.lowercased(), insert = command.insert.lowercased().trimmingCharacters(in: .whitespaces)
+            if name == needle || insert == query.lowercased() { return 0 }
+            if name.hasPrefix(needle) || insert.hasPrefix(query.lowercased()) { return 1 }
+            return name.contains(needle) ? 2 : 3
+        }
+        return commands.filter { needle == "/" || $0.name.lowercased().contains(needle) || $0.insert.lowercased().hasPrefix(query.lowercased()) || $0.detail.lowercased().contains(String(needle.dropFirst())) }.sorted { rank($0) < rank($1) }
     }
 
     func updateCommands(_ text: String, caret: Int) {

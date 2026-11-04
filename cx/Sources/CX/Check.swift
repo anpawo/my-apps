@@ -600,6 +600,25 @@ enum Check {
         let codexCommands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
         codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
         await codexCommands.connect(resume: nil)
+        do {
+            let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
+            ranking.providerCommands = [
+                ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/codex:skill:beeper "),
+                ChatCommand(name: "/smoke", detail: "Run checks", source: "Codex skill", insert: "/codex:skill:smoke "),
+                ChatCommand(name: "/sm", detail: "Summarize", source: "Codex skill", insert: "/codex:skill:sm "),
+                ChatCommand(name: "/xlsx", detail: "Read .xlsm files", source: "Codex skill", insert: "/codex:skill:xlsx ")
+            ]
+            for query in ["/sm", "/SM", "/codex:skill:sm"] {
+                ranking.updateCommands(query, caret: query.count)
+                check(ranking.commandOptions.first?.name == "/sm" && ranking.commandSelection == 0, "exact command names rank before prefixes and description matches: \(query)")
+            }
+            ranking.updateCommands("/sm", caret: 3)
+            check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
+            check(ranking.completeCommand() && ranking.draft.string == "/codex:skill:sm ", "completion inserts the exact skill instead of a description match")
+            ranking.updateCommands("/", caret: 1)
+            check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
+            ranking.close()
+        }
         codexCommands.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: "Codex skill", insert: "/codex:skill:fixture ")]
         codexCommands.skillPaths = ["fixture": "/fixture/SKILL.md"]
         codexCommands.draft = NSAttributedString(string: "/codex:skill:fixture check")
