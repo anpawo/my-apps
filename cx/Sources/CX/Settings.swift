@@ -19,6 +19,7 @@ struct Preferences: Codable {
     var qwenURL = "http://localhost:11434/api/chat"
     var qwenModel = "qwen3-8b-abl"
     var qwenVisionModel = "qwen3-vl:4b-instruct"
+    var qwenWake = false
 }
 
 @MainActor
@@ -68,6 +69,7 @@ final class Settings: ObservableObject {
             if value.qwenProxy != saved.qwenProxy { latest.qwenProxy = value.qwenProxy }
             if value.qwenModel != saved.qwenModel { latest.qwenModel = value.qwenModel }
             if value.qwenVisionModel != saved.qwenVisionModel { latest.qwenVisionModel = value.qwenVisionModel }
+            if value.qwenWake != saved.qwenWake { latest.qwenWake = value.qwenWake }
             update(&latest)
             try JSONEncoder().encode(latest).write(to: url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

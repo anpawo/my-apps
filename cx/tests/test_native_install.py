@@ -75,6 +75,19 @@ class NativeInstallTests(unittest.TestCase):
                 run.assert_not_called()
             self.assertEqual(target.read_text(), 'unrelated command')
 
+    def test_headless_flag_after_other_options_never_opens_an_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            def run(arguments, **kwargs):
+                if arguments[0] == '/usr/bin/ditto':
+                    resources = Path(arguments[2]) / 'Contents/Resources'
+                    resources.mkdir(parents=True)
+                    (resources / 'background.py').write_text('import sys\nprint("HEADLESS", *sys.argv[1:])\n')
+            with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
+                installer.install()
+            result = subprocess.run([str(home / '.local/bin/vcx'), '--model', 'sonnet', '-p', 'Task'], capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.strip(), 'HEADLESS --model sonnet -p Task')
+
     def test_unrelated_app_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

@@ -14,5 +14,6 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns .build/VCX.iconset -o "$app/Contents/Resources/VCX.icns"
 cp tests/native_peer.py "$app/Contents/Resources/native_peer.py"
+cp background.py "$app/Contents/Resources/background.py"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 codesign --force --sign - "$app"

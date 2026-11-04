@@ -400,7 +400,17 @@ final class QwenConnection: Connection {
         let session = try qwenNetwork(preferences); network = session; return session
     }
     init(preferences: Preferences, cwd: String = FileManager.default.currentDirectoryPath) { self.preferences = preferences; self.cwd = cwd }
-    func start(command: [String]? = nil) async throws {}
+    func start(command: [String]? = nil) async throws {
+        guard preferences.qwenWake else { return }
+        guard let helper = Bundle.main.resourceURL?.appendingPathComponent("background.py"), FileManager.default.fileExists(atPath: helper.path) else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [helper.path, "--ensure-qwen"]
+        process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        try process.run()
+        let status = await Task.detached { process.waitUntilExit(); return process.terminationStatus }.value
+        guard status == 0 else { throw CXError(message: "Qwen is unavailable. Check the remote machine and the Windows wake setting.") }
+    }
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
         case "thread/start", "thread/resume":

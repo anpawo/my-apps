@@ -51,6 +51,11 @@ def install():
     python = root / '.venv/bin/python'
     script = f'''#!/bin/sh
 # vcx launcher
+for argument in "$@"; do
+  case "$argument" in
+    -p|--print|--headless|--ensure-qwen) exec /usr/bin/python3 {shlex.quote(str(target / 'Contents/Resources/background.py'))} "$@" ;;
+  esac
+done
 case "$1" in
   --terminal)
     shift

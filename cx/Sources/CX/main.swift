@@ -81,8 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 MainActor.assumeIsolated {
 signal(SIGPIPE, SIG_IGN)
 let args = Array(CommandLine.arguments.dropFirst())
+if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].contains($0) }) {
+    let arguments = (["/usr/bin/python3", Bundle.main.resourceURL!.appendingPathComponent("background.py").path] + args).map { strdup($0) } + [nil]
+    defer { arguments.forEach { free($0) } }
+    arguments.withUnsafeBufferPointer { _ = execv("/usr/bin/python3", $0.baseAddress!) }
+    perror("vcx"); exit(1)
+}
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
-if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nEach launch opens an independent Vibe Code X window. Use cx --terminal for the previous terminal interface."); exit(0) }
+if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface."); exit(0) }
 if args.contains("--check") || args.contains("--render") || args.contains("--icon") {
     setenv("VCX_CONFIG_HOME", (NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString), 1)
 }

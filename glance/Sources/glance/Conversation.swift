@@ -14,7 +14,7 @@ final class Conversation: @unchecked Sendable {
     /// Opus: on a screenshot its first word came as soon as Sonnet's and Haiku's, 1.1 to 1.6 s (measured 27/10/2026).
     static let model = "opus"
 
-    static let binary = ["\(NSHomeDirectory())/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+    static let binary = ["\(NSHomeDirectory())/.local/bin/vcx", "/opt/homebrew/bin/vcx", "/usr/local/bin/vcx"]
         .first(where: FileManager.default.isExecutableFile(atPath:))
 
     /// Nothing of Marius's setup: his settings, hooks, CLAUDE.md files and MCP servers cost Jarvis ~75k tokens and 20 s a
@@ -82,7 +82,7 @@ final class Conversation: @unchecked Sendable {
             return .text(t)
         case "result":
             let text = o["result"] as? String ?? ""
-            return o["is_error"] as? Bool == true ? .failed(text.isEmpty ? "claude failed" : text) : .done(text)
+            return o["is_error"] as? Bool == true ? .failed(text.isEmpty ? "VCX failed" : text) : .done(text)
         default:
             return nil
         }
@@ -125,7 +125,7 @@ final class Conversation: @unchecked Sendable {
 
     private func launch() {
         guard process == nil, !stopped else { return }
-        guard let binary = Self.binary else { return emit(.failed("claude is not installed")) }
+        guard let binary = Self.binary else { return emit(.failed("VCX is not installed")) }
         // Writing to a process that has died must fail, not kill the app.
         signal(SIGPIPE, SIG_IGN)
         let p = Process(), stdin = Pipe(), stdout = Pipe()
@@ -140,7 +140,7 @@ final class Conversation: @unchecked Sendable {
             if data.isEmpty { handle.readabilityHandler = nil }
             self?.queue.async { self?.read(data) }
         }
-        do { try p.run() } catch { return emit(.failed("claude did not start: \(error.localizedDescription)")) }
+        do { try p.run() } catch { return emit(.failed("VCX did not start: \(error.localizedDescription)")) }
         (process, input, unread) = (p, stdin.fileHandleForWriting, Data())
     }
 
@@ -159,7 +159,7 @@ final class Conversation: @unchecked Sendable {
     /// The process is gone; the next question starts another, which has seen nothing.
     private func ended() {
         (process, input) = (nil, nil)
-        if asking { emit(.failed("claude stopped before answering")) }
+        if asking { emit(.failed("VCX stopped before answering")) }
         asking = false
     }
 

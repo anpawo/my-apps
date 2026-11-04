@@ -16,3 +16,7 @@
 - 04/11/2026: Capacity metadata fallbacks recheck live context after awaiting and invalidate only their own provider; otherwise live values and other providers lose their reported capacity.
 - 04/11/2026: Git merge takes a commit reference; use git -C to address a worktree path.
 - 04/11/2026: Parenthesize a Swift nil-coalescing array before appending shared arguments; otherwise a supplied fixture command skips the suffix.
+- 04/11/2026: Background provider fallback stops after any task tool starts and saves partial activity; replaying a partially completed task can duplicate external actions.
+- 04/11/2026: Sealed Codex runs ignore user config, so per-server enabled overrides create invalid transport entries; leave MCP absent instead.
+- 04/11/2026: Engine adapters enforce accepted deny flags and preserve variadic caller arguments; silently dropping a restriction changes permissions.
+- 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.

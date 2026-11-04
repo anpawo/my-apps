@@ -113,7 +113,7 @@ enum Review {
         let data = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/claude")
+        process.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
         process.arguments = ["-p", prompt + "\n\n" + String(decoding: data, as: UTF8.self),
                              "--model", model, "--output-format", "json", "--json-schema", schema,
                              // Text in, verdict out: no tool, no setting, no MCP server, no transcript.
@@ -132,7 +132,7 @@ enum Review {
 
         struct Envelope: Decodable { let is_error: Bool?; let result: String?; let structured_output: Verdict? }
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: stdout) else {
-            throw Failure(description: "claude exited \(process.terminationStatus) without an answer")
+            throw Failure(description: "VCX exited \(process.terminationStatus) without an answer")
         }
         guard envelope.is_error != true, let verdict = envelope.structured_output else {
             throw Failure(description: String((envelope.result ?? "no verdict").prefix(200)))
