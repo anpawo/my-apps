@@ -31,7 +31,7 @@
 - 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.
 - 04/11/2026: Watcher binary updates use kickstart -k on the existing LaunchAgent; replacing its registration is unnecessary.
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
-- 04/11/2026: Replace signed app bundles through a clean staging copy; merging with ditto preserves generated Python caches and invalidates the resource seal.
+- 04/11/2026: Replace signed app bundles through a clean staging copy; merging preserves generated Python caches and invalidates the seal. Compare installed hashes with the signed dist bundle, since signing changes the unsigned .build binary.
 - 04/11/2026: After merging concurrent changes into a worktree, read its new HEAD before integrating it; the earlier feature commit still diverges from main.
 - 04/11/2026: Run install-native.py without an outer build-stack wrapper; its nested Swift build otherwise waits on the installer's own queue slot.
 - 04/11/2026: Before cancelling a queued build, verify its ancestry reaches this tool's parent PID; queue position and matching installer names do not establish ownership.
