@@ -337,3 +337,13 @@ func draftContent(_ draft: NSAttributedString) -> [JSON] {
     }
     return pieces
 }
+
+// A runtime worker started before paste chips existed echoes them back as plain text: same draft.
+func plainDraftContent(_ pieces: [JSON]) -> [JSON] {
+    pieces.reduce(into: []) { plain, piece in
+        let piece: JSON = piece["type"] as? String == "paste" ? ["type": "text", "text": piece["text"] as? String ?? ""] : piece
+        if piece["type"] as? String == "text", let last = plain.last, last["type"] as? String == "text" {
+            plain[plain.count - 1]["text"] = (last["text"] as? String ?? "") + (piece["text"] as? String ?? "")
+        } else { plain.append(piece) }
+    }
+}

@@ -1088,10 +1088,10 @@ final class Session: ObservableObject {
         let restored = runtimeDraft(pieces)
         draftGeneration = generation
         if let saved = savedCommandDraft {
-            if !NSArray(array: draftContent(saved)).isEqual(to: pieces) { savedCommandDraft = restored }
+            if !NSArray(array: plainDraftContent(draftContent(saved))).isEqual(to: plainDraftContent(pieces)) { savedCommandDraft = restored }
             return
         }
-        if !NSArray(array: draftContent(draft)).isEqual(to: pieces) { draft = restored; draftRevision += 1 }
+        if !NSArray(array: plainDraftContent(draftContent(draft))).isEqual(to: plainDraftContent(pieces)) { draft = restored; draftRevision += 1 }
     }
 
     func applyInterruptedRecovery(_ state: JSON) {

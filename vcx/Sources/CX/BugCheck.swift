@@ -78,6 +78,11 @@ enum BugCheck {
         check(coordinator.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && field.string.hasSuffix("line one\nline two"), "Tab right after a paste expands it to text")
         field.paste(from: board); field.insertText(" ", replacementRange: field.selectedRange())
         check(!coordinator.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && field.textStorage!.attribute(.attachment, at: field.string.utf16.count - 2, effectiveRange: nil) is PasteChip, "Tab after typing leaves the paste collapsed")
+        let oldWorkerEcho = plainDraftContent(draftContent(frontend.draft))
+        frontend.applyRuntimeDraft(["draft": oldWorkerEcho, "draftGeneration": frontend.draftGeneration])
+        check(oldWorkerEcho.count == 2 && !oldWorkerEcho.contains { $0["type"] as? String == "paste" } && frontend.draft.attribute(.attachment, at: frontend.draft.length - 2, effectiveRange: nil) is PasteChip, "a runtime worker that echoes the paste as text keeps the chip")
+        frontend.applyRuntimeDraft(["draft": [JSON](), "draftGeneration": frontend.draftGeneration])
+        check(frontend.draft.length == 0, "a runtime that clears the draft still clears it")
         let presence = FleetPresence(session: frontend)
         defer { presence.close() }
         let presenceFile = frontend.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
