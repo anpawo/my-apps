@@ -276,6 +276,7 @@ final class Session: ObservableObject {
     }
 
     private func refreshContextLimit() async {
+        if account.provider == "claude" { contextLimit = contextWindows[model]; return }
         guard account.provider == "codex" else { return }
         let connection = rpc, selectedModel = model
         let result = try? await connection.request("config/read", ["cwd": cwd, "includeLayers": false], timeout: 5)
@@ -430,6 +431,7 @@ final class Session: ObservableObject {
             } else if let served, let known = contextWindows[served] { contextLimit = known }
         case "cx/model":
             model = p["model"] as? String ?? model
+            if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
             defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
         case "item/started", "item/completed":
             if var data = p["item"] as? JSON {

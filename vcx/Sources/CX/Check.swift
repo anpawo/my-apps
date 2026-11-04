@@ -244,8 +244,11 @@ enum Check {
         effortSession.connectionFactory = { account, _ in FixtureConnection(account) }
         try! await effortSession.activate(Account(name: "Effort fixture", provider: "claude", home: profile.path), resume: nil, keepRows: false)
         check(effortSession.effort == nil && effortSession.modelStatusLabel.hasSuffix(" - high"), "fresh Claude sessions display their configured effort without a manual selection")
+        try! FileManager.default.createDirectory(at: directory.appendingPathComponent("effort-state"), withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: ["claude-opus-5-5": 1000000]).write(to: directory.appendingPathComponent("effort-state/claude-context-windows.json"))
         effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
         check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
+        check(effortSession.contextLabel == "0% token - 1M", "a new Claude session shows its model's remembered window before the first reply, like Claude Code")
         effortSession.models = ["other-model"]
         await effortSession.changeModel("other-model")
         check(effortSession.modelStatusLabel == "Other Model - high", "Claude model changes restore the configured default effort")
