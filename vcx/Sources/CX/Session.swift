@@ -168,6 +168,9 @@ final class Session: ObservableObject {
     var rpc: any Connection = RPC()
     @Published var providerLabel = "Claude"
     private(set) var account = Account(id: "claude-default", name: "Default Claude", provider: "claude")
+    // A provider picked in one session stays in it; new sessions start on the shared default.
+    var providerChoice: String?
+    var preferredProvider: String { providerChoice ?? Settings.shared.value.provider }
     private var recordID = UUID().uuidString
     private var pendingInput: (String, [String])?
     private var transferring = false
@@ -785,7 +788,7 @@ final class Session: ObservableObject {
 
     var available: [Account] {
         let settings = Settings.shared
-        return settings.candidates.filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
+        return settings.candidates(preferredProvider).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
     }
 
     func activate(_ next: Account, resume: String?, keepRows: Bool) async throws {
@@ -913,7 +916,7 @@ final class Session: ObservableObject {
         }
         let previousRecord = recordID
         var target = pendingActivation ?? (account, threadID, true, recordID)
-        if let selected = available.first, Settings.shared.value.provider != "auto", selected.id != target.0.id {
+        if let selected = available.first, preferredProvider != "auto", selected.id != target.0.id {
             target = (selected, selected.id == account.id ? threadID : nil, true, recordID)
         }
         if let latest = Settings.shared.value.accounts.first(where: { $0.id == target.0.id }) {
@@ -984,7 +987,7 @@ final class Session: ObservableObject {
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
         let settings = Settings.shared
         let stored = settings.candidates.first { $0.id == accountID } ?? settings.value.accounts.first { $0.id == accountID }
-        let preferred = settings.value.provider != "auto" ? available.first : available.first { $0.id == stored?.id } ?? available.first
+        let preferred = preferredProvider != "auto" ? available.first : available.first { $0.id == stored?.id } ?? available.first
         guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
         let resumeID = selected.id == accountID ? thread : nil
         let generation = draftGeneration

@@ -623,6 +623,7 @@ enum Check {
         session.dismissCommands()
         await session.command("/model codex fixture-model high")
         check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
+        check(session.account.provider == "codex" && Settings.shared.value.provider == pickerProvider && Settings.shared.candidates.first?.provider != "codex", "a session's provider switch leaves the shared default for new sessions")
         session.draft = NSAttributedString(string: "Another turn")
         await session.send(text: "Another turn", images: [])
         check(connections["codex-default"]?.sent.last?["effort"] as? String == "high", "Codex receives selected effort on the next turn")

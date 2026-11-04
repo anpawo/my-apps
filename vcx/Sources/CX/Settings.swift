@@ -76,9 +76,10 @@ final class Settings: ObservableObject {
             value = latest; saved = latest; error = ""
         } catch { self.error = error.localizedDescription }
     }
-    var candidates: [Account] {
+    var candidates: [Account] { candidates(value.provider) }
+    func candidates(_ provider: String) -> [Account] {
         let providers = ["claude", "codex", "qwen"]
-        let ordered = value.provider == "auto" ? providers : [value.provider] + providers.filter { $0 != value.provider }
+        let ordered = provider == "auto" ? providers : [provider] + providers.filter { $0 != provider }
         return ordered.flatMap { provider in
             provider == "qwen" ? [Account(id: "qwen", name: "Qwen", provider: "qwen")] : value.accounts.filter { $0.provider == provider && $0.enabled }
         }

@@ -286,13 +286,12 @@ extension Session {
                 let args = argument.split(separator: " ").map(String.init)
                 let providers = ["auto", "claude", "codex", "qwen"]
                 if providers.contains(args[0]) {
-                    let provider = args[0], previousProvider = settings.value.provider
-                    settings.value.provider = provider
+                    let provider = args[0], previousProvider = providerChoice
+                    providerChoice = provider
                     guard let next = available.first, provider == "auto" || next.provider == provider else {
-                        settings.value.provider = previousProvider
+                        providerChoice = previousProvider
                         throw CXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
                     }
-                    try saveSettings()
                     if next.id != account.id || !ready {
                         try await activate(next, resume: nil, keepRows: true)
                         await refreshCatalog()
@@ -324,7 +323,7 @@ extension Session {
                     settings.value.accounts[index].name = args[2]
                 } else if operation == "use" {
                     let selected = settings.value.accounts[index]
-                    settings.value.provider = selected.provider
+                    providerChoice = selected.provider
                     for n in settings.value.accounts.indices where settings.value.accounts[n].provider == selected.provider { settings.value.accounts[n].enabled = n == index }
                 } else { settings.value.accounts[index].enabled = operation == "enable" }
                 try saveSettings(); await reconnect()
