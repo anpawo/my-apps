@@ -78,7 +78,7 @@ case "$1" in
     exec {shlex.quote(str(binary))} "$@"
     ;;
 esac
-exec /usr/bin/open -n -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
+exec /usr/bin/open -n -g -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
 '''
     for launcher in launchers:
         launcher.parent.mkdir(parents=True, exist_ok=True)

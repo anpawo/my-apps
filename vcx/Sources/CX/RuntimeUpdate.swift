@@ -80,7 +80,7 @@ enum RuntimeUpdate {
     }
 
     static func forward(_ options: LaunchOptions) throws {
-        var value: JSON = ["cwd": options.cwd, "prompt": options.prompt]
+        var value: JSON = ["cwd": options.cwd, "prompt": options.prompt, "focus": options.focus]
         value["resume"] = options.resume
         _ = try writeTicket(value, suffix: ".open.json")
         DistributedNotificationCenter.default().postNotificationName(openNotification, object: nil, userInfo: nil, deliverImmediately: true)

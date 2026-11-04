@@ -696,6 +696,7 @@ enum Check {
         check(envA["OPENAI_API_KEY"] == nil && envA["ANTHROPIC_API_KEY"] == nil, "subscription mode strips inherited API keys")
         check(Settings.shared.candidates.map(\.provider) == ["claude", "codex", "qwen"], "default provider priority")
         check(try! LaunchOptions(["--cwd", directory.path, "--resume"]).resume == "last", "CLI resume is compatible")
+        check(try! LaunchOptions(["--cwd", directory.path, "--focus", "hi"]).focus && !(try! LaunchOptions(["--cwd", directory.path]).focus), "only --focus asks a new window to take focus")
         let settingsA = Settings(), settingsB = Settings()
         settingsB.value.accounts.append(Account(id: "extra", name: "Another Claude", provider: "claude"))
         settingsB.value.provider = "codex"; settingsB.save()

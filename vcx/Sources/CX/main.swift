@@ -5,6 +5,7 @@ struct LaunchOptions {
     var cwd = FileManager.default.currentDirectoryPath
     var resume: String?
     var prompt = ""
+    var focus = false
     var runtimeID: String?
     var socketPath: String?
     var recoveryEntry: RuntimeRecovery.Entry?
@@ -17,6 +18,7 @@ struct LaunchOptions {
             case "--resume", "-r":
                 resume = "last"
                 if i + 1 < args.count, !args[i + 1].hasPrefix("-") { i += 1; resume = args[i] }
+            case "--focus": focus = true
             case "--": words += args.dropFirst(i + 1); i = args.count
             default:
                 guard !args[i].hasPrefix("-") else { throw CXError(message: "Unknown option: " + args[i]) }
@@ -177,8 +179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.closing.insert(ObjectIdentifier(window)); window.close()
         }
         if !headless {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            // Only a window he asked for takes focus; one opened from outside (spawn, Watcher, an update) lands behind his current window.
+            if !options.focus, let key = NSApp.keyWindow { window.order(.below, relativeTo: key.windowNumber) }
+            else { window.makeKeyAndOrderFront(nil) }
+            if options.focus { NSApp.activate(ignoringOtherApps: true) }
         }
         Task {
             do { try await client.connect(resume: options.resume, prompt: options.prompt) }
@@ -237,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let value = try RuntimeUpdate.readTicket(file.path, suffix: ".open.json")
                 guard let cwd = value["cwd"] as? String else { continue }
                 var options = try LaunchOptions(["--cwd", cwd])
-                options.resume = value["resume"] as? String; options.prompt = value["prompt"] as? String ?? ""
+                options.resume = value["resume"] as? String; options.prompt = value["prompt"] as? String ?? ""; options.focus = value["focus"] as? Bool ?? false
                 try FileManager.default.removeItem(at: file)
                 createWindow(options)
             } catch { NSLog("VCX open request: %@", error.localizedDescription) }
@@ -267,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 else {
                     let config = NSWorkspace.OpenConfiguration()
                     config.createsNewApplicationInstance = true
+                    config.activates = NSApp.isActive
                     config.arguments = ["--restore-windows", file.path]
                     replacement = FrontendReplacementProcess(try await NSWorkspace.shared.openApplication(at: RuntimeUpdate.installed, configuration: config))
                 }
@@ -324,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc func newWindow() { openWindow(cwd: session?.cwd ?? NSHomeDirectory()) }
     func openWindow(cwd: String) {
-        guard let options = try? LaunchOptions(["--cwd", cwd]) else { return }
+        guard let options = try? LaunchOptions(["--cwd", cwd, "--focus"]) else { return }
         if updating { try? RuntimeUpdate.forward(options) }
         else { createWindow(options) }
     }

@@ -114,6 +114,7 @@ final class App: NSObject, NSApplicationDelegate {
             (kVK_ANSI_J, cmdKey | optionKey, "⌥⌘J", {
                 let config = NSWorkspace.OpenConfiguration()
                 config.createsNewApplicationInstance = true
+                config.arguments = ["--focus"]
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Vibe Code X.app"), configuration: config)
             }),
         ])

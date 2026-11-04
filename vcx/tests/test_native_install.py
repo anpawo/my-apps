@@ -90,7 +90,7 @@ class NativeInstallTests(unittest.TestCase):
             self.assertFalse((commands / 'cx').is_symlink())
             for name in ['cx', 'vcx']:
                 text = (commands / name).read_text()
-                self.assertIn('open -n', text)
+                self.assertIn('open -n -g', text)
                 self.assertIn('--cwd "$PWD" "$@"', text)
                 subprocess.run(['/bin/sh', '-n', str(commands / name)], check=True)
 
