@@ -286,7 +286,9 @@ final class ClaudeConnection: Connection {
             for (index, block) in (body["content"] as? [JSON] ?? []).enumerated() {
                 if block["type"] as? String == "text", let text = block["text"] as? String {
                     lastAnswer = text
-                    emit("item/completed", ["item": ["id": id + "-\(index)", "type": "agentMessage", "text": text, "provider": "Claude"]])
+                    // Each assistant event holds one block, so its index is 0 even when the stream put a thinking block first.
+                    let streamed = blocks.filter { $0.value.id.hasPrefix(id + "-") }.keys.min().flatMap { blocks.removeValue(forKey: $0)?.id }
+                    emit("item/completed", ["item": ["id": streamed ?? id + "-\(index)", "type": "agentMessage", "text": text, "provider": "Claude"]])
                 } else if block["type"] as? String == "tool_use", let toolID = block["id"] as? String {
                     let input = block["input"] as? JSON ?? [:], name = block["name"] as? String ?? "Tool"
                     let tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]

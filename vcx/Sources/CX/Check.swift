@@ -363,9 +363,10 @@ enum Check {
         rpc.close()
         let account = Account(id: "test", name: "Test", provider: "claude")
         let claude = ClaudeConnection(account: account, cwd: directory.path)
-        var claudeText = "", claudeDone = false, claudeCompletions = 0, claudeStarts = 0
+        var claudeText = "", claudeDone = false, claudeCompletions = 0, claudeStarts = 0, claudeMessageIDs: [String] = []
         claude.event = { message in
             let p = message["params"] as? JSON ?? [:]
+            if ["item/started", "item/completed"].contains(message["method"] as? String), let item = p["item"] as? JSON, item["type"] as? String == "agentMessage" { claudeMessageIDs.append(item["id"] as? String ?? "") }
             if message["method"] as? String == "item/agentMessage/delta" { claudeText += p["delta"] as? String ?? "" }
             if message["method"] as? String == "turn/completed" { claudeDone = true; claudeCompletions += 1 }
             if message["method"] as? String == "turn/started" { claudeStarts += 1 }
@@ -408,6 +409,11 @@ enum Check {
             claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
             claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
             check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
+            claudeMessageIDs.removeAll()
+            claude.receive(["type": "stream_event", "event": ["type": "message_start", "message": ["id": "msg_think"]]])
+            claude.receive(["type": "stream_event", "event": ["type": "content_block_start", "index": 1, "content_block": ["type": "text", "text": ""]]])
+            claude.receive(["type": "assistant", "message": ["id": "msg_think", "content": [["type": "text", "text": "Hi"]]]])
+            check(claudeMessageIDs == ["msg_think-1", "msg_think-1"], "Claude completes a text that follows a thinking block in its streamed row")
         } catch { check(false, "Claude integration: " + error.localizedDescription) }
         claude.close()
         let server = Process(), output = Pipe()
