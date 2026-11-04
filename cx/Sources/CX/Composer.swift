@@ -133,6 +133,10 @@ struct Composer: NSViewRepresentable {
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
                     let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
+                    if session.providerCommands.contains(selected) {
+                        session.commandQuery = nil
+                        Task { await session.command(selected.insert) }; return true
+                    }
                     if selected.insert != view.string { _ = session.completeCommand(); return true }
                 }
                 session.commandQuery = nil

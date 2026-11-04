@@ -6,6 +6,8 @@
 - 04/11/2026: Swift search filters explicitly allow empty queries: String.contains("") and localizedCaseInsensitiveContains("") return false. Standalone probes of Foundation string methods import Foundation.
 - 04/11/2026: Swift usage fixtures need explicit JSON types and isolated display sessions; inferred dictionaries promote integer fields to Double, and exhausted Codex windows persist fallback settings that affect later checks.
 - 04/11/2026: Composer input checks recreate its retained NSTextStorage, NSLayoutManager and NSTextContainer; a standalone ComposerText with a nil container has no storage and cannot test typed text.
+- 04/11/2026: Typed-command fixtures disable showCommands draft preservation; the shortcut default restores the previous draft after execution and changes the behavior under test.
+- 04/11/2026: Wait for the compiler process to exit before running its binary; a yielded build can leave the previous check executable in place.
 - 04/11/2026: Keep prompt timestamps in saved message data; restoring a UI row creates a new UUID, not a newly sent prompt.
 - 04/11/2026: Asynchronous selection checks wait for command completion, not a selected value that may already equal the target.
 - 04/11/2026: Scope new fixture variables in Check.run in a do block; shared local names can collide with later checks and fail compilation.

@@ -663,6 +663,39 @@ enum Check {
         let skillInput = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
         check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
         for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        do {
+            for provider in ["claude", "codex"] {
+                Settings.shared.value.provider = provider; Settings.shared.save()
+                let selection = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-enter-" + provider))
+                selection.connectionFactory = { account, _ in FixtureConnection(account) }
+                await selection.connect(resume: nil)
+                check(selection.ready && selection.account.provider == provider, "skill selection fixture connects to \(provider)")
+                selection.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: provider, insert: "/" + provider + ":skill:fixture ")]
+                selection.skillPaths = ["fixture": "/fixture/SKILL.md"]
+                let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+                storage.addLayoutManager(manager); manager.addTextContainer(container)
+                let field = ComposerText(frame: .zero, textContainer: container)
+                field.heldStorage = storage; field.session = selection
+                let input = Composer.Coordinator(selection)
+                selection.showCommands("/fixt"); field.setDraft(selection.draft)
+                check(input.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && (selection.rpc as? FixtureConnection)?.sent.isEmpty == true, "Tab completes a \(provider) skill without sending")
+                for query in ["/fixt", "/fixture", "/" + provider + ":skill:fixture"] {
+                    selection.showCommands(query, preserveDraft: false); field.setDraft(selection.draft)
+                    let before = (selection.rpc as! FixtureConnection).sent.count
+                    check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return handles the highlighted \(provider) skill")
+                    for _ in 0..<200 where (selection.rpc as! FixtureConnection).sent.count == before || selection.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
+                    let sent = (selection.rpc as! FixtureConnection).sent
+                    check(sent.count == before + 1, "one Return sends the \(provider) skill: \(query), sent \(sent.count - before)")
+                    check(selection.draft.length == 0, "Return clears the \(provider) skill draft: \(query)")
+                    check(selection.commandQuery == nil, "Return closes the \(provider) skill popup: \(query)")
+                    let content = sent.last?["input"] as? [JSON] ?? []
+                    check(content.first?["text"] as? String == (provider == "codex" ? "$fixture" : "/fixture"), "Return forwards the canonical \(provider) skill")
+                    if provider == "codex" { check(content.last?["type"] as? String == "skill" && content.last?["path"] as? String == "/fixture/SKILL.md", "Return includes the native Codex skill payload") }
+                }
+                selection.close()
+            }
+            Settings.shared.value.provider = "codex"; Settings.shared.save()
+        }
         codexCommands.updateCommands("/", caret: 1)
         check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source == "Codex terminal" }, "the native Codex catalog lists unavailable terminal actions explicitly")
         let editor = ComposerText(frame: .zero, textContainer: nil)

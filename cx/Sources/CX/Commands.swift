@@ -366,7 +366,7 @@ extension Session {
                         answer(pending, result: ["answers": values.mapValues { ["answers": [$0]] }])
                     }
                 } else { answer(pending, result: ["decision": verb == "/allow" ? "accept" : "decline"]) }
-            case "/help": notice((appCommands + providerCommands + (account.provider == "codex" ? codexNativeCommands : account.provider == "claude" ? claudeNativeCommands : [])).map { $0.name + " · " + $0.source + ": " + $0.detail }.joined(separator: "\n") + "\nType / to search. ↑/↓ select. Tab or Return completes; Return again runs. Escape dismisses the popup. Shift+Return adds a line. /vcx:<command> explicitly selects vcx commands.")
+            case "/help": notice((appCommands + providerCommands + (account.provider == "codex" ? codexNativeCommands : account.provider == "claude" ? claudeNativeCommands : [])).map { $0.name + " · " + $0.source + ": " + $0.detail }.joined(separator: "\n") + "\nType / to search. ↑/↓ select. Tab completes. Return runs highlighted skills immediately; other commands complete first and run on the next Return. Escape dismisses the popup. Shift+Return adds a line. /vcx:<command> explicitly selects vcx commands.")
             case "/quit", "/exit": NSApp.terminate(nil)
             default:
                 if account.provider == "codex", codexNativeNames.contains(String(verb.dropFirst())) {
