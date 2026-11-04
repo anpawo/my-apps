@@ -80,6 +80,7 @@ struct Composer: NSViewRepresentable {
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
+        field.isEditable = !session.frontendReplacing
         field.setDraft(session.draft)
         let scroll = NSScrollView()
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.documentView = field
@@ -90,7 +91,9 @@ struct Composer: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard context.coordinator.revision != session.draftRevision, let field = scroll.documentView as? ComposerText else { return }
+        guard let field = scroll.documentView as? ComposerText else { return }
+        field.isEditable = !session.frontendReplacing
+        guard context.coordinator.revision != session.draftRevision else { return }
         context.coordinator.revision = session.draftRevision
         context.coordinator.syncing = true
         defer { context.coordinator.syncing = false }
@@ -178,6 +181,7 @@ final class ComposerText: NSTextView {
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
+        guard session?.frontendReplacing != true else { return false }
         let files = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         let images = files.filter { NSImage(contentsOf: $0) != nil }
         if !images.isEmpty { for image in images { putImage(image.path) }; return true }
@@ -200,6 +204,7 @@ final class ComposerText: NSTextView {
     }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { paste(from: sender.draggingPasteboard) }
     func putImage(_ path: String) {
+        guard session?.frontendReplacing != true else { return }
         var count = 0
         textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, _, _ in if value is ImageChip { count += 1 } }
         let piece = NSMutableAttributedString(attachment: ImageChip(path: path, number: count + 1))
@@ -230,7 +235,7 @@ final class ComposerText: NSTextView {
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), images)
     }
     func submit() {
-        guard let session else { return }
+        guard let session, !session.frontendReplacing else { return }
         let (text, images) = message()
         Task { await session.send(text: text, images: images) }
     }

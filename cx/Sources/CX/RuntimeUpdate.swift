@@ -1,0 +1,104 @@
+import AppKit
+import Darwin
+
+@MainActor
+enum RuntimeUpdate {
+    static let openNotification = Notification.Name("com.mr.vcx.open")
+    static let updateNotification = Notification.Name("com.mr.vcx.update")
+    static let readyNotification = Notification.Name("com.mr.vcx.ready")
+    static var installed: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Vibe Code X.app") }
+
+    static func writeTicket(_ value: JSON, suffix: String) throws -> URL {
+        try RuntimeIdentity.prepareDirectory()
+        let file = RuntimeIdentity.directory.appendingPathComponent(UUID().uuidString + suffix)
+        let data = try JSONSerialization.data(withJSONObject: value)
+        guard data.count <= 1_048_576 else { throw CXError(message: "Frontend handoff is too large.") }
+        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CXError(message: "Cannot save frontend handoff.") }
+        return file
+    }
+
+    static func readTicket(_ path: String, suffix: String) throws -> JSON {
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        var info = stat()
+        guard file.deletingLastPathComponent() == RuntimeIdentity.directory.standardizedFileURL,
+              file.lastPathComponent.hasSuffix(suffix), lstat(file.path, &info) == 0,
+              info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+              info.st_mode & 0o077 == 0, info.st_size <= 1_048_576 else { throw CXError(message: "Unsafe frontend handoff file.") }
+        let fd = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw CXError(message: "Cannot read frontend handoff.") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var opened = stat()
+        guard fstat(fd, &opened) == 0, opened.st_ino == info.st_ino, opened.st_dev == info.st_dev,
+              let value = try JSONSerialization.jsonObject(with: handle.readDataToEndOfFile()) as? JSON else { throw CXError(message: "Invalid frontend handoff.") }
+        return value
+    }
+
+    static func publish() throws {
+        try RuntimeIdentity.prepareDirectory()
+        let file = RuntimeIdentity.directory.appendingPathComponent("installed-build")
+        try Data(RuntimeIdentity.build.utf8).write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        DistributedNotificationCenter.default().postNotificationName(updateNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    }
+
+    static func acknowledge(_ ticket: String) throws {
+        let file = URL(fileURLWithPath: ticket + ".ready.json")
+        let data = try JSONSerialization.data(withJSONObject: ["pid": getpid()])
+        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CXError(message: "Cannot acknowledge frontend replacement.") }
+        DistributedNotificationCenter.default().postNotificationName(readyNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    }
+
+    static func lockFrontend() throws -> Int32? {
+        try RuntimeIdentity.prepareDirectory()
+        let descriptor = Darwin.open(RuntimeIdentity.directory.appendingPathComponent("frontend.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        var info = stat()
+        guard descriptor >= 0 else { throw CXError(message: "Cannot lock frontend ownership.") }
+        guard fstat(descriptor, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0 else {
+            Darwin.close(descriptor); throw CXError(message: "Unsafe frontend ownership lock.")
+        }
+        if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return descriptor }
+        Darwin.close(descriptor)
+        return nil
+    }
+
+    static func forward(_ options: LaunchOptions) throws {
+        var value: JSON = ["cwd": options.cwd, "prompt": options.prompt]
+        value["resume"] = options.resume
+        _ = try writeTicket(value, suffix: ".open.json")
+        DistributedNotificationCenter.default().postNotificationName(openNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    }
+
+    static func scrollView(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        let children = view.subviews.compactMap { scrollView(in: $0) }
+        let own = (view as? NSScrollView).flatMap { $0.documentView is ComposerText ? nil : $0 }
+        return (children + [own].compactMap { $0 }).max { $0.bounds.height < $1.bounds.height }
+    }
+
+    static func composer(in view: NSView?) -> ComposerText? {
+        guard let view else { return nil }
+        return (view as? ComposerText) ?? view.subviews.lazy.compactMap { composer(in: $0) }.first
+    }
+
+    static func state(window: NSWindow, session: Session) -> JSON {
+        let selection = composer(in: window.contentView)?.selectedRange() ?? NSRange(location: 0, length: 0)
+        return ["frame": NSStringFromRect(window.frame), "scrollY": scrollView(in: window.contentView)?.contentView.bounds.origin.y ?? 0,
+                "follow": session.follow.attached, "details": session.details, "selection": [selection.location, selection.length]]
+    }
+
+    static func restore(_ state: JSON, window: NSWindow, session: Session) {
+        session.follow.attached = state["follow"] as? Bool ?? true
+        session.details = state["details"] as? Bool ?? false
+        DispatchQueue.main.async {
+            window.contentView?.layoutSubtreeIfNeeded()
+            if let selection = state["selection"] as? [Int], selection.count == 2,
+               selection[0] >= 0, selection[1] >= 0, selection[0] + selection[1] <= session.draft.length {
+                composer(in: window.contentView)?.setSelectedRange(NSRange(location: selection[0], length: selection[1]))
+            }
+            if !session.follow.attached, let y = state["scrollY"] as? Double, let scroll = scrollView(in: window.contentView) {
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, min(y, (scroll.documentView?.bounds.height ?? 0) - scroll.contentView.bounds.height))))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
+    }
+}

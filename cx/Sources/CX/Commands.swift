@@ -19,7 +19,7 @@ extension Session {
             ("account", "Use, enable, disable, or rename a subscription account", true),
             ("mode", "Choose bypass / YOLO or ask for approval", true),
             ("dir", "Change the working directory", true),
-            ("window", "Open another vcx instance, optionally in a directory", false),
+            ("window", "Open another window, optionally in a directory", false),
             ("new", "Start a new conversation; current work stays saved", false),
             ("clear", "Start a new conversation", false),
             ("resume", "Choose a saved conversation", true),
@@ -204,6 +204,7 @@ extension Session {
     }
 
     func command(_ source: String) async {
+        guard !frontendReplacing else { return }
         let pieces = source.split(separator: " ", maxSplits: 1).map(String.init)
         let original = pieces.first ?? ""
         var verb = original.replacingOccurrences(of: "/vcx:", with: "/")
@@ -215,6 +216,36 @@ extension Session {
         } else if account.provider == "claude", !original.hasPrefix("/vcx:"), let mapped = claudeAliases[String(original.dropFirst())] { verb = "/" + mapped }
         var argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         if ["/reload-skills", "/claude:reload-skills"].contains(original) { argument = "reload" }
+        if runtimeClient != nil {
+            if argument.isEmpty, ["/provider", "/model", "/mode", "/account", "/qwen"].contains(verb) {
+                showCommands((verb == "/provider" ? "/model" : verb) + " ", preserveDraft: false)
+                return
+            }
+            if verb == "/resume", argument.isEmpty {
+                let generation = draftGeneration
+                await performRuntime("refreshCatalog")
+                if generation == draftGeneration { showCommands("/resume ", preserveDraft: false) }
+                return
+            }
+            let localCommands = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit", "/details", "/focus"]
+            if !localCommands.contains(verb) {
+                let generation = draftGeneration
+                let preserved = savedCommandDraft ?? (draft.string == source ? NSAttributedString(string: "") : draft)
+                commandQuery = nil
+                let result = await performRuntime("command", ["text": source, "draft": draftContent(preserved), "generation": generation])
+                Settings.shared.reload()
+                guard generation == draftGeneration else { return }
+                if let query = result?["commandQuery"] as? String {
+                    if savedCommandDraft == nil { savedCommandDraft = preserved }
+                    showCommands(query, preserveDraft: false)
+                } else if result != nil {
+                    if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
+                    else if draft.string == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                    checkpointRuntimeDraft()
+                }
+                return
+            }
+        }
         let settings = Settings.shared
         let commandDraft = draft, commandGeneration = draftGeneration
         commandQuery = nil
@@ -405,7 +436,7 @@ extension Session {
                     }
                 } else { answer(pending, result: ["decision": verb == "/allow" ? "accept" : "decline"]) }
             case "/help": notice((appCommands + providerCommands + (account.provider == "codex" ? codexNativeCommands : account.provider == "claude" ? claudeNativeCommands : [])).map { $0.name + " · " + $0.source + ": " + $0.detail }.joined(separator: "\n") + "\nType / to search. ↑/↓ select. Tab completes. Return runs highlighted skills immediately; other commands complete first and run on the next Return. Escape dismisses the popup. Shift+Return adds a line. /vcx:<command> explicitly selects vcx commands.")
-            case "/quit", "/exit": NSApp.terminate(nil)
+            case "/quit", "/exit": (NSApp.delegate as? AppDelegate)?.closeWindow(session: self)
             default:
                 if account.provider == "codex", codexNativeNames.contains(String(verb.dropFirst())) {
                     notice("\(verb) is listed from the Codex terminal catalog but is not implemented in vcx. It was not sent to the model. Use /help for available vcx actions."); break

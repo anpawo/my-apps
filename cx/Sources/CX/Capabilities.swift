@@ -139,6 +139,7 @@ extension Session {
         } catch { if rpc === connection { mcp = ["Catalog unavailable: " + error.localizedDescription] } }
     }
     func refreshRepository() async {
+        if runtimeClient != nil { await performRuntime("refreshRepository"); return }
         let directory = cwd
         let result = await Task.detached { () -> (String?, String, String, String) in
             func git(_ arguments: [String], at path: String? = nil) -> String? {

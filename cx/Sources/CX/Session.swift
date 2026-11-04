@@ -43,10 +43,10 @@ final class Item: ObservableObject, Identifiable {
 extension Optional where Wrapped == String { var orEmpty: String { self ?? "" } }
 
 final class Row: ObservableObject, Identifiable {
-    let id = UUID()
+    let id: UUID
     let kind: String
     @Published var items: [Item]
-    init(_ kind: String, _ items: [Item]) { self.kind = kind; self.items = items }
+    init(_ kind: String, _ items: [Item], id: UUID = UUID()) { self.id = id; self.kind = kind; self.items = items }
 }
 
 struct Recent: Identifiable {
@@ -56,7 +56,7 @@ struct Recent: Identifiable {
 }
 
 struct Permission: Identifiable {
-    let id = UUID()
+    var id = UUID()
     let rpcID: Any
     let method: String
     let params: JSON
@@ -76,6 +76,7 @@ final class Session: ObservableObject {
     @Published var effort: String?
     @Published var defaultEffort: String?
     @Published var showingSettings = false
+    @Published var frontendReplacing = false
     var modelEfforts: [String: [String]] = [:]
     var modelDefaultEfforts: [String: String] = [:]
     var pendingModelCommand: String?
@@ -115,10 +116,15 @@ final class Session: ObservableObject {
     var conversationName: String?
     var focusComposer: () -> Void = {}
     var savedCommandDraft: NSAttributedString?
+    var runtimeClient: RuntimeClient?
+    private var runtimeFleetContext: String?
     var draftGeneration = 0
     private var promptHistoryIndex: Int?
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
-    var draft = NSAttributedString(string: "")
+    var onDraftConsumed: ((Int) -> Void)?
+    var draft = NSAttributedString(string: "") {
+        didSet { if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) } }
+    }
     var submitDraft: () -> Void = {}
     private(set) var cwd: String
     private(set) var threadID: String?
@@ -160,7 +166,7 @@ final class Session: ObservableObject {
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
     }
     let fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
-    var fleetContext: String { (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+    var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
     var fleetInstructions: String {
         "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions."
     }
@@ -186,6 +192,11 @@ final class Session: ObservableObject {
     }
 
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
+        if let runtimeClient {
+            do { try await runtimeClient.connect(resume: resume, prompt: prompt) }
+            catch { ready = false; status = error.localizedDescription; notice(error.localizedDescription) }
+            return
+        }
         await refreshRepository()
         do {
             testing = command != nil
@@ -259,6 +270,7 @@ final class Session: ObservableObject {
     }
 
     func refreshUsage(force: Bool = true) async {
+        if runtimeClient != nil { await performRuntime("refreshUsage", ["force": force]); return }
         guard ready, !changing, force || Date().timeIntervalSince(lastUsageRefresh) >= 60 else { return }
         lastUsageRefresh = Date()
         let connection = rpc
@@ -505,8 +517,14 @@ final class Session: ObservableObject {
         }.joined(separator: " - ")
     }
 
-    func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil) async {
-        let submissionDraft = draft, submissionGeneration = draftGeneration
+    func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil) async {
+        guard !frontendReplacing else { return }
+        if runtimeClient != nil {
+            if text.hasPrefix("/"), images.isEmpty, !commandHandled { await command(text); return }
+            await performRuntime("send", ["text": text, "images": images, "draft": draftContent(draft), "generation": draftGeneration])
+            return
+        }
+        let submissionDraft = expectedDraft ?? draft, submissionGeneration = expectedGeneration ?? draftGeneration
         if !testing { Settings.shared.reload() }
         if text.hasPrefix("/"), images.isEmpty, !commandHandled, !retry { await command(text); return }
         guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
@@ -570,6 +588,8 @@ final class Session: ObservableObject {
     }
 
     func stop() async {
+        guard !frontendReplacing else { return }
+        if runtimeClient != nil { await performRuntime("stop"); return }
         stopRequested = true
         guard let turnID else { status = "Stopping when the turn starts…"; return }
         do { _ = try await rpc.request("turn/interrupt", ["threadId": threadID ?? "", "turnId": turnID], timeout: 5); if busy { status = "Stopping…" } }
@@ -577,6 +597,10 @@ final class Session: ObservableObject {
     }
 
     func answer(_ request: Permission, result: JSON) {
+        guard !frontendReplacing else { return }
+        if runtimeClient != nil {
+            Task { await performRuntime("answer", ["rpcID": request.rpcID, "method": request.method, "result": result]) }; return
+        }
         do {
             var response = result
             if request.params["vcxQuestionTool"] as? Bool == true {
@@ -595,6 +619,10 @@ final class Session: ObservableObject {
 
     @discardableResult
     func switchThread(_ id: String?, fromCommand: Bool = false) async -> Bool {
+        if runtimeClient != nil {
+            let result = await performRuntime("switchThread", ["id": id as Any? ?? NSNull(), "fromCommand": fromCommand, "draft": draftContent(draft), "generation": draftGeneration])
+            return result?["success"] as? Bool ?? false
+        }
         let previousRecord = recordID
         guard !busy, !changing, fromCommand || draft.length == 0 else { if draft.length > 0 { notice("Send or clear your draft before switching conversations.") }; return false }
         if fromCommand { draft = savedCommandDraft ?? NSAttributedString(string: ""); savedCommandDraft = nil; draftRevision += 1 }
@@ -732,6 +760,7 @@ final class Session: ObservableObject {
     }
 
     func reconnect() async {
+        if runtimeClient != nil { await performRuntime("command", ["text": "/reconnect", "draft": draftContent(draft), "generation": draftGeneration]); return }
         Settings.shared.reload()
         if let pendingRestore {
             do { try await restore(pendingRestore); await refreshCatalog() }
@@ -782,7 +811,7 @@ final class Session: ObservableObject {
     }
 
     func save() {
-        guard !testing, !suppressSave, threadID != nil else { return }
+        guard runtimeClient == nil, !testing, !suppressSave, threadID != nil else { return }
         do {
             if recordLock?.0 != recordID {
                 let fd = try claimRecord(recordID)
@@ -868,12 +897,15 @@ final class Session: ObservableObject {
     }
 
     func editDraft(_ value: NSAttributedString, refresh: Bool = true) {
+        guard !frontendReplacing else { return }
         promptHistoryIndex = nil
         draft = value; draftGeneration += 1
         if refresh { draftRevision += 1 }
+        checkpointRuntimeDraft()
     }
 
     func movePromptHistory(_ direction: Int) -> Bool {
+        guard !frontendReplacing else { return false }
         guard commandQuery == nil, savedCommandDraft == nil, promptHistoryIndex != nil || draft.length == 0 else { return false }
         let prompts = rows.filter { $0.kind == "user" }.flatMap(\.items).compactMap { $0.data["content"] as? [JSON] }
         guard !prompts.isEmpty, direction < 0 || promptHistoryIndex != nil else { return false }
@@ -887,6 +919,7 @@ final class Session: ObservableObject {
         }
         promptHistoryIndex = index < prompts.count ? index : nil
         draft = restored; draftGeneration += 1; draftRevision += 1
+        checkpointRuntimeDraft()
         return true
     }
 
@@ -899,5 +932,149 @@ final class Session: ObservableObject {
         draft = restored; draftRevision += 1
     }
 
-    func close() { flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
+
+    @discardableResult
+    func performRuntime(_ action: String, _ params: JSON = [:]) async -> JSON? {
+        guard let runtimeClient else { return nil }
+        do { return try await runtimeClient.perform(action, params) }
+        catch { notice(error.localizedDescription); return nil }
+    }
+
+    func checkpointRuntimeDraft() {
+        guard let runtimeClient else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let content = draftContent(self.savedCommandDraft ?? self.draft), generation = self.draftGeneration
+            do { try await runtimeClient.checkpoint(draft: content, generation: generation) }
+            catch { status = error.localizedDescription }
+        }
+    }
+
+    func runtimeMetadata() -> JSON {
+        var value: JSON = [
+            "cwd": cwd, "model": model, "status": status, "ready": ready, "busy": busy,
+            "changing": changing, "activeActions": Array(activeActions), "context": context,
+            "usage": usage, "tokens": tokens, "repository": repository, "branch": branch,
+            "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
+            "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
+            "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts,
+            "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
+            "recordID": recordID, "fleetContext": fleetContext,
+            "recent": recent.map { ["id": $0.id, "title": $0.title, "backendID": $0.backendID as Any? ?? NSNull()] },
+            "permissions": permissions.map { ["id": $0.id.uuidString, "rpcID": $0.rpcID, "method": $0.method, "params": $0.params] },
+            "providerCommands": providerCommands.map { ["name": $0.name, "detail": $0.detail, "source": $0.source, "insert": $0.insert, "isCurrent": $0.isCurrent] }
+        ]
+        value["account"] = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(account))) ?? NSNull()
+        value["threadID"] = threadID as Any? ?? NSNull()
+        value["turnID"] = turnID as Any? ?? NSNull()
+        value["effort"] = effort as Any? ?? NSNull()
+        value["defaultEffort"] = defaultEffort as Any? ?? NSNull()
+        value["usagePercent"] = usagePercent as Any? ?? NSNull()
+        value["contextUsed"] = contextUsed as Any? ?? NSNull()
+        value["contextLimit"] = contextLimit as Any? ?? NSNull()
+        value["repositoryDirectory"] = repositoryDirectory as Any? ?? NSNull()
+        value["conversationName"] = conversationName as Any? ?? NSNull()
+        return value
+    }
+
+    func applyRuntimeMetadata(_ value: JSON) {
+        cwd = value["cwd"] as? String ?? cwd
+        threadID = value["threadID"] as? String; turnID = value["turnID"] as? String
+        recordID = value["recordID"] as? String ?? recordID
+        if let data = value["account"], let encoded = try? JSONSerialization.data(withJSONObject: data), let decoded = try? JSONDecoder().decode(Account.self, from: encoded) { account = decoded }
+        model = value["model"] as? String ?? model
+        effort = value["effort"] as? String; defaultEffort = value["defaultEffort"] as? String
+        status = value["status"] as? String ?? status
+        ready = value["ready"] as? Bool ?? ready; busy = value["busy"] as? Bool ?? busy
+        changing = value["changing"] as? Bool ?? changing
+        activeActions = Set(value["activeActions"] as? [String] ?? [])
+        context = value["context"] as? String ?? context; usage = value["usage"] as? String ?? usage
+        tokens = value["tokens"] as? String ?? tokens
+        usagePercent = value["usagePercent"] as? Double
+        contextUsed = value["contextUsed"] as? Int; contextLimit = value["contextLimit"] as? Int
+        repository = value["repository"] as? String ?? repository; branch = value["branch"] as? String ?? branch
+        repositoryStatus = value["repositoryStatus"] as? String ?? repositoryStatus
+        repositoryDirectory = value["repositoryDirectory"] as? String
+        hooks = value["hooks"] as? [String] ?? []; skills = value["skills"] as? [String] ?? []
+        mcp = value["mcp"] as? [String] ?? []; instructions = value["instructions"] as? [String] ?? []
+        activeMode = value["activeMode"] as? String ?? activeMode
+        providerLabel = value["providerLabel"] as? String ?? providerLabel
+        models = value["models"] as? [String] ?? []
+        modelEfforts = value["modelEfforts"] as? [String: [String]] ?? [:]
+        modelDefaultEfforts = value["modelDefaultEfforts"] as? [String: String] ?? [:]
+        skillPaths = value["skillPaths"] as? [String: String] ?? [:]
+        legacyCommandPaths = value["legacyCommandPaths"] as? [String: String] ?? [:]
+        planning = value["planning"] as? Bool ?? false
+        conversationName = value["conversationName"] as? String
+        runtimeFleetContext = value["fleetContext"] as? String
+        recent = (value["recent"] as? [JSON] ?? []).compactMap { piece in
+            guard let id = piece["id"] as? String, let title = piece["title"] as? String else { return nil }
+            return Recent(id: id, title: title, backendID: piece["backendID"] as? String)
+        }
+        permissions = (value["permissions"] as? [JSON] ?? []).compactMap { piece in
+            guard let id = piece["id"] as? String, let uuid = UUID(uuidString: id), let rpcID = piece["rpcID"], let method = piece["method"] as? String, let params = piece["params"] as? JSON else { return nil }
+            return Permission(id: uuid, rpcID: rpcID, method: method, params: params)
+        }
+        providerCommands = (value["providerCommands"] as? [JSON] ?? []).compactMap { piece in
+            guard let name = piece["name"] as? String, let detail = piece["detail"] as? String, let source = piece["source"] as? String, let insert = piece["insert"] as? String else { return nil }
+            return ChatCommand(name: name, detail: detail, source: source, insert: insert, isCurrent: piece["isCurrent"] as? Bool ?? false)
+        }
+    }
+
+    func applyRuntimeDraft(_ value: JSON) {
+        guard let pieces = value["draft"] as? [JSON], let generation = value["draftGeneration"] as? Int, generation >= draftGeneration else { return }
+        let restored = runtimeDraft(pieces)
+        draftGeneration = generation
+        if let saved = savedCommandDraft {
+            if !NSArray(array: draftContent(saved)).isEqual(to: pieces) { savedCommandDraft = restored }
+            return
+        }
+        if !NSArray(array: draftContent(draft)).isEqual(to: pieces) { draft = restored; draftRevision += 1 }
+    }
+
+    func applyRuntimeSnapshot(_ value: JSON) {
+        let previousRows = Dictionary(uniqueKeysWithValues: rows.map { ($0.id.uuidString, $0) })
+        let previousItems = itemMap
+        itemMap.removeAll()
+        rows = (value["rows"] as? [JSON] ?? []).compactMap { piece in
+            guard let id = piece["id"] as? String, let uuid = UUID(uuidString: id), let kind = piece["kind"] as? String else { return nil }
+            let items = (piece["items"] as? [JSON] ?? []).map { data -> Item in
+                let item = (data["id"] as? String).flatMap { previousItems[$0] } ?? Item(data)
+                if !NSDictionary(dictionary: item.data).isEqual(to: data) { item.data = data }
+                itemMap[item.id] = item
+                return item
+            }
+            let row = previousRows[id] ?? Row(kind, [], id: uuid)
+            row.items = items
+            return row
+        }
+        applyRuntimeMetadata(value); applyRuntimeDraft(value); revision += 1
+    }
+
+    func applyRuntimePatch(_ value: JSON) {
+        if let meta = value["meta"] as? JSON { applyRuntimeMetadata(meta) }
+        for data in value["items"] as? [JSON] ?? [] {
+            guard let id = data["id"] as? String else { continue }
+            if let item = itemMap[id] { item.data = data } else { itemMap[id] = Item(data) }
+        }
+        if value["rowUpdates"] != nil || value["rowOrder"] != nil {
+            var mapped = Dictionary(uniqueKeysWithValues: rows.map { ($0.id.uuidString, $0) })
+            for piece in value["rowUpdates"] as? [JSON] ?? [] {
+                guard let id = piece["id"] as? String, let uuid = UUID(uuidString: id), let kind = piece["kind"] as? String else { continue }
+                let row = mapped[id] ?? Row(kind, [], id: uuid)
+                row.items = (piece["itemIDs"] as? [String] ?? []).compactMap { itemMap[$0] }
+                mapped[id] = row
+            }
+            if let order = value["rowOrder"] as? [String] {
+                rows = order.compactMap { mapped[$0] }
+                let retained = Set(rows.flatMap(\.items).map(\.id))
+                itemMap = itemMap.filter { retained.contains($0.key) }
+            }
+        }
+        applyRuntimeDraft(value); revision += 1
+    }
+
+    func close() {
+        if let runtimeClient { runtimeClient.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()); return }
+        flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }

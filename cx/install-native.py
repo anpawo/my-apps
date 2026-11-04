@@ -65,7 +65,7 @@ case "$1" in
     fi
     exec {shlex.quote(str(python))} {shlex.quote(str(root / 'cx.py'))} "$@"
     ;;
-  --version|--help|--check)
+  --version|--help|--check|--runtime-check|--runtime-protocol)
     exec {shlex.quote(str(binary))} "$@"
     ;;
 esac
@@ -91,7 +91,8 @@ exec /usr/bin/open -n -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
             fd = os.open(settings, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'w') as stream:
                 json.dump(values, stream)
-    print('Installed Vibe Code X. Launch with vcx; cx remains compatible.')
+    subprocess.run([str(binary), '--publish-update'], check=True)
+    print('Installed Vibe Code X. Compatible open frontends update automatically; agent runtimes keep running.')
 
 
 if __name__ == '__main__':

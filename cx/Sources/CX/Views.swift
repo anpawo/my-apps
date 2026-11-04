@@ -77,7 +77,7 @@ struct CXView: View {
             }
         }
         .sheet(isPresented: $session.showingSettings) {
-            SettingsPopup(session: session)
+            SettingsPopup(session: session).disabled(session.frontendReplacing)
         }
         .overlay {
             if let path = session.preview {
@@ -89,7 +89,9 @@ struct CXView: View {
                 }.onTapGesture { session.preview = nil }
             }
         }
+        .disabled(session.frontendReplacing)
         .onExitCommand {
+            guard !session.frontendReplacing else { return }
             if session.preview != nil { session.preview = nil }
             else if session.commandQuery != nil { session.dismissCommands() }
             else if session.busy { Task { await session.stop() } }
