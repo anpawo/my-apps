@@ -49,6 +49,18 @@ enum Check {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
         do {
+            let session = Session(cwd: "/fixture")
+            session.model = "gpt-6-astra"; session.effort = "high"
+            session.contextLimit = 258400; session.usage = "16% wk - reset 1h"
+            for width: CGFloat in [300, 540, 840] {
+                let host = NSHostingView(rootView: CXView(session: session).statusBar.frame(width: width))
+                host.layoutSubtreeIfNeeded()
+                let height = host.fittingSize.height
+                print("Status bar at \(Int(width)): \(height)pt")
+                check(height > 0 && height <= 32, "status bar stays on one line at width \(width)")
+            }
+        }
+        do {
             let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
             let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
             for width: CGFloat in [420, 760, 1120] {
