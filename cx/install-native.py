@@ -34,7 +34,9 @@ def install():
     staging = target.with_name(f'.VCX-install-{os.getpid()}.app')
     backup = target.with_name(f'.VCX-backup-{os.getpid()}.app')
     subprocess.run(['/usr/bin/ditto', str(source), str(staging)], check=True)
+    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(staging)], check=True)
     subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--version'], check=True)
+    subprocess.run([str(staging / 'Contents/MacOS/VCX'), '--check'], check=True)
     had_target = target.exists()
     if had_target:
         target.rename(backup)

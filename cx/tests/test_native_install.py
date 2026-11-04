@@ -1,4 +1,5 @@
 import importlib.util
+import plistlib
 import subprocess
 import os
 import shlex
@@ -14,6 +15,30 @@ spec.loader.exec_module(installer)
 
 
 class NativeInstallTests(unittest.TestCase):
+    def test_failed_staged_checks_preserve_installed_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            app = home / 'Applications/Vibe Code X.app'
+            (app / 'Contents').mkdir(parents=True)
+            marker = app / 'Contents/Info.plist'
+            original = plistlib.dumps({'CFBundleIdentifier': 'com.mr.vcx'})
+            marker.write_bytes(original)
+            calls = []
+
+            def run(arguments, **kwargs):
+                calls.append(arguments)
+                if arguments[0] == '/usr/bin/ditto':
+                    Path(arguments[2]).mkdir(parents=True)
+                if arguments[-1] == '--check':
+                    raise subprocess.CalledProcessError(1, arguments)
+
+            with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    installer.install()
+            self.assertEqual(marker.read_bytes(), original)
+            self.assertFalse((home / '.local/bin/vcx').exists())
+            self.assertFalse(any('--publish-update' in call for call in calls))
+
     def test_owned_launcher_is_replaced_without_touching_codex(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
