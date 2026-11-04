@@ -153,6 +153,13 @@ final class Session: ObservableObject {
     init(cwd: String, stateDirectory: URL? = nil) {
         self.cwd = URL(fileURLWithPath: cwd).standardized.path
         self.stateDirectory = stateDirectory ?? URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
+        catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
+    }
+    let fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
+    var fleetContext: String { (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+    var fleetInstructions: String {
+        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions."
     }
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
@@ -272,6 +279,7 @@ final class Session: ObservableObject {
         }
         activeMode = Settings.shared.value.mode
         var params: JSON = ["cwd": cwd, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
+        params["developerInstructions"] = fleetInstructions
         if let selectedModel { params["model"] = selectedModel }
         if let resume { params["threadId"] = resume; params["excludeTurns"] = true }
         let result = try await rpc.request(resume == nil ? "thread/start" : "thread/resume", params)
@@ -288,7 +296,7 @@ final class Session: ObservableObject {
             } while cursor != nil
         }
         flushTask?.cancel(); flushTask = nil; deltas.removeAll()
-        if !keepRows { rows.removeAll(); itemMap.removeAll(); seen.removeAll() }
+        if !keepRows { rows.removeAll(); itemMap.removeAll(); seen.removeAll(); try? FileManager.default.removeItem(at: fleetContextFile) }
         promptHistoryIndex = nil
         group = nil
         threadID = id
@@ -587,6 +595,7 @@ final class Session: ObservableObject {
         if account.provider == "codex", value != model { contextLimit = nil }
         do {
             var params: JSON = ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
+            params["developerInstructions"] = fleetInstructions
             params["effort"] = selectedEffort as Any? ?? NSNull()
             let result = try await rpc.request("thread/resume", params)
             model = result["model"] as? String ?? value
@@ -756,6 +765,7 @@ final class Session: ObservableObject {
             let title = rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
             var record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
             record["effort"] = effort
+            record["fleetContext"] = fleetContext
             try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
             try JSONSerialization.data(withJSONObject: ["recordId": recordID]).write(to: nativePointer, options: .atomic)
@@ -783,6 +793,8 @@ final class Session: ObservableObject {
         do { try await activate(selected, resume: resumeID, keepRows: true) }
         catch { pendingRestore = id; throw error }
         pendingRestore = nil
+        do { try (record["fleetContext"] as? String ?? "").write(to: fleetContextFile, atomically: true, encoding: .utf8) }
+        catch { NSLog("VCX: could not restore Fleet context: %@", error.localizedDescription) }
         effort = selected.id == accountID ? record["effort"] as? String : nil
         recordID = id
         if let claimed { releaseRecord(); recordLock = (id, claimed) }
@@ -856,5 +868,5 @@ final class Session: ObservableObject {
         draft = restored; draftRevision += 1
     }
 
-    func close() { flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close() }
+    func close() { flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }

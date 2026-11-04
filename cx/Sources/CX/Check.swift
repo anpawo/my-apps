@@ -217,6 +217,11 @@ enum Check {
         fleetSession.busy = true
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "working" && fleetRecord()["prompt"] as? String == "Fix the layout", "Fleet receives the prompt and live working state")
+        try! "Fix Fleet names\n".write(to: fleetSession.fleetContextFile, atomically: true, encoding: .utf8)
+        fleetSession.busy = false
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        check(fleetRecord()["context"] as? String == "Fix Fleet names", "Fleet receives the session-written task context automatically")
+        fleetSession.busy = true
         let promptTime = fleetRecord()["lastPromptAt"] as? Double
         fleetSession.permissions = [Permission(rpcID: 1, method: "item/tool/requestUserInput", params: [:])]
         presence.publish(fleetSession)
@@ -237,6 +242,8 @@ enum Check {
         let mode = (try! FileManager.default.attributesOfItem(atPath: presenceFile.path))[.posixPermissions] as? Int
         check(mode == 0o600, "Fleet state is private")
         presence.close()
+        fleetSession.close()
+        check(!FileManager.default.fileExists(atPath: fleetSession.fleetContextFile.deletingLastPathComponent().path), "closing a session removes its private context directory")
         fleetSession.busy = false
         try? await Task.sleep(nanoseconds: 350_000_000)
         check(!FileManager.default.fileExists(atPath: presenceFile.path), "closing a window removes Fleet presence and cancels updates")
@@ -277,7 +284,9 @@ enum Check {
         }
         do {
             try await claude.start(command: ["python3", fixture, "claude"])
+            _ = try await claude.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
             let catalog = try await claude.request("cx/catalog")
+            check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
             check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
             check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
             let previousModel = claude.model
@@ -318,6 +327,12 @@ enum Check {
             _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
             for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(qwenDone && qwenText == "Hello from Qwen", "Qwen HTTP streaming")
+            _ = try await qwen.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
+            _ = try await qwen.request("thread/resume", ["threadId": qwen.thread])
+            qwenText = ""; qwenDone = false
+            _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "CONTEXT"]]])
+            for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(qwenDone && qwenText.hasSuffix("Fleet fixture instruction"), "Qwen receives Fleet instructions in its outbound system message and retains them on resume")
             qwen.close()
             let tools = QwenConnection(preferences: preferences, cwd: directory.path)
             var approved = false, toolDone = false, toolOutput = ""
@@ -366,12 +381,15 @@ enum Check {
         }
         await session.connect(resume: nil)
         check(session.ready && session.account.provider == "claude", "Claude is the default")
+        check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == session.fleetInstructions, "native thread creation supplies the session's exact Fleet context path")
+        try! "Build feature".write(to: session.fleetContextFile, atomically: true, encoding: .utf8)
         Settings.shared.value.provider = "claude"; Settings.shared.save()
         session.draft = NSAttributedString(string: "Build the feature")
         await session.send(text: "Build the feature", images: [])
         check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
         for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
+        check(session.fleetContext == "Build feature" && connections["codex-default"]?.opened.first?["developerInstructions"] as? String == session.fleetInstructions, "provider fallback retains context and supplies it to Codex")
         check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
         check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
         check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
@@ -457,6 +475,7 @@ enum Check {
         check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
         check(!promptTimes.isEmpty && restored.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double } == promptTimes, "saved conversation restores its original prompt times")
         check(restored.effort == "low", "saved conversation restores the selected effort")
+        check(restored.fleetContext == "Build feature", "saved conversations restore their session-written Fleet context")
         let secondWindow = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         secondWindow.connectionFactory = { account, _ in FixtureConnection(account) }
         await secondWindow.connect(resume: "last")
@@ -496,6 +515,7 @@ enum Check {
             return connection
         }
         await transactional.connect(resume: nil)
+        try! "Keep task".write(to: transactional.fleetContextFile, atomically: true, encoding: .utf8)
         let originalID = transactional.threadID
         let originalConversation = transactional.currentConversationID
         Settings.shared.value.provider = "codex"; Settings.shared.save()
@@ -503,6 +523,7 @@ enum Check {
         transactional.draft = NSAttributedString(string: "Keep my work")
         await transactional.send(text: "Keep my work", images: [])
         check(!transactional.ready && transactional.account.provider == "claude" && transactional.threadID == originalID, "failed activation preserves account and thread ownership")
+        check(transactional.fleetContext == "Keep task", "failed activation preserves the session's Fleet context")
         transactional.save()
         let transactionFiles = try! FileManager.default.contentsOfDirectory(at: transactional.nativeDirectory, includingPropertiesForKeys: nil)
         let savedTransaction = try! JSONSerialization.jsonObject(with: Data(contentsOf: transactionFiles[0])) as! JSON
@@ -523,7 +544,9 @@ enum Check {
         await staleRestore.connect(resume: "last")
         check(!staleRestore.ready, "failed restore remains recoverable")
         failRestore = false
+        try! "Previous task".write(to: staleRestore.fleetContextFile, atomically: true, encoding: .utf8)
         await staleRestore.switchThread(nil)
+        check(staleRestore.fleetContext.isEmpty, "new conversations clear the previous Fleet task context")
         let newRecord = staleRestore.currentConversationID
         staleRestore.draft = NSAttributedString(string: "Draft in the new conversation")
         staleRestore.event(["method": "cx/disconnected", "params": ["message": "Fixture disconnect"]])

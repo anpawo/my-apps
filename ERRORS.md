@@ -15,3 +15,4 @@
 - 04/11/2026: Session.connectionFactory fixture closures name both account and cwd arguments; omitting one produces an opaque Swift compiler diagnostic.
 - 04/11/2026: Capacity metadata fallbacks recheck live context after awaiting and invalidate only their own provider; otherwise live values and other providers lose their reported capacity.
 - 04/11/2026: Git merge takes a commit reference; use git -C to address a worktree path.
+- 04/11/2026: Parenthesize a Swift nil-coalescing array before appending shared arguments; otherwise a supplied fixture command skips the suffix.

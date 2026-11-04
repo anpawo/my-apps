@@ -40,6 +40,7 @@ final class FleetPresence {
                             "state": state, "preview": preview, "updatedAt": Date().timeIntervalSince1970]
         record["prompt"] = prompt.map { String($0.prefix(2000)) }
         record["lastPromptAt"] = lastPromptAt
+        if !session.fleetContext.isEmpty { record["context"] = session.fleetContext }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONSerialization.data(withJSONObject: record).write(to: file, options: .atomic)

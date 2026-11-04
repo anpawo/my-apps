@@ -2,12 +2,14 @@ import http.server
 import json
 import sys
 
+mode = sys.argv[1]
+
 
 def send(value):
     print(json.dumps(value), flush=True)
 
 
-if sys.argv[-1] == 'http':
+if mode == 'http':
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
@@ -17,7 +19,8 @@ if sys.argv[-1] == 'http':
             if body['messages'][-1]['content'] == 'TOOLS':
                 self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf native-tool-check'}}}]}, 'done': True}) + '\n').encode())
                 return
-            for text in ([body['model']] if body['messages'][-1]['content'] == 'MODEL' else ['Hello ', 'from Qwen']):
+            text = body['messages'][-1]['content']
+            for text in ([body['messages'][0]['content']] if text == 'CONTEXT' else [body['model']] if text == 'MODEL' else ['Hello ', 'from Qwen']):
                 self.wfile.write((json.dumps({'message': {'content': text}, 'done': False}) + '\n').encode())
                 self.wfile.flush()
             self.wfile.write(b'{"message":{"content":""},"done":true}\n')
@@ -31,7 +34,7 @@ if sys.argv[-1] == 'http':
 else:
     for line in sys.stdin:
         message = json.loads(line)
-        if sys.argv[-1] == 'claude':
+        if mode == 'claude':
             if message.get('type') == 'control_request':
                 subtype = message.get('request', {}).get('subtype')
                 if subtype == 'apply_flag_settings':
@@ -44,6 +47,8 @@ else:
                     send({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture model rejected'}})
                     continue
                 result = {'commands': [{'name': 'fixture-skill', 'description': 'Fixture skill', 'aliases': ['fixture-alias']}], 'models': [{'value': 'fixture-claude'}], 'current_permission_mode': 'bypassPermissions'} if subtype == 'initialize' else {'mcpServers': [{'name': 'fixture-mcp', 'status': 'connected'}]}
+                if subtype == 'initialize' and '--append-system-prompt' in sys.argv:
+                    result['appendedSystemPrompt'] = sys.argv[sys.argv.index('--append-system-prompt') + 1]
                 send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})
             if message.get('type') == 'user':
                 send({'type': 'system', 'subtype': 'init', 'model': 'test-claude'})

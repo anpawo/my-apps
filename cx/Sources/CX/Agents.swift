@@ -112,6 +112,7 @@ final class ClaudeConnection: Connection {
     private var waiting: [String: CheckedContinuation<JSON, Error>] = [:]
     private var timers: [String: DispatchWorkItem] = [:]
     private var mode = Settings.shared.value.mode
+    private var developerInstructions = ""
     init(account: Account, cwd: String) { self.account = account; self.cwd = cwd }
     func start(command: [String]? = nil) async throws {
         self.command = command
@@ -136,8 +137,8 @@ final class ClaudeConnection: Connection {
     private func launch(resume: Bool) throws {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
-            [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))
+        process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
+            [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = agentEnvironment(account)
         process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = FileHandle.nullDevice
@@ -165,8 +166,11 @@ final class ClaudeConnection: Connection {
     private var resumed = false
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
-        case "thread/start": mode = params["approvalPolicy"] as? String == "never" ? "bypass" : "ask"; return ["thread": ["id": thread], "model": model]
+        case "thread/start":
+            developerInstructions = params["developerInstructions"] as? String ?? ""
+            mode = params["approvalPolicy"] as? String == "never" ? "bypass" : "ask"; return ["thread": ["id": thread], "model": model]
         case "thread/resume":
+            if let instructions = params["developerInstructions"] as? String { developerInstructions = instructions }
             if let approval = params["approvalPolicy"] as? String { mode = approval == "never" ? "bypass" : "ask" }
             guard let id = params["threadId"] as? String else { throw CXError(message: "Missing Claude conversation ID.") }
             if let value = params["model"] as? String {
@@ -382,6 +386,7 @@ final class QwenConnection: Connection {
     var event: (JSON) -> Void = { _ in }
     var thread = "qwen:" + UUID().uuidString
     var messages: [JSON] = [["role": "system", "content": "You are Qwen in Vibe Code X, a coding assistant. Use run_command to inspect or change files when the user asks. Check the project instructions before changing code. Never claim to have performed an action unless its tool result confirms it. Stop when the task is complete."]]
+    private var developerInstructions = ""
     private var task: Task<Void, Never>?
     private var turn = ""
     let preferences: Preferences
@@ -399,6 +404,7 @@ final class QwenConnection: Connection {
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
         case "thread/start", "thread/resume":
+            if let instructions = params["developerInstructions"] as? String { developerInstructions = instructions }
             if let id = params["threadId"] as? String { thread = id }
             if let model = params["model"] as? String { selectedModel = model }
             return ["thread": ["id": thread], "model": selectedModel ?? preferences.qwenModel]
@@ -470,7 +476,9 @@ final class QwenConnection: Connection {
         var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": messages, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
+        var outgoing = messages
+        outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
         var answer = "", calls: [JSON] = []
