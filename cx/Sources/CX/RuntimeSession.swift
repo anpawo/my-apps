@@ -209,7 +209,7 @@ final class SessionBackend: RuntimeBackend {
                 return try await perform(action: "command", params: ["text": text])
             }
             await session.send(text: text, images: images, expectedDraft: (params["draft"] as? [JSON]).map(runtimeDraft), expectedGeneration: params["generation"] as? Int)
-        case "stop": await session.stop()
+        case "stop": await session.stop(source: params["source"] as? String ?? "Stop command")
         case "answer":
             guard let rpcID = params["rpcID"], let method = params["method"] as? String, let result = params["result"] as? JSON,
                   let permission = session.permissions.first(where: { $0.method == method && NSDictionary(dictionary: ["id": $0.rpcID]).isEqual(to: ["id": rpcID]) }) else {
@@ -243,6 +243,7 @@ final class SessionBackend: RuntimeBackend {
             publish()
             return ["success": success]
         case "close":
+            if session.busy { await session.stop(source: "Close Session") }
             if let runtimeID { try RuntimeRecovery.removeCheckpoint(sessionID: runtimeID) }
             close()
         default: throw CXError(message: "Unknown runtime action.")

@@ -270,7 +270,7 @@ extension Session {
             }
             let prefix = account.provider == "codex" ? "$" : "/"
             let skill = skillPaths[String(name)].map { ["type": "skill", "name": String(name), "path": $0] }
-            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true, skill: skill)
+            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true, skill: skill, displayText: source)
             return
         }
         do {

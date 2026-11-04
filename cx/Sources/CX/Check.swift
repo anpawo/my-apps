@@ -45,6 +45,8 @@ enum Check {
     }
 
     static func run() async -> Bool {
+        do { try await BugCheck.run() }
+        catch { fputs(error.localizedDescription + "\n", stderr); return false }
         await ClaudeParityCheck.run()
         do { _ = try await RuntimeCheck.run() }
         catch { fputs(error.localizedDescription + "\n", stderr); return false }

@@ -21,20 +21,16 @@ final class ImageChip: NSTextAttachment {
     init(path: String, number: Int) {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
-        let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.black])
-        let image = NSImage(size: NSSize(width: label.size().width + 42, height: 18), flipped: false) { rect in
-            NSColor.black.withAlphaComponent(0.08).setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 0), xRadius: 6, yRadius: 6).fill()
-            NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?.withSymbolConfiguration(.init(paletteColors: [.black]))?.draw(in: NSRect(x: 9, y: 3, width: 13, height: 12))
-            label.draw(at: NSPoint(x: 27, y: (18 - label.size().height) / 2))
+        let label = NSAttributedString(string: "[Image #\(number)]", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
+        let image = NSImage(size: label.size(), flipped: false) { _ in
+            label.draw(at: .zero)
             return true
         }
-        image.size = NSSize(width: image.size.width * 13 / 18, height: 13)
         attachmentCell = Cell(imageCell: image)
     }
     required init?(coder: NSCoder) { nil }
     private final class Cell: NSTextAttachmentCell {
-        override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -2) }
+        override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
     }
 }
 
@@ -110,7 +106,7 @@ struct Composer: NSViewRepresentable {
         var syncing = false
         init(_ session: Session) { self.session = session }
         func textDidChange(_ notification: Notification) {
-            guard let field = notification.object as? ComposerText, let storage = field.textStorage else { return }
+            guard !syncing, let field = notification.object as? ComposerText, let storage = field.textStorage else { return }
             session.editDraft(NSAttributedString(attributedString: storage), refresh: false)
             session.updateCommands(storage.string, caret: field.selectedRange().location)
             measure(field)
@@ -159,6 +155,8 @@ final class ComposerText: NSTextView {
         super.init(frame: frame, textContainer: textContainer)
         font = .monospacedSystemFont(ofSize: 13, weight: .regular); textColor = .black; insertionPointColor = .black
         drawsBackground = false; isRichText = true; importsGraphics = false; allowsUndo = true; usesFontPanel = false
+        isAutomaticQuoteSubstitutionEnabled = false; isAutomaticDashSubstitutionEnabled = false
+        isAutomaticTextReplacementEnabled = false; isAutomaticSpellingCorrectionEnabled = false
         textContainerInset = .zero
         typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black]
         isVerticallyResizable = true; isHorizontallyResizable = false; autoresizingMask = [.width]
@@ -209,11 +207,13 @@ final class ComposerText: NSTextView {
         var count = 0
         textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, _, _ in if value is ImageChip { count += 1 } }
         let piece = NSMutableAttributedString(attachment: ImageChip(path: path, number: count + 1))
-        piece.addAttributes(typingAttributes, range: NSRange(location: 0, length: piece.length))
+        var attributes = typingAttributes; attributes.removeValue(forKey: .attachment)
+        piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
         let range = selectedRange()
         guard shouldChangeText(in: range, replacementString: piece.string) else { return }
         textStorage?.replaceCharacters(in: range, with: piece)
-        setSelectedRange(NSRange(location: range.location + piece.length, length: 0)); didChangeText()
+        setSelectedRange(NSRange(location: range.location + piece.length, length: 0))
+        typingAttributes = attributes; didChangeText()
     }
     override func mouseDown(with event: NSEvent) {
         guard let manager = layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return super.mouseDown(with: event) }
@@ -238,7 +238,8 @@ final class ComposerText: NSTextView {
     func submit() {
         guard let session, !session.frontendReplacing else { return }
         let (text, images) = message()
-        Task { await session.send(text: text, images: images) }
+        let draft = NSAttributedString(attributedString: session.draft), generation = session.draftGeneration
+        Task { await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation) }
     }
 }
 

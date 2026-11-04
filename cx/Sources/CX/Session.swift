@@ -83,6 +83,8 @@ final class Session: ObservableObject {
     @Published var status = "Connecting…"
     @Published var ready = false
     @Published var busy = false
+    @Published var needsAttention = false
+    private var stopSource: String?
     @Published private var activeActions: Set<String> = []
     @Published var changing = false
     @Published var details = false
@@ -317,7 +319,7 @@ final class Session: ObservableObject {
             } while cursor != nil
         }
         flushTask?.cancel(); flushTask = nil; deltas.removeAll()
-        if !keepRows { rows.removeAll(); itemMap.removeAll(); seen.removeAll(); try? FileManager.default.removeItem(at: fleetContextFile) }
+        if !keepRows { needsAttention = false; rows.removeAll(); itemMap.removeAll(); seen.removeAll(); try? FileManager.default.removeItem(at: fleetContextFile) }
         promptHistoryIndex = nil
         group = nil
         threadID = id
@@ -449,8 +451,15 @@ final class Session: ObservableObject {
             pendingInput = nil
             permissions.removeAll()
             let turn = p["turn"] as? JSON ?? [:]
-            if let error = turn["error"] as? JSON { notice(error["message"] as? String ?? "Turn failed.") }
-            status = turn["status"] as? String == "interrupted" ? "Stopped" : "Ready"
+            let outcome = turn["status"] as? String
+            needsAttention = outcome == "interrupted" || outcome == "failed" || turn["error"] is JSON
+            if outcome == "interrupted" {
+                notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
+            } else if needsAttention {
+                notice((turn["error"] as? JSON)?["message"] as? String ?? "Turn failed. Send a message to retry.")
+            }
+            stopSource = nil
+            status = needsAttention ? (outcome == "interrupted" ? "Stopped" : "Failed") : "Ready"
             save()
             if let command = pendingModelCommand {
                 pendingModelCommand = nil
@@ -459,7 +468,7 @@ final class Session: ObservableObject {
         case "error", "cx/error", "cx/disconnected":
             if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
             notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.")
-            if method == "cx/disconnected" { ready = false; busy = false; turnID = nil; status = "Disconnected"; permissions.removeAll() }
+            if method == "cx/disconnected" { needsAttention = true; ready = false; busy = false; turnID = nil; status = "Disconnected"; permissions.removeAll(); save() }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
@@ -529,11 +538,11 @@ final class Session: ObservableObject {
         }.joined(separator: " - ")
     }
 
-    func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil) async {
+    func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil, displayText: String? = nil) async {
         guard !frontendReplacing else { return }
         if runtimeClient != nil {
             if text.hasPrefix("/"), images.isEmpty, !commandHandled { await command(text); return }
-            await performRuntime("send", ["text": text, "images": images, "draft": draftContent(draft), "generation": draftGeneration])
+            await performRuntime("send", ["text": text, "images": images, "draft": draftContent(expectedDraft ?? draft), "generation": expectedGeneration ?? draftGeneration])
             return
         }
         let submissionDraft = expectedDraft ?? draft, submissionGeneration = expectedGeneration ?? draftGeneration
@@ -563,13 +572,15 @@ final class Session: ObservableObject {
             else { pendingInput = (text, images) }
         }
         content += images.map { ["type": "localImage", "path": $0] }
-        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": content, "sentAt": Date().timeIntervalSince1970])])
+        var displayed = content
+        if let displayText, !displayed.isEmpty { displayed[0]["text"] = displayText }
+        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": displayed, "sentAt": Date().timeIntervalSince1970])])
         promptHistoryIndex = nil
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
-        if !retry, draftGeneration == submissionGeneration, draft.isEqual(to: submissionDraft) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
+        if !retry, draftGeneration == submissionGeneration, NSArray(array: draftContent(draft)).isEqual(to: draftContent(submissionDraft)) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
         if !wasBusy { activeActions.removeAll() }
-        busy = true; stopRequested = false; status = wasBusy ? "Sending guidance…" : "Working…"
+        busy = true; stopRequested = false; stopSource = nil; needsAttention = false; status = wasBusy ? "Sending guidance…" : "Working…"
         var outgoing = content
         if let skill { outgoing.append(skill) }
         if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
@@ -595,14 +606,22 @@ final class Session: ObservableObject {
             let restored = NSMutableAttributedString(attributedString: savedDraft)
             if restored.length > 0, draft.length > 0 { restored.append(NSAttributedString(string: "\n")) }
             restored.append(draft); if !retry { draft = restored; draftRevision += 1 }
+            needsAttention = !busy
             notice("Prompt was not sent: " + error.localizedDescription)
-            status = busy ? "Working…" : "Ready"
+            status = busy ? "Working…" : "Send failed"
+            save()
         }
     }
 
-    func stop() async {
+    func stop(source: String = "Stop command") async {
         guard !frontendReplacing else { return }
-        if runtimeClient != nil { await performRuntime("stop"); return }
+        if runtimeClient != nil { await performRuntime("stop", ["source": source]); return }
+        guard busy else { return }
+        if !stopRequested {
+            stopSource = source
+            notice("Stop requested by " + source + ".")
+            save()
+        }
         stopRequested = true
         guard let turnID else { status = "Stopping when the turn starts…"; return }
         do { _ = try await rpc.request("turn/interrupt", ["threadId": threadID ?? "", "turnId": turnID], timeout: 5); if busy { status = "Stopping…" } }
@@ -832,7 +851,7 @@ final class Session: ObservableObject {
             }
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let title = conversationName ?? rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
-            var record: JSON = ["cwd": conversationDirectory, "workingDirectory": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
+            var record: JSON = ["cwd": conversationDirectory, "workingDirectory": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft), "needsAttention": needsAttention]
             record["effort"] = effort
             record["planning"] = planning
             record["conversationName"] = conversationName
@@ -872,6 +891,8 @@ final class Session: ObservableObject {
         effort = selected.id == accountID ? record["effort"] as? String : nil
         planning = selected.provider == "codex" && record["planning"] as? Bool == true
         conversationName = record["conversationName"] as? String
+        needsAttention = record["needsAttention"] as? Bool ?? false
+        if needsAttention { status = "Needs attention" }
         recordID = id
         if let claimed { releaseRecord(); recordLock = (id, claimed) }
         accepted = true
@@ -969,7 +990,7 @@ final class Session: ObservableObject {
     func runtimeMetadata() -> JSON {
         var value: JSON = [
             "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
-            "changing": changing, "activeActions": Array(activeActions), "context": context,
+            "needsAttention": needsAttention, "changing": changing, "activeActions": Array(activeActions), "context": context,
             "usage": usage, "tokens": tokens, "repository": repository, "branch": branch,
             "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
@@ -1004,6 +1025,7 @@ final class Session: ObservableObject {
         effort = value["effort"] as? String; defaultEffort = value["defaultEffort"] as? String
         status = value["status"] as? String ?? status
         ready = value["ready"] as? Bool ?? ready; busy = value["busy"] as? Bool ?? busy
+        needsAttention = value["needsAttention"] as? Bool ?? false
         changing = value["changing"] as? Bool ?? changing
         activeActions = Set(value["activeActions"] as? [String] ?? [])
         context = value["context"] as? String ?? context; usage = value["usage"] as? String ?? usage
@@ -1053,6 +1075,7 @@ final class Session: ObservableObject {
     func applyInterruptedRecovery(_ state: JSON) {
         applyRuntimeDraft(state)
         busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll(); pendingInput = nil
+        needsAttention = true; status = "Interrupted"
         notice("Recovered saved conversation and unsent draft. The runtime was interrupted; previous tools were not replayed.")
     }
 
@@ -1100,5 +1123,9 @@ final class Session: ObservableObject {
 
     func close() {
         if let runtimeClient { runtimeClient.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()); return }
+        if busy {
+            needsAttention = true; status = "Interrupted"; busy = false
+            notice("Work interrupted because the session runtime closed. Send a message to continue.")
+        }
         flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }

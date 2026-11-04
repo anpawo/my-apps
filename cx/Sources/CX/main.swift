@@ -150,7 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func createWindow(_ options: LaunchOptions, state: JSON = [:]) {
         let session = Session(cwd: options.cwd, stateDirectory: headless ? RuntimeIdentity.directory.appendingPathComponent("frontend-state") : nil)
-        session.frontendReplacing = restoreFile != nil
+        let restoring = restoreFile
+        session.frontendReplacing = restoring != nil
         let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath, recovery: options.recoveryEntry)
         session.runtimeClient = client
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -178,18 +179,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             do { try await client.connect(resume: options.resume, prompt: options.prompt) }
             catch {
-                if restoreFile != nil { fputs("Frontend replacement could not attach.\n", stderr); exit(1) }
+                if restoring != nil { fputs("Frontend replacement could not attach.\n", stderr); exit(1) }
                 session.notice(error.localizedDescription); session.status = error.localizedDescription
             }
             window.title = "\(session.folder) · Vibe Code X"
             RuntimeUpdate.restore(state, window: window, session: session)
-            if let restoreFile {
+            if let restoreFile = restoring {
                 if verificationMode == "partial" { exit(1) }
                 restorePending -= 1
                 if restorePending == 0 {
+                    self.restoreFile = nil
                     if headless {
                         try? await Task.sleep(nanoseconds: 200_000_000)
-                        let report: JSON = ["windows": windows.map { ["sessionId": $0.session.runtimeClient?.sessionID ?? "", "threadId": $0.session.threadID ?? "", "draft": draftContent($0.session.draft), "permissions": $0.session.permissions.map { $0.id.uuidString }, "busy": $0.session.busy, "state": RuntimeUpdate.state(window: $0.window, session: $0.session), "visible": $0.window.isVisible] }]
+                        let report: JSON = ["restoreFinished": self.restoreFile == nil, "windows": windows.map { ["sessionId": $0.session.runtimeClient?.sessionID ?? "", "threadId": $0.session.threadID ?? "", "draft": draftContent($0.session.draft), "permissions": $0.session.permissions.map { $0.id.uuidString }, "busy": $0.session.busy, "state": RuntimeUpdate.state(window: $0.window, session: $0.session), "visible": $0.window.isVisible] }]
                         try? JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: restoreFile + ".verification.json"), options: .atomic)
                         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreFile + ".verification.json")
                     }
@@ -269,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if let replacement, !replacement.isTerminated() {
                     replacement.terminate()
                     for _ in 0..<30 where !replacement.isTerminated() { try? await Task.sleep(nanoseconds: 100_000_000) }
-                    guard replacement.isTerminated() else { return }
+                    if !replacement.isTerminated() { kill(replacement.pid, SIGKILL) }
                 }
                 for entry in windows where entry.session.runtimeClient?.isAttached == false {
                     try? await entry.session.runtimeClient?.reclaim()
@@ -388,7 +390,7 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
 }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface."); exit(0) }
-if args.contains(where: { ["--check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
+if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
@@ -515,6 +517,13 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
 } else if let index = args.firstIndex(of: "--live-check"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     Task { let ok = await Check.live(settings: args[index + 1]); exit(ok ? 0 : 1) }
+    RunLoop.main.run()
+} else if args.contains("--bug-check") {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        do { try await BugCheck.run(); exit(0) }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    }
     RunLoop.main.run()
 } else if args.contains("--check") {
     app.setActivationPolicy(.prohibited)

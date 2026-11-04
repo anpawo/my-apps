@@ -88,7 +88,7 @@ struct CXView: View {
             guard !session.frontendReplacing else { return }
             if session.preview != nil { session.preview = nil }
             else if session.commandQuery != nil { session.dismissCommands() }
-            else if session.busy { Task { await session.stop() } }
+            else if session.busy { Task { await session.stop(source: "Escape") } }
         }
     }
 
@@ -214,7 +214,7 @@ struct CXView: View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
-                Text(session.busy ? "Thinking" : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
+                Text(session.busy ? "Thinking" : session.needsAttention ? session.status : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
@@ -222,7 +222,7 @@ struct CXView: View {
             }
             HStack(alignment: .bottom, spacing: 12) {
                 Composer(session: session).frame(height: session.editorHeight)
-                if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop() } } }
+                if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
             statusBar.padding(.leading, 10)

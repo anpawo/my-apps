@@ -64,12 +64,12 @@ enum FrontendCheck {
         }
         try Data("fixture-new-build".utf8).write(to: directory.appendingPathComponent("installed-build"))
 
-        for mode in ["launch-failure", "preflight-failure", "partial", "success", "close"] {
+        for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "success", "close"] {
             let frontend = AppDelegate()
             frontends.append(frontend)
             frontend.headless = true
             frontend.replacementBinary = mode == "preflight-failure" ? URL(fileURLWithPath: "/usr/bin/false") : RuntimeIdentity.executable
-            frontend.replacementTimeout = mode == "partial" ? 1.5 : 8
+            frontend.replacementTimeout = ["partial", "stubborn"].contains(mode) ? 1.5 : 8
             NSApp.delegate = frontend
             frontend.observeFrontendEvents()
             for index in 0..<2 {
@@ -127,6 +127,10 @@ enum FrontendCheck {
                     let candidate = Process()
                     candidate.executableURL = RuntimeIdentity.executable
                     candidate.arguments = ["--frontend-handoff-fixture", ticket.path, mode]
+                    if mode == "stubborn" {
+                        candidate.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+                        candidate.arguments = ["-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
+                    }
                     candidate.environment = ProcessInfo.processInfo.environment
                     candidate.standardInput = FileHandle.nullDevice; candidate.standardOutput = FileHandle.nullDevice; candidate.standardError = FileHandle.nullDevice
                     try candidate.run(); candidates.append(candidate)
@@ -143,6 +147,7 @@ enum FrontendCheck {
                 guard let file = files.first(where: { $0.lastPathComponent.hasSuffix(".verification.json") }),
                       let report = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? JSON,
                       let restored = report["windows"] as? [JSON] else { throw CXError(message: "Replacement state report is missing.") }
+                try check(report["restoreFinished"] as? Bool == true, "completed restoration still freezes new windows")
                 try check(restored.count == 2, "replacement lost a window")
                 for index in 0..<2 {
                     guard let record = restored.first(where: { $0["sessionId"] as? String == ids[index] }) else { throw CXError(message: "Replacement session identity changed.") }
