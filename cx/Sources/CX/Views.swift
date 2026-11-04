@@ -410,6 +410,11 @@ struct CapabilityPopup: View {
                             Text(item.name).font(.system(size: 12, weight: .medium))
                             Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                            .padding(title == "Hooks" ? 12 : 0)
+                            .background(title == "Hooks" ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(title == "Hooks" ? 0.12 : 0))
+                            }
                     }
                     if matches.isEmpty {
                         Text(query.isEmpty ? "None reported" : "No matches").font(.system(size: 12)).foregroundStyle(.secondary)
