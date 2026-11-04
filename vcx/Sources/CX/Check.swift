@@ -1375,7 +1375,7 @@ struct AppIcon: View {
                 path.move(to: CGPoint(x: 310, y: 55))
                 path.addCurve(to: CGPoint(x: 242, y: 45), control1: CGPoint(x: 282, y: 22), control2: CGPoint(x: 274, y: 20))
                 path.addCurve(to: CGPoint(x: 240, y: 208), control1: CGPoint(x: 199, y: 77), control2: CGPoint(x: 202, y: 169))
-                path.addCurve(to: CGPoint(x: 323, y: 213), control1: CGPoint(x: 262, y: 231), control2: CGPoint(x: 298, y: 236))
+                path.addCurve(to: CGPoint(x: 348, y: 202), control1: CGPoint(x: 264, y: 233), control2: CGPoint(x: 322, y: 230))
                 path.addLine(to: CGPoint(x: 500, y: 36))
                 path.move(to: CGPoint(x: 363, y: 36))
                 path.addLine(to: CGPoint(x: 500, y: 224))
