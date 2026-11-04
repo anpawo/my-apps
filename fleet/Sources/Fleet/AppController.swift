@@ -708,11 +708,53 @@ enum ScreenWatcher {
     }
 }
 
-/// Seconds since the last keyboard/mouse/trackpad event, straight from the HID event source.
+/// Seconds since the last keyboard or mouse event you made. Read off a listen-only tap that keeps
+/// hardware events only (source pid 0): the HID event source also counts input another process
+/// posts, and an automation typing into a terminal or driving a click is not you coming back
+/// (asked 2026-11-04). Until the tap has seen one event of yours, the HID source stands in.
 enum IdleWatcher {
     private static let anyInput = CGEventType(rawValue: ~0)!
+    private static var installed = false
+    private static var tap: CFMachPort?
+    private static var lastHuman: TimeInterval?
+    private static var reported: Set<Int64> = []
 
     static func idleSeconds() -> TimeInterval {
-        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+        if !installed { install() }
+        if let lastHuman { return ProcessInfo.processInfo.systemUptime - lastHuman }
+        return CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+    }
+
+    private static func install() {
+        installed = true
+        let types: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .scrollWheel,
+                                    .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                    .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        let mask = types.reduce(CGEventMask(0)) { $0 | 1 << $1.rawValue }
+        tap = CGEvent.tapCreate(tap: .cghidEventTap, place: .tailAppendEventTap, options: .listenOnly,
+                                eventsOfInterest: mask, callback: { _, type, event, _ in
+            IdleWatcher.saw(type, event)
+            return Unmanaged.passUnretained(event)
+        }, userInfo: nil)
+        guard let tap else { return NSLog("Fleet: no input tap, idle clock counts posted input too") }
+        CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private static func saw(_ type: CGEventType, _ event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+        let pid = event.getIntegerValueField(.eventSourceUnixProcessID)
+        guard pid != 0 else {
+            if lastHuman == nil { NSLog("Fleet: idle clock now reads hardware input only") }
+            lastHuman = ProcessInfo.processInfo.systemUptime
+            return
+        }
+        if reported.insert(pid).inserted {
+            let name = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleIdentifier ?? "pid \(pid)"
+            NSLog("Fleet: idle clock ignores input posted by \(name)")
+        }
     }
 }
