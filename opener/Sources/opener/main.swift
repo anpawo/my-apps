@@ -111,7 +111,9 @@ final class App: NSObject, NSApplicationDelegate {
             }),
             (kVK_ANSI_J, cmdKey | optionKey, "⌥⌘J", {
                 if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.mr.vcx") {
-                    NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                    let config = NSWorkspace.OpenConfiguration()
+                    config.createsNewApplicationInstance = true
+                    NSWorkspace.shared.openApplication(at: url, configuration: config)
                 }
             }),
         ])
