@@ -651,7 +651,7 @@ def main(argv=None):
         payload = json.load(sys.stdin)
         allowed = set(values[1].split(','))
         tool = payload.get('tool_name', '')
-        web = tool in ('web', 'web.run', 'web_search', 'web_search_preview', 'web_fetch', 'mcp__web__run')
+        web = tool in ('web', 'web.run', 'webrun', 'web_search', 'web_search_preview', 'web_fetch', 'mcp__web__run')
         if tool not in allowed and not (web and allowed & {'WebSearch', 'WebFetch'}):
             print('This task does not allow tool ' + tool + '.', file=sys.stderr)
             return 2

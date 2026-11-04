@@ -288,6 +288,8 @@ class BackgroundTests(unittest.TestCase):
                 self.assertEqual(bg.main(['--check-tools', 'Bash']), status)
         with patch('sys.stdin', io.StringIO('{"tool_name":"web.run"}')):
             self.assertEqual(bg.main(['--check-tools', 'WebSearch']), 0)
+        with patch('sys.stdin', io.StringIO('{"tool_name":"webrun"}')):
+            self.assertEqual(bg.main(['--check-tools', 'WebSearch']), 0)
 
     def test_codex_startup_warnings_do_not_prevent_quota_fallback(self):
         runner = self.runner('--provider', 'codex', '--no-session-persistence')
