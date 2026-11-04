@@ -95,7 +95,7 @@ What happens next depends on what you asked for. A small model reads the sentenc
 one of three destinations:
 
 - **An existing project.** "In fleet, the two self tiles are swapped" opens a terminal in
-  `~/self/fleet` and starts a Claude Code session with that as its first prompt. The project is
+  `~/self/my-apps/fleet` and starts a Claude Code session with that as its first prompt. The project is
   matched against the directories under `~/self` plus wherever your live sessions are running,
   so you can name one however you normally say it.
 - **A new project.** "Start me a CLI that renames photos by their EXIF date" asks first, with the

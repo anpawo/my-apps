@@ -951,7 +951,7 @@ enum Check {
             do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage == "Usage unavailable", "failed usage refresh stays explicit without disconnecting")
-            check(usageDisplay.usagePercent == nil, "unavailable usage clears the old quota color")
+            check(usageDisplay.usagePercent == nil && !usageDisplay.usageLoading, "unavailable usage clears the old quota color and loading indicator")
         } catch { check(false, "Claude usage: " + error.localizedDescription) }
         claudeContext.event = { message in
             var message = message, params = message["params"] as? JSON ?? [:]
@@ -972,6 +972,17 @@ enum Check {
         check(groupedHooks.count == 2 && groupedHooks[0].detail.contains("PreToolUse") && groupedHooks[0].detail.contains("PostToolUse"), "repeated hooks share one card while retaining each registration")
         check(capabilityMatches(groupedHooks, query: "PostToolUse").map(\.name) == ["check.py"], "grouped hook search includes every registration")
         check(!groupedHooks[0].detail.contains("trusted") && groupedHooks[1].detail.contains("disabled"), "hook cards omit trusted while preserving disabled status and descriptions")
+        do {
+            let usageState = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-loading"))
+            check(usageState.usageLoading, "usage starts with a loading indicator")
+            let mirror = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-mirror"))
+            mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
+            check(mirror.usageLoading, "runtime metadata carries pending usage to the frontend")
+            usageState.updateUsage([:])
+            check(!usageState.usageLoading && usageState.usage.isEmpty, "an empty usage response stops loading and remains not reported")
+            mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
+            check(!mirror.usageLoading, "runtime metadata clears the frontend loading indicator")
+        }
         do {
             let animation = SendAnimation()
             let origin = CGRect(x: 170, y: 700, width: 900, height: 54)
@@ -1132,7 +1143,7 @@ enum Render {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000
-        session.context = "24% context"; session.usage = "18% usage - reset 2h50m - 32% wk"; session.tokens = "48,320"
+        session.context = "24% context"; session.usage = "18% usage - reset 2h50m - 32% wk"; session.usageLoading = false; session.tokens = "48,320"
         session.usagePercent = 32
         session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"; session.repositoryDirectory = "atlas"; session.repositoryStatus = "up to date"; session.effort = "high"
         session.hooks = [hookSummary(["command": "python3 /hooks/context.py", "statusMessage": "Load project context."], event: "SessionStart"), hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted", "statusMessage": "Check commands before execution."], event: "PreToolUse", matcher: "Bash"), hookSummary(["command": "bash /hooks/verify.sh", "enabled": false], event: "PostToolUse")]

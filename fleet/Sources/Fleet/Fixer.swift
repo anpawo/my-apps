@@ -158,14 +158,14 @@ final class Fixer: ObservableObject {
         } else if alert.hasPrefix("reel ") {
             facts = """
             It is a Reel that Fleet's analyser gave up on after \(Reel.maxTries) tries. The \
-            analyser is `fleet --reels-run` (~/self/fleet/Sources/Fleet/Reels.swift), its log \
+            analyser is `fleet --reels-run` (~/self/my-apps/fleet/Sources/Fleet/Reels.swift), its log \
             /tmp/fleet-reels.log; `fleet --reels` lists them and `fleet --check-reel \
             <shortcode>` runs one.
             """
         } else if alert.hasPrefix("firestore") || alert.hasPrefix("todo") {
             facts = """
             It is Fleet's own read or write of the phone's Firestore project \
-            (~/self/fleet/Sources/Fleet/Firestore.swift and Hub.swift), log /tmp/fleet.log.
+            (~/self/my-apps/fleet/Sources/Fleet/Firestore.swift and Hub.swift), log /tmp/fleet.log.
             """
         } else {
             facts = """

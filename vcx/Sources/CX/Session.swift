@@ -90,6 +90,7 @@ final class Session: ObservableObject {
     @Published var details = false
     @Published var context = ""
     @Published var usage = ""
+    @Published var usageLoading = true
     @Published var revision = 0
     @Published var follow = FollowState()
     @Published var permissions: [Permission] = []
@@ -199,7 +200,7 @@ final class Session: ObservableObject {
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
         if let runtimeClient {
             do { try await runtimeClient.connect(resume: resume, prompt: prompt) }
-            catch { ready = false; status = error.localizedDescription; notice(error.localizedDescription) }
+            catch { ready = false; usageLoading = false; status = error.localizedDescription; notice(error.localizedDescription) }
             return
         }
         await refreshRepository()
@@ -232,7 +233,7 @@ final class Session: ObservableObject {
             }
             await refreshCatalog()
             if !prompt.isEmpty { await send(text: prompt, images: []) }
-        } catch { notice(error.localizedDescription); status = "Connection failed" }
+        } catch { usageLoading = false; notice(error.localizedDescription); status = "Connection failed" }
     }
 
     func refreshCatalog() async {
@@ -262,7 +263,7 @@ final class Session: ObservableObject {
             if contextLimit == nil { await refreshContextLimit() }
             await refreshUsage()
             await refreshCapabilities()
-        } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
+        } catch { if rpc === connection { usageLoading = false; notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
     }
 
     private func refreshContextLimit() async {
@@ -278,7 +279,9 @@ final class Session: ObservableObject {
         if runtimeClient != nil { await performRuntime("refreshUsage", ["force": force]); return }
         guard ready, !changing, force || Date().timeIntervalSince(lastUsageRefresh) >= 60 else { return }
         lastUsageRefresh = Date()
+        usageLoading = true
         let connection = rpc
+        defer { if rpc === connection { usageLoading = false } }
         do {
             let result = try await connection.request("account/rateLimits/read")
             guard rpc === connection else { return }
@@ -509,6 +512,7 @@ final class Session: ObservableObject {
     }
 
     func updateUsage(_ rate: JSON) {
+        usageLoading = false
         if account.provider == "codex", ["primary", "secondary"].contains(where: { ((rate[$0] as? JSON)?["usedPercent"] as? Double ?? 0) >= 100 }) {
             let reset = ["primary", "secondary"].compactMap { rate[$0] as? JSON }.filter { ($0["usedPercent"] as? Double ?? 0) >= 100 }.map(limitReset).max() ?? Date().timeIntervalSince1970 + 300
             Settings.shared.updateLimit(account: account.id, reset: reset)
@@ -724,7 +728,7 @@ final class Session: ObservableObject {
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
         activeMode = Settings.shared.value.mode
-        context = ""; usage = ""; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
+        context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         if let connectionFactory { rpc = connectionFactory(next, cwd) } else { switch next.provider {
         case "claude": rpc = ClaudeConnection(account: next, cwd: cwd)
         case "qwen": rpc = QwenConnection(preferences: Settings.shared.value, cwd: cwd)
@@ -742,7 +746,7 @@ final class Session: ObservableObject {
         } catch {
             rpc.event = { _ in }; rpc.close()
             account = previous.0; threadID = previous.1; model = previous.2
-            context = previous.3; usage = previous.4; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
+            context = previous.3; usage = previous.4; usageLoading = false; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
             defaultEffort = previous.8
             usagePercent = previousUsagePercent
             providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
@@ -991,7 +995,7 @@ final class Session: ObservableObject {
         var value: JSON = [
             "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
             "needsAttention": needsAttention, "changing": changing, "activeActions": Array(activeActions), "context": context,
-            "usage": usage, "tokens": tokens, "repository": repository, "branch": branch,
+            "usage": usage, "usageLoading": usageLoading, "tokens": tokens, "repository": repository, "branch": branch,
             "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
             "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts,
@@ -1029,6 +1033,7 @@ final class Session: ObservableObject {
         changing = value["changing"] as? Bool ?? changing
         activeActions = Set(value["activeActions"] as? [String] ?? [])
         context = value["context"] as? String ?? context; usage = value["usage"] as? String ?? usage
+        usageLoading = value["usageLoading"] as? Bool ?? (!ready && usage.isEmpty)
         tokens = value["tokens"] as? String ?? tokens
         usagePercent = value["usagePercent"] as? Double
         contextUsed = value["contextUsed"] as? Int; contextLimit = value["contextLimit"] as? Int

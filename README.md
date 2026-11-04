@@ -4,6 +4,8 @@ Little apps made for my needs. Each one is a folder at the root of this repo, an
 runs on my Mac today, except glance, which is unfinished, and firefax, which has not yet
 filled a live page (it is built and self-tested, but not installed).
 
+Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
+
 <!-- apps:start -->
 ### [alt-tab](alt-tab)
 
@@ -16,10 +18,6 @@ filled a live page (it is built and self-tested, but not installed).
 ### [firefax](firefax)
 
 [![A terminal session: firefax scan lists a page's controls as ready locators, firefax store keeps an IBAN in the keychain, firefax fill runs a 5-step spec and prints one line per step, each verified](firefax/docs/report.png)](firefax)
-
-### [fleet](fleet)
-
-[![The panel](fleet/docs/panel.png)](fleet)
 
 ### [glance](glance)
 

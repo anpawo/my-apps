@@ -263,7 +263,7 @@ struct CXView: View {
         }.background(Color.black.opacity(0.025))
     }
 
-    private func setting(_ title: String, value: String, command: String, color: Color) -> some View {
+    private func setting(_ title: String, value: String, command: String, color: Color, loading: Bool = false) -> some View {
         Button {
             if command == "/dir " {
                 let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
@@ -273,7 +273,10 @@ struct CXView: View {
                 }
             } else { session.statusCommand(command) }
         } label: {
-            Text(value).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
+            HStack(spacing: 5) {
+                if loading { ProgressView().controlSize(.mini) }
+                Text(value).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
+            }
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
@@ -282,7 +285,7 @@ struct CXView: View {
     private func capability(_ title: String) -> some View {
         Button { openCapability = title } label: {
                 HStack(spacing: 7) {
-                    Text(title == "Instructions" ? ".md" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2)
+                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2)
                     Spacer()
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
@@ -414,7 +417,7 @@ struct CXView: View {
         }
     }
     private var quotaStatus: some View {
-        setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.85, brightness: 0.45) } ?? .black.opacity(0.6))
+        setting("Usage", value: session.usage.isEmpty ? (session.usageLoading ? "Loading…" : "Not reported") : session.usage, command: "/usage", color: session.usagePercent.map { Color(hue: (1 - min(100, max(0, $0)) / 100) / 3, saturation: 0.85, brightness: 0.45) } ?? .black.opacity(0.6), loading: session.usageLoading)
     }
     private var repositoryStatus: some View {
         setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 0.68, green: 0.18, blue: 0.38) : session.repositoryStatus == "unpushed" ? Color(red: 0.55, green: 0.36, blue: 0.08) : session.repositoryStatus == "up to date" ? readyColor : .black.opacity(0.6))

@@ -31,7 +31,7 @@
 - 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.
 - 04/11/2026: Watcher binary updates use kickstart -k on the existing LaunchAgent; replacing its registration is unnecessary.
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
-- 04/11/2026: Replace signed app bundles through a clean staging copy; merging with ditto preserves generated Python caches and invalidates the resource seal.
+- 04/11/2026: Replace signed app bundles through a clean staging copy; merging preserves generated Python caches and invalidates the seal. Compare installed hashes with the signed dist bundle, since signing changes the unsigned .build binary.
 - 04/11/2026: After merging concurrent changes into a worktree, read its new HEAD before integrating it; the earlier feature commit still diverges from main.
 - 04/11/2026: Run install-native.py without an outer build-stack wrapper; its nested Swift build otherwise waits on the installer's own queue slot.
 - 04/11/2026: Before cancelling a queued build, verify its ancestry reaches this tool's parent PID; queue position and matching installer names do not establish ownership.
@@ -47,6 +47,8 @@
 - 04/11/2026: Reject UI stream notification changes that regress worker checkpoint cost or rendering; benchmark both in matched fresh processes before accepting an aggregate CPU improvement.
 - 04/11/2026: Tests assert environment membership with a boolean and a fixed message; collection assertions print the entire environment on failure.
 - 04/11/2026: Swift Foundation Process workers have separate process groups; track direct-child PID and start identity and clean each worker explicitly when interrupting a test frontend.
-- 04/11/2026: Run repo-relative verification scripts from the repository root and Swift builds in a separate call from the package directory; a failed setup command must not silently run a stale executable.
+- 04/11/2026: Run each command from its owning directory: repository scripts from the root, Swift from Package.swift, web tools from package.json; verify workdir when switching projects, and stop after setup fails.
 - 04/11/2026: Import Combine explicitly when using Empty or publisher helpers; SwiftUI's observable wrappers do not expose every Combine type.
 - 04/11/2026: Inspect optional temporary-file matches with Path.glob; zsh aborts unmatched shell globs before the inspection command runs.
+- 04/11/2026: Run relocation preflight from the destination repository, outside the source and linked worktrees; its active-working-directory guard includes the invoking shell.
+- 04/11/2026: Read owned launcher source paths before rewriting them; installing from a temporary worktree can leave its path in terminal launchers.
