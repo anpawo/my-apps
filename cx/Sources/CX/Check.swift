@@ -928,12 +928,12 @@ enum Check {
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage == "100% wk - reset Wed 17:59", "weekly reset shows the weekday and precise Paris time in winter")
+            check(usageDisplay.usage == "100% wk - reset Wed 17h59", "weekly reset shows the weekday and precise Paris time in winter")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "10% wk - reset Sat 18:59", "weekly reset follows Paris daylight saving time")
+            check(usageDisplay.usage == "10% wk - reset Sat 18h59", "weekly reset follows Paris daylight saving time")
             usageDisplay.updateUsage(["primary": ["usedPercent": 20.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-11-04T17:00:00Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "20% wk - reset Wed 18:00", "evening weekly reset retains both hour digits")
+            check(usageDisplay.usage == "20% wk - reset Wed 18h00", "evening weekly reset retains both hour digits")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
