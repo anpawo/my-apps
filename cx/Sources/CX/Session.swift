@@ -838,7 +838,7 @@ final class Session: ObservableObject {
         }
         let restoredDraft = NSMutableAttributedString(string: "")
         for (n, piece) in (record["draft"] as? [JSON] ?? []).enumerated() {
-            if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])) }
+            if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
             else if let path = piece["path"] as? String { restoredDraft.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
         }
         restoreDraft(restoredDraft, since: generation)
@@ -881,7 +881,7 @@ final class Session: ObservableObject {
         let restored = NSMutableAttributedString(string: "")
         if index < prompts.count {
             for (n, piece) in prompts[index].enumerated() {
-                if let text = piece["text"] as? String { restored.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])) }
+                if let text = piece["text"] as? String { restored.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
                 else if let path = piece["path"] as? String { restored.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
             }
         }
