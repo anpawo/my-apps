@@ -290,6 +290,16 @@ class BackgroundTests(unittest.TestCase):
         self.assertIn(str(skill), system)
         self.assertIn('Use for fixture tasks', system)
 
+    def test_qwen_returns_only_the_final_answer(self):
+        runner = self.runner('--tools', '', '--no-session-persistence')
+        for content in ['Answer', '<think>Reasoning</think>\nAnswer', 'Reasoning</think>\nAnswer', '<think>Incomplete']:
+            response = {'message': {'role': 'assistant', 'content': content}}
+            with patch.object(bg, 'ensure_qwen'), patch.object(bg, 'command', return_value=(0, json.dumps(response).encode(), b'')):
+                result = runner.qwen({'provider': 'qwen'}, [{'type': 'text', 'text': 'Task'}])
+            self.assertEqual(result['is_error'], content == '<think>Incomplete')
+            if not result['is_error']:
+                self.assertEqual(result['result'], 'Answer')
+
     def test_qwen_permission_hook_blocks_a_command(self):
         settings = {'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': 'deny-command'}]}]}}
         runner = self.runner('--tools', 'Bash', '--settings', json.dumps(settings))

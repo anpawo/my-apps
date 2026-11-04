@@ -651,7 +651,10 @@ class Runner:
             messages.append(answer)
             calls = answer.get('tool_calls', [])
             if not calls:
-                return {'is_error': not bool(answer.get('content')), 'result': answer.get('content', ''), 'session_id': 'qwen:' + self.record_id, '_rows': rows}
+                text = answer.get('content', '').rsplit('</think>', 1)[-1].strip()
+                if '<think>' in text:
+                    text = ''
+                return {'is_error': not bool(text), 'result': text or 'Qwen returned no final answer.', 'session_id': 'qwen:' + self.record_id, '_rows': rows}
             for call in calls:
                 function = call.get('function', {})
                 script = function.get('arguments', {}).get('command', '')

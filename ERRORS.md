@@ -25,6 +25,7 @@
 - 04/11/2026: Engine adapters enforce accepted deny flags and preserve variadic caller arguments; silently dropping a restriction changes permissions.
 - 04/11/2026: Codex dotted CLI override keys retain quote characters; pass dynamic MCP names inside a TOML table value instead.
 - 04/11/2026: Add the Codex hook-trust bypass once where hooks are enabled; duplicate flags abort the task before it starts.
+- 04/11/2026: The installed Qwen model can include inline thinking despite think=false; remove the thinking wrapper before returning a background answer.
 - 04/11/2026: Resume checks inspect FixtureConnection.opened for the requested conversation ID; its reply uses a synthetic thread ID.
 - 04/11/2026: Watcher binary updates use kickstart -k on the existing LaunchAgent; replacing its registration is unnecessary.
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
