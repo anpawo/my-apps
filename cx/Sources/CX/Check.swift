@@ -677,6 +677,25 @@ enum Check {
         codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
         await codexCommands.connect(resume: nil)
         do {
+            let claudePalette = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unique-commands"))
+            for palette in [codexCommands, claudePalette] {
+                palette.providerCommands = [ChatCommand(name: "/MODEL", detail: "Model skill collision", source: "Fixture skill", insert: "/" + palette.account.provider + ":skill:model ")]
+                for query in ["/", "/model", "/compact", "/status"] {
+                    palette.commandQuery = query
+                    let names = palette.commandOptions.map { $0.name.lowercased() }
+                    check(Set(names).count == names.count, "command names are unique for \(palette.account.provider) query \(query)")
+                }
+                palette.commandQuery = "/model"
+                check(palette.commandOptions.filter { $0.name.lowercased() == "/model" }.map(\.source) == ["vcx"], "application commands win name collisions")
+                palette.commandQuery = "/" + palette.account.provider + ":model"
+                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == palette.account.provider.capitalized, "explicit provider aliases remain accessible")
+                palette.commandQuery = "/" + palette.account.provider + ":skill:model"
+                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == "Fixture skill", "namespaced skills remain accessible despite name collisions")
+                palette.providerCommands = []; palette.commandQuery = nil
+            }
+            claudePalette.close()
+        }
+        do {
             let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
             ranking.providerCommands = [
                 ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/codex:skill:beeper "),

@@ -136,7 +136,8 @@ extension Session {
             if name.hasPrefix(needle) || insert.hasPrefix(query.lowercased()) { return 1 }
             return name.contains(needle) ? 2 : 3
         }
-        return commands.filter { needle == "/" || $0.name.lowercased().contains(needle) || $0.insert.lowercased().hasPrefix(query.lowercased()) || $0.detail.lowercased().contains(String(needle.dropFirst())) }.sorted { rank($0) < rank($1) }
+        var names = Set<String>()
+        return commands.filter { needle == "/" || $0.name.lowercased().contains(needle) || $0.insert.lowercased().hasPrefix(query.lowercased()) || $0.detail.lowercased().contains(String(needle.dropFirst())) }.filter { names.insert($0.name.lowercased()).inserted }.sorted { rank($0) < rank($1) }
     }
 
     func updateCommands(_ text: String, caret: Int) {
