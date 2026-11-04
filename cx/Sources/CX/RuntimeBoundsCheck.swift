@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 @MainActor
@@ -29,7 +30,7 @@ enum RuntimeBoundsCheck {
         func close() { closed = true; release() }
     }
 
-    private final class Peer {
+    @MainActor private final class Peer {
         let channel: RuntimeChannel
         var responses: [String: JSON] = [:]
         var events: [JSON] = []
@@ -252,10 +253,37 @@ enum RuntimeBoundsCheck {
         try check(patch["rowOrder"] == nil && patch["rowUpdates"] == nil && (patch["items"] as? [JSON])?.count == 1, "one streaming item republished the transcript structure")
         try check(try JSONSerialization.data(withJSONObject: patch).count < 4096, "one streaming item produced a history-sized patch")
         patches.removeAll()
+        session.planning = true; session.revision += 1
+        try await wait { !patches.isEmpty }
+        try check((patches[0]["meta"] as? JSON)?["planning"] as? Bool == true, "transcript revision did not publish backend metadata changes")
+        patches.removeAll()
         for generation in 1...200 { _ = try await projection.perform(action: "checkpoint", params: ["generation": generation, "draft": [["text": "fixture draft \(generation)"]]]) }
         try await Task.sleep(nanoseconds: 150_000_000)
         try check(patches.count < 20 && session.draftGeneration == 200, "rapid draft edits caused a publication for each keystroke")
         try check((projection.snapshot()["rows"] as? [JSON])?.count == 1000, "resource checks silently truncated old conversation rows")
+
+        let bridgePath = directory.appendingPathComponent("projection.sock").path
+        let bridge = RuntimeServer(socketPath: bridgePath, build: "projection-fixture") { _ in projection }
+        try bridge.start()
+        let frontend = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("projection-frontend"))
+        let client = RuntimeClient(session: frontend, cwd: directory.path, socketPath: bridgePath)
+        frontend.runtimeClient = client
+        defer { client.close(); frontend.close(); bridge.stop() }
+        try await client.connect(resume: nil)
+        var sessionRefreshes = 0
+        let observation = frontend.objectWillChange.sink { sessionRefreshes += 1 }
+        let presence = FleetPresence(session: frontend)
+        defer { presence.close() }
+        session.rows.last!.items[0].data["text"] = "localized streaming fixture update"
+        try await wait { frontend.rows.last?.items[0].text == "localized streaming fixture update" }
+        try check(sessionRefreshes > 0, "streamed item did not notify the frontend session")
+        let presenceFile = frontend.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
+        try await wait {
+            guard let data = try? Data(contentsOf: presenceFile), let value = try? JSONSerialization.jsonObject(with: data) as? JSON,
+                  let preview = value["preview"] as? [JSON] else { return false }
+            return preview.contains { $0["text"] as? String == "localized streaming fixture update" }
+        }
+        withExtendedLifetime(observation) {}
 
         _ = try await first.perform(attached, 142, "close")
         _ = try await second.perform(blockedSession, 68, "close")

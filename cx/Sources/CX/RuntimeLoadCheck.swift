@@ -20,6 +20,14 @@ enum RuntimeLoadCheck {
     private static let rowsPerSession = 100
     private static let memoryLimit: UInt64 = 2 * 1024 * 1024 * 1024
 
+    private static func soakDuration(_ value: String?) throws -> Double {
+        guard let value else { return 0 }
+        guard let seconds = Double(value), seconds.isFinite, (0...300).contains(seconds) else {
+            throw CXError(message: "VCX_VERIFY_SOAK_SECONDS must be a finite duration between 0 and 300 seconds.")
+        }
+        return seconds
+    }
+
     static func worker(socketPath: String, directory: URL) throws -> RuntimeServer {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         guard Settings.directory.path.hasPrefix(directory.path + "/") else { throw CXError(message: "Load worker requires isolated configuration.") }
@@ -45,6 +53,7 @@ enum RuntimeLoadCheck {
     }
 
     static func run(reportPath: String) async throws -> Int {
+        let soakSeconds = try soakDuration(ProcessInfo.processInfo.environment["VCX_VERIFY_SOAK_SECONDS"])
         _ = RuntimeIdentity.build
         let root = URL(fileURLWithPath: "/tmp/vcx-load-" + UUID().uuidString.prefix(8))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -64,6 +73,7 @@ enum RuntimeLoadCheck {
         var report: JSON = ["schema": 1, "provider": "deterministic in-process Connection", "providerProcesses": 0,
                             "realModelCostIncluded": false, "windowsDisplayed": false, "rowsPerSession": rowsPerSession,
                             "memoryLimitBytes": memoryLimit, "cpuPercentConvention": "100% is one CPU core",
+                            "idleSoakSeconds": soakSeconds,
                             "memoryConvention": "Sum of process resident sizes includes pages shared by frontend and worker; not incremental system physical memory.",
                             "environment": environment,
                             "streamWorkload": "10 synthetic deltas per second per active session throughout each 3.3-second sample; streams stop afterward with a 30-second safety cap.",
@@ -77,7 +87,7 @@ enum RuntimeLoadCheck {
         }
         do {
             for count in [20, 50, 100] {
-                let result = try await scenario(count: count, directory: root.appendingPathComponent(String(count)), checks: &checks)
+                let result = try await scenario(count: count, directory: root.appendingPathComponent(String(count)), soakSeconds: soakSeconds, checks: &checks)
                 results.append(result)
                 try save()
                 print("Load check: \(count) sessions completed")
@@ -94,7 +104,7 @@ enum RuntimeLoadCheck {
         }
     }
 
-    private static func scenario(count: Int, directory: URL, checks: inout Int) async throws -> JSON {
+    private static func scenario(count: Int, directory: URL, soakSeconds: Double, checks: inout Int) async throws -> JSON {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let worker = Process()
         worker.executableURL = Bundle.main.executableURL!
@@ -228,6 +238,11 @@ enum RuntimeLoadCheck {
         presences = replacements.map(\.5)
         try check(sessions.enumerated().allSatisfy { $0.element.draft.string == "unsent load draft \($0.offset)" }, "reattachment lost drafts")
         try check(clients.allSatisfy(\.isAttached), "a load-test session did not reattach")
+        if count == 100, soakSeconds > 0 {
+            phases.append(try await measure(name: "idle_soak_after_handoff", seconds: soakSeconds, worker: worker.processIdentifier, client: clients[0], host: nil, sampleMemory: true))
+            try check(NSApp.windows.allSatisfy { !$0.isVisible }, "idle soak displayed a window")
+            try check(clients.allSatisfy(\.isAttached), "an idle-soak session detached")
+        }
         let front = try Sample(getpid()), backend = try Sample(worker.processIdentifier)
         try check(front.rss + backend.rss <= memoryLimit, "combined memory exceeded 2 GiB")
         return ["sessions": count, "nativeHostingViews": hosts.count, "providerProcesses": 0, "setupMs": setupMilliseconds,
@@ -253,12 +268,25 @@ enum RuntimeLoadCheck {
         throw CXError(message: "Synthetic streams did not finish.")
     }
 
-    private static func measure(name: String, seconds: Double, worker: pid_t, client: RuntimeClient, host: NSView?) async throws -> JSON {
+    private static func measure(name: String, seconds: Double, worker: pid_t, client: RuntimeClient, host: NSView?, sampleMemory: Bool = false) async throws -> JSON {
         let beforeFront = try Sample(getpid()), beforeWorker = try Sample(worker), beforeChild = try await childCPU(client)
         let start = DispatchTime.now().uptimeNanoseconds
         var frames: [Double] = []
+        var memorySamples: [JSON] = [], nextMemorySample = 1.0
+        func recordMemory(_ elapsed: Double, _ front: Sample, _ backend: Sample) throws {
+            let combined = front.rss + backend.rss
+            guard combined <= memoryLimit else { throw CXError(message: "Idle soak exceeded the combined 2 GiB memory limit.") }
+            guard memorySamples.count < 302 else { throw CXError(message: "Idle soak exceeded its bounded memory sample count.") }
+            memorySamples.append(["elapsedSeconds": elapsed, "combinedRSSBytes": combined])
+        }
+        if sampleMemory { try recordMemory(0, beforeFront, beforeWorker) }
         while milliseconds(since: start) < seconds * 1000 {
             try await Task.sleep(nanoseconds: 100_000_000)
+            let elapsed = milliseconds(since: start) / 1000
+            if sampleMemory, elapsed >= nextMemorySample {
+                try recordMemory(elapsed, Sample(getpid()), Sample(worker))
+                nextMemorySample = elapsed + 1
+            }
             if let host {
                 let frameStart = DispatchTime.now().uptimeNanoseconds
                 try autoreleasepool {
@@ -270,7 +298,16 @@ enum RuntimeLoadCheck {
             }
         }
         let elapsed = milliseconds(since: start) / 1000
-        return try await phase(name: name, elapsed: elapsed, frontBefore: beforeFront, frontAfter: Sample(getpid()), workerBefore: beforeWorker, workerAfter: Sample(worker), childCPU: childCPU(client) - beforeChild, frames: frames)
+        let afterFront = try Sample(getpid()), afterWorker = try Sample(worker)
+        var result = try await phase(name: name, elapsed: elapsed, frontBefore: beforeFront, frontAfter: afterFront, workerBefore: beforeWorker, workerAfter: afterWorker, childCPU: childCPU(client) - beforeChild, frames: frames)
+        if sampleMemory {
+            try recordMemory(elapsed, afterFront, afterWorker)
+            result["rssSamples"] = memorySamples
+            result["rssSampleCount"] = memorySamples.count
+            result["combinedRSSDeltaBytes"] = Int64(afterFront.rss + afterWorker.rss) - Int64(beforeFront.rss + beforeWorker.rss)
+            result["rssObservationScope"] = "Bounded once-per-second samples include shared pages and allocator history; this short observation does not prove absence of leaks or capture continuous memory peaks."
+        }
+        return result
     }
 
     private static func phase(name: String, elapsed: Double, frontBefore: Sample, frontAfter: Sample, workerBefore: Sample, workerAfter: Sample, childCPU: Double, frames: [Double]) throws -> JSON {

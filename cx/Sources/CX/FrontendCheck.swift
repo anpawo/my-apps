@@ -93,6 +93,8 @@ enum FrontendCheck {
                 entry.window.setFrame(NSRect(x: 100 + index * 30, y: 100, width: 1000, height: 700), display: false)
                 entry.session.editDraft(runtimeDraft([["text": "handoff draft \(index)"], ["path": image.path]]))
                 entry.session.follow.attached = false; entry.session.details = true
+                RuntimeUpdate.restore([:], window: entry.window, session: entry.session)
+                try check(!entry.session.follow.attached && entry.session.details, "empty restoration overwrote viewport edits")
                 try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: entry.window, session: entry.session))
                 try check(!entry.window.isVisible, "verification displayed a window")
             }
