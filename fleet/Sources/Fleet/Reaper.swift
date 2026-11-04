@@ -67,6 +67,30 @@ enum MemoryPressure {
         return (usage.xsu_used, usage.xsu_total)
     }
 
+    /// The kernel zone that leaked 3.9 GB over 11 days and starved the Mac into the watchdog
+    /// panic of 2026-11-04.
+    static let leakZone = "data.kalloc.1024"
+
+    /// Bytes in use in `leakZone`. Without root the kernel zeroes zone sizes but still counts
+    /// elements (zprint's "cur inuse"), so the size is count × element size.
+    static func kernelZone() -> UInt64 {
+        var names: mach_zone_name_array_t?, info: mach_zone_info_array_t?, mem: mach_memory_info_array_t?
+        var nNames: mach_msg_type_number_t = 0, nInfo: mach_msg_type_number_t = 0, nMem: mach_msg_type_number_t = 0
+        guard mach_memory_info(host, &names, &nNames, &info, &nInfo, &mem, &nMem) == KERN_SUCCESS else { return 0 }
+        func free<T>(_ p: UnsafeMutablePointer<T>?, _ n: mach_msg_type_number_t) {
+            guard let p else { return }
+            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: p)), vm_size_t(n) * vm_size_t(MemoryLayout<T>.stride))
+        }
+        defer { free(names, nNames); free(info, nInfo); free(mem, nMem) }
+        guard let names, let info else { return 0 }
+        for i in 0..<Int(min(nNames, nInfo)) {
+            var raw = names[i].mzn_name
+            let name = withUnsafeBytes(of: &raw) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            if name == leakZone { return info[i].mzi_count * info[i].mzi_elem_size }
+        }
+        return 0
+    }
+
     /// What the RAM is doing right now, split the way Activity Monitor splits it — which is the
     /// only split worth showing, since it is the one whose numbers you can go and check.
     struct Footprint {
@@ -217,6 +241,7 @@ final class Reaper: ObservableObject {
     /// Read once here as well as on every tick, so the first panel of a session shows the
     /// machine rather than a row of zeroes.
     @Published private(set) var footprint = MemoryPressure.footprint(own: MemoryPressure.ownFootprint())
+    @Published private(set) var kernelZone = MemoryPressure.kernelZone()
 
     /// Whether the machine has stopped keeping up — see `sampleFluidity`.
     @Published private(set) var struggling = false
@@ -269,6 +294,7 @@ final class Reaper: ObservableObject {
         guard Date().timeIntervalSince(lastScan) >= Config.reapInterval else { return }
         lastScan = Date()
         footprint.own = MemoryPressure.ownFootprint()
+        kernelZone = MemoryPressure.kernelZone()
 
         let candidates = Reaper.candidates()
         sampleIdleness(candidates)

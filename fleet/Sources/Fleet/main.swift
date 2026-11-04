@@ -97,6 +97,9 @@ if CommandLine.arguments.contains("--memory") {
         let ram = MemoryPressure.footprint(own: MemoryPressure.ownFootprint())
         print("yours:    \(byteLabel(ram.own)) of \(byteLabel(ram.room)) "
               + "(\(Int((ram.ownShare * 100).rounded()))%)")
+        let t0 = Date()
+        let zone = MemoryPressure.kernelZone()
+        print("kernel:   \(MemoryPressure.leakZone) \(zone) bytes (read in \(Int(Date().timeIntervalSince(t0) * 1000)) ms)")
 
         // Two samples: a CPU percentage is a difference between them, so one alone says
         // nothing — the same reason a freshly launched Fleet reaps nothing for two minutes.

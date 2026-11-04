@@ -1311,9 +1311,15 @@ struct MemoryStrip: View {
             // The whole readout, where every other block puts its count. The share in the
             // block's own colour — the same verdict the frame is painted in, said twice on
             // the one line where it can be read as a figure.
-            (Text("RAM \u{00B7} ").foregroundColor(.white.opacity(0.9))
-                + Text(percentLabel).foregroundColor(ramTint)
-                + Text(" \u{00B7} \(byteLabel(reaper.footprint.room))").foregroundColor(.white.opacity(0.9)))
+            // The kernel figure gets its own line: beside RAM it did not fit and wrapped mid-readout.
+            VStack(alignment: .trailing, spacing: 1) {
+                (Text("RAM \u{00B7} ").foregroundColor(.white.opacity(0.9))
+                    + Text(percentLabel).foregroundColor(ramTint)
+                    + Text(" \u{00B7} \(byteLabel(reaper.footprint.room))").foregroundColor(.white.opacity(0.9)))
+                // 3.9 GB in this zone preceded the panic of 2026-11-04; a fresh boot holds under 1 MB.
+                (Text("KERNEL \u{00B7} ").foregroundColor(.white.opacity(0.9))
+                    + Text(byteLabel(reaper.kernelZone)).foregroundColor(reaper.kernelZone >= 1 << 30 ? amber : .white.opacity(0.9)))
+            }
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .titleGround()
         } content: {
