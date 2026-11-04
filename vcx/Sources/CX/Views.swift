@@ -326,13 +326,15 @@ struct CXView: View {
                                 Text("Your code, your agents, one conversation.").font(.system(size: 14)).foregroundStyle(.black.opacity(0.6))
                             }.frame(maxWidth: .infinity).padding(.vertical, 100)
                         }
-                        ForEach(conversationSections(session.rows)) { section in
+                        let sections = conversationSections(session.rows)
+                        ForEach(sections) { section in
                             Section {
                                 ForEach(section.rows) { row in ConversationRow(row: row, session: session, details: session.details).equatable().id(row.id) }
                             } header: {
                                 if let question = section.question {
                                     ConversationRow(row: question, session: session, details: session.details).equatable()
                                         .background(Color.white)
+                                        .padding(.bottom, section.rows.isEmpty && section.id != sections.last?.id ? -16 : 0)
                                         .id(question.id)
                                 }
                             }
