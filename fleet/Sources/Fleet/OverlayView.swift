@@ -1272,6 +1272,8 @@ struct MemoryStrip: View {
     /// agents too, and a list of kill buttons unfolding in the corner every time reads as
     /// the panel changing under your hands.
     @State private var hovered = CommandLine.arguments.contains("--strain")
+    /// Unfolded to `MemoryDetailsPane` while the pointer is on it, like CRONS (asked 2026-11-05).
+    @State private var open = CommandLine.arguments.contains("--memory-open")
     /// Drives the warning's pulse; flipped once on appear, the animation repeats by itself.
     @State private var flash = false
     private var amber: Color { Color(red: 1.00, green: 0.62, blue: 0.15) }
@@ -1311,15 +1313,9 @@ struct MemoryStrip: View {
             // The whole readout, where every other block puts its count. The share in the
             // block's own colour — the same verdict the frame is painted in, said twice on
             // the one line where it can be read as a figure.
-            // The kernel figure gets its own line: beside RAM it did not fit and wrapped mid-readout.
-            VStack(alignment: .trailing, spacing: 1) {
-                (Text("RAM \u{00B7} ").foregroundColor(.white.opacity(0.9))
-                    + Text(percentLabel).foregroundColor(ramTint)
-                    + Text(" \u{00B7} \(byteLabel(reaper.footprint.room))").foregroundColor(.white.opacity(0.9)))
-                // 3.9 GB in this zone preceded the panic of 2026-11-04; a fresh boot holds under 1 MB.
-                (Text("KERNEL \u{00B7} ").foregroundColor(.white.opacity(0.9))
-                    + Text(byteLabel(reaper.kernelZone)).foregroundColor(reaper.kernelZone >= 1 << 30 ? amber : .white.opacity(0.9)))
-            }
+            (Text("RAM \u{00B7} ").foregroundColor(.white.opacity(0.9))
+                + Text(percentLabel).foregroundColor(ramTint)
+                + Text(" \u{00B7} \(byteLabel(reaper.footprint.room))").foregroundColor(.white.opacity(0.9)))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .titleGround()
         } content: {
@@ -1340,8 +1336,17 @@ struct MemoryStrip: View {
             }
             .padding(.horizontal, 4)
             }
+            if open {
+                MemoryDetailsPane(details: reaper.details, amber: amber)
+                    .transition(.opacity)
+            }
         }
-        .onHover { hovered = $0 }
+        .onAppear { if open { reaper.detailsOpen = true } }
+        .onHover { inside in
+            hovered = inside
+            reaper.detailsOpen = inside
+            withAnimation(OverlayView.fold) { open = inside }
+        }
     }
 
     /// What colour the block is: your apps' share of the RAM, on the scale the figure itself
@@ -1512,6 +1517,49 @@ enum BlockTint {
     /// own, because a block is told apart by its colour everywhere else on this panel.
     static let reels = Color(red: 0.47, green: 0.12, blue: 0.31)
     static let youtube = Color(red: 0.47, green: 0.09, blue: 0.09)
+}
+
+/// The MEMORY block unfolded: the machine's figures, then the heaviest programs by RAM, CPU and
+/// GPU. On a dark pane, as the mail cards sit on theirs: the gauge's fill runs under it.
+private struct MemoryDetailsPane: View {
+    let details: MemoryDetails
+    let amber: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            // 3.9 GB in this zone preceded the panic of 2026-11-04; a fresh boot holds under 1 MB.
+            row("Kernel zone", byteLabel(details.kernelZone),
+                tint: details.kernelZone >= 1 << 30 ? amber : .white.opacity(0.95))
+            row("Wired", byteLabel(details.wired))
+            row("GPU", "\(details.gpuBusy)% \u{00B7} \(byteLabel(details.gpuMemory))")
+            section("TOP RAM", details.ram)
+            section("TOP CPU", details.cpu)
+            section("TOP GPU", details.gpu)
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 4)
+    }
+
+    private func row(_ name: String, _ value: String, tint: Color = .white.opacity(0.95)) -> some View {
+        HStack(spacing: 8) {
+            Text(name).lineLimit(1).truncationMode(.middle).foregroundStyle(.white.opacity(0.7))
+            Spacer(minLength: 0)
+            Text(value).foregroundStyle(tint).fixedSize()
+        }
+    }
+
+    @ViewBuilder private func section(_ title: String, _ rows: [MemoryDetails.Row]) -> some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(1)
+            .foregroundStyle(.white.opacity(0.35))
+            .padding(.top, 5)
+        if rows.isEmpty { Text("\u{2026}").foregroundStyle(.white.opacity(0.4)) }
+        ForEach(rows) { row($0.name, $0.value) }
+    }
 }
 
 private struct HogPill: View {

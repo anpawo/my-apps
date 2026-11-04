@@ -97,17 +97,25 @@ if CommandLine.arguments.contains("--memory") {
         let ram = MemoryPressure.footprint(own: MemoryPressure.ownFootprint())
         print("yours:    \(byteLabel(ram.own)) of \(byteLabel(ram.room)) "
               + "(\(Int((ram.ownShare * 100).rounded()))%)")
-        let t0 = Date()
-        let zone = MemoryPressure.kernelZone()
-        print("kernel:   \(MemoryPressure.leakZone) \(zone) bytes (read in \(Int(Date().timeIntervalSince(t0) * 1000)) ms)")
 
         // Two samples: a CPU percentage is a difference between them, so one alone says
         // nothing — the same reason a freshly launched Fleet reaps nothing for two minutes.
         let before = MemoryPressure.cpuTicks()
         let reaper = Reaper()
         reaper.tick()
+        reaper.sampleDetails()
         Thread.sleep(forTimeInterval: 1.5)
         reaper.tick()               // the second sample is the one that yields a percentage
+        let t0 = Date()
+        reaper.sampleDetails()
+        let d = reaper.details
+        print("details:  read in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
+        print("kernel:   \(MemoryPressure.leakZone) \(d.kernelZone) bytes")
+        print("wired:    \(byteLabel(d.wired))")
+        print("gpu:      \(d.gpuBusy)% busy, \(byteLabel(d.gpuMemory)) in use")
+        for (title, rows) in [("top ram", d.ram), ("top cpu", d.cpu), ("top gpu", d.gpu)] {
+            print("\(title):  " + rows.map { "\($0.name) \($0.value)" }.joined(separator: " | "))
+        }
         if let before, let after = MemoryPressure.cpuTicks() {
             let busy = MemoryPressure.busyShare(from: before, to: after)
             print("cpu:      \(Int((busy * 100).rounded()))% busy (strained at \(Int(Config.strainedCPU * 100))% for \(Int(Config.strainedCPUFor)) s)")
@@ -1015,7 +1023,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--idle"),
 let knownFlags: Set<String> = [
     "--ax-probe", "--bench", "--blocks-open", "--bench-panel", "--check-reel", "--close", "--cmd", "--crons-open", "--demo",
     "--deferred", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
-    "--launch", "--mail", "--memory", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels", "--reels-open",
+    "--launch", "--mail", "--memory", "--memory-open", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels", "--reels-open",
     "--live", "--money-open", "--reels-run", "--render", "--render-settings", "--route", "--scan", "--school-open", "--screen",
     "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",
     "--todos", "--uninstall-hooks", "--windows",

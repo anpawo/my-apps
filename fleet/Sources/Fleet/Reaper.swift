@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import IOKit
 
 /// System-wide memory pressure, as the kernel itself judges it.
 ///
@@ -91,6 +92,66 @@ enum MemoryPressure {
         return 0
     }
 
+    /// The GPU's busy share and memory in use, and each process's GPU time so far in ns, read
+    /// off the accelerator and its user clients in IOKit: Activity Monitor's GPU column, no root.
+    static func gpu() -> (busy: Int, inUse: UInt64, time: [pid_t: UInt64]) {
+        var busy = 0, inUse: UInt64 = 0, time: [pid_t: UInt64] = [:]
+        func property(_ entry: io_registry_entry_t, _ key: String) -> Any? {
+            IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+        }
+        var accels: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &accels) == KERN_SUCCESS
+        else { return (0, 0, [:]) }
+        defer { IOObjectRelease(accels) }
+        while true {
+            let accel = IOIteratorNext(accels)
+            guard accel != 0 else { break }
+            defer { IOObjectRelease(accel) }
+            if let stats = property(accel, "PerformanceStatistics") as? [String: Any] {
+                busy = max(busy, (stats["Device Utilization %"] as? NSNumber)?.intValue ?? 0)
+                inUse += (stats["In use system memory"] as? NSNumber)?.uint64Value ?? 0
+            }
+            var clients: io_iterator_t = 0
+            guard IORegistryEntryGetChildIterator(accel, kIOServicePlane, &clients) == KERN_SUCCESS else { continue }
+            defer { IOObjectRelease(clients) }
+            while true {
+                let client = IOIteratorNext(clients)
+                guard client != 0 else { break }
+                defer { IOObjectRelease(client) }
+                // "pid 166, WindowServer"
+                guard let creator = property(client, "IOUserClientCreator") as? String,
+                      let pid = pid_t(creator.dropFirst(4).prefix { $0.isNumber }),
+                      let usage = property(client, "AppUsage") as? [[String: Any]] else { continue }
+                time[pid, default: 0] += usage.reduce(0) { $0 + (($1["accumulatedGPUTime"] as? NSNumber)?.uint64Value ?? 0) }
+            }
+        }
+        return (busy, inUse, time)
+    }
+
+    /// What a process is called in the unfolded MEMORY block: an app for all its processes
+    /// (every plugin-container is "Firefox"), a script for an interpreter ("python matte.py"),
+    /// every Claude Code session "claude", otherwise the executable.
+    static func programName(_ pid: pid_t) -> String {
+        let path = ProcessScanner.executablePath(pid)
+        let base = (path as NSString).lastPathComponent
+        // Claude Code runs as its version file ("2.1.318").
+        if base == "claude" || base.split(separator: ".").count == 3 && base.allSatisfy({ $0.isNumber || $0 == "." }) {
+            return "claude"
+        }
+        let interpreter = base.lowercased().hasPrefix("python") ? "python" : base
+        if interpreter == "python" || ["node", "bun", "deno", "ruby", "perl", "java", "bash", "sh", "zsh", "fish"].contains(base) {
+            var rest = ProcessScanner.arguments(pid).dropFirst()
+            while let arg = rest.first, arg.hasPrefix("-") {
+                if arg == "-m", let module = rest.dropFirst().first { return "\(interpreter) \(module)" }
+                if arg == "-c" || arg == "-e" { return "\(interpreter) \(arg)" }
+                rest = rest.dropFirst()
+            }
+            return rest.first.map { "\(interpreter) \(($0 as NSString).lastPathComponent)" } ?? interpreter
+        }
+        if let app = path.range(of: ".app/") { return (String(path[..<app.lowerBound]) as NSString).lastPathComponent }
+        return base.isEmpty ? "pid \(pid)" : base
+    }
+
     /// What the RAM is doing right now, split the way Activity Monitor splits it — which is the
     /// only split worth showing, since it is the one whose numbers you can go and check.
     struct Footprint {
@@ -101,6 +162,7 @@ enum MemoryPressure {
         /// reason a healthy Mac always looks full.
         var cached: UInt64 = 0
         var compressed: UInt64 = 0
+        var wired: UInt64 = 0
         var swap: UInt64 = 0
         /// The swap file macOS has actually made, which is the only ceiling of the four that
         /// exists: cached and compressed are both parts of the RAM total, with no cap of their
@@ -175,12 +237,28 @@ enum MemoryPressure {
         // app has already said it can lose, so it belongs with the cache, not with the total.
         let app = UInt64(stats.internal_page_count) - UInt64(stats.purgeable_count)
         out.compressed = UInt64(stats.compressor_page_count) * page
+        out.wired = UInt64(stats.wire_count) * page
         out.used = (app + UInt64(stats.wire_count)) * page + out.compressed
         out.cached = (UInt64(stats.external_page_count) + UInt64(stats.purgeable_count)) * page
         // The kernel counts speculative pages as free too, and they are already in `external`.
         out.free = UInt64(max(Int(stats.free_count) - Int(stats.speculative_count), 0)) * page
         return out
     }
+}
+
+/// What the MEMORY block shows unfolded. Read only while it is open; CPU and GPU are shares of
+/// the time between two samples.
+struct MemoryDetails {
+    struct Row: Identifiable {
+        var id: String { name }
+        var name: String
+        var value: String
+    }
+    var kernelZone: UInt64 = 0
+    var wired: UInt64 = 0
+    var gpuBusy = 0
+    var gpuMemory: UInt64 = 0
+    var ram: [Row] = [], cpu: [Row] = [], gpu: [Row] = []
 }
 
 /// Bytes, rounded to whatever unit reads as a size rather than a number.
@@ -241,7 +319,22 @@ final class Reaper: ObservableObject {
     /// Read once here as well as on every tick, so the first panel of a session shows the
     /// machine rather than a row of zeroes.
     @Published private(set) var footprint = MemoryPressure.footprint(own: MemoryPressure.ownFootprint())
-    @Published private(set) var kernelZone = MemoryPressure.kernelZone()
+    @Published private(set) var details = MemoryDetails()
+    /// Set by the MEMORY block while it is unfolded.
+    var detailsOpen = false {
+        didSet {
+            guard detailsOpen, !oldValue else { return }
+            lastDetails = nil
+            sampleDetails()
+            // The second sample, which yields the CPU and GPU shares, half a second after the
+            // block opens rather than at the next tick.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                MainActor.assumeIsolated { self?.sampleDetails() }
+            }
+        }
+    }
+    private var lastDetails: (at: Date, cpu: [pid_t: UInt64], gpu: [pid_t: UInt64])?
+    private var programNames: [pid_t: (started: UInt64, name: String)] = [:]
 
     /// Whether the machine has stopped keeping up — see `sampleFluidity`.
     @Published private(set) var struggling = false
@@ -290,11 +383,11 @@ final class Reaper: ObservableObject {
         pressure = MemoryPressure.level()
         footprint = MemoryPressure.footprint(own: footprint.own)
         sampleFluidity(lateness: lateness, allowed: allowed)
+        if detailsOpen, Date().timeIntervalSince(lastDetails?.at ?? .distantPast) >= 2 { sampleDetails() }
 
         guard Date().timeIntervalSince(lastScan) >= Config.reapInterval else { return }
         lastScan = Date()
         footprint.own = MemoryPressure.ownFootprint()
-        kernelZone = MemoryPressure.kernelZone()
 
         let candidates = Reaper.candidates()
         sampleIdleness(candidates)
@@ -697,6 +790,63 @@ final class Reaper: ObservableObject {
     }
 
     // MARK: - Panel
+
+    /// Reads `details`: RAM and CPU over his own processes (macOS's are not readable without
+    /// root), GPU over every process, each summed by `programName`, top three of each.
+    func sampleDetails() {
+        let now = Date(), me = getuid()
+        let since = lastDetails.map { now.timeIntervalSince($0.at) * 1e9 } ?? 0
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        var ram: [String: Double] = [:], cpuShare: [String: Double] = [:], gpuShare: [String: Double] = [:]
+        var cpu: [pid_t: UInt64] = [:]
+        func name(_ pid: pid_t) -> String {
+            let started = ProcessScanner.bsdInfo(pid).map { UInt64($0.pbi_start_tvsec) } ?? 0
+            if let known = programNames[pid], known.started == started { return known.name }
+            let fresh = MemoryPressure.programName(pid)
+            programNames[pid] = (started, fresh)
+            return fresh
+        }
+        for pid in ProcessScanner.allPIDs() where pid > 0 {
+            guard ProcessScanner.bsdInfo(pid)?.pbi_uid == me else { continue }
+            var info = rusage_info_v4()
+            let ok = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) == 0 }
+            }
+            guard ok else { continue }
+            let label = name(pid)
+            ram[label, default: 0] += Double(info.ri_phys_footprint)
+            // Mach ticks on Apple silicon, not nanoseconds.
+            let ns = (info.ri_user_time &+ info.ri_system_time) * UInt64(timebase.numer) / UInt64(timebase.denom)
+            cpu[pid] = ns
+            if since > 0, let before = lastDetails?.cpu[pid], ns >= before {
+                cpuShare[label, default: 0] += Double(ns - before) / since * 100
+            }
+        }
+        let gpu = MemoryPressure.gpu()
+        if since > 0 {
+            for (pid, ns) in gpu.time {
+                guard let before = lastDetails?.gpu[pid], ns >= before else { continue }
+                gpuShare[name(pid), default: 0] += Double(ns - before) / since * 100
+            }
+        }
+        func top(_ values: [String: Double], floor: Double, _ format: (Double) -> String) -> [MemoryDetails.Row] {
+            values.filter { $0.value >= floor }.sorted { $0.value > $1.value }.prefix(3)
+                .map { MemoryDetails.Row(name: $0.key, value: format($0.value)) }
+        }
+        var out = MemoryDetails(kernelZone: MemoryPressure.kernelZone(), wired: footprint.wired,
+                                gpuBusy: gpu.busy, gpuMemory: gpu.inUse)
+        out.ram = top(ram, floor: 0) { byteLabel(UInt64($0)) }
+        // No share before the second sample: the last ones stay rather than blank lines.
+        out.cpu = since > 0 ? top(cpuShare, floor: 1) { "\(Int($0.rounded()))%" } : details.cpu
+        out.gpu = since > 0 ? top(gpuShare, floor: 1) { "\(Int($0.rounded()))%" } : details.gpu
+        details = out
+        lastDetails = (now, cpu, gpu.time)
+        if programNames.count > 2048 {
+            let live = Set(ProcessScanner.allPIDs())
+            programNames = programNames.filter { live.contains($0.key) }
+        }
+    }
 
     /// The biggest processes on the machine, for the panel to name. Purely informational —
     /// nothing here is killed automatically; size alone is never a reason.
