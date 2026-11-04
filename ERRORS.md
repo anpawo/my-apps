@@ -40,3 +40,4 @@
 - 04/11/2026: Headless frontend fixtures disable automatic update discovery and notifications; only the injected launcher may replace them, so verification cannot launch the installed GUI.
 
 - 04/11/2026: AppKit shortcut fixtures use Swift names makeKey() and performKeyEquivalent(with:); Objective-C spellings are unavailable.
+- 04/11/2026: Scope scripted replacements to the intended function; identical draft RPC fragments also occur in thread switching and reconnecting.
