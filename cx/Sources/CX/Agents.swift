@@ -69,6 +69,23 @@ func limitReset(_ value: JSON) -> Double {
     return Date().timeIntervalSince1970 + 300
 }
 
+func configuredClaudeEffort(account: Account, cwd: String, model: String) -> String? {
+    var folders: [URL] = [], folder = URL(fileURLWithPath: cwd)
+    while true {
+        folders.insert(folder, at: 0)
+        let parent = folder.deletingLastPathComponent()
+        if parent.path == folder.path { break }; folder = parent
+    }
+    let files = [URL(fileURLWithPath: account.home ?? NSHomeDirectory() + "/.claude").appendingPathComponent("settings.json")] + folders.flatMap { folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }
+    var effort: String?, modelEffort: String?
+    for file in files {
+        guard let data = try? Data(contentsOf: file), let settings = try? JSONSerialization.jsonObject(with: data) as? JSON else { continue }
+        effort = settings["effortLevel"] as? String ?? effort
+        modelEffort = ((settings["modelSettings"] as? JSON)?[model] as? JSON)?["effortLevel"] as? String ?? modelEffort
+    }
+    return modelEffort ?? effort
+}
+
 @MainActor
 final class ClaudeConnection: Connection {
     var event: (JSON) -> Void = { _ in }

@@ -74,8 +74,10 @@ final class Session: ObservableObject {
     @Published var models: [String] = []
     @Published var model = "Codex"
     @Published var effort: String?
+    @Published var defaultEffort: String?
     @Published var showingSettings = false
     var modelEfforts: [String: [String]] = [:]
+    var modelDefaultEfforts: [String: String] = [:]
     var pendingModelCommand: String?
     @Published var status = "Connecting…"
     @Published var ready = false
@@ -98,6 +100,8 @@ final class Session: ObservableObject {
     @Published var contextLimit: Int?
     @Published var repository = "Checking…"
     @Published var branch = ""
+    @Published var repositoryStatus = ""
+    @Published var repositoryDirectory: String?
     @Published var hooks: [String] = []
     @Published var skills: [String] = []
     @Published var mcp: [String] = []
@@ -151,6 +155,9 @@ final class Session: ObservableObject {
     }
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
+    var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
+    var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
+    var modelStatusLabel: String { modelLabel + " - " + (effort ?? defaultEffort ?? (account.provider == "qwen" ? "off" : "default")) }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
@@ -160,13 +167,14 @@ final class Session: ObservableObject {
             .replacingOccurrences(of: "-", with: " ").capitalized
     }
     var contextLabel: String {
-        guard let limit = contextLimit, limit > 0 else { return "0% · ?" }
+        guard let limit = contextLimit, limit > 0 else { return "0% token - ?" }
         let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%gK", Double(limit) / 1000)
         let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "0"
-        return percentage + "% · " + capacity
+        return percentage + "% token - " + capacity
     }
 
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
+        await refreshRepository()
         do {
             testing = command != nil
             if testing {
@@ -217,6 +225,11 @@ final class Session: ObservableObject {
                 guard let id = entry["id"] as? String else { return nil }
                 return (id, (entry["supportedReasoningEfforts"] as? [JSON] ?? []).compactMap { $0["reasoningEffort"] as? String })
             }, uniquingKeysWith: { first, _ in first })
+            modelDefaultEfforts = Dictionary(entries.compactMap { entry in
+                guard let id = entry["id"] as? String, let effort = entry["defaultReasoningEffort"] as? String else { return nil }
+                return (id, effort)
+            }, uniquingKeysWith: { first, _ in first })
+            if defaultEffort == nil { defaultEffort = modelDefaultEfforts[model] }
             await refreshUsage()
             await refreshCapabilities()
         } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
@@ -270,6 +283,7 @@ final class Session: ObservableObject {
         threadID = id
         turnID = nil; busy = false; stopRequested = false
         model = result["model"] as? String ?? "Codex"
+        defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""
         contextUsed = nil; contextLimit = nil
@@ -350,7 +364,9 @@ final class Session: ObservableObject {
         case "cx/context":
             if let used = p["used"] as? Int { contextUsed = used }
             if let limit = p["limit"] as? Int, limit > 0 { contextLimit = limit }
-        case "cx/model": model = p["model"] as? String ?? model
+        case "cx/model":
+            model = p["model"] as? String ?? model
+            defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
         case "item/started", "item/completed":
             if var data = p["item"] as? JSON {
                 if let id = data["id"] as? String, !["agentMessage", "plan", "userMessage"].contains(data["type"] as? String ?? "") {
@@ -433,18 +449,28 @@ final class Session: ObservableObject {
             let reset = ["primary", "secondary"].compactMap { rate[$0] as? JSON }.filter { ($0["usedPercent"] as? Double ?? 0) >= 100 }.map(limitReset).max() ?? Date().timeIntervalSince1970 + 300
             Settings.shared.updateLimit(account: account.id, reset: reset)
         }
-        usage = ["primary", "secondary"].compactMap { key -> String? in
-            guard let window = rate[key] as? JSON, let used = window["usedPercent"] as? Double else { return nil }
+        let windows = ["primary", "secondary"].compactMap { key -> JSON? in
+            guard let window = rate[key] as? JSON, window["usedPercent"] is Double else { return nil }
+            return window
+        }
+        let hasWeekly = windows.contains { $0["windowDurationMins"] as? Int == 10080 }
+        usage = windows.filter { !(hasWeekly && $0["windowDurationMins"] as? Int == 300 && $0["usedPercent"] as? Double == 0 && $0["resetsAt"] == nil) }.enumerated().compactMap { index, window -> String? in
+            guard let used = window["usedPercent"] as? Double else { return nil }
             let minutes = window["windowDurationMins"] as? Int ?? 0
-            let label = minutes == 10080 ? "weekly" : minutes >= 1440 && minutes % 1440 == 0 ? "\(minutes / 1440)d" : minutes >= 60 && minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
+            let label = minutes == 10080 ? "wk" : minutes == 300 ? "usage" : minutes >= 1440 && minutes % 1440 == 0 ? "\(minutes / 1440)d" : minutes >= 60 && minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
             var text = "\(Int(used.rounded()))% \(label)"
-            if let reset = window["resetsAt"] as? Double {
-                let remaining = max(0, Int(ceil((reset - Date().timeIntervalSince1970) / 60)))
-                let parts = [(remaining / 1440, "d"), (remaining % 1440 / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }
-                text += " (reset " + (parts.isEmpty ? "now" : parts.joined(separator: " ")) + ")"
+            if let reset = window["resetsAt"] as? Double, minutes != 10080 || index == 0 {
+                let remaining = max(0, Int((reset - Date().timeIntervalSince1970) / 60))
+                let countdown: String
+                if reset <= Date().timeIntervalSince1970 { countdown = "now" }
+                else if minutes == 10080 {
+                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "EEE HH'h'"
+                    countdown = formatter.string(from: Date(timeIntervalSince1970: reset))
+                } else { countdown = [(remaining / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }.joined() }
+                text += " - reset " + (countdown.isEmpty ? "0m" : countdown)
             }
             return text
-        }.joined(separator: " / ")
+        }.joined(separator: " - ")
     }
 
     func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil) async {
@@ -550,6 +576,7 @@ final class Session: ObservableObject {
             params["effort"] = selectedEffort as Any? ?? NSNull()
             let result = try await rpc.request("thread/resume", params)
             model = result["model"] as? String ?? value
+            defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : modelDefaultEfforts[model])
             effort = selectedEffort
         } catch { notice(error.localizedDescription) }
     }
@@ -572,7 +599,7 @@ final class Session: ObservableObject {
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
-        let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit)
+        let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
         flush()
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
@@ -601,6 +628,7 @@ final class Session: ObservableObject {
             rpc.event = { _ in }; rpc.close()
             account = previous.0; threadID = previous.1; model = previous.2
             context = previous.3; usage = previous.4; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
+            defaultEffort = previous.8
             providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
             pendingActivation = (next, resume, keepRows, recordID)
             ready = false

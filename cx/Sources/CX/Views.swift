@@ -72,6 +72,7 @@ struct CXView: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
                 await session.refreshUsage()
+                await session.refreshRepository()
             }
         }
         .sheet(isPresented: $session.showingSettings) {
@@ -117,9 +118,9 @@ struct CXView: View {
         }.background(Color.white.opacity(0.025))
     }
 
-    private func setting(_ title: String, value: String, command: String) -> some View {
+    private func setting(_ title: String, value: String, command: String, color: Color) -> some View {
         Button { session.showCommands(command) } label: {
-            Text(value).font(.system(size: 10, weight: .medium)).foregroundStyle(title == "Mode" ? accent : .white.opacity(0.45)).lineLimit(1).truncationMode(.middle).contentShape(Rectangle())
+            Text(value).font(.system(size: 10, weight: .medium)).foregroundStyle(color).lineLimit(1).fixedSize().contentShape(Rectangle())
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
@@ -215,22 +216,38 @@ struct CXView: View {
             }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.09), lineWidth: 1))
             ViewThatFits(in: .horizontal) {
                 statusBar
-                ScrollView(.horizontal, showsIndicators: false) { statusBar }
+                VStack(alignment: .leading, spacing: 8) {
+                    ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
+                    ViewThatFits(in: .horizontal) { usageStatus; ScrollView(.horizontal) { usageStatus } }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
 
     private var statusBar: some View {
-        HStack(spacing: 16) {
-            setting("Provider", value: session.providerLabel, command: "/model ")
-            setting("Mode", value: session.activeMode == "bypass" ? "Bypass" : "Ask", command: "/mode ")
-            setting("Model", value: session.modelLabel, command: "/model ")
-            if let effort = session.effort { setting("Effort", value: effort, command: "/model ") }
-            setting("Tokens", value: session.contextLabel, command: "/tokens")
-            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage")
-            setting("Repo", value: [session.repository, session.branch].filter { !$0.isEmpty }.joined(separator: " · "), command: "/repo")
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 8) { identityStatus; separator; usageStatus }.frame(maxWidth: .infinity, alignment: .leading)
     }
+    private var identityStatus: some View {
+        HStack(spacing: 8) {
+            setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 95/255, green: 95/255, blue: 215/255))
+            separator
+            setting("Provider", value: session.providerLabel, command: "/model ", color: .green)
+            separator
+            setting("Mode", value: session.activeMode == "bypass" ? "⏵⏵ bypass permissions on" : "Ask", command: "/mode ", color: .red)
+            separator
+            setting("Model", value: session.modelStatusLabel, command: "/model ", color: .pink)
+        }
+    }
+    private var usageStatus: some View {
+        HStack(spacing: 8) {
+            setting("Tokens", value: session.contextLabel, command: "/tokens", color: .green)
+            separator
+            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage", color: .green)
+            separator
+            setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 215/255, green: 95/255, blue: 135/255) : session.repositoryStatus == "unpushed" ? Color(red: 215/255, green: 175/255, blue: 95/255) : session.repositoryStatus == "up to date" ? Color(red: 95/255, green: 175/255, blue: 95/255) : .white.opacity(0.45))
+        }
+    }
+    private var separator: some View { Text("|").font(.system(size: 10)).foregroundStyle(.white.opacity(0.25)) }
 }
 
 struct ActivityDot: View {

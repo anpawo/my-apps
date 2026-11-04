@@ -136,15 +136,34 @@ extension Session {
     }
     func refreshRepository() async {
         let directory = cwd
-        let result = await Task.detached { () -> [String] in
-            let process = Process(), output = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["-C", directory, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"]
-            process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
-            do { try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); guard process.terminationStatus == 0 else { return [] }; return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init) } catch { return [] }
+        let result = await Task.detached { () -> (String?, String, String, String) in
+            func git(_ arguments: [String], at path: String? = nil) -> String? {
+                let process = Process(), output = Pipe()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                process.arguments = ["-C", path ?? directory] + arguments
+                process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                do { try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); guard process.terminationStatus == 0 else { return nil }; return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } catch { return nil }
+            }
+            guard let root = git(["rev-parse", "--show-toplevel"]) else { return (nil, "No repository", "", "") }
+            let common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"]) ?? ""
+            var top = common.hasSuffix("/.git") ? String(common.dropLast(5)) : root
+            var name = URL(fileURLWithPath: top).lastPathComponent
+            while let outer = git(["rev-parse", "--show-toplevel"], at: URL(fileURLWithPath: top).deletingLastPathComponent().path), outer != top {
+                top = outer; name = URL(fileURLWithPath: top).lastPathComponent + "/" + name
+            }
+            let branch = git(["branch", "--show-current"]) ?? ""
+            let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
+            let status: String
+            if let changes = git(["status", "--porcelain"]) {
+                if !changes.isEmpty { status = "uncommitted" }
+                else if branch.isEmpty { status = "" }
+                else if git(["rev-parse", "--abbrev-ref", "@{u}"]) == nil { status = "local only" }
+                else if let ahead = git(["rev-list", "--count", "@{u}..HEAD"]) { status = ahead == "0" ? "up to date" : "unpushed" }
+                else { status = "status unavailable" }
+            } else { status = "status unavailable" }
+            return (name, URL(fileURLWithPath: root).lastPathComponent, label, status)
         }.value
         guard cwd == directory else { return }
-        repository = result.first.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "No repository"
-        branch = result.count > 1 ? result[1] : ""
+        repositoryDirectory = result.0; repository = result.1; branch = result.2; repositoryStatus = result.3
     }
 }

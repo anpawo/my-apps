@@ -127,6 +127,70 @@ enum Check {
         check(blocks.count == 3 && blocks[1].code && blocks[1].language == "swift", "code fences")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func gitCheck(_ args: [String], at path: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", path] + args
+            process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+            try! process.run(); process.waitUntilExit()
+            precondition(process.terminationStatus == 0, "Repository fixture failed")
+        }
+        let repoPath = directory.appendingPathComponent("atlas").path
+        try! FileManager.default.createDirectory(atPath: repoPath, withIntermediateDirectories: true)
+        let repoSession = Session(cwd: repoPath)
+        await repoSession.refreshRepository()
+        check(repoSession.directoryLabel == repoPath && repoSession.repositoryLabel == "not a repo", "non-repository footer keeps the directory")
+        gitCheck(["init", "-b", "main"], at: repoPath)
+        await repoSession.refreshRepository()
+        check(repoSession.directoryLabel == "atlas" && repoSession.repositoryLabel == "@main - local only", "empty repositories retain their branch")
+        try! Data("fixture".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
+        gitCheck(["add", "file"], at: repoPath)
+        gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Fixture"], at: repoPath)
+        let remotePath = directory.appendingPathComponent("remote.git").path
+        gitCheck(["init", "--bare", remotePath], at: repoPath)
+        gitCheck(["remote", "add", "origin", remotePath], at: repoPath)
+        gitCheck(["push", "-u", "origin", "main"], at: repoPath)
+        await repoSession.refreshRepository()
+        check(repoSession.repositoryLabel == "@main - up to date", "pushed repositories show the green state")
+        try! Data("changed".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
+        await repoSession.refreshRepository()
+        check(repoSession.repositoryLabel == "@main - uncommitted", "uncommitted changes take priority")
+        gitCheck(["add", "file"], at: repoPath)
+        gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Change fixture"], at: repoPath)
+        await repoSession.refreshRepository()
+        check(repoSession.repositoryLabel == "@main - unpushed", "local commits show the amber state")
+        let worktreePath = directory.appendingPathComponent("atlas-worktree").path
+        gitCheck(["worktree", "add", "--detach", worktreePath], at: repoPath)
+        let worktreeSession = Session(cwd: worktreePath)
+        await worktreeSession.refreshRepository()
+        check(worktreeSession.directoryLabel == "atlas" && worktreeSession.repositoryLabel.hasPrefix("@detached ") && worktreeSession.repositoryStatus.isEmpty, "worktrees use the original repository name and detached status")
+        let nestedPath = repoPath + "/inner"
+        try! FileManager.default.createDirectory(atPath: nestedPath, withIntermediateDirectories: true)
+        gitCheck(["init", "-b", "main"], at: nestedPath)
+        let nestedSession = Session(cwd: nestedPath)
+        await nestedSession.refreshRepository()
+        check(nestedSession.directoryLabel == "atlas/inner", "nested repositories retain the enclosing repository name")
+        let profile = directory.appendingPathComponent("claude-profile")
+        try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: ["effortLevel": "high", "modelSettings": ["claude-opus-5-5": ["effortLevel": "xhigh"]]]).write(to: profile.appendingPathComponent("settings.json"))
+        let effortSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("effort-state"))
+        effortSession.connectionFactory = { account, _ in FixtureConnection(account) }
+        try! await effortSession.activate(Account(name: "Effort fixture", provider: "claude", home: profile.path), resume: nil, keepRows: false)
+        check(effortSession.effort == nil && effortSession.modelStatusLabel.hasSuffix(" - high"), "fresh Claude sessions display their configured effort without a manual selection")
+        effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
+        check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
+        effortSession.models = ["other-model"]
+        await effortSession.changeModel("other-model")
+        check(effortSession.modelStatusLabel == "Other Model - high", "Claude model changes restore the configured default effort")
+        effortSession.close()
+        let codexDefaults = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-effort-state"))
+        codexDefaults.connectionFactory = { account, _ in FixtureConnection(account) }
+        try! await codexDefaults.activate(Account(name: "Codex effort fixture", provider: "codex"), resume: nil, keepRows: false)
+        await codexDefaults.refreshCatalog()
+        check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex initialization uses its catalog default effort")
+        await codexDefaults.changeModel("fixture-model")
+        check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex model changes retain catalog effort when resume omits it")
+        codexDefaults.close()
         let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("fleet-state"))
         let presence = FleetPresence(session: fleetSession)
         let presenceFile = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
@@ -570,12 +634,16 @@ enum Check {
         check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
         codexCommands.model = "claude-opus-5-5"
         check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")
+        codexCommands.defaultEffort = "medium"
+        check(codexCommands.modelStatusLabel == "Opus 5.5 - medium", "footer displays reported default effort")
+        codexCommands.effort = "high"
+        check(codexCommands.modelStatusLabel == "Opus 5.5 - high", "selected effort appears beside the model")
         codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
-        check(codexCommands.contextLabel == "24% · 1M", "context shows percentage and reported capacity")
+        check(codexCommands.contextLabel == "24% token - 1M", "context matches the Claude Code status line")
         codexCommands.contextLimit = nil
-        check(codexCommands.contextLabel == "0% · ?", "unknown context displays zero usage without inventing capacity")
+        check(codexCommands.contextLabel == "0% token - ?", "unknown context displays zero usage without inventing capacity")
         codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
-        check(codexCommands.contextLabel == "0% · 1M", "unreported token usage defaults to zero")
+        check(codexCommands.contextLabel == "0% token - 1M", "unreported token usage defaults to zero")
         let claudeContext = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: directory.path)
         let usageDisplay = Session(cwd: directory.path)
         claudeContext.usageReader = { account in
@@ -586,13 +654,15 @@ enum Check {
             let result = try await claudeContext.request("account/rateLimits/read")
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
-            check(usageDisplay.usage.hasPrefix("0% 5h / 100% weekly (reset ") && usageDisplay.usage.contains("d"), "Claude usage is available before a message, including inactive windows and reset days")
+            check(usageDisplay.usage.hasPrefix("100% wk - reset ") && usageDisplay.usage.hasSuffix("h"), "inactive Claude windows show weekly usage with a weekday reset")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
-            check(usageDisplay.usage.hasPrefix("0% 5h / 100% weekly"), "session refresh reads Claude usage before a turn")
+            check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
             usageDisplay.updateUsage(["primary": ["usedPercent": 25.0, "windowDurationMins": 1440] as JSON, "secondary": ["usedPercent": 40.0, "windowDurationMins": 10080] as JSON])
-            check(usageDisplay.usage == "25% 1d / 40% weekly", "reported daily and weekly windows retain their units")
+            check(usageDisplay.usage == "25% 1d - 40% wk", "reported daily and weekly windows retain their units")
+            usageDisplay.updateUsage(["primary": ["usedPercent": 18.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 10230] as JSON, "secondary": ["usedPercent": 32.0, "windowDurationMins": 10080] as JSON])
+            check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk", "active usage matches Claude Code wording and compact countdown")
             claudeContext.usageReader = { _ in [:] }
             do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
             await usageDisplay.refreshUsage()
@@ -605,7 +675,7 @@ enum Check {
         }
         claudeContext.receive(["type": "assistant", "message": ["usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
         claudeContext.receive(["type": "result", "modelUsage": [claudeContext.model: ["contextWindow": 1000000]]])
-        check(codexCommands.contextUsed == 203600 && codexCommands.contextLabel == "20% · 1M", "Claude context uses the last message and includes cached tokens")
+        check(codexCommands.contextUsed == 203600 && codexCommands.contextLabel == "20% token - 1M", "Claude context uses the last message and includes cached tokens")
         codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
         check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
         codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
@@ -725,8 +795,8 @@ enum Render {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000
-        session.context = "24% context"; session.usage = "18% 5h / 32% weekly"; session.tokens = "48,320"
-        session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"
+        session.context = "24% context"; session.usage = "18% usage - reset 2h50m - 32% wk"; session.tokens = "48,320"
+        session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"; session.repositoryDirectory = "atlas"; session.repositoryStatus = "up to date"; session.effort = "high"
         session.hooks = [hookSummary(["command": "python3 /hooks/context.py", "statusMessage": "Load project context."], event: "SessionStart"), hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted", "statusMessage": "Check commands before execution."], event: "PreToolUse", matcher: "Bash"), hookSummary(["command": "bash /hooks/verify.sh", "enabled": false], event: "PostToolUse")]
         session.skills = ["ponytail", "ui-tweak", "swift-macos", "diagnosing-bugs", "playwright-cli", "writing-style"]
         session.providerCommands = [ChatCommand(name: "/ui-tweak", detail: "Adjust an existing interface and verify the result offscreen.", source: "Claude", insert: "/ui-tweak "), ChatCommand(name: "/ponytail", detail: "Solve the whole task with the smallest complete change.", source: "Claude", insert: "/ponytail ")]
@@ -785,6 +855,11 @@ enum Render {
             sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
         }
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
+        session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
+        session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
+        session.repositoryStatus = "uncommitted"
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
+        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
@@ -840,7 +915,7 @@ final class FixtureConnection: Connection {
             if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }
             return ["data": []]
         case "thread/turns/list": return ["data": []]
-        case "model/list": return ["data": [["id": "fixture-model", "supportedReasoningEfforts": [["reasoningEffort": "low"], ["reasoningEffort": "high"]]]]]
+        case "model/list": return ["data": [["id": "fixture-model", "defaultReasoningEffort": "high", "supportedReasoningEfforts": [["reasoningEffort": "low"], ["reasoningEffort": "high"]]]]]
         case "turn/start", "turn/steer":
             sent.append(params)
             if sendDelay > 0 { try await Task.sleep(nanoseconds: sendDelay) }
