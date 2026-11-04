@@ -1283,6 +1283,7 @@ enum Render {
             sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
         }
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
+        followKeepsEnd(session: sticky)
         let work = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/work"))
         work.ready = true; work.status = "Ready"
         work.show(["id": "work-q1", "type": "userMessage", "content": [["type": "text", "text": "The first option button has a weird size. Make it the same as the others."]]])
@@ -1316,6 +1317,31 @@ enum Render {
         motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
         motion(directory: directory, name: "tall", text: (1...20).map { "Line \($0) of a pasted text block." }.joined(separator: "\n"), history: true)
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
+    }
+    static func followKeepsEnd(session: Session) {
+        let host = NSHostingView(rootView: CXView(session: session))
+        host.appearance = NSAppearance(named: .aqua)
+        host.sizingOptions = []
+        host.frame = CGRect(x: 0, y: 0, width: 1120, height: 820)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
+        func findScroll(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView, scroll.frame.width > 300 { return scroll }
+            return view.subviews.lazy.compactMap { findScroll($0) }.first
+        }
+        guard let scroll = findScroll(host), let document = scroll.documentView else { fatalError("Transcript scroll view not found") }
+        let end = document.frame.height - scroll.contentView.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: end)); scroll.reflectScrolledClipView(scroll.contentView)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
+        precondition(session.follow.attached, "Transcript end detached following")
+        session.revision += 1
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
+        let after = scroll.contentView.bounds.origin.y
+        print("Transcript end \(end), after a revision \(after)")
+        precondition(abs(after - end) < 1, "A revision moved a transcript scrolled to its end")
     }
     static func expansion(directory: String, session: Session) {
         let host = NSHostingView(rootView: CXView(session: session))

@@ -351,8 +351,9 @@ struct CXView: View {
                                 }
                             }
                         }
-                        Color.clear.frame(height: 1).id("bottom")
-                    }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 28)
+                        // Holds the bottom padding so following lands where a manual scroll ends.
+                        Color.clear.frame(height: 29).id("bottom")
+                    }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.top, 28)
                 }
                 .onScrollPhaseChange { _, phase, context in
                     userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
