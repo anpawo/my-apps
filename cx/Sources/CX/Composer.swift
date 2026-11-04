@@ -9,18 +9,18 @@ final class ImageChip: NSTextAttachment {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
         let label = NSAttributedString(string: "Image \(number)", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white])
-        let image = NSImage(size: NSSize(width: label.size().width + 42, height: 22), flipped: false) { rect in
+        let image = NSImage(size: NSSize(width: label.size().width + 42, height: 18), flipped: false) { rect in
             NSColor.white.withAlphaComponent(0.15).setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 0), xRadius: 6, yRadius: 6).fill()
-            NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?.withSymbolConfiguration(.init(paletteColors: [.white]))?.draw(in: NSRect(x: 9, y: 5, width: 13, height: 12))
-            label.draw(at: NSPoint(x: 27, y: (22 - label.size().height) / 2))
+            NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?.withSymbolConfiguration(.init(paletteColors: [.white]))?.draw(in: NSRect(x: 9, y: 3, width: 13, height: 12))
+            label.draw(at: NSPoint(x: 27, y: (18 - label.size().height) / 2))
             return true
         }
         attachmentCell = Cell(imageCell: image)
     }
     required init?(coder: NSCoder) { nil }
     private final class Cell: NSTextAttachmentCell {
-        override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -4) }
+        override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -3) }
     }
 }
 
@@ -115,6 +115,8 @@ struct Composer: NSViewRepresentable {
                 if selector == #selector(NSResponder.insertTab(_:)) { return session.completeCommand() }
                 if selector == #selector(NSResponder.cancelOperation(_:)) { session.dismissCommands(); return true }
             }
+            if selector == #selector(NSResponder.moveUp(_:)), session.movePromptHistory(-1) { return true }
+            if selector == #selector(NSResponder.moveDown(_:)), session.movePromptHistory(1) { return true }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
                     let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
@@ -149,7 +151,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: "Ask anything, type / for commands, or drop an image…", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty { NSAttributedString(string: "Ask anything · / commands · drop an image…", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {

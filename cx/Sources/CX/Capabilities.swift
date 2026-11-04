@@ -1,7 +1,56 @@
 import AppKit
 
+struct CapabilityItem: Identifiable {
+    let id: String
+    let name: String
+    let detail: String
+    init(name: String, detail: String, id: String? = nil) { self.id = id ?? name; self.name = name; self.detail = detail }
+}
+
+func capabilityMatches(_ items: [CapabilityItem], query: String) -> [CapabilityItem] {
+    let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+    return items.filter { item in words.allSatisfy { (item.name + " " + item.detail).localizedCaseInsensitiveContains($0) } }.sorted {
+        let left = $0.name.lowercased().hasPrefix(query.lowercased())
+        let right = $1.name.lowercased().hasPrefix(query.lowercased())
+        return left != right ? left : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+    }
+}
+
+func mcpSummary(_ server: JSON) -> String? {
+    guard let name = server["name"] as? String else { return nil }
+    let status = server["status"] as? String ?? server["runtimeStatus"] as? String ?? server["authStatus"] as? String ?? "configured"
+    let tools = (server["tools"] as? JSON).map { Array($0.keys).sorted() } ?? (server["tools"] as? [JSON] ?? []).compactMap { $0["name"] as? String }
+    let detail = server["description"] as? String ?? (tools.isEmpty ? "" : "Tools: " + tools.joined(separator: ", "))
+    return [name, status, detail].filter { !$0.isEmpty }.joined(separator: " · ")
+}
+
+func hookSummary(_ hook: JSON, event: String, matcher: String? = nil) -> String {
+    let descriptions = ["sessionstart": "Loads context when a session starts.", "sessionend": "Runs cleanup when a session ends.", "userpromptsubmit": "Checks a prompt before it is sent.", "pretooluse": "Checks a tool call before it runs.", "posttooluse": "Runs after a tool call completes.", "posttoolusefailure": "Handles a failed tool call.", "permissionrequest": "Handles tool permission requests.", "notification": "Handles session notifications.", "stop": "Runs when the agent finishes responding.", "precompact": "Preserves context before compaction.", "configchange": "Responds to configuration changes.", "messagedisplay": "Formats messages for display."]
+    let command = hook["command"] as? String ?? ""
+    let script = command.range(of: #"[^/\s"']+\.(?:py|sh|bash|zsh|mjs|js|rb|pl|ps1)(?=[\s"']|$)"#, options: .regularExpression).map { String(command[$0]) }
+    let name = hook["name"] as? String ?? script ?? hook["tool"] as? String ?? event
+    let status = hook["enabled"] as? Bool == false ? "disabled" : hook["trustStatus"] as? String ?? "configured"
+    let detail = hook["description"] as? String ?? hook["statusMessage"] as? String ?? descriptions[event.lowercased()] ?? "Runs on " + event + "."
+    let match = matcher ?? hook["matcher"] as? String ?? ""
+    return ([name, event, status, detail] + (match.isEmpty ? [] : ["Matches: " + match])).joined(separator: " · ")
+}
+
 @MainActor
 extension Session {
+    func capabilityItems(_ title: String) -> [CapabilityItem] {
+        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
+        return values.enumerated().map { index, value in
+            let parts = value.components(separatedBy: " · ")
+            let name = parts[0]
+            let summary = parts.dropFirst().joined(separator: " · ")
+            let detail: String
+            if title == "Skills" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
+            else if title == "Hooks" { detail = summary.isEmpty ? "Provider hook" : summary }
+            else if title == "Instructions" { return CapabilityItem(name: URL(fileURLWithPath: value).lastPathComponent, detail: "Instructions for the active session.", id: String(index)) }
+            else { detail = summary.isEmpty ? "Configured MCP server" : summary }
+            return CapabilityItem(name: name, detail: detail, id: String(index))
+        }
+    }
     func applyClaudeCatalog(_ catalog: JSON) {
         if let commands = catalog["commands"] as? [JSON] {
             providerCommands = commands.flatMap { command -> [ChatCommand] in
@@ -13,7 +62,7 @@ extension Session {
         }
         if let catalog = catalog["models"] as? [JSON] { models = catalog.compactMap { $0["value"] as? String } }
         if let mode = catalog["current_permission_mode"] as? String { activeMode = mode == "bypassPermissions" ? "bypass" : "ask" }
-        if let servers = catalog["mcp_servers"] as? [JSON] { mcp = servers.compactMap { server in (server["name"] as? String).map { $0 + " · " + (server["status"] as? String ?? "configured") } }.sorted() }
+        if let servers = catalog["mcp_servers"] as? [JSON] { mcp = servers.compactMap(mcpSummary).sorted() }
     }
 
     func refreshCapabilities() async {
@@ -40,7 +89,12 @@ extension Session {
             let files = [URL(fileURLWithPath: base).appendingPathComponent("settings.json")] + folders.flatMap { folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }
             hooks = files.flatMap { file -> [String] in
                 guard let data = try? Data(contentsOf: file), let value = try? JSONSerialization.jsonObject(with: data) as? JSON else { return [] }
-                return (value["hooks"] as? JSON ?? [:]).keys.sorted().map { $0 + " · configured · " + file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
+                let events = value["hooks"] as? JSON ?? [:]
+                return events.keys.sorted().flatMap { event in
+                    (events[event] as? [JSON] ?? []).flatMap { group in
+                        (group["hooks"] as? [JSON] ?? []).map { hookSummary($0, event: event, matcher: group["matcher"] as? String) }
+                    }
+                }
             }
             do {
                 let catalog = try await connection.request("cx/catalog", [:], timeout: 25)
@@ -60,7 +114,7 @@ extension Session {
         do {
             let result = try await connection.request("hooks/list", ["threadId": threadID ?? ""], timeout: 15)
             guard rpc === connection else { return }
-            hooks = (result["data"] as? [JSON] ?? []).flatMap { $0["hooks"] as? [JSON] ?? [] }.map { ($0["eventName"] as? String ?? "Hook") + " · " + ($0["enabled"] as? Bool == false ? "disabled" : $0["trustStatus"] as? String ?? "configured") }
+            hooks = (result["data"] as? [JSON] ?? []).flatMap { $0["hooks"] as? [JSON] ?? [] }.map { hookSummary($0, event: $0["eventName"] as? String ?? "Hook") }
         } catch { guard rpc === connection else { return }; hooks = ["Catalog unavailable: " + error.localizedDescription] }
         do {
             var cursor: String?, servers: [JSON] = []
@@ -71,7 +125,7 @@ extension Session {
                 guard rpc === connection else { return }
                 servers += result["data"] as? [JSON] ?? []; cursor = result["nextCursor"] as? String
             } while cursor != nil
-            mcp = servers.compactMap { s in (s["name"] as? String).map { $0 + " · " + (s["runtimeStatus"] as? String ?? s["authStatus"] as? String ?? "configured") } }.sorted()
+            mcp = servers.compactMap(mcpSummary).sorted()
         } catch { if rpc === connection { mcp = ["Catalog unavailable: " + error.localizedDescription] } }
     }
     func refreshRepository() async {

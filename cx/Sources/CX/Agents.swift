@@ -200,6 +200,10 @@ final class ClaudeConnection: Connection {
             }
         case "assistant":
             let body = message["message"] as? JSON ?? [:], id = body["id"] as? String ?? UUID().uuidString
+            if let usage = body["usage"] as? JSON {
+                let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
+                emit("cx/context", ["used": used])
+            }
             for (index, block) in (body["content"] as? [JSON] ?? []).enumerated() {
                 if block["type"] as? String == "text", let text = block["text"] as? String {
                     lastAnswer = text
@@ -224,6 +228,7 @@ final class ClaudeConnection: Connection {
             emit("cx/claudeLimit", info)
             if info["status"] as? String == "rejected" { limit = info }
         case "result":
+            if let models = message["modelUsage"] as? [String: JSON], let limit = models[model]?["contextWindow"] as? Int { emit("cx/context", ["limit": limit]) }
             if let usage = message["usage"] as? JSON {
                 let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
                 emit("cx/tokens", ["input": input, "output": usage["output_tokens"] as? Int ?? 0])

@@ -42,6 +42,21 @@ enum Check {
     static func run() async -> Bool {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
+        func composerLine(_ image: Bool) -> (CGFloat, CGFloat) {
+            let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+            storage.addLayoutManager(manager); manager.addTextContainer(container)
+            let field = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 150), textContainer: container)
+            field.heldStorage = storage
+            let text = NSMutableAttributedString(string: "Before ")
+            if image { text.append(NSAttributedString(attachment: ImageChip(path: "/fixture.png", number: 1))) }
+            text.append(NSAttributedString(string: " after"))
+            text.addAttributes(field.typingAttributes, range: NSRange(location: 0, length: text.length))
+            storage.setAttributedString(text); manager.ensureLayout(for: container)
+            return (manager.usedRect(for: container).height, manager.location(forGlyphAt: manager.numberOfGlyphs - 1).y)
+        }
+        let plainLine = composerLine(false), imageLine = composerLine(true)
+        print("Composer line: plain \(plainLine.0)/\(plainLine.1), image \(imageLine.0)/\(imageLine.1)")
+        check(abs(plainLine.0 - imageLine.0) < 0.5 && abs(plainLine.1 - imageLine.1) < 0.5, "pasting an image preserves text line height and baseline")
         var follow = FollowState()
         check(follow.attached, "starts attached")
         follow.userScroll(distance: 120); check(!follow.attached, "scroll up detaches")
@@ -400,6 +415,46 @@ enum Check {
         check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.moveDown(_:))) && codexCommands.commandSelection == 1, "composer arrow keys navigate completion")
         check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.insertTab(_:))) && codexCommands.draft.string == "/account ", "composer Tab completes without sending")
         check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))) && codexCommands.commandQuery == nil, "composer Escape dismisses completion")
+        codexCommands.editDraft(NSAttributedString(string: ""))
+        codexCommands.rows = [Row("user", [Item(["content": [["type": "text", "text": "First prompt"]]])]), Row("user", [Item(["content": [["type": "text", "text": "Latest prompt "], ["type": "localImage", "path": imagePath]]])])]
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.moveUp(_:))) && codexCommands.draft.string.hasPrefix("Latest prompt") && draftContent(codexCommands.draft).last?["path"] as? String == imagePath, "Up recalls the latest prompt including images")
+        check(codexCommands.movePromptHistory(-1) && codexCommands.draft.string == "First prompt", "Up walks back through prompts")
+        check(codexCommands.movePromptHistory(-1) && codexCommands.draft.string == "First prompt", "history stops at the oldest prompt")
+        check(codexCommands.movePromptHistory(1) && codexCommands.draft.string.hasPrefix("Latest prompt"), "Down moves toward newer prompts")
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.moveDown(_:))) && codexCommands.draft.length == 0, "Down past the latest prompt restores the empty draft")
+        check(!codexCommands.movePromptHistory(1), "Down in an empty draft stays native")
+        codexCommands.editDraft(NSAttributedString(string: "Unsent text"))
+        check(!codexCommands.movePromptHistory(-1), "history does not overwrite a nonempty draft")
+        codexCommands.editDraft(NSAttributedString(string: "")); _ = codexCommands.movePromptHistory(-1)
+        codexCommands.editDraft(NSAttributedString(string: "Edited recall"))
+        check(!codexCommands.movePromptHistory(1), "editing a recalled prompt restores native arrow behavior")
+        let entries = [CapabilityItem(name: "zeta", detail: "Inspect UI layout"), CapabilityItem(name: "ui-tweak", detail: "Adjust the interface"), CapabilityItem(name: "build", detail: "Compile")]
+        check(capabilityMatches(entries, query: "UI").map(\.name) == ["ui-tweak", "build", "zeta"], "capability search ranks name prefixes before substring matches")
+        check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
+        check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
+        codexCommands.model = "claude-opus-5-5"
+        check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")
+        codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
+        check(codexCommands.contextLabel == "24% · 1M", "context shows percentage and reported capacity")
+        codexCommands.contextLimit = nil
+        check(codexCommands.contextLabel == "?% · ?", "unknown context limits are not invented")
+        codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
+        check(codexCommands.contextLabel == "?% · 1M", "unreported token usage is not displayed as zero")
+        let claudeContext = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: directory.path)
+        claudeContext.event = { message in
+            var message = message, params = message["params"] as? JSON ?? [:]
+            params.removeValue(forKey: "threadId"); message["params"] = params
+            codexCommands.event(message)
+        }
+        claudeContext.receive(["type": "assistant", "message": ["usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
+        claudeContext.receive(["type": "result", "modelUsage": [claudeContext.model: ["contextWindow": 1000000]]])
+        check(codexCommands.contextUsed == 203600 && codexCommands.contextLabel == "20% · 1M", "Claude context uses the last message and includes cached tokens")
+        codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
+        check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
+        codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
+        check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
+        check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")
+        check(hookSummary(["handlerType": "prompt", "statusMessage": "Check formatting"], event: "Stop", matcher: "Bash").contains("Check formatting · Matches: Bash"), "hook summaries preserve provider descriptions and matchers")
         codexCommands.close()
         Settings.shared.value = Preferences(); Settings.shared.save()
         let delayed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-commands"))
@@ -488,13 +543,18 @@ enum Render {
     static func run(directory: String) {
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
-        session.ready = true; session.status = "Ready"; session.model = "Claude Sonnet"; session.providerLabel = "Claude"
+        session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
+        session.contextUsed = 240000; session.contextLimit = 1000000
         session.context = "24% context"; session.usage = "18% 5h / 32% weekly"; session.tokens = "48,320"
         session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"
-        session.hooks = ["SessionStart · project context", "PreToolUse · command checks", "PostToolUse · verification"]
+        session.hooks = [hookSummary(["command": "python3 /hooks/context.py", "statusMessage": "Load project context."], event: "SessionStart"), hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted", "statusMessage": "Check commands before execution."], event: "PreToolUse", matcher: "Bash"), hookSummary(["command": "bash /hooks/verify.sh", "enabled": false], event: "PostToolUse")]
         session.skills = ["ponytail", "ui-tweak", "swift-macos", "diagnosing-bugs", "playwright-cli", "writing-style"]
-        session.mcp = ["Filesystem · connected", "GitHub · connected"]
+        session.providerCommands = [ChatCommand(name: "/ui-tweak", detail: "Adjust an existing interface and verify the result offscreen.", source: "Claude", insert: "/ui-tweak "), ChatCommand(name: "/ponytail", detail: "Solve the whole task with the smallest complete change.", source: "Claude", insert: "/ponytail ")]
+        session.mcp = ["Filesystem · connected · Read and write files in the workspace.", "GitHub · connected · Browse repositories, issues, and pull requests."]
         session.instructions = ["AGENTS.md", "CLAUDE.md"]
+        write(CapabilityPopup(session: session, title: "Skills"), size: CGSize(width: 380, height: 440), path: directory + "/skills.png")
+        write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/hooks.png")
+        write(CapabilityPopup(session: session, title: "MCP"), size: CGSize(width: 380, height: 440), path: directory + "/mcp.png")
         session.recent = [Recent(id: "1", title: "Build a clearer workspace"), Recent(id: "2", title: "Review the authentication flow"), Recent(id: "3", title: "Improve image attachments")]
         let image = NSImage(size: NSSize(width: 600, height: 360), flipped: false) { rect in
             NSColor(calibratedRed: 0.22, green: 0.14, blue: 0.38, alpha: 1).setFill(); rect.fill()
@@ -508,8 +568,10 @@ enum Render {
         session.show(["id": "tool", "type": "commandExecution", "command": "swift build -c release", "status": "completed", "exitCode": 0, "aggregatedOutput": "Build complete."])
         session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nType / to find commands, change settings, or resume a conversation."])
         let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])
+        session.draft = NSAttributedString(attributedString: draft)
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
-        session.draft = draft
+        session.draft = draft; session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
         session.showCommands("/")
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")

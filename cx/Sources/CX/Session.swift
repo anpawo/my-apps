@@ -89,6 +89,8 @@ final class Session: ObservableObject {
     @Published var commandQuery: String?
     @Published var commandSelection = 0
     @Published var tokens = "Not reported"
+    @Published var contextUsed: Int?
+    @Published var contextLimit: Int?
     @Published var repository = "Checking…"
     @Published var branch = ""
     @Published var hooks: [String] = []
@@ -101,6 +103,7 @@ final class Session: ObservableObject {
     var focusComposer: () -> Void = {}
     var savedCommandDraft: NSAttributedString?
     var draftGeneration = 0
+    private var promptHistoryIndex: Int?
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var draft = NSAttributedString(string: "")
     var submitDraft: () -> Void = {}
@@ -144,6 +147,17 @@ final class Session: ObservableObject {
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
+    var modelLabel: String {
+        model.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "-(\\d+)-(\\d+)$", with: " $1.$2", options: .regularExpression)
+            .replacingOccurrences(of: "-", with: " ").capitalized
+    }
+    var contextLabel: String {
+        guard let limit = contextLimit, limit > 0 else { return "?% · ?" }
+        let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%gK", Double(limit) / 1000)
+        let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "?"
+        return percentage + "% · " + capacity
+    }
 
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
         do {
@@ -228,12 +242,14 @@ final class Session: ObservableObject {
         }
         flushTask?.cancel(); flushTask = nil; deltas.removeAll()
         if !keepRows { rows.removeAll(); itemMap.removeAll(); seen.removeAll() }
+        promptHistoryIndex = nil
         group = nil
         threadID = id
         turnID = nil; busy = false; stopRequested = false
         model = result["model"] as? String ?? "Codex"
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""
+        contextUsed = nil; contextLimit = nil
         if let sources = result["instructionSources"] as? [String], !sources.isEmpty { instructions = sources }
         if account.provider == "codex" { do {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -308,6 +324,9 @@ final class Session: ObservableObject {
         case "cx/catalog": applyClaudeCatalog(p)
         case "cx/tokens":
             if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
+        case "cx/context":
+            if let used = p["used"] as? Int { contextUsed = used }
+            if let limit = p["limit"] as? Int, limit > 0 { contextLimit = limit }
         case "cx/model": model = p["model"] as? String ?? model
         case "item/started", "item/completed":
             if let data = p["item"] as? JSON {
@@ -346,6 +365,8 @@ final class Session: ObservableObject {
             let usage = p["tokenUsage"] as? JSON ?? [:]
             if let total = (usage["total"] as? JSON)?["totalTokens"] as? Int { tokens = total.formatted() + " total" }
             if let used = (usage["last"] as? JSON)?["totalTokens"] as? Double, let limit = usage["modelContextWindow"] as? Double, limit > 0 { context = "\(Int((used / limit * 100).rounded()))% context" }
+            contextUsed = (usage["last"] as? JSON)?["totalTokens"] as? Int
+            if let limit = usage["modelContextWindow"] as? Int, limit > 0 { contextLimit = limit }
         case "account/rateLimits/updated": updateUsage(p["rateLimits"] as? JSON ?? [:])
         case "serverRequest/resolved":
             if let id = p["requestId"] { permissions.removeAll { String(describing: $0.rpcID) == String(describing: id) } }
@@ -418,6 +439,7 @@ final class Session: ObservableObject {
         }
         content += images.map { ["type": "localImage", "path": $0] }
         let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": content])])
+        promptHistoryIndex = nil
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
         if !retry, draftGeneration == submissionGeneration, draft.isEqual(to: submissionDraft) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
@@ -500,13 +522,14 @@ final class Session: ObservableObject {
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
-        let previous = (account, threadID, model, context, usage, injectedContext)
+        let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit)
         flush()
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll()
         providerCommands = []; skillPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
         tokens = "Not reported"
+        contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
         activeMode = Settings.shared.value.mode
         context = ""; usage = ""; status = "Connecting to " + providerLabel + "…"
@@ -526,7 +549,7 @@ final class Session: ObservableObject {
         } catch {
             rpc.event = { _ in }; rpc.close()
             account = previous.0; threadID = previous.1; model = previous.2
-            context = previous.3; usage = previous.4; injectedContext = previous.5
+            context = previous.3; usage = previous.4; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
             providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
             pendingActivation = (next, resume, keepRows, recordID)
             ready = false
@@ -702,8 +725,26 @@ final class Session: ObservableObject {
     }
 
     func editDraft(_ value: NSAttributedString, refresh: Bool = true) {
+        promptHistoryIndex = nil
         draft = value; draftGeneration += 1
         if refresh { draftRevision += 1 }
+    }
+
+    func movePromptHistory(_ direction: Int) -> Bool {
+        guard commandQuery == nil, savedCommandDraft == nil, promptHistoryIndex != nil || draft.length == 0 else { return false }
+        let prompts = rows.filter { $0.kind == "user" }.flatMap(\.items).compactMap { $0.data["content"] as? [JSON] }
+        guard !prompts.isEmpty, direction < 0 || promptHistoryIndex != nil else { return false }
+        let index = max(0, min(prompts.count, (promptHistoryIndex ?? prompts.count) + direction))
+        let restored = NSMutableAttributedString(string: "")
+        if index < prompts.count {
+            for (n, piece) in prompts[index].enumerated() {
+                if let text = piece["text"] as? String { restored.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])) }
+                else if let path = piece["path"] as? String { restored.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
+            }
+        }
+        promptHistoryIndex = index < prompts.count ? index : nil
+        draft = restored; draftGeneration += 1; draftRevision += 1
+        return true
     }
 
     private func restoreDraft(_ saved: NSAttributedString, since generation: Int) {
