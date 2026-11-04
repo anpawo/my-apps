@@ -62,6 +62,24 @@ struct Permission: Identifiable {
     let params: JSON
 }
 
+// Questions are answered one at a time from the composer: a number picks an option, typed text is a free answer.
+struct QuestionFlow {
+    let request: Permission
+    var step = 0
+    var text: [String: String] = [:]
+    var selections: [String: Set<String>] = [:]
+    init?(_ request: Permission) {
+        guard request.method == "item/tool/requestUserInput", !(request.params["questions"] as? [JSON] ?? []).isEmpty else { return nil }
+        self.request = request
+    }
+    var questions: [JSON] { request.params["questions"] as? [JSON] ?? [] }
+    var done: Bool { step >= questions.count }
+    var current: JSON { questions[min(step, questions.count - 1)] }
+    var id: String { current["id"] as? String ?? "\(step)" }
+    var options: [JSON] { current["options"] as? [JSON] ?? [] }
+    var multiple: Bool { current["multiSelect"] as? Bool == true }
+}
+
 struct FollowState {
     var attached = true
     mutating func userScroll(distance: CGFloat) { attached = distance < 40 }
@@ -94,7 +112,10 @@ final class Session: ObservableObject {
     @Published var usageLoading = true
     @Published var revision = 0
     @Published var follow = FollowState()
-    @Published var permissions: [Permission] = []
+    @Published var permissions: [Permission] = [] {
+        didSet { if questionFlow?.request.id != permissions.first?.id { questionFlow = permissions.first.flatMap(QuestionFlow.init) } }
+    }
+    @Published var questionFlow: QuestionFlow?
     @Published var preview: String?
     @Published var editorHeight: CGFloat = 24
     @Published var draftRevision = 0
@@ -666,6 +687,30 @@ final class Session: ObservableObject {
             try rpc.respond(request.rpcID, response); permissions.removeAll { $0.id == request.id }
         }
         catch { notice("Could not send your answer: " + error.localizedDescription) }
+    }
+
+    func chooseOption(_ number: Int) -> Bool {
+        guard var flow = questionFlow, !flow.done, flow.options.indices.contains(number - 1), let label = flow.options[number - 1]["label"] as? String else { return false }
+        if flow.multiple { flow.selections[flow.id, default: []].formSymmetricDifference([label]); questionFlow = flow }
+        else { flow.text[flow.id] = label; advanceQuestion(flow) }
+        return true
+    }
+
+    func answerQuestion(_ text: String) {
+        guard var flow = questionFlow, !flow.done else { return }
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { flow.text[flow.id] = typed }
+        guard questionAnswers(flow.questions, text: flow.text, selections: flow.selections)[flow.id] != nil else { return }
+        advanceQuestion(flow)
+    }
+
+    private func advanceQuestion(_ flow: QuestionFlow) {
+        var flow = flow
+        flow.step += 1; questionFlow = flow
+        guard flow.done else { return }
+        answer(flow.request, result: ["answers": questionAnswers(flow.questions, text: flow.text, selections: flow.selections).mapValues { ["answers": $0] }])
+        // A local answer that could not be sent keeps the request: show its last question again so it can be retried.
+        if runtimeClient == nil, permissions.first?.id == flow.request.id { questionFlow?.step -= 1 }
     }
 
     @discardableResult

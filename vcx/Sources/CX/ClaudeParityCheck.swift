@@ -123,6 +123,18 @@ enum ClaudeParityCheck {
         let duplicateResult = try! JSONSerialization.jsonObject(with: Data(duplicateText.utf8)) as! JSON
         let duplicateAnswers = duplicateResult["answers"] as! [JSON]
         check(duplicateAnswers.count == 2 && duplicateAnswers.map { $0["id"] as! String } == ["question-0", "question-1"] && duplicateAnswers.last?["header"] as? String == "Other choices", "identically worded questions retain separate identities, headers, and answers")
+        var keyed = call
+        keyed["arguments"] = ["questions": [question.merging(["multiSelect": false]) { _, value in value }, question.merging(["header": "Other choices"]) { _, value in value }]]
+        session.event(["id": "keyed-question", "method": "item/tool/call", "params": keyed])
+        check(!session.chooseOption(3) && session.chooseOption(2) && session.questionFlow?.step == 1 && session.permissions.count == 1, "a number picks its option and moves on to the next question")
+        check(session.chooseOption(2) && session.chooseOption(1) && session.questionFlow?.step == 1, "numbers toggle choices on a multiple-choice question")
+        let keyedStorage = NSTextStorage(), keyedManager = NSLayoutManager(), keyedContainer = NSTextContainer(size: NSSize(width: 600, height: 150))
+        keyedStorage.addLayoutManager(keyedManager); keyedManager.addTextContainer(keyedContainer)
+        let keyedField = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 24), textContainer: keyedContainer)
+        keyedField.heldStorage = keyedStorage; keyedField.session = session
+        keyedField.setDraft(NSAttributedString(string: "Also this")); keyedField.submit()
+        let keyedText = (connection.responses.last?["contentItems"] as? [JSON])?.first?["text"] as? String ?? ""
+        check(session.permissions.isEmpty && session.questionFlow == nil && keyedText.contains(#""answers":["Second"]"#) && keyedText.contains(#""answers":["First","Second","Also this"]"#), "Return in the composer confirms the last question and sends every answer")
         var invalid = call; invalid["arguments"] = ["questions": []]
         session.event(["id": "invalid-question", "method": "item/tool/call", "params": invalid])
         check(connection.responses.last?["success"] as? Bool == false && session.permissions.isEmpty, "malformed question calls fail without blocking the conversation")

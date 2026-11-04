@@ -159,6 +159,18 @@ enum Check {
         inputWindow.makeFirstResponder(otherInput)
         inputWindow.sendEvent(key(49, " "))
         check(inputWindow.firstResponder === otherInput && otherInput.string == " " && focusRequests == focusedRequests, "other text inputs retain space")
+        do {
+            var chosen: [Int] = []
+            inputWindow.chooseOption = { chosen.append($0); return $0 <= 2 }
+            inputWindow.sendEvent(key(18, "1"))
+            check(chosen.isEmpty && otherInput.string == " 1", "number keys type in other text inputs")
+            inputWindow.makeFirstResponder(typingField); typingField.setDraft(NSAttributedString(string: ""))
+            inputWindow.sendEvent(key(19, "2")); inputWindow.sendEvent(key(84, "2"))
+            check(chosen == [2, 2] && typingField.string.isEmpty, "number row and keypad keys pick a question option from an empty composer")
+            inputWindow.sendEvent(key(20, "3")); inputWindow.sendEvent(key(18, "1"))
+            check(chosen == [2, 2, 3] && typingField.string == "31", "a number with no option, and any number after text, is typed")
+            inputWindow.chooseOption = { _ in false }
+        }
         inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))
@@ -1243,6 +1255,14 @@ enum Render {
         session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
         session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]); session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
+        session.draft = NSAttributedString(string: ""); session.draftRevision += 1
+        session.permissions = [Permission(rpcID: "questions", method: "item/tool/requestUserInput", params: ["questions": [
+            ["id": "service", "header": "Mail", "question": "The contact form sends through a server action, which needs a mail service behind it. Which one should send the messages?", "options": [["label": "Resend (Recommended)", "description": "Already coded. Needs the domain verified there, then RESEND_API_KEY set on Vercel."], ["label": "SMTP through the domain's mailbox", "description": "No new account. Needs the mailbox password as a Vercel secret."], ["label": "Formspree", "description": "No server code. Messages arrive from Formspree's address."]]],
+            ["id": "copies", "header": "Copies", "question": "Who gets a copy of each message?", "multiSelect": true, "options": [["label": "The sender", "description": "A confirmation with their text."], ["label": "You", "description": "Sent to the site's address."]]]]])]
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question.png")
+        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-small.png")
+        _ = session.chooseOption(1); _ = session.chooseOption(2)
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question-second.png")
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
         write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")

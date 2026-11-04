@@ -156,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         session.runtimeClient = client
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
+        window.chooseOption = { [weak session] in session?.chooseOption($0) ?? false }
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .aqua)

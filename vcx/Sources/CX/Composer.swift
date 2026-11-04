@@ -4,7 +4,13 @@ import ImageIO
 
 final class ComposerWindow: NSWindow {
     var focusComposer: () -> Void = {}
+    var chooseOption: (Int) -> Bool = { _ in false }
     override func sendEvent(_ event: NSEvent) {
+        // Key codes, not characters: the number row types symbols without Shift on AZERTY.
+        if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil,
+           let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: event.keyCode) ?? [83, 84, 85, 86, 87, 88, 89, 91, 92].firstIndex(of: event.keyCode),
+           (firstResponder as? NSText).map({ $0 is ComposerText ? $0.string.isEmpty : !$0.isEditable }) ?? true,
+           chooseOption(index + 1) { return }
         if event.type == .keyDown, [36, 49, 76].contains(event.keyCode),
            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
            !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true,
@@ -110,6 +116,8 @@ struct Composer: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let field = scroll.documentView as? ComposerText else { return }
         if field.hidingPlaceholder != hidingPlaceholder { field.hidingPlaceholder = hidingPlaceholder; field.needsDisplay = true }
+        let asking = session.questionFlow?.done == false
+        if field.asking != asking { field.asking = asking; field.needsDisplay = true }
         field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         guard context.coordinator.revision != session.draftRevision else { return }
@@ -178,6 +186,7 @@ struct ComposerSnapshot {
 final class ComposerText: NSTextView {
     weak var session: Session?
     var hidingPlaceholder = false
+    var asking = false
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     var heldStorage: NSTextStorage?
     var resized: () -> Void = {}
@@ -206,7 +215,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { lastPaste = nil; super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
@@ -305,6 +314,11 @@ final class ComposerText: NSTextView {
     func submit() {
         guard let session, !session.frontendReplacing else { return }
         let (text, images) = message()
+        if session.questionFlow?.done == false, !text.hasPrefix("/") {
+            session.answerQuestion(text)
+            if !text.isEmpty { session.editDraft(NSAttributedString(string: "")) }
+            return
+        }
         let draft = NSAttributedString(attributedString: session.draft), generation = session.draftGeneration
         if session.ready, !session.changing, !text.hasPrefix("/"), !text.isEmpty || !images.isEmpty { willSubmit(text, images, sendSnapshot()) }
         Task { await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation) }

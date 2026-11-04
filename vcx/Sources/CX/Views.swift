@@ -200,13 +200,15 @@ struct CXView: View {
                     }
                     .clipped()
                     .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.24), value: session.commandQuery != nil)
-                if let permission = session.permissions.first {
+                if let permission = session.permissions.first, permission.method != "item/tool/requestUserInput" {
                     PermissionView(session: session, request: permission).id(permission.id).frame(maxHeight: 240).padding(.horizontal, 24).padding(.bottom, 10)
                 }
                 if !settings.loginMessage.isEmpty { loginStatus }
                 composer
                     .zIndex(1)
             }
+            // The composer box grows with the question it opens, and resizes as each question replaces the last.
+            .animation(.smooth(duration: reduceMotion ? 0.1 : 0.3), value: session.questionFlow.flatMap { $0.done ? nil : $0.step })
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
@@ -384,18 +386,25 @@ struct CXView: View {
                 ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
                 Text(session.busy ? "Thinking" : session.needsAttention ? session.status : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5).opacity(sending.flight == nil ? 1 : 0)
-            if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
+            if (!session.permissions.isEmpty && session.questionFlow == nil) || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(alignment: .bottom, spacing: 12) {
+            VStack(spacing: 0) {
+                if let flow = session.questionFlow, !flow.done {
+                    QuestionPanel(session: session, flow: flow).padding(.bottom, 14)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
+                HStack(alignment: .bottom, spacing: 12) {
                 Composer(session: session, hidingPlaceholder: sending.hasPending || sending.flight != nil) { text, images, snapshot in
                     sending.prepare(text: text, images: images, rows: session.rows, snapshot: snapshot)
                 }.frame(height: session.editorHeight)
                     .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
+                }
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
             statusBar.padding(.leading, 10)
         }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
@@ -831,60 +840,65 @@ struct MarkdownBody: View {
 struct PermissionView: View {
     @ObservedObject var session: Session
     let request: Permission
-    @State private var answers: [String: String] = [:]
-    @State private var selections: [String: Set<String>] = [:]
-    var questions: [JSON] { request.params["questions"] as? [JSON] ?? [] }
-    var input: Bool { request.method == "item/tool/requestUserInput" }
     var body: some View {
             VStack(alignment: .leading, spacing: 12) {
-                Label(input ? "Your answer is needed" : "Permission requested", systemImage: input ? "questionmark.bubble" : "hand.raised").font(.system(size: 14, weight: .semibold))
+                Label("Permission requested", systemImage: "hand.raised").font(.system(size: 14, weight: .semibold))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        if input {
-                            ForEach(Array(questions.enumerated()), id: \.offset) { n, question in
-                                let id = question["id"] as? String ?? "\(n)"
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(question["question"] as? String ?? "Question").font(.system(size: 14, weight: .medium))
-                                    ForEach(Array((question["options"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, option in
-                                        let label = option["label"] as? String ?? "Option"
-                                        let multiple = question["multiSelect"] as? Bool == true
-                                        let selected = multiple ? selections[id, default: []].contains(label) : answers[id] == label
-                                        Button {
-                                            if multiple {
-                                                if selections[id, default: []].contains(label) { selections[id]?.remove(label) }
-                                                else { selections[id, default: []].insert(label) }
-                                            } else { answers[id] = label }
-                                        } label: {
-                                            HStack(alignment: .top) {
-                                                Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(accent)
-                                                VStack(alignment: .leading, spacing: 3) { Text(label); Text(option["description"] as? String ?? "").foregroundStyle(.secondary) }
-                                            }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                                        }.buttonStyle(.plain)
-                                    }
-                                    if question["isSecret"] as? Bool == true { SecureField("Your answer", text: Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })) }
-                                    else { TextField("Your answer", text: Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })) }
-                                }
-                            }
-                        } else {
-                            Text(request.params["reason"] as? String ?? "Review this action before allowing it.").font(.system(size: 13)).foregroundStyle(.secondary)
-                            Text(request.params["command"] as? String ?? (request.params["changes"] as? [JSON] ?? []).map { ($0["path"] as? String ?? "") + "\n" + ($0["diff"] as? String ?? "") }.joined(separator: "\n")).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                        }
+                        Text(request.params["reason"] as? String ?? "Review this action before allowing it.").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text(request.params["command"] as? String ?? (request.params["changes"] as? [JSON] ?? []).map { ($0["path"] as? String ?? "") + "\n" + ($0["diff"] as? String ?? "") }.joined(separator: "\n")).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack {
-                    Button("Cancel") { session.answer(request, result: input ? ["answers": [:]] : ["decision": "cancel"]) }
+                    Button("Cancel") { session.answer(request, result: ["decision": "cancel"]) }
                     Spacer()
-                    if input {
-                        Button("Send answer") {
-                            session.answer(request, result: ["answers": questionAnswers(questions, text: answers, selections: selections).mapValues { ["answers": $0] }])
-                        }.buttonStyle(.borderedProminent).tint(accent).disabled(questionAnswers(questions, text: answers, selections: selections).count != questions.count)
-                    } else {
-                        Button("Decline") { session.answer(request, result: ["decision": "decline"]) }
-                        Button("Allow") { session.answer(request, result: ["decision": "accept"]) }.buttonStyle(.borderedProminent).tint(accent)
-                            .disabled(request.method == "item/fileChange/requestApproval" && (request.params["changes"] as? [JSON] ?? []).isEmpty)
-                    }
+                    Button("Decline") { session.answer(request, result: ["decision": "decline"]) }
+                    Button("Allow") { session.answer(request, result: ["decision": "accept"]) }.buttonStyle(.borderedProminent).tint(accent)
+                        .disabled(request.method == "item/fileChange/requestApproval" && (request.params["changes"] as? [JSON] ?? []).isEmpty)
                 }
             }.padding(16).frame(maxWidth: 750).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.black.opacity(0.1)))
+    }
+}
+
+// The pending question, inside the composer box: each option carries the number that picks it.
+struct QuestionPanel: View {
+    @ObservedObject var session: Session
+    let flow: QuestionFlow
+    @State private var secret = ""
+    @FocusState private var secretFocused: Bool
+    var body: some View {
+        let question = flow.current, picked = flow.selections[flow.id, default: []]
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.bubble").foregroundStyle(accent)
+                Text(([flow.questions.count > 1 ? "Question \(flow.step + 1) of \(flow.questions.count)" : "Your answer is needed", question["header"] as? String].compactMap { $0 }).joined(separator: " · "))
+                Spacer()
+                Button("Cancel") { session.answer(flow.request, result: ["answers": [:]]) }.buttonStyle(.plain).help("Answer nothing and let the agent continue")
+            }.font(.system(size: 11, weight: .semibold)).foregroundStyle(.black.opacity(0.6))
+            Text(question["question"] as? String ?? "Question").font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+            let options = VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(flow.options.enumerated()), id: \.offset) { index, option in
+                    let label = option["label"] as? String ?? "Option", selected = picked.contains(label)
+                    Button { _ = session.chooseOption(index + 1) } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text("\(index + 1)").font(.system(size: 11, weight: .bold)).frame(width: 20, height: 20)
+                                .foregroundStyle(selected ? .white : accent).background(selected ? accent : accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(label).font(.system(size: 12, weight: .medium))
+                                if let detail = option["description"] as? String, !detail.isEmpty { Text(detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)) }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                            .background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+            ScrollView { options }.frame(maxHeight: 260).fixedSize(horizontal: false, vertical: true)
+            if question["isSecret"] as? Bool == true {
+                SecureField("Your answer (hidden), then Return", text: $secret).focused($secretFocused).onAppear { secretFocused = true }.onSubmit { session.answerQuestion(secret); secret = "" }
+            } else if flow.multiple {
+                Text("Numbers toggle choices · Return confirms").font(.system(size: 11)).foregroundStyle(.black.opacity(0.5))
+            }
+        }.id(flow.step).transition(.opacity)
     }
 }
 
