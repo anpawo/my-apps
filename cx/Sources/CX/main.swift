@@ -42,10 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = NSAppearance(named: .aqua)
         window.minSize = NSSize(width: 780, height: 560)
         window.contentView = NSHostingView(rootView: CXView(session: session))
-        window.backgroundColor = NSColor(white: 0.035, alpha: 1)
+        window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("VCXWindow")
         window.center(); window.makeKeyAndOrderFront(nil); self.window = window

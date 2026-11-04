@@ -66,7 +66,7 @@ enum Check {
             view.layoutSubtreeIfNeeded()
             view.update(busy: false, reduceMotion: false)
             let dot = view.layer!.sublayers!.first!
-            check(dot.backgroundColor == NSColor(Color.green).cgColor, "reading dot is green")
+            check(dot.backgroundColor == NSColor(readyColor).cgColor, "reading dot matches the light-theme green")
             check(dot.animationKeys()?.isEmpty != false, "offscreen dot does not animate")
             view.update(busy: true, reduceMotion: false)
             check(dot.backgroundColor == NSColor(accent).cgColor, "thinking dot is purple")
@@ -138,9 +138,9 @@ enum Check {
         inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))
-        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.usingColorSpace(.deviceRGB)?.redComponent ?? 0 > 0.9, "typing after an empty draft remains white")
-        typingField.setDraft(NSAttributedString(string: "Restored text", attributes: [.foregroundColor: NSColor.black]))
-        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .white, "restored composer text is white")
+        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .black, "typing after an empty draft remains black")
+        typingField.setDraft(NSAttributedString(string: "Restored text", attributes: [.foregroundColor: NSColor.white]))
+        check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .black, "restored dark-theme drafts use black composer text")
         var follow = FollowState()
         check(follow.attached, "starts attached")
         follow.userScroll(distance: 120); check(!follow.attached, "scroll up detaches")
@@ -1070,7 +1070,7 @@ enum Render {
         This paragraph must remain below the complete table, with every row readable.
         """
         for width: CGFloat in [420, 760, 1120] {
-            write(MarkdownBody(text: table).padding(24).foregroundStyle(.white).background(Color(white: 0.035)), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
+            write(MarkdownBody(text: table).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
         }
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
@@ -1099,7 +1099,7 @@ enum Render {
         session.show(["id": "user", "type": "userMessage", "content": [["type": "text", "text": "Make the workspace feel like this, with compact image attachments."], ["type": "localImage", "path": imagePath]]])
         session.show(["id": "tool", "type": "commandExecution", "command": "swift build -c release", "status": "completed", "exitCode": 0, "aggregatedOutput": "Build complete."])
         session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nType / to find commands, change settings, or resume a conversation."])
-        let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])
+        let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])
         session.draft = NSAttributedString(attributedString: draft)
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
@@ -1115,7 +1115,7 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
         session.commandQuery = nil
         session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
-        session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]); session.draftRevision += 1
+        session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]); session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
@@ -1147,7 +1147,7 @@ enum Render {
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
         let host = NSHostingView(rootView: view)
-        host.appearance = NSAppearance(named: .darkAqua)
+        host.appearance = NSAppearance(named: .aqua)
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
