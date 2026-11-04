@@ -387,6 +387,14 @@ class BackgroundTests(unittest.TestCase):
             bg.options(['-p', '--unsupported-security-flag'])
             command.assert_not_called()
 
+    def test_provider_environment_does_not_inherit_another_codex_profile(self):
+        with patch.dict(os.environ, {'CODEX_HOME': '/tmp/other-profile', 'CODEX_THREAD_ID': 'other-thread'}):
+            default = bg.environment({'provider': 'codex'})
+            selected = bg.environment({'provider': 'codex', 'home': '/tmp/selected-profile'})
+        self.assertTrue('CODEX_HOME' not in default, 'default account inherited CODEX_HOME')
+        self.assertTrue('CODEX_THREAD_ID' not in default, 'default account inherited CODEX_THREAD_ID')
+        self.assertEqual(selected['CODEX_HOME'], '/tmp/selected-profile')
+
 
 if __name__ == '__main__':
     unittest.main()

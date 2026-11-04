@@ -7,12 +7,12 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import signal
 import shlex
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import urllib.parse
 import uuid
@@ -74,7 +74,7 @@ def mark_limit(account):
 
 
 def environment(account):
-    env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE', 'FLEET_')) and k not in (
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE', 'CODEX', 'FLEET_')) and k not in (
         'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'VCX_SESSION_FORMAT')}
     env['PATH'] = str(HOME / '.local/bin') + ':/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
     if account.get('home'):
@@ -88,39 +88,78 @@ def command(args, data=None, env=None, timeout=None, cwd=None, on_line=None):
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd, start_new_session=True)
     try:
         if on_line:
-            errors = []
-            reader = threading.Thread(target=lambda: errors.append(CHILD.stderr.read()), daemon=True)
-            reader.start()
-            def feed():
-                try:
-                    if data is not None:
-                        CHILD.stdin.write(data)
+            deadline = time.monotonic() + timeout if timeout is not None else None
+            chunks, errors, pending, scanned = [], [], bytearray(), 0
+            outgoing = memoryview(data or b'')
+            with selectors.DefaultSelector() as selector:
+                for pipe in (CHILD.stdout, CHILD.stderr):
+                    os.set_blocking(pipe.fileno(), False)
+                    selector.register(pipe, selectors.EVENT_READ)
+                if CHILD.stdin:
+                    if outgoing:
+                        os.set_blocking(CHILD.stdin.fileno(), False)
+                        selector.register(CHILD.stdin, selectors.EVENT_WRITE)
+                    else:
                         CHILD.stdin.close()
-                except BrokenPipeError:
-                    pass
-            writer = threading.Thread(target=feed, daemon=True)
-            writer.start()
-            chunks = []
-            for line in CHILD.stdout:
-                chunks.append(line)
-                on_line(line)
-            CHILD.wait(timeout=timeout)
-            reader.join(); writer.join()
+                while selector.get_map():
+                    remaining = None if deadline is None else deadline - time.monotonic()
+                    if remaining is not None and remaining <= 0:
+                        raise subprocess.TimeoutExpired(args, timeout, output=b''.join(chunks), stderr=b''.join(errors))
+                    for key, _ in selector.select(remaining):
+                        pipe = key.fileobj
+                        if pipe is CHILD.stdin:
+                            try:
+                                outgoing = outgoing[os.write(pipe.fileno(), outgoing[:65536]):]
+                            except BrokenPipeError:
+                                outgoing = outgoing[len(outgoing):]
+                            if not outgoing:
+                                selector.unregister(pipe)
+                                pipe.close()
+                            continue
+                        value = os.read(pipe.fileno(), 65536)
+                        if not value:
+                            selector.unregister(pipe)
+                            if pipe is CHILD.stdout and pending:
+                                on_line(bytes(pending))
+                                pending.clear()
+                            continue
+                        if pipe is CHILD.stderr:
+                            errors.append(value)
+                            continue
+                        chunks.append(value)
+                        pending.extend(value)
+                        while (index := pending.find(b'\n', scanned)) >= 0:
+                            line = bytes(pending[:index + 1])
+                            del pending[:index + 1]
+                            scanned = 0
+                            on_line(line)
+                        scanned = len(pending)
+            CHILD.wait(timeout=None if deadline is None else max(0, deadline - time.monotonic()))
             return CHILD.returncode, b''.join(chunks), b''.join(errors)
         out, err = CHILD.communicate(data, timeout=timeout)
         return CHILD.returncode, out, err
     except BaseException:
-        if CHILD.poll() is None:
-            os.killpg(CHILD.pid, signal.SIGKILL)
+        try:
+            # Stop descendants before reaping the leader, while its PID still reserves our process group.
+            if CHILD.returncode is None:
+                os.killpg(CHILD.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError as error:
+            try:
+                CHILD.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                raise error
         CHILD.wait()
         raise
     finally:
+        for pipe in (CHILD.stdin, CHILD.stdout, CHILD.stderr):
+            if pipe:
+                pipe.close()
         CHILD = None
 
 
 def stop(signum, _):
-    if CHILD is not None and CHILD.poll() is None:
-        os.killpg(CHILD.pid, signum)
     raise SystemExit(128 + signum)
 
 
@@ -276,6 +315,37 @@ def tool_activity(result):
     return rows
 
 
+def provider_event(line):
+    if not line.startswith(b'{'):
+        return None
+    value = json.loads(line)
+    for key in ('item', 'message', 'event', 'error', 'usage'):
+        if key in value and not isinstance(value[key], dict):
+            raise ValueError('The provider returned an invalid ' + key + ' event.')
+    content = value.get('message', {}).get('content', [])
+    if not isinstance(content, list) or any(not isinstance(item, dict) for item in content):
+        raise ValueError('The provider returned invalid message content.')
+    block = value.get('event', {}).get('content_block', {})
+    if not isinstance(block, dict):
+        raise ValueError('The provider returned an invalid content block.')
+    for item in [block, *content]:
+        fields = ('id', 'name') if item.get('type') == 'tool_use' else ('tool_use_id',) if item.get('type') == 'tool_result' else ()
+        if any(not isinstance(item.get(field), str) for field in fields):
+            raise ValueError('The provider returned an invalid tool event.')
+    item = value.get('item', {})
+    if item.get('type') == 'command_execution' and (not isinstance(item.get('id'), str) or not isinstance(item.get('command', ''), str)):
+        raise ValueError('The provider returned an invalid command event.')
+    if item.get('type') == 'agent_message' and not isinstance(item.get('text'), str):
+        raise ValueError('The provider returned an invalid answer event.')
+    if value.get('type') == 'thread.started' and not isinstance(value.get('thread_id'), str):
+        raise ValueError('The provider returned an invalid thread identifier.')
+    if value.get('type') == 'result' and not isinstance(value.get('result', ''), str):
+        raise ValueError('The provider returned an invalid result.')
+    if not isinstance(value.get('error', {}).get('message', ''), str):
+        raise ValueError('The provider returned an invalid error event.')
+    return value
+
+
 class Runner:
     def __init__(self, args):
         self.args = args
@@ -294,6 +364,7 @@ class Runner:
         self.account = None
         self.lock = None
         self.activity = []
+        self.cancelled = None
         if args.resume and args.resume.startswith('native:'):
             record_id = str(uuid.UUID(args.resume[7:])).upper()
             self.record_id = record_id
@@ -370,6 +441,10 @@ class Runner:
             except subprocess.TimeoutExpired:
                 failed = True
                 result = {'is_error': True, 'result': provider + ' timed out; the task was not replayed.', '_rows': self.activity}
+            except SystemExit as error:
+                self.cancelled = error.code
+                failed = True
+                result = {'is_error': True, 'result': provider + ' was cancelled; the task was not replayed.', '_rows': self.activity}
             except (ValueError, RuntimeError, OSError) as error:
                 failed = True
                 result = {'is_error': True, 'result': provider + ': ' + str(error), '_rows': self.activity}
@@ -443,15 +518,23 @@ class Runner:
             command_args += ['--resume', resume]
         body = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}).encode() + b'\n'
         streamed = self.args.output_format == 'stream-json'
+        events = []
         def receive(line):
-            try:
-                value = json.loads(line)
-                if value.get('type') != 'result':
-                    self.stream_event(value)
-            except ValueError:
-                pass
-        code, out, err = command(command_args, body, environment(account), on_line=receive if streamed else None)
-        events = [json.loads(line) for line in out.splitlines() if line.startswith(b'{')]
+            value = provider_event(line)
+            if value is None:
+                return
+            events.append(value)
+            if value.get('session_id'):
+                self.backend = value['session_id']
+            content = value.get('message', {}).get('content', [])
+            if value.get('event', {}).get('content_block', {}).get('type') == 'tool_use' or isinstance(content, list) and any(item.get('type') in ('tool_use', 'tool_result') for item in content):
+                self.activity = tool_activity({'_events': events})
+            if value.get('type') != 'result':
+                self.stream_event(value)
+        code, out, err = command(command_args, body, environment(account), on_line=receive)
+        if not events:
+            for line in out.splitlines():
+                receive(line)
         result = next((v for v in reversed(events) if v.get('type') == 'result'), None)
         if result is None:
             return {'is_error': True, 'result': err.decode(errors='replace') or 'Claude exited without a result (' + str(code) + ').', '_events': events, '_streamed': streamed}
@@ -542,13 +625,22 @@ class Runner:
             if not sealed:
                 cmd += ['--add-dir', path]
         streamed = args.output_format == 'stream-json'
-        emitted, started = [], set()
+        emitted, received, started, activity = [], [], set(), {}
         def receive(line):
-            try:
-                event = json.loads(line)
-            except ValueError:
+            event = provider_event(line)
+            if event is None:
                 return
+            received.append(event)
+            if event.get('type') == 'thread.started':
+                self.backend = event.get('thread_id') or self.backend
             item = event.get('item', {})
+            if event.get('type') in ('item.started', 'item.completed') and item.get('type') not in (None, 'agent_message', 'reasoning', 'error'):
+                ident = item.get('id', str(uuid.uuid4()))
+                complete = event['type'] == 'item.completed'
+                activity[ident] = {'kind': 'activity', 'items': [dict(id=ident, type='commandExecution', command=item.get('command', item['type']),
+                    aggregatedOutput=item.get('aggregated_output', json.dumps(item)) if complete else 'Outcome unknown: do not repeat without checking.',
+                    status=item.get('status', 'completed') if complete else 'failed')]}
+                self.activity = list(activity.values())
             events = []
             if event.get('type') in ('item.started', 'item.completed') and item.get('type') == 'command_execution':
                 ident = item['id']
@@ -576,20 +668,16 @@ class Runner:
             if system:
                 cmd += ['-c', 'developer_instructions=' + json.dumps(system)]
             text = content_text(content)
-            code, out, err = command(cmd + ['-'], text.encode(), environment(account), cwd=directory if sealed else None, on_line=receive if streamed else None)
-        events = [json.loads(line) for line in out.splitlines() if line.startswith(b'{')]
+            code, out, err = command(cmd + ['-'], text.encode(), environment(account), cwd=directory if sealed else None, on_line=receive)
+        if not received:
+            for line in out.splitlines():
+                receive(line)
+        events = received
         answers = [v['item']['text'] for v in events if v.get('type') == 'item.completed' and v.get('item', {}).get('type') == 'agent_message']
         failures = [v.get('error', {}).get('message', 'Codex turn failed') for v in events if v.get('type') == 'turn.failed']
         session = next((v['thread_id'] for v in events if v.get('type') == 'thread.started'), resume)
         text = failures[-1] if failures else answers[-1] if answers else err.decode(errors='replace') or 'Codex returned no answer.'
-        activity = {}
-        for event in events:
-            item = event.get('item', {})
-            if event.get('type') in ('item.started', 'item.completed') and item.get('type') not in (None, 'agent_message', 'reasoning', 'error'):
-                activity[item.get('id', str(uuid.uuid4()))] = (item, event['type'] == 'item.completed')
-        rows = [{'kind': 'activity', 'items': [dict(id=ident, type='commandExecution', command=item.get('command', item['type']),
-                 aggregatedOutput=item.get('aggregated_output', json.dumps(item)) if complete else 'Outcome unknown: do not repeat without checking.', status=item.get('status', 'completed') if complete else 'failed')]}
-                for ident, (item, complete) in activity.items()]
+        rows = self.activity
         usage = next((v.get('usage', {}) for v in reversed(events) if v.get('type') == 'turn.completed'), {})
         result = {'is_error': code != 0 or bool(failures) or not answers, 'result': text, 'session_id': session, '_rows': rows,
                 'usage': {'input_tokens': max(0, usage.get('input_tokens', 0) - usage.get('cached_input_tokens', 0)), 'cache_read_input_tokens': usage.get('cached_input_tokens', 0), 'output_tokens': usage.get('output_tokens', 0)}}
@@ -744,6 +832,8 @@ def main(argv=None):
                 result = runner.turn([{'type': 'text', 'text': content}] if isinstance(content, str) else content)
                 emit(result, args)
                 status = int(bool(result.get('is_error')))
+                if runner.cancelled:
+                    return runner.cancelled
             return status
         text = ' '.join(args.prompt)
         if not sys.stdin.isatty():
@@ -752,7 +842,7 @@ def main(argv=None):
             raise ValueError('A background prompt is required.')
         result = runner.turn([{'type': 'text', 'text': text}])
         emit(result, args)
-        return int(bool(result.get('is_error')))
+        return runner.cancelled or int(bool(result.get('is_error')))
     finally:
         runner.close()
 
