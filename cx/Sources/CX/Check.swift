@@ -376,6 +376,7 @@ enum Check {
         check(Settings.shared.value.provider == "auto" && first.account.provider == "claude", "an unavailable provider is rejected instead of reconnecting the wrong provider")
         await first.command("/qwen proxy socks5://localhost")
         check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
+        check(validQwenProxy("socks5h://localhost:1055"), "Jarvis SOCKS5 hostname-proxy URLs remain compatible")
         let question = Permission(rpcID: "fixture-question", method: "item/tool/requestUserInput", params: ["questions": [["id": "question", "question": "Choose"]]])
         first.permissions.append(question); await first.command("/decline")
         check(first.permissions.isEmpty, "questions can be cancelled through chat")

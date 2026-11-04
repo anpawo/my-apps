@@ -453,7 +453,7 @@ final class QwenConnection: Connection {
 }
 
 func validQwenProxy(_ text: String) -> Bool {
-    guard let url = URL(string: text), url.scheme == "socks5", url.host != nil, let port = url.port, (1...65535).contains(port), url.user == nil, url.password == nil else { return false }; return true
+    guard let url = URL(string: text), ["socks5", "socks5h"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, let port = url.port, (1...65535).contains(port), url.user == nil, url.password == nil else { return false }; return true
 }
 
 func qwenNetwork(_ preferences: Preferences) throws -> URLSession {
