@@ -493,7 +493,7 @@ final class ActivityDotView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         dot.backgroundColor = NSColor(busy ? accent : pending ? pendingColor : readyColor).cgColor
         CATransaction.commit()
-        self.busy = busy; self.reduceMotion = reduceMotion
+        self.busy = busy || pending; self.reduceMotion = reduceMotion
         updateMotion()
     }
     @objc private func updateMotion() {
