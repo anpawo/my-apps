@@ -14,12 +14,12 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject {
 
-    /// Clicking a banner hands back the pid it named.
-    var onSelect: ((pid_t) -> Void)?
+    /// Clicking a banner hands back the session identity it named.
+    var onSelect: ((String) -> Void)?
 
     /// Sessions already announced, so a question that sits unanswered for ten minutes produces
     /// one banner rather than one per refresh. Cleared when the session stops waiting.
-    private var announced: Set<pid_t> = []
+    private var announced: Set<String> = []
     private var authorized = false
 
     /// `UNUserNotificationCenter` reads the running process's bundle, and a bare binary — `swift
@@ -86,10 +86,10 @@ final class Notifier: NSObject {
         // What it last said is usually the question, or the sentence leading into it.
         content.body = session.lastSaid.map { String($0.prefix(160)) } ?? "Waiting on an answer."
         content.sound = .default
-        content.userInfo = ["pid": Int(session.proc.pid)]
+        content.userInfo = ["pid": Int(session.proc.pid), "sessionId": session.id]
 
         let request = UNNotificationRequest(
-            identifier: "fleet.awaiting.\(session.proc.pid)",
+            identifier: "fleet.awaiting.\(session.id)",
             content: content,
             trigger: nil            // deliver now
         )
@@ -120,7 +120,8 @@ extension Notifier: UNUserNotificationCenterDelegate {
             await MainActor.run { _ = NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
             return
         }
-        guard let pid = info["pid"] as? Int else { return }
-        await MainActor.run { self.onSelect?(pid_t(pid)) }
+        let id = info["sessionId"] as? String ?? (info["pid"] as? Int).map { "pid:\($0)" }
+        guard let id else { return }
+        await MainActor.run { self.onSelect?(id) }
     }
 }

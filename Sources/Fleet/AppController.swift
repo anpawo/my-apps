@@ -62,9 +62,9 @@ final class AppController: ObservableObject {
     }
 
     /// Each session's desktop, the front one 0: see `Spaces.desktops`.
-    @Published private(set) var desktops: [pid_t: Int] = [:]
+    @Published private(set) var desktops: [String: Int] = [:]
     /// Read off the main thread for the sessions about to be set: see `refreshVisible`.
-    private var readAhead: [pid_t: Int]?
+    private var readAhead: [String: Int]?
     private func readDesktops() {
         desktops = DemoFleet.desktops ?? readAhead ?? Spaces.desktops(sessions)
         readAhead = nil
@@ -243,8 +243,8 @@ final class AppController: ObservableObject {
         notifier.start()
         // A banner names a session; clicking it should land you in that session, which is the
         // same handoff a tile click does.
-        notifier.onSelect = { [weak self] pid in
-            guard let self, let session = sessions.first(where: { $0.id == pid }) else { return }
+        notifier.onSelect = { [weak self] id in
+            guard let self, let session = sessions.first(where: { $0.id == id }) else { return }
             activate(session)
         }
         // State left behind by sessions that ended without saying so — a killed terminal, a

@@ -253,10 +253,12 @@ extension Spaces {
     /// holding many windows stands with the first of them. Off the main thread for the open
     /// panel: it touches nothing of Fleet's, and 300 calls on two threads at once gave the same
     /// answers (2026-11-01).
-    nonisolated static func desktops(_ sessions: [Session]) -> [pid_t: Int] {
-        let here = Set(windowsHere().compactMap { $0[kCGWindowOwnerPID as String] as? pid_t })
+    nonisolated static func desktops(_ sessions: [Session]) -> [String: Int] {
+        let visible = windowsHere()
+        let here = Set(visible.compactMap { $0[kCGWindowOwnerPID as String] as? pid_t })
+        let visibleWindows = Set(visible.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
         let parents = ProcessScanner.parentMap()
-        let hosts = sessions.reduce(into: [pid_t: pid_t]()) { hosts, session in
+        let hosts = sessions.reduce(into: [String: pid_t]()) { hosts, session in
             hosts[session.id] = ProcessScanner.hostApplication(of: session.proc.pid, parents: parents)?
                 .app.processIdentifier
         }
@@ -274,7 +276,11 @@ extension Spaces {
         }
         let order = (CGSCopyManagedDisplaySpaces(CGSMainConnectionID()) as? [[String: Any]] ?? [])
             .flatMap { ($0["Spaces"] as? [[String: Any]] ?? []).compactMap { ($0["id64"] as? NSNumber)?.uint64Value } }
-        return sessions.reduce(into: [pid_t: Int]()) { place, session in
+        return sessions.reduce(into: [String: Int]()) { place, session in
+            if let window = session.runtimeWindowID {
+                place[session.id] = visibleWindows.contains(window) ? 0 : spaces(of: window).compactMap { order.firstIndex(of: $0) }.min().map { $0 + 1 } ?? 0
+                return
+            }
             place[session.id] = hosts[session.id].flatMap { host in
                 spacesOf[host]?.compactMap { order.firstIndex(of: $0) }.min().map { $0 + 1 }
             } ?? 0

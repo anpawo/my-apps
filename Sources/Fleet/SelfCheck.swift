@@ -88,6 +88,23 @@ enum SelfCheck {
             record["state"] = value
             expect(read()?.state == state, true, "VCX: \(value) uses the existing card state")
         }
+        var first = record, second = record
+        first["sessionId"] = "00000000-0000-0000-0000-000000000001"
+        second["sessionId"] = "00000000-0000-0000-0000-000000000002"
+        first["windowId"] = 101
+        second["windowId"] = 102
+        let windows = VCX.sessions(["sessions": [first, second, first]], pid: 42, startedAt: 100, path: "/tmp/vcx.json")
+        expect(windows.count == 2 && Set(windows.map(\.id)).count == 2 && windows.allSatisfy { $0.proc.pid == 42 }, true,
+               "VCX keeps separate stable session identities for windows sharing a frontend process")
+        expect(windows.map(\.runtimeWindowID) == [101, 102] && windows.map(\.sid) == [first["sessionId"] as? String, second["sessionId"] as? String], true,
+               "VCX retains each runtime identity and exact native window for focus and desktop mapping")
+        var replacement = first
+        replacement["pid"] = pid_t(43); replacement["startedAt"] = UInt64(101)
+        expect(VCX.session(replacement, pid: 43, startedAt: 101, path: "/tmp/new.json")?.id == windows.first?.id, true,
+               "VCX identity survives frontend process replacement")
+        first["sessionId"] = "invalid"
+        expect(VCX.sessions(["sessions": [first]], pid: 42, startedAt: 100, path: "/tmp/vcx.json").isEmpty, true,
+               "VCX rejects invalid runtime identities in aggregate presence records")
         record["state"] = "invalid"
         expect(read() == nil, true, "VCX: an unknown bridge state is rejected")
         record["state"] = "ready"; record["cwd"] = "relative"

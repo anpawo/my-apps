@@ -8,17 +8,17 @@ enum VCX {
 
     static func sessions() -> [Session] {
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
-        return apps.compactMap { app in
+        let found = apps.flatMap { app -> [Session] in
             let pid = app.processIdentifier
-            guard let bsd = ProcessScanner.bsdInfo(pid) else { return nil }
+            guard let bsd = ProcessScanner.bsdInfo(pid) else { return [] }
             let file = root + "/fleet/\(pid).json"
-            if let record = object(file),
-               let session = session(record, pid: pid, startedAt: bsd.pbi_start_tvsec, path: file) {
-                return session
+            if let record = object(file) {
+                let found = sessions(record, pid: pid, startedAt: bsd.pbi_start_tvsec, path: file)
+                if !found.isEmpty { return found }
             }
             // shortcut: pre-bridge windows infer state from saved history; reopen them for live approvals.
             guard let path = legacyPath(pid),
-                  var record = object(path) else { return nil }
+                  var record = object(path) else { return [] }
             record["pid"] = pid
             record["startedAt"] = bsd.pbi_start_tvsec
             record["context"] = record["fleetContext"]
@@ -35,14 +35,35 @@ enum VCX {
                     return ["kind": kind == "activity" ? "tool" : kind, "text": String(text.prefix(2000))]
                 }
             }
-            return session(record, pid: pid, startedAt: bsd.pbi_start_tvsec, path: path)
+            return session(record, pid: pid, startedAt: bsd.pbi_start_tvsec, path: path).map { [$0] } ?? []
         }
+        var unique: [String: Session] = [:]
+        for session in found {
+            if let previous = unique[session.id], previous.proc.startedAt > session.proc.startedAt ||
+                (previous.proc.startedAt == session.proc.startedAt && previous.proc.pid > session.proc.pid) { continue }
+            unique[session.id] = session
+        }
+        return Array(unique.values)
+    }
+
+    static func sessions(_ record: [String: Any], pid: pid_t, startedAt: UInt64, path: String) -> [Session] {
+        if let records = record["sessions"] as? [[String: Any]] {
+            var seen = Set<String>()
+            return records.compactMap { value in
+                guard let session = session(value, pid: pid, startedAt: startedAt, path: path),
+                      session.runtimeSessionID != nil, seen.insert(session.id).inserted else { return nil }
+                return session
+            }
+        }
+        return session(record, pid: pid, startedAt: startedAt, path: path).map { [$0] } ?? []
     }
 
     static func session(_ record: [String: Any], pid: pid_t, startedAt: UInt64, path: String) -> Session? {
         guard record["pid"] as? pid_t == pid,
               record["startedAt"] as? UInt64 == startedAt,
               let cwd = record["cwd"] as? String, cwd.hasPrefix("/") else { return nil }
+        let runtimeID = record["sessionId"] as? String
+        if let runtimeID, UUID(uuidString: runtimeID) == nil { return nil }
         let preview = (record["preview"] as? [[String: Any]] ?? []).compactMap { line -> PreviewLine? in
             guard let text = line["text"] as? String, !text.isEmpty else { return nil }
             let kind: PreviewLine.Kind
@@ -73,7 +94,8 @@ enum VCX {
                                   cwd: cwd, turnOpen: state == .running, lastActivity: activity, preview: preview)
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
-                       transcript: info, state: state, cpuPercent: 0, context: context.flatMap { $0.isEmpty ? nil : $0 })
+                       runtimeSessionID: runtimeID, runtimeWindowID: (record["windowId"] as? NSNumber)?.uint32Value,
+                       transcript: info, state: state, cpuPercent: 0, context: context.flatMap { $0.isEmpty ? nil : $0 } ?? (runtimeID == nil ? nil : info.title))
     }
 
     static func shortTitle(_ text: String) -> String {

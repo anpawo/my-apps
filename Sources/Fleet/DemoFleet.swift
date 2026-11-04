@@ -25,7 +25,7 @@ enum DemoFleet {
     }
 
     /// Where `--fake` put each session, when it was given desktops.
-    static var desktops: [pid_t: Int]?
+    static var desktops: [String: Int]?
 
     static func sessions(_ count: Int, folders: [Int]? = nil) -> [Session] {
         let names = ["portfolio", "atlas", "video-code", "my-hub", "fleet", "siege",

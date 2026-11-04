@@ -28,6 +28,10 @@ enum TerminalFocus {
 
     @discardableResult
     static func focus(session: Session) -> Bool {
+        if let id = session.runtimeSessionID {
+            DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.mr.vcx.focus"), object: nil, userInfo: ["sessionId": id], deliverImmediately: true)
+            return true
+        }
         let host = ProcessScanner.hostApplication(of: session.proc.pid)?.app
         let bundleID = host?.bundleIdentifier ?? ""
         let tty = session.proc.tty

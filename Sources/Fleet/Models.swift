@@ -373,8 +373,10 @@ struct PreviewLine: Identifiable {
 
 /// A process joined with its transcript — the unit the UI renders.
 struct Session: Identifiable {
-    var id: pid_t { proc.pid }
+    var id: String { runtimeSessionID.map { "vcx:" + $0 } ?? "pid:\(proc.pid)" }
     var proc: ClaudeProcess
+    var runtimeSessionID: String? = nil
+    var runtimeWindowID: UInt32? = nil
     var transcript: TranscriptInfo?
     var state: SessionState
     var cpuPercent: Double
@@ -442,7 +444,7 @@ struct Session: Identifiable {
 
     /// The session's id, its transcript's name.
     var sid: String? {
-        transcript.map { (($0.path as NSString).lastPathComponent as NSString).deletingPathExtension }
+        runtimeSessionID ?? transcript.map { (($0.path as NSString).lastPathComponent as NSString).deletingPathExtension }
     }
 
     /// Qwen's title for the chat this session is fused with, "Qwen" until it has one; nil unfused.
