@@ -231,12 +231,17 @@ struct CXView: View {
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
 
-    private var statusBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) { identityStatus; ScrollView(.horizontal) { identityStatus } }
-            ViewThatFits(in: .horizontal) { usageStatus; ScrollView(.horizontal) { usageStatus } }
-            ViewThatFits(in: .horizontal) { quotaStatus; ScrollView(.horizontal) { quotaStatus } }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    var statusBar: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                identityStatus
+                separator
+                usageStatus
+                separator
+                quotaStatus
+            }.fixedSize()
+        }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var identityStatus: some View {
         HStack(spacing: 8) {
