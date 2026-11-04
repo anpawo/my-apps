@@ -808,7 +808,7 @@ struct ProseView: View {
                     Text(rich(String(title))).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
                     Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines))).font(.system(size: 13, weight: .medium, design: .monospaced)).lineSpacing(5).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, paragraph.hasPrefix("✓") || paragraph.contains("Next:") ? 12 : 0).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     Text(rich(paragraph)).font(.system(size: 13, design: .monospaced)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }
