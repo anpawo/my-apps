@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let session = Session(cwd: options.cwd)
         self.session = session
         fleet = FleetPresence(session: session)
-        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true

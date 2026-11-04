@@ -42,7 +42,7 @@ struct CXView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
-            sessionPanel.frame(width: 130)
+            sessionPanel.frame(width: 150)
             Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
             VStack(spacing: 0) {
                 transcript
@@ -50,7 +50,7 @@ struct CXView: View {
                         if session.commandQuery != nil {
                             GeometryReader { geometry in
                                 CommandPalette(session: session, maxListHeight: max(40, min(250, geometry.size.height - 90)))
-                                    .frame(maxWidth: 850).padding(.horizontal, 24).padding(.bottom, 8)
+                                    .padding(.horizontal, 24).padding(.bottom, 8)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                             }
                             .transition(reduceMotion ? .opacity : .offset(y: 70).combined(with: .opacity))
@@ -103,17 +103,20 @@ struct CXView: View {
                 HStack(spacing: 7) {
                     Text("SETTINGS").tracking(1.2)
                     Spacer()
-                }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.black.opacity(0.6))
-                    .padding(20).frame(maxWidth: .infinity).contentShape(Rectangle())
+                }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
+                    .padding(12).frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
+                    .contentShape(Rectangle()).padding(10)
             }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
             Divider().overlay(.black.opacity(0.04))
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
                     capability("Hooks")
                     capability("Skills")
                     capability("MCP")
                     capability("Instructions")
-                }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.background(Color.black.opacity(0.025))
     }
@@ -137,11 +140,14 @@ struct CXView: View {
     private func capability(_ title: String) -> some View {
         Button { openCapability = title } label: {
                 HStack(spacing: 7) {
-                    Text(title == "Instructions" ? ".md" : title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.2)
+                    Text(title == "Instructions" ? ".md" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2)
                     Spacer()
-                    Text("\(session.capabilityItems(title).count)").font(.system(size: 10, design: .monospaced))
-                }.foregroundStyle(.black.opacity(0.6)).padding(.horizontal, 20).padding(.vertical, 14)
-                    .frame(maxWidth: .infinity).contentShape(Rectangle())
+                    Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                }.foregroundStyle(.black.opacity(0.75)).padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
+                    .contentShape(Rectangle())
             }.buttonStyle(.plain).help("Browse " + title.lowercased())
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
@@ -212,8 +218,8 @@ struct CXView: View {
     private var composer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Reading")
-                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
+                ActivityDot(busy: session.busy).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : "Ready")
+                Text(session.busy ? "Thinking" : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
@@ -225,7 +231,7 @@ struct CXView: View {
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
             statusBar.padding(.leading, 10)
-        }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
+        }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
     }
 
     var statusBar: some View {
@@ -275,6 +281,7 @@ struct ActivityDot: NSViewRepresentable {
 
 final class ActivityDotView: NSView {
     private let dot = CALayer()
+    private var busy = false
     private var reduceMotion = false
 
     init() {
@@ -306,14 +313,14 @@ final class ActivityDotView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         dot.backgroundColor = NSColor(busy ? accent : readyColor).cgColor
         CATransaction.commit()
-        self.reduceMotion = reduceMotion
+        self.busy = busy; self.reduceMotion = reduceMotion
         updateMotion()
     }
     @objc private func updateMotion() {
         setMoving(!reduceMotion && !isHiddenOrHasHiddenAncestor && window?.occlusionState.contains(.visible) == true)
     }
     func setMoving(_ moving: Bool) {
-        guard moving else { dot.removeAnimation(forKey: "drift"); return }
+        guard moving && busy && !reduceMotion else { dot.removeAnimation(forKey: "drift"); return }
         guard dot.animation(forKey: "drift") == nil else { return }
         let animation = CABasicAnimation(keyPath: "transform.translation.x")
         animation.fromValue = -3; animation.toValue = 3
@@ -691,7 +698,7 @@ struct ProseView: View {
                     Text(rich(String(title))).font(.system(size: paragraph.hasPrefix("###") ? 16 : 20, weight: .semibold)).textSelection(.enabled)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
                     Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: ""))).font(.system(size: 14, weight: .medium)).lineSpacing(5).textSelection(.enabled)
-                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background((paragraph.hasPrefix("✓") ? Color.orange : paragraph.contains("Next:") ? Color.blue : Color.green).opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     Text(rich(paragraph)).font(.system(size: 15)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }

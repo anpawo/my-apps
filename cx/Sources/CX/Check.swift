@@ -69,14 +69,19 @@ enum Check {
             view.layoutSubtreeIfNeeded()
             view.update(busy: false, reduceMotion: false)
             let dot = view.layer!.sublayers!.first!
-            check(dot.backgroundColor == NSColor(readyColor).cgColor, "reading dot matches the light-theme green")
+            check(dot.backgroundColor == NSColor(readyColor).cgColor, "ready dot matches the light-theme green")
             check(dot.animationKeys()?.isEmpty != false, "offscreen dot does not animate")
+            view.setMoving(true)
+            check(dot.animationKeys()?.isEmpty != false, "idle dot stays still when visible")
             view.update(busy: true, reduceMotion: false)
             check(dot.backgroundColor == NSColor(accent).cgColor, "thinking dot is purple")
             view.setMoving(true)
             let animation = dot.animation(forKey: "drift") as? CABasicAnimation
             check(animation?.keyPath == "transform.translation.x" && animation?.autoreverses == true && animation?.repeatCount == .infinity, "dot motion uses a repeating compositor animation")
+            view.update(busy: false, reduceMotion: false)
+            check(dot.animationKeys()?.isEmpty != false, "finished turn stops dot animation")
             view.update(busy: true, reduceMotion: true)
+            view.setMoving(true)
             check(dot.animationKeys()?.isEmpty != false, "reduce motion stops dot animation")
         }
         do {
@@ -1125,6 +1130,7 @@ enum Render {
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
         write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
+        write(CXView(session: empty), size: CGSize(width: 1280, height: 820), path: directory + "/empty-wide.png")
         let modelMenu = Session(cwd: "/Users/example/projects/atlas")
         modelMenu.model = "claude-opus-5-5"; modelMenu.effort = "high"
         modelMenu.models = ["claude-haiku-4-5", "claude-opus-5-5"]
@@ -1147,7 +1153,9 @@ enum Render {
         session.updateUsage(["primary": ["usedPercent": 11.0, "windowDurationMins": 10080, "resetsAt": 1794357394.0] as JSON])
         session.repositoryStatus = "uncommitted"
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
+        write(CXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
+        write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
