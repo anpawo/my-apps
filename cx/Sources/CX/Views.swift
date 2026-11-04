@@ -279,8 +279,7 @@ struct ActivityDot: View {
             let phase = timeline.date.timeIntervalSinceReferenceDate * 5
             Circle().fill(action ? accent : .green)
                 .frame(width: 6, height: 6)
-                .offset(x: busy && !action && !reduceMotion ? CGFloat(sin(phase)) * 3 : 0,
-                        y: busy && !action && !reduceMotion ? CGFloat(cos(phase)) * 2 : 0)
+                .offset(x: busy && !action && !reduceMotion ? CGFloat(sin(phase)) * 3 : 0)
         }.frame(width: 12, height: 10)
             .accessibilityLabel(action ? "Performing action" : busy ? "Thinking" : "Idle")
     }
