@@ -2,6 +2,58 @@ import Foundation
 import AppKit
 import ImageIO
 import CFNetwork
+import CryptoKit
+
+func readClaudeUsage(_ account: Account) async throws -> JSON {
+    let directory = account.home ?? NSHomeDirectory() + "/.claude"
+    let suffix = account.home.map { "-" + SHA256.hash(data: Data($0.precomposedStringWithCanonicalMapping.utf8)).map { String(format: "%02x", $0) }.joined().prefix(8) } ?? ""
+    let stored = await Task.detached { () -> Data in
+        let process = Process(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", "Claude Code-credentials" + suffix, "-w"]
+        process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return Data() }
+        let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit(); timeout.cancel()
+        return process.terminationStatus == 0 ? data : Data()
+    }.value
+    let data = stored.isEmpty ? (try? Data(contentsOf: URL(fileURLWithPath: directory + "/.credentials.json"))) ?? Data() : stored
+    guard let credentials = try? JSONSerialization.jsonObject(with: data) as? JSON,
+          let token = (credentials["claudeAiOauth"] as? JSON)?["accessToken"] as? String, !token.isEmpty else {
+        throw CXError(message: "Usage unavailable: sign in to this Claude profile.")
+    }
+    var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+    request.timeoutInterval = 15
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+    request.setValue("VibeCodeX/0.2.0", forHTTPHeaderField: "User-Agent")
+    let (body, response) = try await URLSession.shared.data(for: request)
+    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+        throw CXError(message: "Usage unavailable: Claude returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0).")
+    }
+    guard let result = try JSONSerialization.jsonObject(with: body) as? JSON else { throw CXError(message: "Usage unavailable: invalid Claude response.") }
+    return result
+}
+
+func claudeRateLimits(_ usage: JSON) throws -> JSON {
+    var limits: JSON = [:]
+    for (source, target, minutes) in [("five_hour", "primary", 300), ("seven_day", "secondary", 10080)] {
+        guard let value = usage[source] else { continue }
+        let window = value as? JSON
+        guard value is NSNull || window?["utilization"] is Double else { throw CXError(message: "Usage unavailable: invalid Claude window.") }
+        var rate: JSON = ["usedPercent": window?["utilization"] as? Double ?? 0, "windowDurationMins": minutes]
+        if let reset = window?["resets_at"] as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            rate["resetsAt"] = formatter.date(from: reset)?.timeIntervalSince1970 ?? ISO8601DateFormatter().date(from: reset)?.timeIntervalSince1970
+        }
+        limits[target] = rate
+    }
+    guard !limits.isEmpty else { throw CXError(message: "Usage unavailable: Claude returned no usage windows.") }
+    return limits
+}
 
 func usageLimit(_ value: JSON) -> Bool {
     let code = (value["error"] as? JSON)?["codexErrorInfo"] ?? value["codexErrorInfo"] ?? value["error"] ?? value["subtype"] ?? ""
@@ -25,6 +77,7 @@ final class ClaudeConnection: Connection {
     var thread = "claude:" + UUID().uuidString.lowercased()
     var model = "Claude"
     var history = ""
+    var usageReader: (Account) async throws -> JSON = readClaudeUsage
     private var process: Process?
     private var input: FileHandle?
     private var turn = ""
@@ -119,7 +172,8 @@ final class ClaudeConnection: Connection {
                 result["mcp_servers"] = status["mcpServers"] ?? status["mcp_servers"]
             } catch { result["mcp_servers"] = [["name": "MCP status", "status": error.localizedDescription]] }
             return result
-        case "thread/list", "account/rateLimits/read": return [:]
+        case "thread/list": return [:]
+        case "account/rateLimits/read": return ["rateLimits": try claudeRateLimits(await usageReader(account))]
         case "turn/start", "turn/steer":
             if process == nil { try launch(resume: resumed); resumed = true }
             let content = try claudeContent(params["input"] as? [JSON] ?? [])

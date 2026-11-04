@@ -49,6 +49,12 @@ struct CXView: View {
         .foregroundStyle(.white.opacity(0.92))
         .background(Color(red: 0.035, green: 0.035, blue: 0.045))
         .preferredColorScheme(.dark)
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
+                await session.refreshUsage()
+            }
+        }
         .sheet(isPresented: $session.showingSettings) {
             SettingsPopup(session: session)
         }

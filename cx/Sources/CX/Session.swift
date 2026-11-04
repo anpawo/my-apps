@@ -143,6 +143,7 @@ final class Session: ObservableObject {
     private var stopRequested = false
     private var deltas: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
+    private var lastUsageRefresh = Date.distantPast
 
     init(cwd: String, stateDirectory: URL? = nil) {
         self.cwd = URL(fileURLWithPath: cwd).standardized.path
@@ -159,9 +160,9 @@ final class Session: ObservableObject {
             .replacingOccurrences(of: "-", with: " ").capitalized
     }
     var contextLabel: String {
-        guard let limit = contextLimit, limit > 0 else { return "?% · ?" }
+        guard let limit = contextLimit, limit > 0 else { return "0% · ?" }
         let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%gK", Double(limit) / 1000)
-        let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "?"
+        let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "0"
         return percentage + "% · " + capacity
     }
 
@@ -202,7 +203,6 @@ final class Session: ObservableObject {
         do {
             let page = try await connection.request("thread/list", ["cwd": cwd, "limit": 40, "sortKey": "updated_at"])
             let catalog = try await connection.request("model/list", ["limit": 100])
-            let result = try await connection.request("account/rateLimits/read")
             guard rpc === connection else { return }
             let external = (page["data"] as? [JSON] ?? []).compactMap { thread -> Recent? in
                 guard let id = thread["id"] as? String else { return nil }
@@ -217,9 +217,22 @@ final class Session: ObservableObject {
                 guard let id = entry["id"] as? String else { return nil }
                 return (id, (entry["supportedReasoningEfforts"] as? [JSON] ?? []).compactMap { $0["reasoningEffort"] as? String })
             }, uniquingKeysWith: { first, _ in first })
-            updateUsage(result["rateLimits"] as? JSON ?? [:])
+            await refreshUsage()
             await refreshCapabilities()
         } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
+    }
+
+    func refreshUsage(force: Bool = true) async {
+        guard ready, !changing, force || Date().timeIntervalSince(lastUsageRefresh) >= 60 else { return }
+        lastUsageRefresh = Date()
+        let connection = rpc
+        do {
+            let result = try await connection.request("account/rateLimits/read")
+            guard rpc === connection else { return }
+            updateUsage(result["rateLimits"] as? JSON ?? [:])
+        } catch {
+            if rpc === connection { usage = "Usage unavailable" }
+        }
     }
 
     func open(_ resume: String?, keepRows: Bool = false, selectedModel: String? = nil) async throws {
@@ -330,7 +343,7 @@ final class Session: ObservableObject {
             queueLimit(p["limit"] as? JSON ?? [:])
             return
         case "cx/claudeLimit":
-            if let percent = p["utilization"] as? Double { usage = "\(Int((percent * 100).rounded()))% " + (p["rateLimitType"] as? String ?? "usage") }
+            Task { await refreshUsage(force: false) }
         case "cx/catalog": applyClaudeCatalog(p)
         case "cx/tokens":
             if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
@@ -423,8 +436,14 @@ final class Session: ObservableObject {
         usage = ["primary", "secondary"].compactMap { key -> String? in
             guard let window = rate[key] as? JSON, let used = window["usedPercent"] as? Double else { return nil }
             let minutes = window["windowDurationMins"] as? Int ?? 0
-            let label = minutes == 300 ? "5h" : minutes == 10080 ? "weekly" : "\(minutes)m"
-            return "\(Int(used.rounded()))% \(label)"
+            let label = minutes == 10080 ? "weekly" : minutes >= 1440 && minutes % 1440 == 0 ? "\(minutes / 1440)d" : minutes >= 60 && minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
+            var text = "\(Int(used.rounded()))% \(label)"
+            if let reset = window["resetsAt"] as? Double {
+                let remaining = max(0, Int(ceil((reset - Date().timeIntervalSince1970) / 60)))
+                let parts = [(remaining / 1440, "d"), (remaining % 1440 / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }
+                text += " (reset " + (parts.isEmpty ? "now" : parts.joined(separator: " ")) + ")"
+            }
+            return text
         }.joined(separator: " / ")
     }
 

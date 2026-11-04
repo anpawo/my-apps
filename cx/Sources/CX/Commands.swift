@@ -311,7 +311,7 @@ extension Session {
                 let values = verb == "/hooks" ? hooks : verb == "/skills" ? skills : verb == "/mcp" ? mcp : instructions
                 notice(values.isEmpty ? "No entries reported for " + String(verb.dropFirst()) + "." : values.joined(separator: "\n"))
             case "/tokens": notice(tokens + (context.isEmpty ? "" : "\n" + context))
-            case "/usage": await refreshCatalog(); notice(usage.isEmpty ? "The provider has not reported subscription usage yet." : usage)
+            case "/usage": await refreshUsage(); notice(usage.isEmpty ? "The provider has not reported subscription usage yet." : usage)
             case "/repo": await refreshRepository(); notice(repository + (branch.isEmpty ? "" : " · " + branch))
             case "/compact", "/review":
                 try idle(); guard ready else { throw CXError(message: "Reconnect first.") }

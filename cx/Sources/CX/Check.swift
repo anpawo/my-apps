@@ -10,6 +10,11 @@ enum Check {
             try await claude.start()
             let catalog = try await claude.request("cx/catalog")
             print("Claude subscription: ready; \((catalog["commands"] as? [JSON] ?? []).count) commands; \((catalog["models"] as? [JSON] ?? []).count) models; permission mode: \(catalog["current_permission_mode"] as? String ?? "not reported")")
+            let result = try await claude.request("account/rateLimits/read")
+            let session = Session(cwd: NSTemporaryDirectory())
+            session.updateUsage(result["rateLimits"] as? JSON ?? [:])
+            guard !session.usage.isEmpty else { throw CXError(message: "Claude usage is empty.") }
+            print("Claude usage: " + session.usage)
         }
         catch { print("Claude subscription: " + error.localizedDescription); okay = false }
         claude.close()
@@ -472,10 +477,31 @@ enum Check {
         codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
         check(codexCommands.contextLabel == "24% · 1M", "context shows percentage and reported capacity")
         codexCommands.contextLimit = nil
-        check(codexCommands.contextLabel == "?% · ?", "unknown context limits are not invented")
+        check(codexCommands.contextLabel == "0% · ?", "unknown context displays zero usage without inventing capacity")
         codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
-        check(codexCommands.contextLabel == "?% · 1M", "unreported token usage is not displayed as zero")
+        check(codexCommands.contextLabel == "0% · 1M", "unreported token usage defaults to zero")
         let claudeContext = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: directory.path)
+        let usageDisplay = Session(cwd: directory.path)
+        claudeContext.usageReader = { account in
+            guard account.name == "Fixture" else { throw CXError(message: "Incorrect usage profile") }
+            return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T16:59:59.934184+00:00"]]
+        }
+        do {
+            let result = try await claudeContext.request("account/rateLimits/read")
+            let rate = result["rateLimits"] as? JSON ?? [:]
+            usageDisplay.updateUsage(rate)
+            check(usageDisplay.usage.hasPrefix("0% 5h / 100% weekly (reset ") && usageDisplay.usage.contains("d"), "Claude usage is available before a message, including inactive windows and reset days")
+            check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
+            usageDisplay.rpc = claudeContext; usageDisplay.ready = true
+            await usageDisplay.refreshUsage()
+            check(usageDisplay.usage.hasPrefix("0% 5h / 100% weekly"), "session refresh reads Claude usage before a turn")
+            usageDisplay.updateUsage(["primary": ["usedPercent": 25.0, "windowDurationMins": 1440] as JSON, "secondary": ["usedPercent": 40.0, "windowDurationMins": 10080] as JSON])
+            check(usageDisplay.usage == "25% 1d / 40% weekly", "reported daily and weekly windows retain their units")
+            claudeContext.usageReader = { _ in [:] }
+            do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
+            await usageDisplay.refreshUsage()
+            check(usageDisplay.usage == "Usage unavailable", "failed usage refresh stays explicit without disconnecting")
+        } catch { check(false, "Claude usage: " + error.localizedDescription) }
         claudeContext.event = { message in
             var message = message, params = message["params"] as? JSON ?? [:]
             params.removeValue(forKey: "threadId"); message["params"] = params
