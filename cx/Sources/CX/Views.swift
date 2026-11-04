@@ -42,7 +42,7 @@ struct CXView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
-            sessionPanel.frame(width: 205)
+            sessionPanel.frame(width: 130)
             Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
             VStack(spacing: 0) {
                 transcript
@@ -101,20 +101,18 @@ struct CXView: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { session.showingSettings = true } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "gearshape").foregroundStyle(accent.opacity(0.7)).frame(width: 18)
                     Text("SETTINGS").tracking(1.2)
                     Spacer()
-                    Image(systemName: "chevron.right")
                 }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.black.opacity(0.6))
                     .padding(20).frame(maxWidth: .infinity).contentShape(Rectangle())
             }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
             Divider().overlay(.black.opacity(0.04))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    capability("Hooks", icon: "arrow.turn.down.right")
-                    capability("Skills", icon: "sparkle")
-                    capability("MCP", icon: "link")
-                    capability("Instructions", icon: "doc.text")
+                    capability("Hooks")
+                    capability("Skills")
+                    capability("MCP")
+                    capability("Instructions")
                 }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.background(Color.black.opacity(0.025))
@@ -136,14 +134,12 @@ struct CXView: View {
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
-    private func capability(_ title: String, icon: String) -> some View {
+    private func capability(_ title: String) -> some View {
         Button { openCapability = title } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: icon).font(.system(size: 13.75)).foregroundStyle(accent.opacity(0.7)).frame(width: 18)
-                    Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.2)
+                    Text(title == "Instructions" ? ".md" : title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.2)
                     Spacer()
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 10, design: .monospaced))
-                    Image(systemName: "chevron.right").font(.system(size: 10))
                 }.foregroundStyle(.black.opacity(0.6)).padding(.horizontal, 20).padding(.vertical, 14)
                     .frame(maxWidth: .infinity).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Browse " + title.lowercased())
@@ -239,7 +235,7 @@ struct CXView: View {
                 separator
                 usageStatus
                 separator
-                quotaStatus
+                repositoryStatus
             }.fixedSize()
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +253,7 @@ struct CXView: View {
         HStack(spacing: 8) {
             setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.13, green: 0.39, blue: 0.67))
             separator
-            repositoryStatus
+            quotaStatus
         }
     }
     private var quotaStatus: some View {

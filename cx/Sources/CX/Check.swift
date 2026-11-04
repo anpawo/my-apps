@@ -52,6 +52,9 @@ enum Check {
             let session = Session(cwd: "/fixture")
             session.model = "gpt-6-astra"; session.effort = "high"
             session.contextLimit = 258400; session.usage = "16% wk - reset 1h"
+            check(session.contextLabel == "0% token - 258K", "context capacity rounds to whole thousands")
+            session.contextLimit = 258600
+            check(session.contextLabel == "0% token - 259K", "context capacity rounds up at half a thousand")
             for width: CGFloat in [300, 540, 840] {
                 let host = NSHostingView(rootView: CXView(session: session).statusBar.frame(width: width))
                 host.layoutSubtreeIfNeeded()
@@ -863,10 +866,12 @@ enum Check {
             let rate = result["rateLimits"] as? JSON ?? [:]
             usageDisplay.updateUsage(rate)
             check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage == "100% wk - reset Wed 17h", "weekly reset shows the weekday and Paris hour in winter")
+            check(usageDisplay.usage == "100% wk - reset Wed 17:59", "weekly reset shows the weekday and precise Paris time in winter")
             check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
             usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "10% wk - reset Sat 18h", "weekly reset follows Paris daylight saving time")
+            check(usageDisplay.usage == "10% wk - reset Sat 18:59", "weekly reset follows Paris daylight saving time")
+            usageDisplay.updateUsage(["primary": ["usedPercent": 20.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-11-04T17:00:00Z")!.timeIntervalSince1970] as JSON])
+            check(usageDisplay.usage == "20% wk - reset Wed 18:00", "evening weekly reset retains both hour digits")
             usageDisplay.rpc = claudeContext; usageDisplay.ready = true
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
@@ -1083,7 +1088,7 @@ enum Render {
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
-        session.contextUsed = 0; session.contextLimit = 475000
+        session.contextUsed = 0; session.contextLimit = 258400
         session.updateUsage(["primary": ["usedPercent": 11.0, "windowDurationMins": 10080, "resetsAt": 1794357394.0] as JSON])
         session.repositoryStatus = "uncommitted"
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")

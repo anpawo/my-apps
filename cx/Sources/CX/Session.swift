@@ -180,7 +180,7 @@ final class Session: ObservableObject {
     }
     var contextLabel: String {
         guard let limit = contextLimit, limit > 0 else { return "\((contextUsed ?? 0).formatted()) tokens" }
-        let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%gK", Double(limit) / 1000)
+        let capacity = limit >= 1_000_000 ? String(format: "%gM", Double(limit) / 1_000_000) : String(format: "%.0fK", Double(limit) / 1000)
         let percentage = contextUsed.map { String(Int((Double($0) / Double(limit) * 100).rounded())) } ?? "0"
         return percentage + "% token - " + capacity
     }
@@ -496,7 +496,7 @@ final class Session: ObservableObject {
                 let countdown: String
                 if reset <= Date().timeIntervalSince1970 { countdown = "now" }
                 else if minutes == 10080 {
-                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Europe/Paris"); formatter.dateFormat = "EEE H'h'"
+                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Europe/Paris"); formatter.dateFormat = "EEE HH:mm"
                     countdown = formatter.string(from: Date(timeIntervalSince1970: reset))
                 } else { countdown = [(remaining / 60, "h"), (remaining % 60, "m")].filter { $0.0 > 0 }.map { "\($0.0)\($0.1)" }.joined() }
                 text += " - reset " + (countdown.isEmpty ? "0m" : countdown)
