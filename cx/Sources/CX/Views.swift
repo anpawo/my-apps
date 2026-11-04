@@ -215,7 +215,7 @@ struct CXView: View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 ActivityDot(busy: session.busy, action: session.performingAction)
-                Text(session.busy ? "Thinking" : "Ready").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
+                Text(session.busy ? "Thinking" : "Reading").font(.system(size: 11)).foregroundStyle(session.performingAction ? accent : .green)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
