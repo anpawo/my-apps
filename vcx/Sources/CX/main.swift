@@ -164,7 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
-        else if !headless { window.setFrameAutosaveName("VCXWindow"); window.center() }
+        else if !headless {
+            window.setFrameAutosaveName("VCXWindow")
+            // A zoomed window saves a screen-sized frame; new windows open at the default size instead.
+            if let screen = (window.screen ?? NSScreen.main)?.visibleFrame, window.frame.width >= screen.width, window.frame.height >= screen.height { window.setContentSize(NSSize(width: 1280, height: 820)) }
+            window.center()
+        }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
         startRefresh()
         client.onLeaseLost = { [weak self, weak window] in
