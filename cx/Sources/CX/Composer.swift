@@ -2,6 +2,19 @@ import AppKit
 import SwiftUI
 import ImageIO
 
+final class ComposerWindow: NSWindow {
+    var focusComposer: () -> Void = {}
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, [36, 49, 76].contains(event.keyCode),
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true,
+           attachedSheet == nil {
+            focusComposer(); return
+        }
+        super.sendEvent(event)
+    }
+}
+
 final class ImageChip: NSTextAttachment {
     let path: String
     let number: Int

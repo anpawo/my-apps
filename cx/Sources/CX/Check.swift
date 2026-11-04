@@ -66,6 +66,33 @@ enum Check {
         typingStorage.addLayoutManager(typingManager); typingManager.addTextContainer(typingContainer)
         let typingField = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 24), textContainer: typingContainer)
         typingField.heldStorage = typingStorage
+        let inputWindow = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 150), styleMask: [.titled], backing: .buffered, defer: false)
+        inputWindow.isReleasedWhenClosed = false
+        inputWindow.contentView!.addSubview(typingField)
+        var focusRequests = 0
+        inputWindow.focusComposer = { focusRequests += 1; inputWindow.makeFirstResponder(typingField) }
+        func key(_ code: UInt16, _ text: String, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: inputWindow.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)!
+        }
+        for (code, text) in [(UInt16(49), " "), (36, "\r"), (76, "\u{3}")] {
+            inputWindow.makeFirstResponder(nil)
+            inputWindow.sendEvent(key(code, text))
+            check(inputWindow.firstResponder === typingField && typingField.string.isEmpty, "unfocused key \(code) focuses the composer without inserting or submitting")
+        }
+        let focusedRequests = focusRequests
+        inputWindow.sendEvent(key(49, " "))
+        check(typingField.string == " " && focusRequests == focusedRequests, "space edits the already focused composer normally")
+        for flags: NSEvent.ModifierFlags in [.command, .control, .option, .shift] {
+            inputWindow.makeFirstResponder(nil)
+            inputWindow.sendEvent(key(49, " ", flags: flags))
+            check(focusRequests == focusedRequests, "modified space keeps its normal behavior")
+        }
+        let otherInput = NSTextView(frame: NSRect(x: 0, y: 50, width: 200, height: 24))
+        inputWindow.contentView!.addSubview(otherInput)
+        inputWindow.makeFirstResponder(otherInput)
+        inputWindow.sendEvent(key(49, " "))
+        check(inputWindow.firstResponder === otherInput && otherInput.string == " " && focusRequests == focusedRequests, "other text inputs retain space")
+        inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))
         check((typingField.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.usingColorSpace(.deviceRGB)?.redComponent ?? 0 > 0.9, "typing after an empty draft remains white")
