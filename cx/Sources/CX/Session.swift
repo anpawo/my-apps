@@ -73,9 +73,14 @@ final class Session: ObservableObject {
     @Published var recent: [Recent] = []
     @Published var models: [String] = []
     @Published var model = "Codex"
+    @Published var effort: String?
+    @Published var showingSettings = false
+    var modelEfforts: [String: [String]] = [:]
+    var pendingModelCommand: String?
     @Published var status = "Connecting…"
     @Published var ready = false
     @Published var busy = false
+    @Published private var activeActions: Set<String> = []
     @Published var changing = false
     @Published var details = false
     @Published var context = ""
@@ -147,6 +152,7 @@ final class Session: ObservableObject {
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
+    var performingAction: Bool { busy && !activeActions.isEmpty }
     var modelLabel: String {
         model.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: "-(\\d+)-(\\d+)$", with: " $1.$2", options: .regularExpression)
@@ -184,8 +190,7 @@ final class Session: ObservableObject {
                     try await activate(codex, resume: id, keepRows: false)
                 }
             } else {
-                guard let first = available.first else { throw CXError(message: "No account is available. Enable accounts in Settings, or wait for their limits to reset.") }
-                try await activate(first, resume: nil, keepRows: false)
+                try await activateAvailable(keepRows: false)
             }
             await refreshCatalog()
             if !prompt.isEmpty { await send(text: prompt, images: []) }
@@ -206,7 +211,12 @@ final class Session: ObservableObject {
             let local = nativeRecent()
             let savedIDs = Set(local.compactMap(\.backendID))
             recent = local + external.filter { !savedIDs.contains($0.id) }
-            models = (catalog["data"] as? [JSON] ?? []).compactMap { $0["id"] as? String }
+            let entries = catalog["data"] as? [JSON] ?? []
+            models = entries.compactMap { $0["id"] as? String }
+            modelEfforts = Dictionary(entries.compactMap { entry in
+                guard let id = entry["id"] as? String else { return nil }
+                return (id, (entry["supportedReasoningEfforts"] as? [JSON] ?? []).compactMap { $0["reasoningEffort"] as? String })
+            }, uniquingKeysWith: { first, _ in first })
             updateUsage(result["rateLimits"] as? JSON ?? [:])
             await refreshCapabilities()
         } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
@@ -329,7 +339,11 @@ final class Session: ObservableObject {
             if let limit = p["limit"] as? Int, limit > 0 { contextLimit = limit }
         case "cx/model": model = p["model"] as? String ?? model
         case "item/started", "item/completed":
-            if let data = p["item"] as? JSON {
+            if var data = p["item"] as? JSON {
+                if let id = data["id"] as? String, !["agentMessage", "plan", "userMessage"].contains(data["type"] as? String ?? "") {
+                    if method == "item/started" { activeActions.insert(id); data["status"] = "inProgress" }
+                    else { activeActions.remove(id) }
+                }
                 flush()
                 show(data)
                 if method == "item/completed" { deltas.removeValue(forKey: data["id"] as? String ?? "") }
@@ -347,13 +361,17 @@ final class Session: ObservableObject {
             if let turn = p["turn"] as? JSON, usageLimit(turn), !stopRequested {
                 queueLimit(turn); return
             }
-            flush(); turnID = nil; busy = false; stopRequested = false
+            flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll()
             pendingInput = nil
             permissions.removeAll()
             let turn = p["turn"] as? JSON ?? [:]
             if let error = turn["error"] as? JSON { notice(error["message"] as? String ?? "Turn failed.") }
             status = turn["status"] as? String == "interrupted" ? "Stopped" : "Ready"
             save()
+            if let command = pendingModelCommand {
+                pendingModelCommand = nil
+                Task { self.showCommands(command); await self.command(command) }
+            }
         case "error", "cx/error", "cx/disconnected":
             if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
             notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.")
@@ -443,11 +461,13 @@ final class Session: ObservableObject {
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
         if !retry, draftGeneration == submissionGeneration, draft.isEqual(to: submissionDraft) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
+        if !wasBusy { activeActions.removeAll() }
         busy = true; stopRequested = false; status = wasBusy ? "Sending guidance…" : "Working…"
         var outgoing = content
         if let skill { outgoing.append(skill) }
         if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
         var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
+        if !wasBusy, let effort { params["effort"] = effort }
         if wasBusy { params["expectedTurnId"] = turnID }
         do {
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
@@ -502,16 +522,27 @@ final class Session: ObservableObject {
         } catch { recordID = previousRecord; restoreDraft(previousDraft, since: previousGeneration); notice(error.localizedDescription); return false }
     }
 
-    func changeModel(_ value: String) async {
+    func changeModel(_ value: String, effort selectedEffort: String? = nil) async {
         guard !disabled else { return }
         guard models.contains(value) else { notice("Unknown model. Choose one from the model menu."); return }
         changing = true; defer { changing = false }
         do {
-            let result = try await rpc.request("thread/resume", ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"])
+            var params: JSON = ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
+            params["effort"] = selectedEffort as Any? ?? NSNull()
+            let result = try await rpc.request("thread/resume", params)
             model = result["model"] as? String ?? value
+            effort = selectedEffort
         } catch { notice(error.localizedDescription) }
     }
 
+    private func activateAvailable(keepRows: Bool) async throws {
+        var failure: Error = CXError(message: "No account is available. Enable accounts in Settings, or wait for their limits to reset.")
+        for next in available {
+            do { try await activate(next, resume: nil, keepRows: keepRows); return }
+            catch { failure = error; Settings.shared.updateLimit(account: next.id, reset: Date().timeIntervalSince1970 + 300) }
+        }
+        throw failure
+    }
 
     var available: [Account] {
         let settings = Settings.shared
@@ -526,7 +557,7 @@ final class Session: ObservableObject {
         flush()
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
-        ready = false; busy = false; turnID = nil; permissions.removeAll()
+        ready = false; busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll()
         providerCommands = []; skillPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
@@ -545,6 +576,7 @@ final class Session: ObservableObject {
             try await rpc.start(command: nil)
             changing = false
             try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
+            if previous.0.id != next.id { effort = nil; save() }
             pendingActivation = nil; pendingRestore = nil
         } catch {
             rpc.event = { _ in }; rpc.close()
@@ -585,13 +617,12 @@ final class Session: ObservableObject {
         flush()
         Settings.shared.updateLimit(account: account.id, reset: limitReset(info))
         busy = false; turnID = nil
-        guard let input = pendingInput, let next = available.first else {
+        guard let input = pendingInput, !available.isEmpty else {
             notice("\(providerLabel) reached its usage limit. No enabled fallback is available. Your conversation is saved.")
             status = "Usage limit reached"; save(); return
         }
-        notice("\(account.name) reached its usage limit. Continuing with \(next.name), with recent conversation context.")
         do {
-            try await activate(next, resume: nil, keepRows: true)
+            try await activateAvailable(keepRows: true)
             await refreshCatalog()
             await send(text: input.0, images: input.1, retry: true)
         } catch { notice("Could not connect to the fallback: " + error.localizedDescription); status = "Fallback connection failed" }
@@ -656,7 +687,8 @@ final class Session: ObservableObject {
             }
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let title = rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
-            let record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
+            var record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
+            record["effort"] = effort
             try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
             try JSONSerialization.data(withJSONObject: ["recordId": recordID]).write(to: nativePointer, options: .atomic)
@@ -677,13 +709,14 @@ final class Session: ObservableObject {
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
         let settings = Settings.shared
         let stored = settings.candidates.first { $0.id == accountID } ?? settings.value.accounts.first { $0.id == accountID }
-        let preferred = settings.value.provider != "auto" || stored?.enabled == false ? available.first : stored ?? available.first
+        let preferred = settings.value.provider != "auto" ? available.first : available.first { $0.id == stored?.id } ?? available.first
         guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
         let resumeID = selected.id == accountID ? thread : nil
         let generation = draftGeneration
         do { try await activate(selected, resume: resumeID, keepRows: true) }
         catch { pendingRestore = id; throw error }
         pendingRestore = nil
+        effort = selected.id == accountID ? record["effort"] as? String : nil
         recordID = id
         if let claimed { releaseRecord(); recordLock = (id, claimed) }
         accepted = true

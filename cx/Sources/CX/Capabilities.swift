@@ -60,7 +60,13 @@ extension Session {
             }
             skills = commands.compactMap { $0["name"] as? String }.sorted()
         }
-        if let catalog = catalog["models"] as? [JSON] { models = catalog.compactMap { $0["value"] as? String } }
+        if let catalog = catalog["models"] as? [JSON] {
+            models = catalog.compactMap { $0["value"] as? String }
+            modelEfforts = Dictionary(catalog.compactMap { entry in
+                guard let id = entry["value"] as? String else { return nil }
+                return (id, entry["supportsEffort"] as? Bool == false ? [] : entry["supportedEffortLevels"] as? [String] ?? [])
+            }, uniquingKeysWith: { first, _ in first })
+        }
         if let mode = catalog["current_permission_mode"] as? String { activeMode = mode == "bypassPermissions" ? "bypass" : "ask" }
         if let servers = catalog["mcp_servers"] as? [JSON] { mcp = servers.compactMap(mcpSummary).sorted() }
     }

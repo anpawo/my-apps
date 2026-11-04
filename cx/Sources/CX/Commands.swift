@@ -12,10 +12,9 @@ struct ChatCommand: Identifiable, Equatable {
 extension Session {
     var appCommands: [ChatCommand] {
         [
-            ("provider", "Choose auto, Claude, Codex, or Qwen", true),
+            ("model", "Choose provider, model, and reasoning effort", true),
             ("account", "Use, enable, disable, or rename a subscription account", true),
             ("mode", "Choose bypass / YOLO or ask for approval", true),
-            ("model", "Choose the active provider’s model", true),
             ("dir", "Change the working directory", true),
             ("window", "Open another vcx instance, optionally in a directory", false),
             ("new", "Start a new conversation; current work stays saved", false),
@@ -89,9 +88,23 @@ extension Session {
                 ChatCommand(name: label ?? value, detail: description, insert: verb + " " + value)
             }
             switch verb {
-            case "/provider": choices = ["auto", "claude", "codex", "qwen"].map { option($0, $0 == "auto" ? "Claude → Codex → Qwen, on usage limits" : "Use " + $0) }
+            case "/provider", "/model":
+                let args = argument.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+                let providers = ["auto", "claude", "codex", "qwen"]
+                if args.count == 1 {
+                    return providers.filter { argument.isEmpty || $0.contains(argument) }.map { option($0 + " ", $0 == "auto" ? "Switch automatically when a provider is unavailable" : "Choose a " + $0.capitalized + " model", label: $0.capitalized) }
+                }
+                let provider = args[0]
+                guard provider == account.provider || provider == "auto" else { return [] }
+                if args.count == 2 {
+                    return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) }.map {
+                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0)
+                    }
+                }
+                return (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
+                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0)
+                }
             case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
-            case "/model": choices = models.map { option($0, providerLabel + " model") }
             case "/account":
                 choices = Settings.shared.value.accounts.map { option($0.id, $0.provider.capitalized + ($0.enabled ? " · enabled" : " · disabled"), label: $0.name) }
                 choices += ["enable ", "disable ", "rename "].map { option($0, "Account ID follows") }
@@ -141,6 +154,11 @@ extension Session {
         if let saved = savedCommandDraft { editDraft(saved); savedCommandDraft = nil }
     }
     func chooseCommand(_ command: ChatCommand) {
+        if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider "),
+           command.insert.split(separator: " ").count > 1 {
+            Task { await self.command(command.insert) }
+            return
+        }
         showCommands(command.insert, preserveDraft: false)
         // Keep the selected value in the composer for review before Return executes it.
         commandQuery = command.insert.hasSuffix(" ") ? command.insert : nil
@@ -190,16 +208,39 @@ extension Session {
         }
         do {
             switch verb {
-            case "/provider":
-                guard !argument.isEmpty else { showCommands("/provider ", preserveDraft: false); return }
-                guard ["auto", "claude", "codex", "qwen"].contains(argument) else { throw CXError(message: "Use /provider auto|claude|codex|qwen.") }
-                try idle()
-                let previousProvider = settings.value.provider
-                settings.value.provider = argument
-                guard available.first != nil else { settings.value.provider = previousProvider; throw CXError(message: "No enabled account is available for " + argument + ". Enable one with /account or add one with /login.") }
-                try saveSettings()
-                if let next = available.first, next.id != account.id { try await activate(next, resume: nil, keepRows: true); await refreshCatalog() }
-                else { await reconnect() }
+            case "/provider", "/model":
+                if argument.isEmpty { showCommands("/model ", preserveDraft: false); return }
+                guard !changing else { throw CXError(message: "A connection change is already in progress.") }
+                if busy {
+                    pendingModelCommand = "/model " + argument
+                    if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.string.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                    return
+                }
+                let args = argument.split(separator: " ").map(String.init)
+                let providers = ["auto", "claude", "codex", "qwen"]
+                if providers.contains(args[0]) {
+                    let provider = args[0], previousProvider = settings.value.provider
+                    settings.value.provider = provider
+                    guard let next = available.first, provider == "auto" || next.provider == provider else {
+                        settings.value.provider = previousProvider
+                        throw CXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
+                    }
+                    try saveSettings()
+                    if next.id != account.id || !ready {
+                        try await activate(next, resume: nil, keepRows: true)
+                        await refreshCatalog()
+                    }
+                    if args.count == 1 { showCommands("/model " + provider + " ", preserveDraft: false); return }
+                    guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
+                    let efforts = modelEfforts[args[1]] ?? []
+                    if args.count == 2, !efforts.isEmpty { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
+                    guard args.count == 2 || efforts.contains(args[2]) else { throw CXError(message: "Choose an effort from the menu.") }
+                    await changeModel(args[1], effort: args.count == 3 ? args[2] : nil)
+                } else {
+                    guard ready else { throw CXError(message: "Reconnect before changing models.") }
+                    await changeModel(argument)
+                }
+                if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.string.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
             case "/mode":
                 guard !argument.isEmpty else { showCommands("/mode ", preserveDraft: false); return }
                 guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /mode bypass or /mode ask.") }
@@ -220,9 +261,6 @@ extension Session {
                     for n in settings.value.accounts.indices where settings.value.accounts[n].provider == selected.provider { settings.value.accounts[n].enabled = n == index }
                 } else { settings.value.accounts[index].enabled = operation == "enable" }
                 try saveSettings(); await reconnect()
-            case "/model":
-                if argument.isEmpty { showCommands("/model ", preserveDraft: false); return }
-                try idle(); guard ready else { throw CXError(message: "Reconnect before changing models.") }; await changeModel(argument)
             case "/dir":
                 if argument.isEmpty { notice(cwd + "\nUse /dir <folder> to change directory.") }
                 else { try await changeDirectory(unquoted(argument)) }
@@ -243,7 +281,7 @@ extension Session {
             case "/reconnect": try idle(); await reconnect()
             case "/stop": await stop()
             case "/settings":
-                notice("Provider: \(settings.value.provider)\nAccount: \(account.name)\nMode: \(mode)\nModel: \(model)\nUse /provider, /account, /mode, /model, /login, /profile, and /qwen. Settings are shared across windows and applied when a turn is idle.")
+                showingSettings = true
             case "/login":
                 if argument == "cancel" { settings.cancelSignIn(); settings.loginMessage = "" }
                 else if argument == "dismiss" { settings.loginMessage = "" }

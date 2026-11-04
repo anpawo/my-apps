@@ -34,6 +34,12 @@ else:
         if sys.argv[-1] == 'claude':
             if message.get('type') == 'control_request':
                 subtype = message.get('request', {}).get('subtype')
+                if subtype == 'apply_flag_settings':
+                    settings = message['request']['settings']
+                    error = settings.get('model') == 'reject-me' or settings.get('effortLevel') not in [None, 'low', 'medium', 'high']
+                    response = {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture settings rejected'} if error else {'subtype': 'success', 'request_id': message['request_id'], 'response': {'settings': settings}}
+                    send({'type': 'control_response', 'response': response})
+                    continue
                 if subtype == 'set_model' and message['request'].get('model') == 'reject-me':
                     send({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture model rejected'}})
                     continue

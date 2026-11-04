@@ -75,7 +75,9 @@ final class Settings: ObservableObject {
         } catch { self.error = error.localizedDescription }
     }
     var candidates: [Account] {
-        ["claude", "codex", "qwen"].filter { value.provider == "auto" || value.provider == $0 }.flatMap { provider in
+        let providers = ["claude", "codex", "qwen"]
+        let ordered = value.provider == "auto" ? providers : [value.provider] + providers.filter { $0 != value.provider }
+        return ordered.flatMap { provider in
             provider == "qwen" ? [Account(id: "qwen", name: "Qwen", provider: "qwen")] : value.accounts.filter { $0.provider == provider && $0.enabled }
         }
     }

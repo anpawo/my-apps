@@ -125,6 +125,12 @@ enum Check {
             } catch { check(claude.model == previousModel && error.localizedDescription.contains("rejected"), "Claude model changes require acknowledgement") }
             _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "accepted-model"])
             check(claude.model == "accepted-model", "acknowledged Claude model changes apply")
+            _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "effort-model", "effort": "high"])
+            check(claude.model == "effort-model", "Claude changes model and effort through acknowledged live settings")
+            do {
+                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me", "effort": "high"])
+                check(false, "Claude must reject invalid live settings")
+            } catch { check(claude.model == "effort-model", "rejected Claude settings preserve the model") }
             let started = try await claude.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
             let turn = (started["turn"] as? JSON)?["id"] as? String ?? ""
             let steered = try await claude.request("turn/steer", ["expectedTurnId": turn, "input": [["type": "text", "text": "Guidance"]]])
@@ -202,6 +208,7 @@ enum Check {
         await session.send(text: "Build the feature", images: [])
         for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
+        check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
         check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
         check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
         check((connections["codex-default"]?.sent.first?["input"] as? [JSON])?.first?["text"] as? String != "Build the feature", "handoff includes recent context")
@@ -218,6 +225,33 @@ enum Check {
         check(session.busy, "in-progress turn")
         await session.stop()
         check(!session.busy && session.status == "Stopped", "interrupt reaches the backend")
+        session.models = ["fixture-model"]
+        session.modelEfforts = ["fixture-model": ["low", "high"]]
+        session.showCommands("/model ")
+        check(session.commandOptions.map(\.name) == ["Auto", "Claude", "Codex", "Qwen"], "model selection starts with providers")
+        session.showCommands("/model codex ", preserveDraft: false)
+        check(session.commandOptions.map(\.name) == ["fixture-model"], "provider selection leads to models")
+        session.showCommands("/model codex fixture-model ", preserveDraft: false)
+        check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
+        session.dismissCommands()
+        await session.command("/model codex fixture-model high")
+        check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
+        session.draft = NSAttributedString(string: "Another turn")
+        await session.send(text: "Another turn", images: [])
+        check(connections["codex-default"]?.sent.last?["effort"] as? String == "high", "Codex receives selected effort on the next turn")
+        check(session.busy && !session.performingAction, "busy generation starts in thinking state")
+        session.event(["method": "item/started", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "inProgress"]]])
+        check(session.performingAction, "activity dot detects a running action")
+        session.event(["method": "item/completed", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "completed"]]])
+        check(!session.performingAction, "completed actions return the dot to thinking")
+        await session.command("/model codex fixture-model low")
+        check(session.busy && session.effort == "high" && session.pendingModelCommand != nil, "model changes during generation wait without interrupting")
+        await session.stop()
+        for _ in 0..<100 where session.pendingModelCommand != nil || session.effort != "low" { try? await Task.sleep(nanoseconds: 10_000_000) }
+        check(session.effort == "low" && session.pendingModelCommand == nil, "queued model changes apply when the active turn ends")
+        await session.command("/settings")
+        check(session.showingSettings, "settings opens a dedicated settings view")
+        Settings.shared.value.provider = "auto"; Settings.shared.save()
         session.draft = NSAttributedString(string: "Unsent draft")
         session.save()
         let files = try! FileManager.default.contentsOfDirectory(at: session.nativeDirectory, includingPropertiesForKeys: nil)
@@ -232,7 +266,8 @@ enum Check {
         restored.connectionFactory = { account, _ in FixtureConnection(account) }
         await restored.connect(resume: "last")
         check(restored.ready && restored.draft.string == "Unsent draft", "saved native conversation restores its draft")
-        check(restored.rows.filter { $0.kind == "user" }.count == 2, "native history is restored without duplicates")
+        check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
+        check(restored.effort == "low", "saved conversation restores the selected effort")
         let secondWindow = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         secondWindow.connectionFactory = { account, _ in FixtureConnection(account) }
         await secondWindow.connect(resume: "last")
@@ -312,7 +347,7 @@ enum Check {
         commands.connectionFactory = { account, _ in FixtureConnection(account) }
         check(commands.activeMode == "bypass", "permission mode defaults to bypass")
         await commands.send(text: "/help", images: [])
-        check(!commands.ready && commands.rows.last?.items.first?.text.contains("/provider") == true, "commands work before a provider is connected")
+        check(!commands.ready && commands.rows.last?.items.first?.text.contains("/model") == true, "commands work before a provider is connected")
         commands.updateCommands("/", caret: 1)
         check(commands.commandOptions.contains { $0.name == "/mode" }, "slash opens application command catalog")
         commands.updateCommands("/mode ", caret: 6)
@@ -533,6 +568,27 @@ enum Check {
         await pendingListing.value
         check(listing.savedCommandDraft == nil && listing.draft.string.contains("Typed while connecting") && draftContent(listing.draft).contains { $0["path"] as? String == imagePath }, "resume listing keeps text and images entered while catalog refreshes")
         listing.close()
+        Settings.shared.value = Preferences(); Settings.shared.save()
+        let unavailable = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unavailable"))
+        unavailable.connectionFactory = { account, _ in
+            let connection = FixtureConnection(account)
+            connection.failStart = account.provider == "claude"
+            return connection
+        }
+        await unavailable.connect(resume: nil)
+        check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "an unavailable first provider is skipped silently at startup")
+        unavailable.draft = draftA
+        unavailable.showCommands("/model ")
+        unavailable.chooseCommand(unavailable.commandOptions.first { $0.name == "Codex" }!)
+        for _ in 0..<100 where unavailable.commandQuery != "/model codex " { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(unavailable.commandOptions.map(\.name) == ["fixture-model"], "choosing a provider opens its model menu immediately")
+        unavailable.chooseCommand(unavailable.commandOptions[0])
+        for _ in 0..<100 where unavailable.commandQuery != "/model codex fixture-model " { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(unavailable.commandOptions.map(\.name) == ["low", "high"], "choosing a model opens its effort menu immediately")
+        unavailable.chooseCommand(unavailable.commandOptions[1])
+        for _ in 0..<100 where unavailable.effort != "high" || unavailable.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(unavailable.effort == "high" && unavailable.draft.isEqual(to: draftA) && unavailable.savedCommandDraft == nil, "finishing model selection restores the original prompt and attachments")
+        unavailable.close()
         print("\(count) native checks passed")
         return true
     }
@@ -552,6 +608,7 @@ enum Render {
         session.providerCommands = [ChatCommand(name: "/ui-tweak", detail: "Adjust an existing interface and verify the result offscreen.", source: "Claude", insert: "/ui-tweak "), ChatCommand(name: "/ponytail", detail: "Solve the whole task with the smallest complete change.", source: "Claude", insert: "/ponytail ")]
         session.mcp = ["Filesystem · connected · Read and write files in the workspace.", "GitHub · connected · Browse repositories, issues, and pull requests."]
         session.instructions = ["AGENTS.md", "CLAUDE.md"]
+        write(SettingsPopup(session: session), size: CGSize(width: 480, height: 520), path: directory + "/settings.png")
         write(CapabilityPopup(session: session, title: "Skills"), size: CGSize(width: 380, height: 440), path: directory + "/skills.png")
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/hooks.png")
         write(CapabilityPopup(session: session, title: "MCP"), size: CGSize(width: 380, height: 440), path: directory + "/mcp.png")
@@ -573,6 +630,11 @@ enum Render {
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         session.draft = draft; session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
+        session.busy = true
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/thinking.png")
+        session.event(["method": "item/started", "params": ["item": ["id": "active-tool", "type": "commandExecution", "command": "swift build", "status": "inProgress"]]])
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/action.png")
+        session.busy = false
         session.showCommands("/")
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
@@ -623,7 +685,7 @@ final class FixtureConnection: Connection {
             if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }
             return ["data": []]
         case "thread/turns/list": return ["data": []]
-        case "model/list": return ["data": [["id": "fixture-model"]]]
+        case "model/list": return ["data": [["id": "fixture-model", "supportedReasoningEfforts": [["reasoningEffort": "low"], ["reasoningEffort": "high"]]]]]
         case "turn/start", "turn/steer":
             sent.append(params)
             if sendDelay > 0 { try await Task.sleep(nanoseconds: sendDelay) }

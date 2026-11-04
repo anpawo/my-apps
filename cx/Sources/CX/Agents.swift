@@ -100,7 +100,11 @@ final class ClaudeConnection: Connection {
             if let approval = params["approvalPolicy"] as? String { mode = approval == "never" ? "bypass" : "ask" }
             guard let id = params["threadId"] as? String else { throw CXError(message: "Missing Claude conversation ID.") }
             if let value = params["model"] as? String {
-                if process != nil { _ = try await controlResult(["subtype": "set_model", "model": value], timeout: 15) }
+                if process != nil {
+                    if let effort = params["effort"] {
+                        _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["model": value, "effortLevel": effort]], timeout: 15)
+                    } else { _ = try await controlResult(["subtype": "set_model", "model": value], timeout: 15) }
+                }
                 model = value
             }
             thread = id; resumed = true; return ["thread": ["id": thread], "model": model]
@@ -120,6 +124,9 @@ final class ClaudeConnection: Connection {
             if process == nil { try launch(resume: resumed); resumed = true }
             let content = try claudeContent(params["input"] as? [JSON] ?? [])
             let steering = method == "turn/steer"
+            if !steering, let effort = params["effort"] as? String {
+                _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15)
+            }
             if steering, params["expectedTurnId"] as? String != turn { throw CXError(message: "The Claude turn has changed. Your draft has been kept.") }
             if !steering {
                 turn = UUID().uuidString; stopped = false; lastAnswer = ""; limit = nil
@@ -199,6 +206,7 @@ final class ClaudeConnection: Connection {
             default: break
             }
         case "assistant":
+            if message["error"] as? String == "rate_limit" { limit = ["error": "rate_limit"]; return }
             let body = message["message"] as? JSON ?? [:], id = body["id"] as? String ?? UUID().uuidString
             if let usage = body["usage"] as? JSON {
                 let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
@@ -214,7 +222,6 @@ final class ClaudeConnection: Connection {
                     tools[toolID] = tool; emit("item/started", ["item": tool])
                 }
             }
-            if message["error"] as? String == "rate_limit" { limit = ["error": "rate_limit"] }
         case "user":
             for block in (message["message"] as? JSON)?["content"] as? [JSON] ?? [] {
                 if let id = block["tool_use_id"] as? String, var tool = tools[id] {

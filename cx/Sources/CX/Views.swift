@@ -49,6 +49,9 @@ struct CXView: View {
         .foregroundStyle(.white.opacity(0.92))
         .background(Color(red: 0.035, green: 0.035, blue: 0.045))
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $session.showingSettings) {
+            SettingsPopup(session: session)
+        }
         .overlay {
             if let path = session.preview {
                 ZStack(alignment: .topTrailing) {
@@ -68,44 +71,30 @@ struct CXView: View {
 
     private var sessionPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(spacing: 16) {
-                    setting("Provider", icon: "bolt", value: session.providerLabel, command: "/provider ")
-                    setting("Mode", icon: "shield", value: session.activeMode == "bypass" ? "Bypass" : "Ask", command: "/mode ")
-                    setting("Model", icon: "sparkle", value: session.modelLabel, command: "/model ")
-                    setting("Tokens", icon: "number", value: session.contextLabel, command: "/tokens")
-                    setting("Usage", icon: "chart.bar", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage")
-                    setting("Repo", icon: "chevron.left.forwardslash.chevron.right", value: session.repository, detail: session.branch, command: "/repo")
-                }
-            }.padding(20).fixedSize(horizontal: false, vertical: true)
+            Button { session.showingSettings = true } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "gearshape").foregroundStyle(accent.opacity(0.7)).frame(width: 18)
+                    Text("SETTINGS").tracking(1.2)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                    .padding(20).frame(maxWidth: .infinity).contentShape(Rectangle())
+            }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
             Divider().overlay(.white.opacity(0.04))
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
                     capability("Hooks", icon: "arrow.turn.down.right")
                     capability("Skills", icon: "sparkle")
                     capability("MCP", icon: "link")
                     capability("Instructions", icon: "doc.text")
-                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
             }
-            Divider().overlay(.white.opacity(0.04))
-            Button { session.showCommands("/") } label: {
-                HStack {
-                    Text("vcx").font(.system(size: 16, weight: .bold, design: .rounded)).foregroundStyle(userGradient)
-                    Spacer()
-                }.padding(.horizontal, 20).padding(.vertical, 14)
-            }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
         }.background(Color.white.opacity(0.025))
     }
 
-    private func setting(_ title: String, icon: String, value: String, detail: String = "", command: String) -> some View {
+    private func setting(_ title: String, value: String, command: String) -> some View {
         Button { session.showCommands(command) } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: icon).font(.system(size: 13.75, weight: .regular)).foregroundStyle(.white.opacity(0.4)).frame(width: 18).padding(.top, 1)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(value).font(.system(size: 11, weight: .medium)).foregroundStyle(title == "Mode" ? accent : .white.opacity(0.85)).lineLimit(2).truncationMode(.middle)
-                    if !detail.isEmpty { Text(detail).font(.system(size: 10)).foregroundStyle(.white.opacity(0.35)).lineLimit(1).truncationMode(.middle) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(value).font(.system(size: 10, weight: .medium)).foregroundStyle(title == "Mode" ? accent : .white.opacity(0.45)).lineLimit(1).truncationMode(.middle).contentShape(Rectangle())
         }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
@@ -117,7 +106,8 @@ struct CXView: View {
                     Spacer()
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 10, design: .monospaced))
                     Image(systemName: "chevron.right").font(.system(size: 10))
-                }.foregroundStyle(.white.opacity(0.45))
+                }.foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 20).padding(.vertical, 14)
+                    .frame(maxWidth: .infinity).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Browse " + title.lowercased())
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
@@ -177,6 +167,8 @@ struct CXView: View {
 
     private var composer: some View {
         VStack(spacing: 12) {
+            ActivityDot(busy: session.busy, action: session.performingAction)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5)
             if !session.permissions.isEmpty || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,11 +178,93 @@ struct CXView: View {
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop() } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.09), lineWidth: 1))
-            HStack {
-                Text("Return to send · Shift+Return for a new line").font(.system(size: 10)).foregroundStyle(.white.opacity(0.25))
-                Spacer()
+            ViewThatFits(in: .horizontal) {
+                statusBar
+                ScrollView(.horizontal, showsIndicators: false) { statusBar }
             }
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 16) {
+            setting("Provider", value: session.providerLabel, command: "/model ")
+            setting("Mode", value: session.activeMode == "bypass" ? "Bypass" : "Ask", command: "/mode ")
+            setting("Model", value: session.modelLabel, command: "/model ")
+            if let effort = session.effort { setting("Effort", value: effort, command: "/model ") }
+            setting("Tokens", value: session.contextLabel, command: "/tokens")
+            setting("Usage", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage")
+            setting("Repo", value: [session.repository, session.branch].filter { !$0.isEmpty }.joined(separator: " · "), command: "/repo")
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct ActivityDot: View {
+    let busy: Bool
+    let action: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !busy || action || reduceMotion)) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate * 5
+            Circle().fill(action ? accent : .green)
+                .frame(width: 6, height: 6)
+                .offset(x: busy && !action && !reduceMotion ? CGFloat(sin(phase)) * 3 : 0,
+                        y: busy && !action && !reduceMotion ? CGFloat(cos(phase)) * 2 : 0)
+        }.frame(width: 12, height: 10)
+            .accessibilityLabel(action ? "Performing action" : busy ? "Thinking" : "Idle")
+    }
+}
+
+struct SettingsPopup: View {
+    @ObservedObject var session: Session
+    @ObservedObject private var settings = Settings.shared
+    private func setting(_ title: String, _ value: String, _ command: String) -> some View {
+        Button {
+            session.showingSettings = false
+            session.showCommands(command)
+        } label: {
+            HStack(alignment: .top) {
+                Text(title).foregroundStyle(.white.opacity(0.55))
+                Spacer()
+                Text(value).multilineTextAlignment(.trailing)
+            }.font(.system(size: 12)).padding(.vertical, 8).frame(maxWidth: .infinity).contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Settings").font(.system(size: 16, weight: .semibold))
+                Spacer()
+                RoundButton(icon: "xmark", label: "Close settings") { session.showingSettings = false }
+            }.padding(20)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    setting("Provider", settings.value.provider.capitalized, "/model ")
+                    setting("Model", session.modelLabel, "/model ")
+                    setting("Effort", session.effort ?? "Default", "/model ")
+                    setting("Permissions", session.mode, "/mode ")
+                    setting("Working directory", session.cwd, "/dir ")
+                    Divider().padding(.vertical, 8)
+                    Text("Accounts").font(.system(size: 13, weight: .semibold))
+                    ForEach(settings.value.accounts) { account in
+                        setting(account.name, account.provider.capitalized + (account.enabled ? " · enabled" : " · disabled"), "/account ")
+                        if let home = account.home { setting("Profile", home, "/profile " + account.provider + " ") }
+                        if let reset = settings.value.limits[account.id], reset > Date().timeIntervalSince1970 {
+                            setting("Available after", Date(timeIntervalSince1970: reset).formatted(), "/usage")
+                        }
+                    }
+                    setting("Add account", "Claude or Codex", "/login ")
+                    setting("Import profile", "Existing account folder", "/profile ")
+                    Divider().padding(.vertical, 8)
+                    Text("Qwen").font(.system(size: 13, weight: .semibold))
+                    setting("Endpoint", settings.value.qwenURL, "/qwen url ")
+                    setting("Proxy", settings.value.qwenProxy.isEmpty ? "None" : settings.value.qwenProxy, "/qwen proxy ")
+                    setting("Text model", settings.value.qwenModel, "/qwen model ")
+                    setting("Vision model", settings.value.qwenVisionModel, "/qwen vision ")
+                }.padding(20)
+            }
+        }.frame(width: 480, height: 520).background(Color(red: 0.06, green: 0.055, blue: 0.075)).preferredColorScheme(.dark)
+            .onExitCommand { session.showingSettings = false }
     }
 }
 
