@@ -132,6 +132,48 @@ class BackgroundTests(unittest.TestCase):
         self.assertNotEqual(resumed.record_id, first.record_id)
         self.assertEqual(first.snapshot().read_bytes(), original)
 
+    def test_uuid_clients_resume_the_same_native_conversation(self):
+        first = self.runner('--session-id-format', 'uuid')
+        with patch.object(first, 'claude', return_value={'result': 'First', 'session_id': 'backend-thread'}):
+            result = first.turn([{'type': 'text', 'text': 'Task'}])
+        self.assertEqual(result['session_id'], first.record_id)
+        first.close()
+        second = self.runner('--session-id-format', 'uuid', '--resume', result['session_id'])
+        self.assertEqual(second.backend, 'backend-thread')
+        self.assertEqual(second.record_id, first.record_id)
+
+    def test_instruction_file_is_forwarded_as_system_content(self):
+        path = self.home / 'instructions'
+        path.write_text('Use the task API before acting.')
+        args = bg.options(['-p', '--append-system-prompt-file', str(path)])
+        self.assertIn('Use the task API before acting.', args.append_system_prompt)
+
+    def test_paperclip_push_denial_covers_shell_wrappers(self):
+        for script in ['git push', 'git -C /tmp push origin main', '/bin/zsh -lc "cd /tmp && git push"']:
+            self.assertTrue(bg.tool_denied({'tool_name': 'Bash', 'tool_input': {'command': script}}, 'Bash(git push:*)'))
+        self.assertFalse(bg.tool_denied({'tool_name': 'Bash', 'tool_input': {'command': 'git status'}}, 'Bash(git push:*)'))
+
+    def test_explicit_mcp_servers_are_forwarded_to_codex(self):
+        config = self.home / 'mcp.json'
+        config.write_text(json.dumps({'mcpServers': {'fixture': {'type': 'stdio', 'command': 'fixture-mcp', 'args': ['serve']}}}))
+        runner = self.runner('--mcp-config', str(config), '--strict-mcp-config', '--no-session-persistence')
+        with patch.object(bg, 'command', return_value=(0, b'{"type":"item.completed","item":{"type":"agent_message","text":"Done"}}', b'')) as command:
+            runner.codex({'provider': 'codex'}, [{'type': 'text', 'text': 'Task'}], None)
+        self.assertTrue(any(arg.startswith('mcp_servers={"fixture"=') and 'fixture-mcp' in arg for arg in command.call_args.args[0]))
+        with patch.object(bg, 'ensure_qwen') as ensure:
+            with self.assertRaises(bg.ProviderUnavailable):
+                runner.qwen({'provider': 'qwen'}, [{'type': 'text', 'text': 'Task'}])
+        ensure.assert_not_called()
+
+    def test_qwen_does_not_execute_a_denied_push(self):
+        runner = self.runner('--provider', 'qwen', '--tools', 'Bash', '--disallowedTools', 'Bash(git push:*)', '--no-session-persistence')
+        first = {'message': {'role': 'assistant', 'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'git push'}}}]}}
+        final = {'message': {'role': 'assistant', 'content': 'Blocked'}}
+        with patch.object(bg, 'ensure_qwen'), patch.object(bg, 'command', side_effect=[(0, json.dumps(first).encode(), b''), (0, json.dumps(final).encode(), b'')]) as command:
+            result = runner.qwen({'provider': 'qwen'}, [{'type': 'text', 'text': 'Task'}])
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual(result['result'], 'Blocked')
+
     def test_nonpersistent_followup_keeps_context_without_invalid_resume(self):
         runner = self.runner('--no-session-persistence')
         with patch.object(runner, 'claude', return_value={'is_error': False, 'result': 'First reply', 'session_id': 'transient'}) as claude:
@@ -266,6 +308,7 @@ class BackgroundTests(unittest.TestCase):
             runner.codex({'provider': 'codex'}, [{'type': 'text', 'text': 'Task'}], None)
         args = command.call_args.args[0]
         self.assertIn('features.hooks=true', args)
+        self.assertEqual(args.count('--dangerously-bypass-hook-trust'), 1)
         hook_config = next(arg for arg in args if arg.startswith('hooks.PreToolUse='))
         self.assertIn('deny-command', hook_config)
         self.assertIn('--check-tools', hook_config)
