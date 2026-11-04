@@ -33,3 +33,5 @@
 - 04/11/2026: Native VCX bundle updates keep native_peer.py aligned with the executable; stale fixtures can time out during installed checks.
 - 04/11/2026: Replace signed app bundles through a clean staging copy; merging with ditto preserves generated Python caches and invalidates the resource seal.
 - 04/11/2026: After merging concurrent changes into a worktree, read its new HEAD before integrating it; the earlier feature commit still diverges from main.
+- 04/11/2026: Run install-native.py without an outer build-stack wrapper; its nested Swift build otherwise waits on the installer's own queue slot.
+- 04/11/2026: Before cancelling a queued build, verify its ancestry reaches this tool's parent PID; queue position and matching installer names do not establish ownership.
