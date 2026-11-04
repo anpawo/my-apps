@@ -42,7 +42,8 @@ final class FleetPresence {
                 return ["kind": row.kind == "user" ? "user" : row.kind == "activity" ? "tool" : "assistant", "text": String(text.prefix(2000))]
             }
         }
-        let state = session.needsAttention || !session.permissions.isEmpty ? "waiting" : session.busy || session.changing ? "working" : user == nil ? "fresh" : "ready"
+        let state = session.needsAttention && session.status == "Failed" && session.permissions.isEmpty ? "failed"
+            : session.needsAttention || !session.permissions.isEmpty ? "waiting" : session.busy || session.changing ? "working" : user == nil ? "fresh" : "ready"
         var record: JSON = ["pid": getpid(), "startedAt": startedAt, "cwd": session.cwd,
                             "state": state, "preview": preview, "updatedAt": Date().timeIntervalSince1970]
         record["prompt"] = prompt.map { String($0.prefix(2000)) }

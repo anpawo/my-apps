@@ -312,6 +312,13 @@ enum Check {
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "waiting", "Fleet approvals take precedence over busy")
         fleetSession.permissions = []; fleetSession.busy = false
+        fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "failed", "error": ["message": "API Error: Connection dropped (ECONNRESET)."]]]])
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "failed", "Fleet shows a failed turn as an API error, not a question")
+        fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted"]]])
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "waiting", "Fleet still asks for attention after an interrupted turn")
+        fleetSession.needsAttention = false
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "ready" && fleetRecord()["lastPromptAt"] as? Double == promptTime, "Fleet completion keeps the prompt timestamp")
         fleetSession.show(["id": "fleet-user", "type": "userMessage", "content": [["type": "text", "text": "Fix the layout"]]])

@@ -81,6 +81,7 @@ enum VCX {
         switch record["state"] as? String {
         case "working": state = .running
         case "waiting": state = .awaitingAnswer
+        case "failed": state = .apiError
         case "fresh": state = .fresh
         case "ready": state = prompt == nil ? .fresh : .ready
         default: return nil
