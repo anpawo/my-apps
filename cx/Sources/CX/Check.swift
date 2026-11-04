@@ -277,6 +277,7 @@ enum Check {
         }
         await session.connect(resume: nil)
         check(session.ready && session.account.provider == "claude", "Claude is the default")
+        Settings.shared.value.provider = "claude"; Settings.shared.save()
         session.draft = NSAttributedString(string: "Build the feature")
         await session.send(text: "Build the feature", images: [])
         check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
@@ -299,14 +300,30 @@ enum Check {
         check(session.busy, "in-progress turn")
         await session.stop()
         check(!session.busy && session.status == "Stopped", "interrupt reaches the backend")
-        session.models = ["fixture-model"]
-        session.modelEfforts = ["fixture-model": ["low", "high"]]
+        session.models = ["other-model", "fixture-model"]
+        session.modelEfforts = ["other-model": ["low", "high"], "fixture-model": ["low", "high"]]
+        session.effort = "high"
         session.showCommands("/model ")
-        check(session.commandOptions.map(\.name) == ["Auto", "Claude", "Codex", "Qwen"], "model selection starts with providers")
+        check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen"], "model selection lists providers without Auto")
+        check(session.commandOptions[session.commandSelection].name == "Codex", "opening model selection highlights the active provider after fallback")
+        session.updateCommands("/model c", caret: 8)
+        check(session.commandOptions[session.commandSelection].name == "Codex", "typing the model command highlights the active provider")
         session.showCommands("/model codex ", preserveDraft: false)
-        check(session.commandOptions.map(\.name) == ["fixture-model"], "provider selection leads to models")
+        check(session.commandOptions.map(\.name) == ["other-model", "fixture-model"], "provider selection leads to models")
+        check(session.commandOptions[session.commandSelection].name == "fixture-model", "the current model is highlighted even when it is not first")
+        session.updateCommands("/model codex other", caret: 18)
+        check(session.commandSelection == 0 && session.commandOptions.first?.name == "other-model", "filtering out the current model selects the first match")
         session.showCommands("/model codex fixture-model ", preserveDraft: false)
         check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
+        check(session.commandOptions[session.commandSelection].name == "high", "keeping the current model highlights its current effort")
+        session.showCommands("/model codex other-model ", preserveDraft: false)
+        check(session.commandSelection == 0, "a different model starts with its first effort option")
+        session.effort = nil
+        session.showCommands("/model codex fixture-model ", preserveDraft: false)
+        check(session.commandOptions[session.commandSelection].name == "Default", "an inherited effort remains selected instead of becoming low")
+        session.dismissCommands()
+        await session.command("/model codex fixture-model default")
+        check(session.effort == nil && (connections["codex-default"]?.opened.last?["effort"] is NSNull), "confirming Default preserves the provider's configured effort")
         session.dismissCommands()
         await session.command("/model codex fixture-model high")
         check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
@@ -675,15 +692,17 @@ enum Check {
         await unavailable.connect(resume: nil)
         check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "an unavailable first provider is skipped silently at startup")
         unavailable.draft = draftA
+        unavailable.effort = "high"
         unavailable.showCommands("/model ")
-        unavailable.chooseCommand(unavailable.commandOptions.first { $0.name == "Codex" }!)
+        check(unavailable.completeCommand(), "Return accepts the highlighted current provider")
         for _ in 0..<100 where unavailable.commandQuery != "/model codex " { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(unavailable.commandOptions.map(\.name) == ["fixture-model"], "choosing a provider opens its model menu immediately")
-        unavailable.chooseCommand(unavailable.commandOptions[0])
+        check(unavailable.completeCommand(), "Return accepts the highlighted current model")
         for _ in 0..<100 where unavailable.commandQuery != "/model codex fixture-model " { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(unavailable.commandOptions.map(\.name) == ["low", "high"], "choosing a model opens its effort menu immediately")
-        unavailable.chooseCommand(unavailable.commandOptions[1])
-        for _ in 0..<100 where unavailable.effort != "high" || unavailable.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(unavailable.commandOptions[unavailable.commandSelection].name == "high", "provider and model navigation retains the selected effort")
+        check(unavailable.completeCommand(), "Return accepts the highlighted current effort")
+        for _ in 0..<100 where unavailable.savedCommandDraft != nil || unavailable.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(unavailable.effort == "high" && unavailable.draft.isEqual(to: draftA) && unavailable.savedCommandDraft == nil, "finishing model selection restores the original prompt and attachments")
         unavailable.close()
         print("\(count) native checks passed")
@@ -742,6 +761,14 @@ enum Render {
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
         write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
+        let modelMenu = Session(cwd: "/Users/example/projects/atlas")
+        modelMenu.model = "claude-opus-5-5"; modelMenu.effort = "high"
+        modelMenu.models = ["claude-haiku-4-5", "claude-opus-5-5"]
+        modelMenu.modelEfforts = ["claude-opus-5-5": ["low", "medium", "high"]]
+        for (name, query) in [("provider", "/model "), ("model", "/model claude "), ("effort", "/model claude claude-opus-5-5 ")] {
+            modelMenu.showCommands(query, preserveDraft: false)
+            write(CommandPalette(session: modelMenu), size: CGSize(width: 700, height: 260), path: directory + "/selected-" + name + ".png")
+        }
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String) {

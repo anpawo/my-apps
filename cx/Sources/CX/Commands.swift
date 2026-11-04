@@ -5,6 +5,7 @@ struct ChatCommand: Identifiable, Equatable {
     var detail: String
     var source = "vcx"
     var insert: String
+    var isCurrent = false
     var id: String { source + ":" + insert }
 }
 
@@ -84,26 +85,30 @@ extension Session {
         let argument = parts.count > 1 ? parts[1].lowercased() : ""
         var choices: [ChatCommand] = []
         if parts.count > 1 {
-            func option(_ value: String, _ description: String, label: String? = nil) -> ChatCommand {
-                ChatCommand(name: label ?? value, detail: description, insert: verb + " " + value)
+            func option(_ value: String, _ description: String, label: String? = nil, isCurrent: Bool = false) -> ChatCommand {
+                ChatCommand(name: label ?? value, detail: description, insert: verb + " " + value, isCurrent: isCurrent)
             }
             switch verb {
             case "/provider", "/model":
                 let args = argument.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-                let providers = ["auto", "claude", "codex", "qwen"]
+                let providers = ["claude", "codex", "qwen"]
                 if args.count == 1 {
-                    return providers.filter { argument.isEmpty || $0.contains(argument) }.map { option($0 + " ", $0 == "auto" ? "Switch automatically when a provider is unavailable" : "Choose a " + $0.capitalized + " model", label: $0.capitalized) }
+                    return providers.filter { argument.isEmpty || $0.contains(argument) }.map { option($0 + " ", "Choose a " + $0.capitalized + " model", label: $0.capitalized, isCurrent: $0 == account.provider) }
                 }
                 let provider = args[0]
                 guard provider == account.provider || provider == "auto" else { return [] }
                 if args.count == 2 {
                     return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) }.map {
-                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0)
+                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0, isCurrent: $0 == model)
                     }
                 }
-                return (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
-                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0)
+                choices = (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
+                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: args[1] == model && $0 == effort)
                 }
+                if args[1] == model, effort == nil, args[2].isEmpty || "default".contains(args[2]) {
+                    choices.insert(option(provider + " " + args[1] + " default", "Keep the provider's configured effort", label: "Default", isCurrent: true), at: 0)
+                }
+                return choices
             case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
             case "/account":
                 choices = Settings.shared.value.accounts.map { option($0.id, $0.provider.capitalized + ($0.enabled ? " · enabled" : " · disabled"), label: $0.name) }
@@ -139,7 +144,7 @@ extension Session {
         let trimmed = text.trimmingCharacters(in: .newlines)
         let next: String? = trimmed.hasPrefix("/") && !trimmed.contains("\n") && caret == (text as NSString).length ? trimmed : nil
         if next != commandQuery {
-            commandQuery = next; commandSelection = 0
+            commandQuery = next; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0
             if next?.contains(" ") == true, commandOptions.isEmpty { commandQuery = nil }
         }
     }
@@ -147,7 +152,7 @@ extension Session {
         guard !changing || !preserveDraft else { notice("Wait for the connection change before opening session settings."); return }
         if preserveDraft, draft.length > 0, savedCommandDraft == nil { savedCommandDraft = draft }
         editDraft(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]))
-        commandQuery = text; commandSelection = 0; focusComposer()
+        commandQuery = text; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0; focusComposer()
     }
     func dismissCommands() {
         commandQuery = nil
@@ -234,8 +239,8 @@ extension Session {
                     guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
                     let efforts = modelEfforts[args[1]] ?? []
                     if args.count == 2, !efforts.isEmpty { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
-                    guard args.count == 2 || efforts.contains(args[2]) else { throw CXError(message: "Choose an effort from the menu.") }
-                    await changeModel(args[1], effort: args.count == 3 ? args[2] : nil)
+                    guard args.count == 2 || efforts.contains(args[2]) || args[2] == "default" else { throw CXError(message: "Choose an effort from the menu.") }
+                    await changeModel(args[1], effort: args.count == 3 && args[2] != "default" ? args[2] : nil)
                 } else {
                     guard ready else { throw CXError(message: "Reconnect before changing models.") }
                     await changeModel(argument)

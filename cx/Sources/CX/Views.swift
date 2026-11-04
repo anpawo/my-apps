@@ -245,7 +245,7 @@ struct SettingsPopup: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    setting("Provider", settings.value.provider.capitalized, "/model ")
+                    setting("Provider", session.providerLabel, "/model ")
                     setting("Model", session.modelLabel, "/model ")
                     setting("Effort", session.effort ?? "Default", "/model ")
                     setting("Permissions", session.mode, "/mode ")
@@ -344,8 +344,8 @@ struct CommandPalette: View {
                 .onChange(of: session.commandSelection) { _, index in
                     if session.commandOptions.indices.contains(index) { proxy.scrollTo(session.commandOptions[index].id, anchor: .center) }
                 }
-                .onChange(of: session.commandQuery) { _, _ in
-                    if let first = session.commandOptions.first { proxy.scrollTo(first.id, anchor: .top) }
+                .onChange(of: session.commandQuery, initial: true) { _, _ in
+                    if session.commandOptions.indices.contains(session.commandSelection) { proxy.scrollTo(session.commandOptions[session.commandSelection].id, anchor: .center) }
                 }
             }.frame(height: min(max(CGFloat(session.commandOptions.count) * 51 + 12, 65), maxListHeight))
             Divider().overlay(.white.opacity(0.03))
