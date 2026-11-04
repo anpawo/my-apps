@@ -165,7 +165,8 @@ final class Session: ObservableObject {
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
     var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
-    var modelStatusLabel: String { modelLabel + " - " + (effort ?? defaultEffort ?? (account.provider == "qwen" ? "off" : "default")) }
+    var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }
+    var modelStatusLabel: String { modelLabel + (effectiveEffort.map { " - " + $0 } ?? "") }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }

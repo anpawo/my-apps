@@ -305,7 +305,7 @@ struct SettingsPopup: View {
                 VStack(alignment: .leading, spacing: 6) {
                     setting("Provider", session.providerLabel, "/model ")
                     setting("Model", session.modelLabel, session.modelCommand)
-                    setting("Effort", session.effort ?? "Default", "/model ")
+                    if let effort = session.effectiveEffort { setting("Effort", effort, session.modelCommand + session.model + " ") }
                     setting("Permissions", session.mode, "/mode ")
                     setting("Working directory", session.cwd, "/dir ")
                     Divider().padding(.vertical, 8)

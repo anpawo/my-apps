@@ -443,14 +443,17 @@ enum Check {
         session.showCommands("/model codex fixture-model ", preserveDraft: false)
         check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
         check(session.commandOptions[session.commandSelection].name == "high", "keeping the current model highlights its current effort")
+        session.modelDefaultEfforts["other-model"] = "high"
         session.showCommands("/model codex other-model ", preserveDraft: false)
-        check(session.commandSelection == 0, "a different model starts with its first effort option")
+        check(session.commandOptions[session.commandSelection].name == "high", "a different model highlights its catalog default effort")
         session.effort = nil
+        session.defaultEffort = "high"
         session.showCommands("/model codex fixture-model ", preserveDraft: false)
-        check(session.commandOptions[session.commandSelection].name == "Default", "an inherited effort remains selected instead of becoming low")
+        check(session.commandOptions.map(\.name) == ["low", "high"], "inherited effort menus contain only concrete levels")
+        check(session.commandOptions[session.commandSelection].name == "high", "an inherited effort highlights the provider's configured level")
         session.dismissCommands()
-        await session.command("/model codex fixture-model default")
-        check(session.effort == nil && (connections["codex-default"]?.opened.last?["effort"] is NSNull), "confirming Default preserves the provider's configured effort")
+        await session.command("/model codex fixture-model high")
+        check(session.effort == "high" && connections["codex-default"]?.opened.last?["effort"] as? String == "high", "confirming an inherited level applies the displayed effort")
         session.dismissCommands()
         await session.command("/model codex fixture-model high")
         check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")

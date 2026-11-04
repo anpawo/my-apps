@@ -105,10 +105,7 @@ extension Session {
                     }
                 }
                 choices = (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
-                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: args[1] == model && $0 == effort)
-                }
-                if args[1] == model, effort == nil, args[2].isEmpty || "default".contains(args[2]) {
-                    choices.insert(option(provider + " " + args[1] + " default", "Keep the provider's configured effort", label: "Default", isCurrent: true), at: 0)
+                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: $0 == (args[1] == model ? effectiveEffort : modelDefaultEfforts[args[1]]))
                 }
                 return choices
             case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
@@ -257,8 +254,8 @@ extension Session {
                     guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
                     let efforts = modelEfforts[args[1]] ?? []
                     if args.count == 2, !efforts.isEmpty { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
-                    guard args.count == 2 || efforts.contains(args[2]) || args[2] == "default" else { throw CXError(message: "Choose an effort from the menu.") }
-                    await changeModel(args[1], effort: args.count == 3 && args[2] != "default" ? args[2] : nil)
+                    guard args.count == 2 || efforts.contains(args[2]) else { throw CXError(message: "Choose an effort from the menu.") }
+                    await changeModel(args[1], effort: args.count == 3 ? args[2] : nil)
                 } else {
                     guard ready else { throw CXError(message: "Reconnect before changing models.") }
                     await changeModel(argument)
