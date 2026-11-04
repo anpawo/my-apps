@@ -6,7 +6,11 @@ enum Check {
     static func live(settings: String) async -> Bool {
         var okay = true
         let claude = ClaudeConnection(account: Account(name: "Default Claude", provider: "claude"), cwd: NSTemporaryDirectory())
-        do { try await claude.start(); print("Claude subscription: ready") }
+        do {
+            try await claude.start()
+            let catalog = try await claude.request("cx/catalog")
+            print("Claude subscription: ready; \((catalog["commands"] as? [JSON] ?? []).count) commands; \((catalog["models"] as? [JSON] ?? []).count) models; permission mode: \(catalog["current_permission_mode"] as? String ?? "not reported")")
+        }
         catch { print("Claude subscription: " + error.localizedDescription); okay = false }
         claude.close()
         let codex = RPC()
@@ -17,8 +21,10 @@ enum Check {
         } catch { print("Codex subscription: " + error.localizedDescription); okay = false }
         codex.close()
         do {
-            let preferences = try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: URL(fileURLWithPath: settings)))
-            let network = qwenNetwork(preferences)
+            let defaults = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Preferences())) as! JSON
+            let stored = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: settings))) as! JSON
+            let preferences = try JSONDecoder().decode(Preferences.self, from: JSONSerialization.data(withJSONObject: defaults.merging(stored) { _, value in value }))
+            let network = try qwenNetwork(preferences)
             defer { network.invalidateAndCancel() }
             guard var parts = URLComponents(string: preferences.qwenURL) else { throw CXError(message: "Invalid Qwen URL.") }
             parts.path = "/api/tags"
@@ -94,6 +100,16 @@ enum Check {
         }
         do {
             try await claude.start(command: ["python3", fixture, "claude"])
+            let catalog = try await claude.request("cx/catalog")
+            check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
+            check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
+            let previousModel = claude.model
+            do {
+                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me"])
+                check(false, "Claude model rejection must surface")
+            } catch { check(claude.model == previousModel && error.localizedDescription.contains("rejected"), "Claude model changes require acknowledgement") }
+            _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "accepted-model"])
+            check(claude.model == "accepted-model", "acknowledged Claude model changes apply")
             let started = try await claude.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
             let turn = (started["turn"] as? JSON)?["id"] as? String ?? ""
             let steered = try await claude.request("turn/steer", ["expectedTurnId": turn, "input": [["type": "text", "text": "Guidance"]]])
@@ -108,7 +124,7 @@ enum Check {
         do {
             try server.run()
             let port = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            var preferences = Preferences(); preferences.qwenURL = "http://127.0.0.1:" + port + "/api/chat"
+            var preferences = Preferences(); preferences.mode = "ask"; preferences.qwenURL = "http://127.0.0.1:" + port + "/api/chat"
             let qwen = QwenConnection(preferences: preferences)
             var qwenText = "", qwenDone = false
             qwen.event = { message in
@@ -132,6 +148,28 @@ enum Check {
             for _ in 0..<200 where !toolDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(approved && toolDone && toolOutput == "native-tool-check", "Qwen commands require approval and return their output")
             tools.close()
+            preferences.mode = "bypass"
+            let bypass = QwenConnection(preferences: preferences, cwd: directory.path)
+            var bypassAsked = false, bypassDone = false, bypassOutput = ""
+            bypass.event = { message in
+                if message["id"] != nil { bypassAsked = true }
+                let params = message["params"] as? JSON ?? [:]
+                if let item = params["item"] as? JSON { bypassOutput = item["aggregatedOutput"] as? String ?? bypassOutput }
+                if message["method"] as? String == "turn/completed" { bypassDone = true }
+            }
+            _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
+            for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(bypassDone && !bypassAsked && bypassOutput == "native-tool-check", "Qwen bypass executes without approval")
+            bypass.close()
+            Settings.shared.value = preferences; Settings.shared.value.provider = "qwen"; Settings.shared.save()
+            let configured = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-config"))
+            await configured.connect(resume: nil)
+            await configured.command("/qwen model fixture-new-model")
+            await configured.send(text: "MODEL", images: [])
+            for _ in 0..<200 where configured.busy { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(configured.model == "fixture-new-model" && configured.rows.last?.items.first?.text == "fixture-new-model", "Qwen configuration changes the outbound HTTP model")
+            configured.close()
+            Settings.shared.value = Preferences(); Settings.shared.save()
         } catch { check(false, "Qwen integration: " + error.localizedDescription) }
         if server.isRunning { server.terminate() }
         Settings.shared.value = Preferences()
@@ -147,7 +185,7 @@ enum Check {
         check(session.ready && session.account.provider == "claude", "Claude is the default")
         session.draft = NSAttributedString(string: "Build the feature")
         await session.send(text: "Build the feature", images: [])
-        for _ in 0..<200 where session.busy || session.account.provider != "codex" { try? await Task.sleep(nanoseconds: 10_000_000) }
+        for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
         check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
         check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
@@ -254,6 +292,191 @@ enum Check {
         check(staleRestore.ready && staleRestore.currentConversationID == newRecord && staleRestore.draft.string == "Draft in the new conversation", "new conversation clears a failed restore target before reconnect")
         staleRestore.close()
 
+        Settings.shared.value = Preferences(); Settings.shared.save()
+        let commands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("commands"))
+        commands.connectionFactory = { account, _ in FixtureConnection(account) }
+        check(commands.activeMode == "bypass", "permission mode defaults to bypass")
+        await commands.send(text: "/help", images: [])
+        check(!commands.ready && commands.rows.last?.items.first?.text.contains("/provider") == true, "commands work before a provider is connected")
+        commands.updateCommands("/", caret: 1)
+        check(commands.commandOptions.contains { $0.name == "/mode" }, "slash opens application command catalog")
+        commands.updateCommands("/mode ", caret: 6)
+        check(commands.commandOptions.map(\.name) == ["bypass", "ask"], "permission choices autocomplete")
+        commands.updateCommands("/answer yes", caret: 11)
+        check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
+        commands.updateCommands("/mode ", caret: 6)
+        commands.chooseCommand(commands.commandOptions[1])
+        check(commands.draft.string == "/mode ask" && commands.commandQuery == nil, "command selection fills the composer without executing")
+        commands.draft = NSAttributedString(string: "Keep this prompt")
+        commands.showCommands("/provider ")
+        commands.dismissCommands()
+        check(commands.draft.string == "Keep this prompt", "sidebar shortcuts preserve existing drafts")
+        commands.showCommands("/status")
+        await commands.command("/status")
+        check(commands.draft.string == "Keep this prompt", "settings commands restore an existing draft")
+        await commands.connect(resume: nil)
+        check(commands.ready && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never" && (commands.rpc as? FixtureConnection)?.opened.first?["sandbox"] as? String == "danger-full-access", "Codex-compatible threads apply bypass, not only the label")
+        commands.draft = NSAttributedString(string: "/mode ask")
+        await commands.command("/mode ask")
+        check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "chat mode change reconnects using the requested policy")
+        commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
+        commands.updateCommands("/fixture", caret: 8)
+        check(commands.commandOptions.count == 2, "provider commands and aliases appear in slash search")
+        commands.draft = NSAttributedString(string: "/claude:fixture-skill check")
+        await commands.command("/claude:fixture-skill check")
+        check(((commands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == "/fixture-skill check", "provider slash commands are forwarded without a vcx formatting prompt")
+        for _ in 0..<100 where commands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        let nextDirectory = directory.appendingPathComponent("next")
+        try! FileManager.default.createDirectory(at: nextDirectory, withIntermediateDirectories: true)
+        commands.draft = NSAttributedString(string: "/dir " + nextDirectory.path)
+        await commands.command("/dir " + nextDirectory.path)
+        check(commands.cwd == nextDirectory.path && commands.ready, "chat changes directory and starts a session there")
+        commands.close()
+        Settings.shared.value = Preferences(); Settings.shared.save()
+        let draftsDirectory = directory.appendingPathComponent("draft-switches")
+        let first = Session(cwd: directory.path, stateDirectory: draftsDirectory)
+        first.connectionFactory = { account, _ in FixtureConnection(account) }
+        await first.connect(resume: nil)
+        let draftA = NSMutableAttributedString(string: "Draft A ")
+        draftA.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
+        first.draft = draftA; first.save()
+        let firstID = first.currentConversationID
+        let second = Session(cwd: directory.path, stateDirectory: draftsDirectory)
+        second.connectionFactory = { account, _ in FixtureConnection(account) }
+        await second.connect(resume: nil)
+        let draftB = NSMutableAttributedString(string: "Draft B ")
+        draftB.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
+        second.draft = draftB; second.save()
+        let secondID = second.currentConversationID
+        second.close()
+        first.showCommands("/")
+        first.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: "/resume " + secondID))
+        await first.command("/resume " + secondID)
+        check(first.savedCommandDraft == nil && first.draft.string == draftB.string && draftContent(first.draft).last?["path"] as? String == imagePath, "resume preserves the destination draft and its image")
+        func storedDraft(_ id: String) -> [JSON] {
+            let file = first.nativeDirectory.appendingPathComponent(String(id.dropFirst(7)) + ".json")
+            return ((try! JSONSerialization.jsonObject(with: Data(contentsOf: file))) as! JSON)["draft"] as! [JSON]
+        }
+        check(storedDraft(firstID).first?["text"] as? String == "Draft A " && storedDraft(secondID).first?["text"] as? String == "Draft B ", "command resume saves each draft only into its own record")
+        first.draft = draftA; first.showCommands("/")
+        first.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
+        first.chooseCommand(first.providerCommands[0])
+        await first.command("/claude:fixture-skill ")
+        check(first.savedCommandDraft == nil && draftContent(first.draft).last?["path"] as? String == imagePath && first.draft.string == draftA.string, "native commands restore a previous text and image draft")
+        for _ in 0..<100 where first.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        first.draft = NSAttributedString(string: "New visible draft"); first.save()
+        check(storedDraft(secondID).first?["text"] as? String == "New visible draft", "later saves cannot persist a stale command buffer")
+        first.draft = NSAttributedString(string: "/review unfinished")
+        first.showCommands("/mode "); first.dismissCommands()
+        check(first.draft.string == "/review unfinished", "shortcuts preserve slash-prefixed drafts too")
+        first.showCommands("/profile broken"); await first.command("/profile broken")
+        check(first.draft.string == "/review unfinished" && first.savedCommandDraft == nil, "failed configuration restores the original draft")
+        Settings.shared.value.accounts[1].enabled = false; Settings.shared.save()
+        await first.command("/provider codex")
+        check(Settings.shared.value.provider == "auto" && first.account.provider == "claude", "an unavailable provider is rejected instead of reconnecting the wrong provider")
+        await first.command("/qwen proxy socks5://localhost")
+        check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
+        let question = Permission(rpcID: "fixture-question", method: "item/tool/requestUserInput", params: ["questions": [["id": "question", "question": "Choose"]]])
+        first.permissions.append(question); await first.command("/decline")
+        check(first.permissions.isEmpty, "questions can be cancelled through chat")
+        first.close()
+        Settings.shared.value = Preferences(); Settings.shared.value.provider = "codex"; Settings.shared.save()
+        let codexCommands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
+        codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
+        await codexCommands.connect(resume: nil)
+        codexCommands.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: "Codex skill", insert: "/codex:skill:fixture ")]
+        codexCommands.skillPaths = ["fixture": "/fixture/SKILL.md"]
+        codexCommands.draft = NSAttributedString(string: "/codex:skill:fixture check")
+        await codexCommands.command("/codex:skill:fixture check")
+        let skillInput = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
+        check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
+        for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        codexCommands.updateCommands("/", caret: 1)
+        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source == "Codex terminal" }, "the native Codex catalog lists unavailable terminal actions explicitly")
+        let editor = ComposerText(frame: .zero, textContainer: nil)
+        editor.session = codexCommands; editor.string = "/"
+        let coordinator = Composer.Coordinator(codexCommands)
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.moveDown(_:))) && codexCommands.commandSelection == 1, "composer arrow keys navigate completion")
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.insertTab(_:))) && codexCommands.draft.string == "/account ", "composer Tab completes without sending")
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))) && codexCommands.commandQuery == nil, "composer Escape dismisses completion")
+        codexCommands.close()
+        Settings.shared.value = Preferences(); Settings.shared.save()
+        let delayed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-commands"))
+        delayed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.sendDelay = 100_000_000; return fixture }
+        await delayed.connect(resume: nil)
+        delayed.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
+        delayed.draft = draftA; delayed.showCommands("/"); delayed.chooseCommand(delayed.providerCommands[0])
+        let pendingCommand = Task { await delayed.command("/claude:skill:fixture-skill ") }
+        for _ in 0..<100 where (delayed.rpc as? FixtureConnection)?.sent.isEmpty != false { try? await Task.sleep(nanoseconds: 1_000_000) }
+        delayed.editDraft(NSAttributedString(string: "/review new pending draft"))
+        delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
+        await pendingCommand.value
+        check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Draft A") && delayed.draft.string.contains("/review new pending draft") && draftContent(delayed.draft).contains { $0["path"] as? String == imagePath }, "new slash input during native dispatch preserves both drafts and attachments")
+        for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        delayed.draft = draftA; delayed.showCommands("/")
+        delayed.editDraft(NSAttributedString(string: "Normal replacement"))
+        delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
+        check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Normal replacement") && delayed.draft.string.contains("Draft A"), "abandoning command mode restores the buffer visibly and clears it")
+        for source in ["/claude:compact", "/vcx:compact", "/claude:review pending changes"] {
+            delayed.draft = NSAttributedString(string: source)
+            await delayed.command(source)
+            let canonical = source.replacingOccurrences(of: "/claude:", with: "/").replacingOccurrences(of: "/vcx:", with: "/")
+            check(((delayed.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == canonical, "scoped Claude commands forward the canonical verb")
+            for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        delayed.close()
+        let destinationText = storedDraft(secondID).compactMap { $0["text"] as? String }.joined()
+        let transitions = Session(cwd: directory.path, stateDirectory: draftsDirectory)
+        var transitionDelay: UInt64 = 0, transitionFail = false
+        transitions.connectionFactory = { account, _ in
+            let fixture = FixtureConnection(account); fixture.startDelay = transitionDelay; fixture.failStart = transitionFail; return fixture
+        }
+        await transitions.connect(resume: nil)
+        transitions.draft = draftA
+        transitionDelay = 100_000_000
+        let typedWhileConnecting = NSMutableAttributedString(string: "Typed while connecting ")
+        typedWhileConnecting.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
+        let pendingImagePath = directory.appendingPathComponent("attached during resume.png").path
+        try! FileManager.default.copyItem(atPath: imagePath, toPath: pendingImagePath)
+        for operation in ["resume", "failed-resume", "failed-directory"] {
+            transitionFail = operation != "resume"
+            transitions.draft = draftA; transitions.showCommands("/")
+            let previousConversation = transitions.currentConversationID
+            let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
+            transitions.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: source))
+            let pendingTransition = Task { await transitions.command(source) }
+            for _ in 0..<100 where (transitions.rpc as? FixtureConnection)?.startDelay != transitionDelay { try? await Task.sleep(nanoseconds: 1_000_000) }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            check(transitions.changing, "connection startup keeps transitions serialized")
+            let connection = transitions.rpc
+            await transitions.command("/provider qwen")
+            check(transitions.rpc === connection && Settings.shared.value.provider == "auto", "a second provider transition cannot replace a starting connection")
+            if operation == "resume" { await transitions.command("/attach " + pendingImagePath) }
+            else { transitions.editDraft(typedWhileConnecting) }
+            await pendingTransition.value
+            let expectedImagePath = operation == "resume" ? pendingImagePath : imagePath
+            check((operation == "resume" || transitions.draft.string.contains("Typed while connecting")) && draftContent(transitions.draft).contains { $0["path"] as? String == expectedImagePath }, "\(operation) preserves text and images entered during connection")
+            if operation == "resume" { check(!destinationText.isEmpty && transitions.draft.string.hasPrefix(destinationText), "successful resume merges the destination draft with pending edits") }
+            else { check(transitions.draft.string.contains("Draft A"), "\(operation) retains the original draft when rolling back") }
+            transitionFail = false
+            await transitions.reconnect()
+            if operation == "failed-directory" { check(transitions.currentConversationID == previousConversation && transitions.cwd == directory.path, "failed directory changes reconnect to the original record and directory") }
+        }
+        transitions.close()
+        let listing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-list"))
+        listing.connectionFactory = { account, _ in FixtureConnection(account) }
+        await listing.connect(resume: nil)
+        let listingConnection = listing.rpc as! FixtureConnection
+        listingConnection.catalogDelay = 100_000_000
+        let previousCatalogRequests = listingConnection.catalogRequests
+        listing.draft = draftA; listing.showCommands("/resume")
+        let pendingListing = Task { await listing.command("/resume") }
+        for _ in 0..<100 where listingConnection.catalogRequests == previousCatalogRequests { try? await Task.sleep(nanoseconds: 1_000_000) }
+        listing.editDraft(typedWhileConnecting)
+        listing.updateCommands(listing.draft.string, caret: listing.draft.length)
+        await pendingListing.value
+        check(listing.savedCommandDraft == nil && listing.draft.string.contains("Typed while connecting") && draftContent(listing.draft).contains { $0["path"] as? String == imagePath }, "resume listing keeps text and images entered while catalog refreshes")
+        listing.close()
         print("\(count) native checks passed")
         return true
     }
@@ -265,7 +488,12 @@ enum Render {
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "Claude Sonnet"; session.providerLabel = "Claude"
-        session.context = "24% context"; session.usage = "18% 5h / 32% weekly"
+        session.context = "24% context"; session.usage = "18% 5h / 32% weekly"; session.tokens = "48,320"
+        session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"
+        session.hooks = ["SessionStart · project context", "PreToolUse · command checks", "PostToolUse · verification"]
+        session.skills = ["ponytail", "ui-tweak", "swift-macos", "diagnosing-bugs", "playwright-cli", "writing-style"]
+        session.mcp = ["Filesystem · connected", "GitHub · connected"]
+        session.instructions = ["AGENTS.md", "CLAUDE.md"]
         session.recent = [Recent(id: "1", title: "Build a clearer workspace"), Recent(id: "2", title: "Review the authentication flow"), Recent(id: "3", title: "Improve image attachments")]
         let image = NSImage(size: NSSize(width: 600, height: 360), flipped: false) { rect in
             NSColor(calibratedRed: 0.22, green: 0.14, blue: 0.38, alpha: 1).setFill(); rect.fill()
@@ -277,16 +505,22 @@ enum Render {
         if let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data) { try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: imagePath)) }
         session.show(["id": "user", "type": "userMessage", "content": [["type": "text", "text": "Make the workspace feel like this, with compact image attachments."], ["type": "localImage", "path": imagePath]]])
         session.show(["id": "tool", "type": "commandExecution", "command": "swift build -c release", "status": "completed", "exitCode": 0, "aggregatedOutput": "Build complete."])
-        session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nYour existing conversations are still available in the sidebar."])
+        session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nType / to find commands, change settings, or resume a conversation."])
         let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         session.draft = draft
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
-        write(SettingsView(session: session), size: CGSize(width: 620, height: 640), path: directory + "/settings.png")
+        session.showCommands("/")
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")
+        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
+        session.commandQuery = nil
+        session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
+        session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white]); session.draftRevision += 1
+        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
         write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
-        print("Rendered conversation, settings, and empty state offscreen")
+        print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String) {
         let host = NSHostingView(rootView: view)
@@ -305,6 +539,11 @@ final class FixtureConnection: Connection {
     var event: (JSON) -> Void = { _ in }
     let account: Account
     var sent: [JSON] = []
+    var opened: [JSON] = []
+    var sendDelay: UInt64 = 0
+    var startDelay: UInt64 = 0
+    var catalogDelay: UInt64 = 0
+    var catalogRequests = 0
     var failStart = false
     var failSend = false
     var limit = false
@@ -312,14 +551,19 @@ final class FixtureConnection: Connection {
     var closed = false
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
-    func start(command: [String]?) async throws { if failStart { throw CXError(message: "Expected connection failure") } }
+    func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
     func request(_ method: String, _ params: JSON, timeout: Double) async throws -> JSON {
         switch method {
-        case "thread/start", "thread/resume": return ["thread": ["id": account.provider + ":fixture"], "model": "fixture-model"]
-        case "thread/list", "thread/turns/list": return ["data": []]
+        case "thread/start", "thread/resume": opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
+        case "thread/list":
+            catalogRequests += 1
+            if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }
+            return ["data": []]
+        case "thread/turns/list": return ["data": []]
         case "model/list": return ["data": [["id": "fixture-model"]]]
         case "turn/start", "turn/steer":
             sent.append(params)
+            if sendDelay > 0 { try await Task.sleep(nanoseconds: sendDelay) }
             if failSend { throw CXError(message: "Expected send failure") }
             event(["method": "turn/started", "params": ["turn": ["id": pendingTurn]]])
             Task { @MainActor in

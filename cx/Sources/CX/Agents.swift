@@ -38,6 +38,10 @@ final class ClaudeConnection: Connection {
     private var stopped = false
     private var command: [String]?
     private var pendingUsers: [String] = []
+    private var metadata: JSON?
+    private var waiting: [String: CheckedContinuation<JSON, Error>] = [:]
+    private var timers: [String: DispatchWorkItem] = [:]
+    private var mode = Settings.shared.value.mode
     init(account: Account, cwd: String) { self.account = account; self.cwd = cwd }
     func start(command: [String]? = nil) async throws {
         self.command = command
@@ -62,7 +66,7 @@ final class ClaudeConnection: Connection {
     private func launch(resume: Bool) throws {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio"] +
+        process.arguments = command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = agentEnvironment(account)
@@ -91,13 +95,26 @@ final class ClaudeConnection: Connection {
     private var resumed = false
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
-        case "thread/start": return ["thread": ["id": thread], "model": model]
+        case "thread/start": mode = params["approvalPolicy"] as? String == "never" ? "bypass" : "ask"; return ["thread": ["id": thread], "model": model]
         case "thread/resume":
+            if let approval = params["approvalPolicy"] as? String { mode = approval == "never" ? "bypass" : "ask" }
             guard let id = params["threadId"] as? String else { throw CXError(message: "Missing Claude conversation ID.") }
-            if let value = params["model"] as? String { model = value; if process != nil { try control(["subtype": "set_model", "model": value]) }; return ["model": model] }
+            if let value = params["model"] as? String {
+                if process != nil { _ = try await controlResult(["subtype": "set_model", "model": value], timeout: 15) }
+                model = value
+            }
             thread = id; resumed = true; return ["thread": ["id": thread], "model": model]
         case "thread/turns/list": return ["data": []]
-        case "model/list": return ["data": ["sonnet", "opus", "haiku"].map { ["id": $0] }]
+        case "model/list":
+            let catalog = try await catalog()
+            return ["data": (catalog["models"] as? [JSON] ?? []).compactMap { ($0["value"] as? String).map { ["id": $0] } }]
+        case "cx/catalog":
+            var result = try await catalog()
+            do {
+                let status = try await controlResult(["subtype": "mcp_status"], timeout: 10)
+                result["mcp_servers"] = status["mcpServers"] ?? status["mcp_servers"]
+            } catch { result["mcp_servers"] = [["name": "MCP status", "status": error.localizedDescription]] }
+            return result
         case "thread/list", "account/rateLimits/read": return [:]
         case "turn/start", "turn/steer":
             if process == nil { try launch(resume: resumed); resumed = true }
@@ -110,7 +127,7 @@ final class ClaudeConnection: Connection {
             }
             let userID = params["clientUserMessageId"] as? String ?? UUID().uuidString
             try write(["type": "user", "uuid": userID, "message": ["role": "user", "content": content]])
-            pendingUsers.append(userID)
+            resumed = true; pendingUsers.append(userID)
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
         case "turn/interrupt": stopped = true; try control(["subtype": "interrupt"]); return [:]
@@ -138,6 +155,13 @@ final class ClaudeConnection: Connection {
     func receive(_ message: JSON) {
         if message["parent_tool_use_id"] is String { return }
         switch message["type"] as? String {
+        case "control_response":
+            let response = message["response"] as? JSON ?? [:]
+            if let id = response["request_id"] as? String {
+                timers.removeValue(forKey: id)?.cancel()
+                if response["subtype"] as? String == "error" { waiting.removeValue(forKey: id)?.resume(throwing: CXError(message: response["error"] as? String ?? "Claude rejected the control request.")) }
+                else { waiting.removeValue(forKey: id)?.resume(returning: response["response"] as? JSON ?? [:]) }
+            }
         case "system":
             if message["subtype"] as? String == "init", let model = message["model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
         case "control_cancel_request":
@@ -200,6 +224,10 @@ final class ClaudeConnection: Connection {
             emit("cx/claudeLimit", info)
             if info["status"] as? String == "rejected" { limit = info }
         case "result":
+            if let usage = message["usage"] as? JSON {
+                let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
+                emit("cx/tokens", ["input": input, "output": usage["output_tokens"] as? Int ?? 0])
+            }
             if let limit { emit("cx/limit", ["limit": limit]); return }
             if usageLimit(message) { emit("cx/limit", ["limit": message]); return }
             let ids = message["user_message_uuids"] as? [String] ?? (message["user_message_uuid"] as? String).map { [$0] } ?? []
@@ -228,12 +256,37 @@ final class ClaudeConnection: Connection {
         controls.removeValue(forKey: key)
     }
     func reject(_ id: Any, method: String) throws { try respond(id, ["decision": "decline"]) }
+    private func catalog() async throws -> JSON {
+        if let metadata { return metadata }
+        if process == nil { try launch(resume: resumed) }
+        let result = try await controlResult(["subtype": "initialize"], timeout: 20)
+        metadata = result
+        if model == "Claude", let resolved = (result["models"] as? [JSON])?.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String { model = resolved; emit("cx/model", ["model": resolved]) }
+        emit("cx/catalog", result); return result
+    }
+    private func controlResult(_ request: JSON, timeout: Double) async throws -> JSON {
+        let id = UUID().uuidString
+        return try await withCheckedThrowingContinuation { continuation in
+            waiting[id] = continuation
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                timers.removeValue(forKey: id)
+                waiting.removeValue(forKey: id)?.resume(throwing: CXError(message: "Claude metadata request timed out."))
+            }
+            timers[id] = timer; DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
+            do { try write(["type": "control_request", "request_id": id, "request": request]) }
+            catch { timers.removeValue(forKey: id)?.cancel(); waiting.removeValue(forKey: id)?.resume(throwing: error) }
+        }
+    }
     private func control(_ request: JSON) throws { try write(["type": "control_request", "request_id": UUID().uuidString, "request": request]) }
     private func write(_ message: JSON) throws {
         guard let input, process?.isRunning == true else { throw CXError(message: "Claude is disconnected.") }
         try input.write(contentsOf: JSONSerialization.data(withJSONObject: message) + Data([10]))
     }
-    func close() { closed = true; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
+    func close() {
+        for timer in timers.values { timer.cancel() }; timers.removeAll()
+        for continuation in waiting.values { continuation.resume(throwing: CXError(message: "Claude is disconnected.")) }; waiting.removeAll()
+        closed = true; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
 }
 
 func pretty(_ value: Any) -> String {
@@ -245,21 +298,27 @@ func pretty(_ value: Any) -> String {
 final class QwenConnection: Connection {
     var event: (JSON) -> Void = { _ in }
     var thread = "qwen:" + UUID().uuidString
-    var messages: [JSON] = [["role": "system", "content": "You are Qwen in Vibe Code X, a coding assistant. Use run_command to inspect or change files when the user asks. Each command needs the user’s approval. Check the project instructions before changing code. Never claim to have performed an action unless its tool result confirms it. Stop when the task is complete."]]
+    var messages: [JSON] = [["role": "system", "content": "You are Qwen in Vibe Code X, a coding assistant. Use run_command to inspect or change files when the user asks. Check the project instructions before changing code. Never claim to have performed an action unless its tool result confirms it. Stop when the task is complete."]]
     private var task: Task<Void, Never>?
     private var turn = ""
     let preferences: Preferences
     let cwd: String
+    private var selectedModel: String?
     private var permissions: [String: CheckedContinuation<Bool, Never>] = [:]
     private var commandProcess: Process?
-    private lazy var network = qwenNetwork(preferences)
+    private var network: URLSession?
+    private func connection() throws -> URLSession {
+        if let network { return network }
+        let session = try qwenNetwork(preferences); network = session; return session
+    }
     init(preferences: Preferences, cwd: String = FileManager.default.currentDirectoryPath) { self.preferences = preferences; self.cwd = cwd }
     func start(command: [String]? = nil) async throws {}
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
         case "thread/start", "thread/resume":
             if let id = params["threadId"] as? String { thread = id }
-            return ["thread": ["id": thread], "model": preferences.qwenModel]
+            if let model = params["model"] as? String { selectedModel = model }
+            return ["thread": ["id": thread], "model": selectedModel ?? preferences.qwenModel]
         case "thread/turns/list", "thread/list": return ["data": []]
         case "account/rateLimits/read": return [:]
         case "model/list": return ["data": [["id": preferences.qwenModel], ["id": preferences.qwenVisionModel]]]
@@ -285,7 +344,7 @@ final class QwenConnection: Connection {
                 do {
                     for _ in 0..<12 {
                         try Task.checkCancellation()
-                        let (answer, calls) = try await completion(url: url, model: images.isEmpty ? preferences.qwenModel : preferences.qwenVisionModel, item: item)
+                        let (answer, calls) = try await completion(url: url, model: images.isEmpty ? selectedModel ?? preferences.qwenModel : preferences.qwenVisionModel, item: item)
                         if !calls.isEmpty {
                             messages.append(["role": "assistant", "content": answer, "tool_calls": calls])
                             for call in calls {
@@ -327,9 +386,9 @@ final class QwenConnection: Connection {
     private func completion(url: URL, model: String, item: String) async throws -> (String, [JSON]) {
         var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder after the user approves it. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
+        let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
         request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": messages, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
-        let (bytes, response) = try await network.bytes(for: request)
+        let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
         var answer = "", calls: [JSON] = []
         let id = item + "-" + UUID().uuidString
@@ -341,6 +400,7 @@ final class QwenConnection: Connection {
             let delta = message["content"] as? String ?? ""
             answer += delta
             calls += message["tool_calls"] as? [JSON] ?? []
+            if event["done"] as? Bool == true { emit("cx/tokens", ["input": event["prompt_eval_count"] as? Int ?? 0, "output": event["eval_count"] as? Int ?? 0]) }
             emit("item/agentMessage/delta", ["itemId": id, "delta": delta])
         }
         if !answer.isEmpty { emit("item/completed", ["item": ["id": id, "type": "agentMessage", "text": answer, "provider": "Qwen"]]) }
@@ -350,7 +410,7 @@ final class QwenConnection: Connection {
     private func commandResult(_ command: String) async throws -> String {
         let id = UUID().uuidString
         emit("item/started", ["item": ["id": id, "type": "commandExecution", "command": command, "status": "inProgress"]])
-        let allowed = await withCheckedContinuation { continuation in
+        let allowed = preferences.mode == "bypass" ? true : await withCheckedContinuation { continuation in
             permissions[id] = continuation
             event(["id": id, "method": "item/commandExecution/requestApproval", "params": ["threadId": thread, "command": command, "reason": "Qwen wants to run this command in " + cwd]])
         }
@@ -388,11 +448,16 @@ final class QwenConnection: Connection {
     func close() {
         task?.cancel(); if let commandProcess { endProcess(commandProcess, signal: SIGKILL) }
         for continuation in permissions.values { continuation.resume(returning: false) }
-        permissions.removeAll(); task = nil; network.invalidateAndCancel()
+        permissions.removeAll(); task = nil; network?.invalidateAndCancel()
     }
 }
 
-func qwenNetwork(_ preferences: Preferences) -> URLSession {
+func validQwenProxy(_ text: String) -> Bool {
+    guard let url = URL(string: text), url.scheme == "socks5", url.host != nil, let port = url.port, (1...65535).contains(port), url.user == nil, url.password == nil else { return false }; return true
+}
+
+func qwenNetwork(_ preferences: Preferences) throws -> URLSession {
+    guard preferences.qwenProxy.isEmpty || validQwenProxy(preferences.qwenProxy) else { throw CXError(message: "Invalid Qwen proxy. Set /qwen proxy socks5://host:port or /qwen proxy none. No request was sent.") }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     if !preferences.qwenProxy.isEmpty, let proxy = URL(string: preferences.qwenProxy), let host = proxy.host, let port = proxy.port {

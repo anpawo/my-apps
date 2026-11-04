@@ -12,6 +12,7 @@ struct Account: Codable, Identifiable, Equatable {
 
 struct Preferences: Codable {
     var provider = "auto"
+    var mode = "bypass"
     var accounts = [Account(id: "claude-default", name: "Default Claude", provider: "claude"), Account(id: "codex-default", name: "Default Codex", provider: "codex")]
     var limits: [String: Double] = [:]
     var qwenProxy = ""
@@ -52,6 +53,7 @@ final class Settings: ObservableObject {
             guard flock(fd, LOCK_EX) == 0 else { throw CXError(message: "Could not lock shared settings.") }
             var latest = Self.read(url)
             if value.provider != saved.provider { latest.provider = value.provider }
+            if value.mode != saved.mode { latest.mode = value.mode }
             for account in value.accounts {
                 guard let before = saved.accounts.first(where: { $0.id == account.id }) else {
                     if !latest.accounts.contains(where: { $0.id == account.id }) { latest.accounts.append(account) }
@@ -77,14 +79,13 @@ final class Settings: ObservableObject {
             provider == "qwen" ? [Account(id: "qwen", name: "Qwen", provider: "qwen")] : value.accounts.filter { $0.provider == provider && $0.enabled }
         }
     }
-    func addProfile(provider: String) {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.message = provider == "codex" ? "Choose this account’s CODEX_HOME folder. Credentials stay in that folder." : "Choose this account’s CLAUDE_CONFIG_DIR folder. Credentials stay in its own profile."
-        panel.begin { result in
-            guard result == .OK, let url = panel.url else { return }
-            let account = Account(name: url.lastPathComponent, provider: provider, home: url.path)
-            if !self.value.accounts.contains(where: { $0.home == account.home && $0.provider == provider }) { self.value.accounts.append(account); self.save() }
-        }
+    func addProfile(provider: String, path: String) throws {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardized
+        var directory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Profile directory does not exist.") }
+        guard !value.accounts.contains(where: { $0.home == url.path && $0.provider == provider }) else { return }
+        value.accounts.append(Account(name: url.lastPathComponent, provider: provider, home: url.path)); save()
+        if !error.isEmpty { throw CXError(message: error) }
     }
     func signIn(provider: String) {
         guard !signingIn else { return }
@@ -136,66 +137,4 @@ func agentEnvironment(_ account: Account? = nil) -> [String: String] {
     for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"] { environment.removeValue(forKey: key) }
     if let home = account?.home { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
     return environment
-}
-
-struct SettingsView: View {
-    @ObservedObject var session: Session
-    @ObservedObject private var settings = Settings.shared
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Text("Settings").font(.system(size: 24, weight: .semibold)); Spacer(); RoundButton(icon: "xmark", label: "Close settings") { settings.save(); dismiss() } }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Provider").font(.headline)
-                        Picker("Routing", selection: $settings.value.provider) {
-                            Text("Automatic").tag("auto"); Text("Claude").tag("claude"); Text("ChatGPT / Codex").tag("codex"); Text("Qwen").tag("qwen")
-                        }.pickerStyle(.segmented).labelsHidden()
-                        Text("Automatic tries enabled Claude accounts, then Codex accounts, then Qwen. Only an explicit usage limit triggers fallback. Changes apply after the current response.").font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Subscription accounts").font(.headline)
-                        ForEach($settings.value.accounts) { $account in
-                            HStack {
-                                Toggle("", isOn: $account.enabled).labelsHidden().toggleStyle(.checkbox)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    TextField("Account name", text: $account.name).textFieldStyle(.plain)
-                                    Text(account.home == nil ? "\(account.provider.capitalized) · existing sign-in" : "\(account.provider.capitalized) · isolated profile").font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button("Use") {
-                                    settings.value.provider = account.provider
-                                    for n in settings.value.accounts.indices where settings.value.accounts[n].provider == account.provider { settings.value.accounts[n].enabled = settings.value.accounts[n].id == account.id }
-                                    settings.save()
-                                }.font(.system(size: 11))
-                            }.padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
-                        }
-                        HStack {
-                            Menu("Add Claude account") { Button("Sign in with subscription") { settings.signIn(provider: "claude") }; Button("Use existing profile…") { settings.addProfile(provider: "claude") } }
-                            Menu("Add Codex account") { Button("Sign in with subscription") { settings.signIn(provider: "codex") }; Button("Use existing profile…") { settings.addProfile(provider: "codex") } }
-                        }.disabled(settings.signingIn)
-                        if !settings.loginMessage.isEmpty {
-                            Text(settings.loginMessage).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                            if settings.signingIn { Button("Cancel sign-in") { settings.cancelSignIn() } }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Qwen on your own machine").font(.headline)
-                        TextField("Ollama chat URL", text: $settings.value.qwenURL)
-                        TextField("SOCKS proxy (optional)", text: $settings.value.qwenProxy)
-                        TextField("Text model", text: $settings.value.qwenModel)
-                        TextField("Vision model", text: $settings.value.qwenVisionModel)
-                        Text("Uses the same Ollama connection as Jarvis. Qwen supports chat, images, and shell tools. Each shell command asks for approval. No model runs on this Mac unless you point this at localhost.").font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Prompts stay about the work").font(.headline)
-                        Text("vcx renders messages, code, images, questions, and actions consistently across providers. It adds no output-formatting prompt. Claude and Codex keep their own working instructions, skills, hooks, and permissions.").font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                    if !settings.error.isEmpty { Text(settings.error).foregroundStyle(.orange).font(.system(size: 12)) }
-                }.padding(.trailing, 8)
-            }
-            HStack { Text("Settings are shared across windows.").font(.system(size: 11)).foregroundStyle(.secondary); Spacer(); Button("Done") { settings.save(); dismiss() }.buttonStyle(.borderedProminent).tint(accent).keyboardShortcut(.defaultAction) }
-        }.padding(28).background(Color(white: 0.06)).foregroundStyle(.white.opacity(0.92)).preferredColorScheme(.dark).onAppear { settings.reload() }.onDisappear { settings.save() }
-    }
 }

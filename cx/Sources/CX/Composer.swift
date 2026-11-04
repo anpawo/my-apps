@@ -72,12 +72,15 @@ struct Composer: NSViewRepresentable {
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.documentView = field
         field.resized = { [weak field, coordinator = context.coordinator] in if let field { coordinator.measure(field) } }
         session.submitDraft = { [weak field] in field?.submit() }
+        session.focusComposer = { [weak field] in DispatchQueue.main.async { if let field { field.window?.makeFirstResponder(field) } } }
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard context.coordinator.revision != session.draftRevision, let field = scroll.documentView as? ComposerText else { return }
         context.coordinator.revision = session.draftRevision
+        context.coordinator.syncing = true
+        defer { context.coordinator.syncing = false }
         field.textStorage?.setAttributedString(session.draft)
         field.setSelectedRange(NSRange(location: session.draft.length, length: 0))
         field.needsDisplay = true
@@ -87,11 +90,17 @@ struct Composer: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         let session: Session
         var revision = 0
+        var syncing = false
         init(_ session: Session) { self.session = session }
         func textDidChange(_ notification: Notification) {
             guard let field = notification.object as? ComposerText, let storage = field.textStorage else { return }
-            session.draft = NSAttributedString(attributedString: storage)
+            session.editDraft(NSAttributedString(attributedString: storage), refresh: false)
+            session.updateCommands(storage.string, caret: field.selectedRange().location)
             measure(field)
+        }
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !syncing, let field = notification.object as? ComposerText else { return }
+            session.updateCommands(field.string, caret: field.selectedRange().location)
         }
         func measure(_ field: NSTextView) {
             guard let manager = field.layoutManager, let container = field.textContainer else { return }
@@ -100,7 +109,18 @@ struct Composer: NSViewRepresentable {
             if height != session.editorHeight { DispatchQueue.main.async { self.session.editorHeight = height } }
         }
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if session.commandQuery != nil {
+                if selector == #selector(NSResponder.moveUp(_:)) { session.moveCommand(-1); return true }
+                if selector == #selector(NSResponder.moveDown(_:)) { session.moveCommand(1); return true }
+                if selector == #selector(NSResponder.insertTab(_:)) { return session.completeCommand() }
+                if selector == #selector(NSResponder.cancelOperation(_:)) { session.dismissCommands(); return true }
+            }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
+                if session.commandQuery != nil, !session.commandOptions.isEmpty {
+                    let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
+                    if selected.insert != view.string { _ = session.completeCommand(); return true }
+                }
+                session.commandQuery = nil
                 (view as? ComposerText)?.submit(); return true
             }
             return false
@@ -129,7 +149,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: "Ask anything, or drop an image…", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty { NSAttributedString(string: "Ask anything, type / for commands, or drop an image…", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white.withAlphaComponent(0.35)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
@@ -185,7 +205,7 @@ final class ComposerText: NSTextView {
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), images)
     }
     func submit() {
-        guard let session, session.ready else { return }
+        guard let session else { return }
         let (text, images) = message()
         Task { await session.send(text: text, images: images) }
     }

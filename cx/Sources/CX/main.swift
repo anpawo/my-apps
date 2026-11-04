@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.begin { result in if result == .OK, let url = panel.url { self.openWindow(cwd: url.path) } }
     }
     @objc func newWindow() { openWindow(cwd: session?.cwd ?? NSHomeDirectory()) }
-    private func openWindow(cwd: String) {
+    func openWindow(cwd: String) {
         let bundle = Bundle.main.bundleURL
         guard bundle.pathExtension == "app" else { return }
         let config = NSWorkspace.OpenConfiguration(); config.createsNewApplicationInstance = true; config.arguments = ["--cwd", cwd]

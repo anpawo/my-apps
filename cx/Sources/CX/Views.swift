@@ -16,24 +16,33 @@ struct RoundButton: View {
 
 struct CXView: View {
     @ObservedObject var session: Session
-    @State private var sidebar = true
-    @State private var settings = false
+    @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
     var body: some View {
         HStack(spacing: 0) {
-            if sidebar { history.frame(width: 230); Rectangle().fill(.white.opacity(0.07)).frame(width: 1) }
+            sessionPanel.frame(width: 260)
+            Rectangle().fill(.white.opacity(0.07)).frame(width: 1)
             VStack(spacing: 0) {
-                header
-                Divider().overlay(.white.opacity(0.05))
                 transcript
+                    .overlay(alignment: .bottom) {
+                        if session.commandQuery != nil {
+                            GeometryReader { geometry in
+                                CommandPalette(session: session, maxListHeight: max(40, min(250, geometry.size.height - 90)))
+                                    .frame(maxWidth: 850).padding(.horizontal, 24).padding(.bottom, 8)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            }
+                        }
+                    }
+                if let permission = session.permissions.first {
+                    PermissionView(session: session, request: permission).id(permission.id).frame(maxHeight: 240).padding(.horizontal, 24).padding(.bottom, 10)
+                }
+                if !settings.loginMessage.isEmpty { loginStatus }
                 composer
             }
         }
         .foregroundStyle(.white.opacity(0.92))
         .background(Color(red: 0.035, green: 0.035, blue: 0.045))
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $settings) { SettingsView(session: session).frame(width: 620, height: 640) }
-        .overlay { if let permission = session.permissions.first { PermissionView(session: session, request: permission).id(permission.id) } }
         .overlay {
             if let path = session.preview {
                 ZStack(alignment: .topTrailing) {
@@ -46,61 +55,93 @@ struct CXView: View {
         }
         .onExitCommand {
             if session.preview != nil { session.preview = nil }
+            else if session.commandQuery != nil { session.dismissCommands() }
             else if session.busy { Task { await session.stop() } }
         }
     }
 
-    private var history: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 10) {
-                Text("vcx").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(userGradient)
-                Text("VIBE CODE X").font(.system(size: 10, weight: .bold)).tracking(2).foregroundStyle(.white.opacity(0.4))
-                Spacer()
-            }.padding(.top, 12)
-            Button { Task { await session.switchThread(nil) } } label: {
-                Label("New conversation", systemImage: "square.and.pencil").font(.system(size: 13, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 11))
-            }.buttonStyle(.plain).disabled(session.busy || session.changing).keyboardShortcut("n", modifiers: .command)
-            HStack {
-                Text("CONVERSATIONS").font(.system(size: 10, weight: .semibold)).tracking(1.5).foregroundStyle(.white.opacity(0.35))
-                Spacer()
-                Button { Task { await session.refreshCatalog() } } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help("Refresh conversations")
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
-                    ForEach(session.recent) { thread in
-                        Button { Task { await session.switchThread(thread.id) } } label: {
-                            HStack(spacing: 9) {
-                                Image(systemName: "bubble.left").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
-                                Text(thread.title.replacingOccurrences(of: "\n", with: " ")).font(.system(size: 12)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(10).background(.white.opacity(thread.id == session.currentConversationID || thread.id == session.threadID ? 0.09 : 0), in: RoundedRectangle(cornerRadius: 9))
-                        }.buttonStyle(.plain).disabled(session.disabled)
-                    }
-                    if session.recent.isEmpty { Text("Your conversations appear here.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.3)).padding(.top, 4) }
+    private var sessionPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                Button { session.showCommands("/dir ") } label: {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Label("DIRECTORY", systemImage: "folder").font(.system(size: 9, weight: .semibold)).tracking(1.3).foregroundStyle(.white.opacity(0.35))
+                        Text(session.folder).font(.system(size: 20, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(session.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.4)).lineLimit(2).truncationMode(.middle)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain).help("Change directory with /dir")
+                VStack(spacing: 12) {
+                    setting("Provider", icon: "bolt", value: session.providerLabel, detail: session.account.name, command: "/provider ")
+                    setting("Mode", icon: "shield", value: session.mode, command: "/mode ")
+                    setting("Model", icon: "sparkle", value: session.model, command: "/model ")
+                    setting("Tokens", icon: "number", value: session.tokens, detail: session.context, command: "/tokens")
+                    setting("Usage", icon: "chart.bar", value: session.usage.isEmpty ? "Not reported" : session.usage, command: "/usage")
+                    setting("Repo", icon: "point.3.connected.trianglepath.dotted", value: session.repository, detail: session.branch, command: "/repo")
                 }
+            }.padding(20).fixedSize(horizontal: false, vertical: true)
+            Divider().overlay(.white.opacity(0.04))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    capability("Hooks", icon: "arrow.triangle.branch", values: session.hooks, command: "/hooks")
+                    capability("Skills", icon: "wand.and.stars", values: session.skills, command: "/skills")
+                    capability("MCP", icon: "puzzlepiece.extension", values: session.mcp, command: "/mcp")
+                    capability("Instructions", icon: "doc.text", values: session.instructions, command: "/instructions")
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 0)
-            Button { settings = true } label: { Label("Settings", systemImage: "slider.horizontal.3").font(.system(size: 13)).foregroundStyle(.white.opacity(0.6)) }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
-            HStack(spacing: 6) { Circle().fill(accent).frame(width: 5, height: 5); Text("Claude · Codex · Qwen").font(.system(size: 10)).foregroundStyle(.white.opacity(0.3)) }
-        }.padding(18).background(Color.white.opacity(0.025))
+            Divider().overlay(.white.opacity(0.04))
+            Button { session.showCommands("/") } label: {
+                HStack {
+                    Text("vcx").font(.system(size: 16, weight: .bold, design: .rounded)).foregroundStyle(userGradient)
+                    Spacer()
+                    Text("/ commands").font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.4))
+                }.padding(.horizontal, 20).padding(.vertical, 14)
+            }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
+        }.background(Color.white.opacity(0.025))
     }
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            RoundButton(icon: "sidebar.left", label: "Toggle sidebar") { sidebar.toggle() }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(session.folder).font(.system(size: 16, weight: .semibold))
-                Text(session.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 11)).foregroundStyle(.white.opacity(0.35)).lineLimit(1).truncationMode(.middle)
+    private func setting(_ title: String, icon: String, value: String, detail: String = "", command: String) -> some View {
+        Button { session.showCommands(command) } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: icon).font(.system(size: 11)).foregroundStyle(.white.opacity(0.3)).frame(width: 13).padding(.top, 2)
+                Text(title).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).frame(width: 46, alignment: .leading).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(value).font(.system(size: 11, weight: .medium)).foregroundStyle(title == "Mode" ? accent : .white.opacity(0.85)).lineLimit(2).truncationMode(.middle)
+                    if !detail.isEmpty { Text(detail).font(.system(size: 10)).foregroundStyle(.white.opacity(0.35)).lineLimit(1).truncationMode(.middle) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 10)
-            if !session.ready { Button("Reconnect") { Task { await session.reconnect() } }.font(.system(size: 12)) }
-            Menu {
-                ForEach(session.models, id: \.self) { model in Button(model) { Task { await session.changeModel(model) } } }
-            } label: { HStack(spacing: 6) { Text(session.model); Image(systemName: "chevron.down").font(.system(size: 9)) }.font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.6)) }
-                .menuStyle(.borderlessButton).fixedSize().disabled(session.disabled)
-            Button { session.details.toggle() } label: { Image(systemName: session.details ? "list.bullet.rectangle.fill" : "list.bullet.rectangle").foregroundStyle(session.details ? accent : .white.opacity(0.45)) }.buttonStyle(.plain).help("Show or collapse actions")
-            RoundButton(icon: "gearshape", label: "Settings") { settings = true }
-        }.padding(.horizontal, 24).padding(.vertical, 16)
+        }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
+    }
+
+    private func capability(_ title: String, icon: String, values: [String], command: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { session.showCommands(command) } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: icon).font(.system(size: 11)).foregroundStyle(accent.opacity(0.7))
+                    Text(title.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.2)
+                    Spacer()
+                    Text("\(values.count)").font(.system(size: 10, design: .monospaced))
+                    Image(systemName: "chevron.right").font(.system(size: 8))
+                }.foregroundStyle(.white.opacity(0.45))
+            }.buttonStyle(.plain).help(command)
+            if values.isEmpty { Text("None reported").font(.system(size: 11)).foregroundStyle(.white.opacity(0.25)) }
+            ForEach(Array(values.enumerated()), id: \.offset) { _, name in
+                Text(name).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
+        }
+    }
+
+    private var loginStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(settings.signingIn ? "Account sign-in" : "Account status", systemImage: "person.crop.circle").font(.system(size: 11, weight: .medium)).foregroundStyle(accent)
+                Spacer()
+                Button(settings.signingIn ? "Cancel" : "Dismiss") {
+                    if settings.signingIn { settings.cancelSignIn() }
+                    else { settings.loginMessage = "" }
+                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+            }
+            ScrollView { Text(settings.loginMessage).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 90)
+        }.padding(14).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 32).padding(.bottom, 8)
     }
 
     private var transcript: some View {
@@ -146,18 +187,17 @@ struct CXView: View {
                 Circle().fill(session.busy ? accent : session.ready ? .green.opacity(0.7) : .orange).frame(width: 5, height: 5)
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.white.opacity(0.45))
                 Spacer()
-                if !session.context.isEmpty { Text(session.context).font(.system(size: 11)).foregroundStyle(.white.opacity(0.3)) }
+                Button { session.showCommands("/") } label: { Text("/ commands").font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.3)) }.buttonStyle(.plain)
             }
             HStack(alignment: .bottom, spacing: 12) {
                 Button { attach() } label: { Image(systemName: "plus").font(.system(size: 18)).foregroundStyle(.white.opacity(0.5)).frame(width: 24, height: 26) }.buttonStyle(.plain).help("Attach images")
                 Composer(session: session).frame(height: session.editorHeight)
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop() } } }
-                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold)).frame(width: 34, height: 34).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.ready || session.changing).help(session.busy ? "Send guidance" : "Send message (Return)")
+                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold)).frame(width: 34, height: 34).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.09), lineWidth: 1))
             HStack {
                 Text("Return to send · Shift+Return for a new line").font(.system(size: 10)).foregroundStyle(.white.opacity(0.25))
                 Spacer()
-                Text(session.usage).font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
             }
         }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.bottom, 20).padding(.top, 8)
     }
@@ -167,8 +207,59 @@ struct CXView: View {
             guard result == .OK else { return }
             let draft = NSMutableAttributedString(attributedString: session.draft)
             for (n, url) in panel.urls.enumerated() { draft.append(NSAttributedString(attachment: ImageChip(path: url.path, number: n + 1))) }
-            session.draft = draft; session.draftRevision += 1
+            session.editDraft(draft)
         }
+    }
+}
+
+struct CommandPalette: View {
+    @ObservedObject var session: Session
+    var maxListHeight: CGFloat = 250
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "command").foregroundStyle(accent)
+                Text("Commands").font(.system(size: 12, weight: .semibold))
+                Text("\(session.commandOptions.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+                Spacer()
+                Text("esc").font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.3))
+            }.padding(.horizontal, 14).padding(.vertical, 12)
+            Divider().overlay(.white.opacity(0.03))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(Array(session.commandOptions.enumerated()), id: \.element.id) { index, command in
+                            Button { session.chooseCommand(command) } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(command.name).font(.system(size: 12, weight: .medium, design: .monospaced)).lineLimit(1)
+                                        Text(command.detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.4)).lineLimit(1)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(command.source).font(.system(size: 9, weight: .medium)).foregroundStyle(accent.opacity(0.9)).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.1), in: Capsule())
+                                }.padding(.horizontal, 10).padding(.vertical, 9).background(index == session.commandSelection ? accent.opacity(0.17) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+                            }.buttonStyle(.plain).id(command.id)
+                        }
+                        if session.commandOptions.isEmpty {
+                            Text("No matching commands").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity).padding(.vertical, 25)
+                        }
+                    }.padding(6)
+                }
+                .onChange(of: session.commandSelection) { _, index in
+                    if session.commandOptions.indices.contains(index) { proxy.scrollTo(session.commandOptions[index].id, anchor: .center) }
+                }
+                .onChange(of: session.commandQuery) { _, _ in
+                    if let first = session.commandOptions.first { proxy.scrollTo(first.id, anchor: .top) }
+                }
+            }.frame(height: min(max(CGFloat(session.commandOptions.count) * 51 + 12, 65), maxListHeight))
+            Divider().overlay(.white.opacity(0.03))
+            HStack {
+                Text("↑ ↓ navigate"); Text("Return select"); Text("Tab complete")
+                Spacer(minLength: 0)
+            }.font(.system(size: 9)).foregroundStyle(.white.opacity(0.3)).padding(.horizontal, 14).padding(.vertical, 9)
+        }.background(Color(red: 0.075, green: 0.068, blue: 0.095), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(0.22)))
+            .shadow(color: .black.opacity(0.45), radius: 22, y: 8)
+            .accessibilityLabel("Command suggestions")
     }
 }
 
@@ -307,10 +398,8 @@ struct PermissionView: View {
     var questions: [JSON] { request.params["questions"] as? [JSON] ?? [] }
     var input: Bool { request.method == "item/tool/requestUserInput" }
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.65)
-            VStack(alignment: .leading, spacing: 20) {
-                Label(input ? "Your answer is needed" : "Permission requested", systemImage: input ? "questionmark.bubble" : "hand.raised").font(.system(size: 20, weight: .semibold))
+            VStack(alignment: .leading, spacing: 12) {
+                Label(input ? "Your answer is needed" : "Permission requested", systemImage: input ? "questionmark.bubble" : "hand.raised").font(.system(size: 14, weight: .semibold))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if input {
@@ -338,7 +427,7 @@ struct PermissionView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack {
-                    Button("Cancel") { session.answer(request, result: input ? ["answers": [:]] : ["decision": "cancel"]) }.keyboardShortcut(.cancelAction)
+                    Button("Cancel") { session.answer(request, result: input ? ["answers": [:]] : ["decision": "cancel"]) }
                     Spacer()
                     if input {
                         Button("Send answer") {
@@ -350,8 +439,7 @@ struct PermissionView: View {
                             .disabled(request.method == "item/fileChange/requestApproval" && (request.params["changes"] as? [JSON] ?? []).isEmpty)
                     }
                 }
-            }.padding(26).frame(width: 540).frame(maxHeight: 560).background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.1)))
-        }
+            }.padding(16).frame(maxWidth: 750).background(Color(white: 0.09), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.1)))
     }
 }
 

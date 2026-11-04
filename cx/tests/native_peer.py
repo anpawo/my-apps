@@ -17,7 +17,7 @@ if sys.argv[-1] == 'http':
             if body['messages'][-1]['content'] == 'TOOLS':
                 self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf native-tool-check'}}}]}, 'done': True}) + '\n').encode())
                 return
-            for text in ['Hello ', 'from Qwen']:
+            for text in ([body['model']] if body['messages'][-1]['content'] == 'MODEL' else ['Hello ', 'from Qwen']):
                 self.wfile.write((json.dumps({'message': {'content': text}, 'done': False}) + '\n').encode())
                 self.wfile.flush()
             self.wfile.write(b'{"message":{"content":""},"done":true}\n')
@@ -32,6 +32,13 @@ else:
     for line in sys.stdin:
         message = json.loads(line)
         if sys.argv[-1] == 'claude':
+            if message.get('type') == 'control_request':
+                subtype = message.get('request', {}).get('subtype')
+                if subtype == 'set_model' and message['request'].get('model') == 'reject-me':
+                    send({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture model rejected'}})
+                    continue
+                result = {'commands': [{'name': 'fixture-skill', 'description': 'Fixture skill', 'aliases': ['fixture-alias']}], 'models': [{'value': 'fixture-claude'}], 'current_permission_mode': 'bypassPermissions'} if subtype == 'initialize' else {'mcpServers': [{'name': 'fixture-mcp', 'status': 'connected'}]}
+                send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})
             if message.get('type') == 'user':
                 send({'type': 'system', 'subtype': 'init', 'model': 'test-claude'})
                 send({'type': 'stream_event', 'event': {'type': 'message_start', 'message': {'id': 'msg-1'}}})

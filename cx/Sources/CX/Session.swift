@@ -86,6 +86,22 @@ final class Session: ObservableObject {
     @Published var preview: String?
     @Published var editorHeight: CGFloat = 24
     @Published var draftRevision = 0
+    @Published var commandQuery: String?
+    @Published var commandSelection = 0
+    @Published var tokens = "Not reported"
+    @Published var repository = "Checking…"
+    @Published var branch = ""
+    @Published var hooks: [String] = []
+    @Published var skills: [String] = []
+    @Published var mcp: [String] = []
+    @Published var instructions: [String] = []
+    @Published var activeMode = Settings.shared.value.mode
+    @Published var providerCommands: [ChatCommand] = []
+    var skillPaths: [String: String] = [:]
+    var focusComposer: () -> Void = {}
+    var savedCommandDraft: NSAttributedString?
+    var draftGeneration = 0
+    var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var draft = NSAttributedString(string: "")
     var submitDraft: () -> Void = {}
     private(set) var cwd: String
@@ -163,8 +179,12 @@ final class Session: ObservableObject {
     }
 
     func refreshCatalog() async {
+        let connection = rpc
         do {
-            let page = try await rpc.request("thread/list", ["cwd": cwd, "limit": 40, "sortKey": "updated_at"])
+            let page = try await connection.request("thread/list", ["cwd": cwd, "limit": 40, "sortKey": "updated_at"])
+            let catalog = try await connection.request("model/list", ["limit": 100])
+            let result = try await connection.request("account/rateLimits/read")
+            guard rpc === connection else { return }
             let external = (page["data"] as? [JSON] ?? []).compactMap { thread -> Recent? in
                 guard let id = thread["id"] as? String else { return nil }
                 return Recent(id: id, title: thread["name"] as? String ?? thread["preview"] as? String ?? "Untitled conversation")
@@ -172,14 +192,13 @@ final class Session: ObservableObject {
             let local = nativeRecent()
             let savedIDs = Set(local.compactMap(\.backendID))
             recent = local + external.filter { !savedIDs.contains($0.id) }
-            let catalog = try await rpc.request("model/list", ["limit": 100])
             models = (catalog["data"] as? [JSON] ?? []).compactMap { $0["id"] as? String }
-            let result = try await rpc.request("account/rateLimits/read")
             updateUsage(result["rateLimits"] as? JSON ?? [:])
-        } catch { notice("Could not refresh conversations or account details: " + error.localizedDescription) }
+            await refreshCapabilities()
+        } catch { if rpc === connection { notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
     }
 
-    func open(_ resume: String?, keepRows: Bool = false) async throws {
+    func open(_ resume: String?, keepRows: Bool = false, selectedModel: String? = nil) async throws {
         guard !busy, !changing else { return }
         changing = true
         loading = true
@@ -190,7 +209,9 @@ final class Session: ObservableObject {
             bufferedEvents.removeAll()
             for message in pending { event(message) }
         }
-        var params: JSON = ["cwd": cwd]
+        activeMode = Settings.shared.value.mode
+        var params: JSON = ["cwd": cwd, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
+        if let selectedModel { params["model"] = selectedModel }
         if let resume { params["threadId"] = resume; params["excludeTurns"] = true }
         let result = try await rpc.request(resume == nil ? "thread/start" : "thread/resume", params)
         guard let thread = result["thread"] as? JSON, let id = thread["id"] as? String else { throw CXError(message: "Codex did not return a conversation.") }
@@ -211,7 +232,9 @@ final class Session: ObservableObject {
         threadID = id
         turnID = nil; busy = false; stopRequested = false
         model = result["model"] as? String ?? "Codex"
+        if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""
+        if let sources = result["instructionSources"] as? [String], !sources.isEmpty { instructions = sources }
         if account.provider == "codex" { do {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONSerialization.data(withJSONObject: ["threadId": id]).write(to: pointer, options: [.atomic])
@@ -282,6 +305,9 @@ final class Session: ObservableObject {
             return
         case "cx/claudeLimit":
             if let percent = p["utilization"] as? Double { usage = "\(Int((percent * 100).rounded()))% " + (p["rateLimitType"] as? String ?? "usage") }
+        case "cx/catalog": applyClaudeCatalog(p)
+        case "cx/tokens":
+            if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
         case "cx/model": model = p["model"] as? String ?? model
         case "item/started", "item/completed":
             if let data = p["item"] as? JSON {
@@ -318,6 +344,7 @@ final class Session: ObservableObject {
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
         case "thread/tokenUsage/updated":
             let usage = p["tokenUsage"] as? JSON ?? [:]
+            if let total = (usage["total"] as? JSON)?["totalTokens"] as? Int { tokens = total.formatted() + " total" }
             if let used = (usage["last"] as? JSON)?["totalTokens"] as? Double, let limit = usage["modelContextWindow"] as? Double, limit > 0 { context = "\(Int((used / limit * 100).rounded()))% context" }
         case "account/rateLimits/updated": updateUsage(p["rateLimits"] as? JSON ?? [:])
         case "serverRequest/resolved":
@@ -362,9 +389,15 @@ final class Session: ObservableObject {
         }.joined(separator: " / ")
     }
 
-    func send(text: String, images: [String], retry: Bool = false) async {
+    func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil) async {
+        let submissionDraft = draft, submissionGeneration = draftGeneration
         if !testing { Settings.shared.reload() }
-        guard ready, !submitting, !changing else { return }
+        if text.hasPrefix("/"), images.isEmpty, !commandHandled, !retry { await command(text); return }
+        guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
+        if !testing, !busy, !retry, activeMode != Settings.shared.value.mode {
+            await reconnect()
+            guard ready else { return }
+        }
         if !testing, !busy, !retry {
             guard let next = available.first else { notice("All enabled accounts have reached their limits. Check Settings or wait for a reset."); return }
             if next.id != account.id {
@@ -372,9 +405,8 @@ final class Session: ObservableObject {
                 catch { notice(error.localizedDescription); return }
             }
         }
-        if text.hasPrefix("/"), images.isEmpty { await command(text); return }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
-        let wasBusy = busy, savedDraft = draft
+        let wasBusy = busy, savedDraft = submissionDraft
         guard !busy || turnID != nil else { notice("The current turn is still starting. Your draft has been kept."); return }
         submitting = true
         defer { submitting = false; drainLimit() }
@@ -388,9 +420,10 @@ final class Session: ObservableObject {
         let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": content])])
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
-        if !retry { draft = NSAttributedString(string: ""); draftRevision += 1 }
+        if !retry, draftGeneration == submissionGeneration, draft.isEqual(to: submissionDraft) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
         busy = true; stopRequested = false; status = wasBusy ? "Sending guidance…" : "Working…"
         var outgoing = content
+        if let skill { outgoing.append(skill) }
         if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
         var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
         if wasBusy { params["expectedTurnId"] = turnID }
@@ -426,11 +459,15 @@ final class Session: ObservableObject {
         catch { notice("Could not send your answer: " + error.localizedDescription) }
     }
 
-    func switchThread(_ id: String?) async {
+    @discardableResult
+    func switchThread(_ id: String?, fromCommand: Bool = false) async -> Bool {
         let previousRecord = recordID
-        guard !busy, !changing, draft.length == 0 else { if draft.length > 0 { notice("Send or clear your draft before switching conversations.") }; return }
+        guard !busy, !changing, fromCommand || draft.length == 0 else { if draft.length > 0 { notice("Send or clear your draft before switching conversations.") }; return false }
+        if fromCommand { draft = savedCommandDraft ?? NSAttributedString(string: ""); savedCommandDraft = nil; draftRevision += 1 }
+        let previousDraft = draft, previousGeneration = draftGeneration
         do {
             save()
+            draft = NSAttributedString(string: ""); draftRevision += 1
             if let id, id.hasPrefix("native:") { try await restore(String(id.dropFirst(7))) }
             else {
                 recordID = UUID().uuidString
@@ -439,7 +476,8 @@ final class Session: ObservableObject {
                 try await activate(next, resume: id, keepRows: false)
             }
             await refreshCatalog()
-        } catch { recordID = previousRecord; notice(error.localizedDescription) }
+            return true
+        } catch { recordID = previousRecord; restoreDraft(previousDraft, since: previousGeneration); notice(error.localizedDescription); return false }
     }
 
     func changeModel(_ value: String) async {
@@ -447,63 +485,30 @@ final class Session: ObservableObject {
         guard models.contains(value) else { notice("Unknown model. Choose one from the model menu."); return }
         changing = true; defer { changing = false }
         do {
-            let result = try await rpc.request("thread/resume", ["threadId": threadID ?? "", "model": value, "excludeTurns": true])
+            let result = try await rpc.request("thread/resume", ["threadId": threadID ?? "", "model": value, "excludeTurns": true, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"])
             model = result["model"] as? String ?? value
         } catch { notice(error.localizedDescription) }
     }
 
-    func command(_ source: String) async {
-        let parts = source.split(separator: " ", maxSplits: 1).map(String.init)
-        let argument = parts.count > 1 ? parts[1] : ""
-        switch parts.first {
-        case "/new", "/clear", "/resume":
-            guard !disabled else { notice("Stop the current turn before changing conversations."); return }
-            do {
-                var id: String?
-                if parts.first == "/resume" {
-                    if !argument.isEmpty { id = argument }
-                    else if let record = try? JSONSerialization.jsonObject(with: Data(contentsOf: nativePointer)) as? JSON, let saved = record["recordId"] as? String { id = "native:" + saved }
-                    else { id = (try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON)?["threadId"] as? String }
-                }
-                let saved = draft
-                draft = NSAttributedString(string: ""); draftRevision += 1
-                await switchThread(id)
-                if !ready { draft = saved; draftRevision += 1 }
-                await refreshCatalog()
-            } catch { notice(error.localizedDescription) }
-        case "/model":
-            if argument.isEmpty { notice("Available models: " + models.joined(separator: ", ")) }
-            else { await changeModel(argument) }
-        case "/compact", "/review":
-            guard !disabled else { notice("Stop the current turn first."); return }
-            do {
-                if parts.first == "/compact" { _ = try await rpc.request("thread/compact/start", ["threadId": threadID ?? ""]) }
-                else {
-                    let target: JSON = argument.isEmpty ? ["type": "uncommittedChanges"] : ["type": "custom", "instructions": argument]
-                    _ = try await rpc.request("review/start", ["threadId": threadID ?? "", "target": target, "delivery": "inline"])
-                }
-            } catch { notice(error.localizedDescription) }
-        case "/details", "/focus": details.toggle()
-        case "/status": notice("Session: \(threadID ?? "Not connected")\nFolder: \(cwd)\nModel: \(model)")
-        case "/quit", "/exit": NSApp.terminate(nil)
-        case "/help": notice("/new · /resume [id] · /model [name] · /compact · /review · /status · /details · /focus · /quit\nReturn sends. Shift+Return adds a line. Escape stops the turn.")
-        default: notice("Unknown command. Use /help, or start with a space to send a slash prompt literally."); return
-        }
-        if draft.string == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
-    }
 
     var available: [Account] {
         let settings = Settings.shared
         return settings.candidates.filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
     }
 
-    private func activate(_ next: Account, resume: String?, keepRows: Bool) async throws {
+    func activate(_ next: Account, resume: String?, keepRows: Bool) async throws {
+        guard !changing else { throw CXError(message: "A connection change is already in progress.") }
+        changing = true
+        defer { changing = false }
         let previous = (account, threadID, model, context, usage, injectedContext)
         flush()
         injectedContext = keepRows ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll()
+        providerCommands = []; skillPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
+        tokens = "Not reported"
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
+        activeMode = Settings.shared.value.mode
         context = ""; usage = ""; status = "Connecting to " + providerLabel + "…"
         if let connectionFactory { rpc = connectionFactory(next, cwd) } else { switch next.provider {
         case "claude": rpc = ClaudeConnection(account: next, cwd: cwd)
@@ -515,7 +520,8 @@ final class Session: ObservableObject {
         rpc.event = { [weak self] message in self?.event(message) }
         do {
             try await rpc.start(command: nil)
-            try await open(resume, keepRows: keepRows)
+            changing = false
+            try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
             pendingActivation = nil; pendingRestore = nil
         } catch {
             rpc.event = { _ in }; rpc.close()
@@ -575,17 +581,26 @@ final class Session: ObservableObject {
             catch { notice(error.localizedDescription) }
             return
         }
+        guard let fallback = available.first else {
+            rpc.event = { _ in }; rpc.close(); ready = false; status = "No available account"
+            notice("No enabled account is available for the selected provider. Use /account or /provider."); return
+        }
         let previousRecord = recordID
         var target = pendingActivation ?? (account, threadID, true, recordID)
         if let selected = available.first, Settings.shared.value.provider != "auto", selected.id != target.0.id {
             target = (selected, selected.id == account.id ? threadID : nil, true, recordID)
         }
+        if let latest = Settings.shared.value.accounts.first(where: { $0.id == target.0.id }) {
+            if latest.enabled { target.0 = latest }
+            else if let selected = available.first { target = (selected, nil, true, recordID) }
+        }
+        if !available.contains(where: { $0.id == target.0.id }) { target = (fallback, nil, true, recordID) }
         recordID = target.3
         do { try await activate(target.0, resume: target.1, keepRows: target.2); await refreshCatalog() }
         catch { recordID = previousRecord; notice(error.localizedDescription) }
     }
 
-    private func nativeRecent() -> [Recent] {
+    func nativeRecent() -> [Recent] {
         let directory = nativeDirectory
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         return files.sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }.prefix(40).compactMap { url in
@@ -618,7 +633,7 @@ final class Session: ObservableObject {
             }
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let title = rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
-            let record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(draft)]
+            let record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
             try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
             try JSONSerialization.data(withJSONObject: ["recordId": recordID]).write(to: nativePointer, options: .atomic)
@@ -642,6 +657,7 @@ final class Session: ObservableObject {
         let preferred = settings.value.provider != "auto" || stored?.enabled == false ? available.first : stored ?? available.first
         guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
         let resumeID = selected.id == accountID ? thread : nil
+        let generation = draftGeneration
         do { try await activate(selected, resume: resumeID, keepRows: true) }
         catch { pendingRestore = id; throw error }
         pendingRestore = nil
@@ -659,10 +675,44 @@ final class Session: ObservableObject {
             if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.white])) }
             else if let path = piece["path"] as? String { restoredDraft.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
         }
-        draft = restoredDraft; draftRevision += 1
+        restoreDraft(restoredDraft, since: generation)
         injectedContext = selected.provider == "qwen" || resumeID == nil ? handoffContext() : ""
         suppressSave = false
         save()
+    }
+
+    func changeDirectory(_ path: String) async throws {
+        guard !busy, !changing else { throw CXError(message: "Stop the current turn before changing directory.") }
+        let expanded = (path as NSString).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: cwd, isDirectory: true)).standardized
+        var directory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Directory does not exist.") }
+        if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
+        else if draft.string.hasPrefix("/dir ") || draft.string.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+        save()
+        let previous = (cwd, recordID, draft, draftGeneration)
+        cwd = url.path; recordID = UUID().uuidString; draft = NSAttributedString(string: ""); draftRevision += 1
+        do {
+            guard let next = available.first else { throw CXError(message: "No enabled account is available.") }
+            try await activate(next, resume: nil, keepRows: false)
+            await refreshCatalog()
+            (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
+        } catch { cwd = previous.0; recordID = previous.1; pendingActivation = nil; pendingRestore = nil
+            restoreDraft(previous.2, since: previous.3); throw error }
+    }
+
+    func editDraft(_ value: NSAttributedString, refresh: Bool = true) {
+        draft = value; draftGeneration += 1
+        if refresh { draftRevision += 1 }
+    }
+
+    private func restoreDraft(_ saved: NSAttributedString, since generation: Int) {
+        let restored = NSMutableAttributedString(attributedString: saved)
+        if draftGeneration != generation, draft.length > 0 {
+            if restored.length > 0 { restored.append(NSAttributedString(string: "\n")) }
+            restored.append(draft)
+        }
+        draft = restored; draftRevision += 1
     }
 
     func close() { flush(); save(); releaseRecord(); flushTask?.cancel(); rpc.event = { _ in }; rpc.close() }
