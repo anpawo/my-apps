@@ -88,6 +88,8 @@ final class RPC: Connection {
                 close()
                 throw CXError(message: "Sign in with a ChatGPT subscription in Settings. vcx does not use API-key billing.")
             }
+            let roots = ClaudeCompatibility(cwd: cwd ?? FileManager.default.currentDirectoryPath).skillRoots
+            if !roots.isEmpty { _ = try await request("skills/extraRoots/set", ["extraRoots": roots]) }
         }
     }
 

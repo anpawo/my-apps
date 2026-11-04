@@ -116,7 +116,11 @@ extension Session {
             skills = catalog.compactMap { $0["name"] as? String }.sorted()
             skillPaths = Dictionary(catalog.compactMap { item in guard let name = item["name"] as? String, let path = item["path"] as? String else { return nil }; return (name, path) }, uniquingKeysWith: { first, _ in first })
             providerCommands = catalog.compactMap { item in guard let name = item["name"] as? String else { return nil }; return ChatCommand(name: "/" + name, detail: item["description"] as? String ?? "Codex skill", source: "Codex skill", insert: "/codex:skill:" + name + " ") }
+            legacyCommandPaths = claudeCompatibility.commands.filter { skillPaths[$0.key] == nil }
+            providerCommands += legacyCommandPaths.keys.sorted().map { ChatCommand(name: "/" + $0, detail: "Claude command translated for Codex", source: "Claude command", insert: "/codex:skill:" + $0 + " ") }
+            skills = Array(Set(skills + legacyCommandPaths.keys)).sorted()
         } catch { guard rpc === connection else { return }; skills = ["Catalog unavailable: " + error.localizedDescription] }
+        instructions = Array(Set(instructions + claudeCompatibility.instructions().paths.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") })).sorted()
         do {
             let result = try await connection.request("hooks/list", ["threadId": threadID ?? ""], timeout: 15)
             guard rpc === connection else { return }
