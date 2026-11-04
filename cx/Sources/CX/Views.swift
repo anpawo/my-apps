@@ -187,7 +187,7 @@ struct CXView: View {
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")
-                    }.frame(maxWidth: 850).frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.vertical, 28)
+                    }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 28)
                 }
                 .onScrollPhaseChange { _, phase, context in
                     userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
