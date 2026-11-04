@@ -67,6 +67,13 @@ enum Settings {
         }
     }
 
+    /// On: going idle shows the panel only once a session has finished its turn (green), so
+    /// coming back to a fleet that is still all working stays quiet.
+    static var onlyWhenReady: Bool {
+        get { UserDefaults.standard.bool(forKey: "onlyWhenReady") }
+        set { UserDefaults.standard.set(newValue, forKey: "onlyWhenReady") }
+    }
+
     /// Off: the panel never opens on its own until this is turned back on. The panel chord,
     /// the menu bar and `fleet` still open it.
     static var popupsOff: Bool {

@@ -70,6 +70,7 @@ struct ControlCenterView: View {
     // The settings live in `UserDefaults`, which SwiftUI does not observe: without a local copy
     // the picker would snap back to the old row until something else redrew the view.
     @State private var idle = Settings.idleThreshold
+    @State private var onlyWhenReady = Settings.onlyWhenReady
     @State private var panelChord = Settings.panelChord
 
     static let background = Color(red: 0.055, green: 0.055, blue: 0.07)
@@ -80,6 +81,13 @@ struct ControlCenterView: View {
             status
             section("WHEN IT APPEARS") {
                 idlePicker
+                row("Show by itself when") {
+                    menu([false, true], label: { $0 ? "A session is ready" : "Any session runs" },
+                         selection: Binding(get: { onlyWhenReady }, set: {
+                             onlyWhenReady = $0
+                             Settings.onlyWhenReady = $0
+                         }))
+                }
             }
             section("SHORTCUTS") {
                 chordPicker("Open the panel", choices: Settings.panelChoices,
@@ -131,11 +139,12 @@ struct ControlCenterView: View {
             Circle()
                 .fill(off ? SessionState.running.tint : SessionState.ready.tint)
                 .frame(width: 8, height: 8)
-            Text(off ? "Fleet never shows itself" : "Fleet may show itself")
+            Text(off ? "Never shows itself" : "May show itself")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
-            Spacer(minLength: 8)
-            wideButton(off ? "Turn on" : "Turn off", width: 76) {
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            wideButton(off ? "Turn on" : "Turn off") {
                 controller.popupsOff.toggle()
                 if controller.popupsOff, controller.isPanelVisible { controller.hidePanel() }
             }

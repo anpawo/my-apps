@@ -428,6 +428,8 @@ final class AppController: ObservableObject {
             return
         }
         guard armed, !found.isEmpty else { return }
+        // Left armed: the tick a session turns green while you are still away shows the panel.
+        guard !Settings.onlyWhenReady || found.contains(where: { $0.state == .ready }) else { return }
 
         // Checked here rather than earlier so the refresh above still runs while off: the
         // panel you then open by hand has to be current.
