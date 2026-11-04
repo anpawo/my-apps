@@ -968,7 +968,7 @@ final class Session: ObservableObject {
 
     func runtimeMetadata() -> JSON {
         var value: JSON = [
-            "cwd": cwd, "conversationDirectory": conversationDirectory, "model": model, "status": status, "ready": ready, "busy": busy,
+            "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
             "changing": changing, "activeActions": Array(activeActions), "context": context,
             "usage": usage, "tokens": tokens, "repository": repository, "branch": branch,
             "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
@@ -1048,6 +1048,12 @@ final class Session: ObservableObject {
             return
         }
         if !NSArray(array: draftContent(draft)).isEqual(to: pieces) { draft = restored; draftRevision += 1 }
+    }
+
+    func applyInterruptedRecovery(_ state: JSON) {
+        applyRuntimeDraft(state)
+        busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll(); pendingInput = nil
+        notice("Recovered saved conversation and unsent draft. The runtime was interrupted; previous tools were not replayed.")
     }
 
     func applyRuntimeSnapshot(_ value: JSON) {

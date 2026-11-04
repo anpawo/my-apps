@@ -70,13 +70,6 @@ struct CXView: View {
         .foregroundStyle(.black.opacity(0.92))
         .background(Color.white)
         .preferredColorScheme(.light)
-        .task {
-            while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
-                await session.refreshUsage()
-                await session.refreshRepository()
-            }
-        }
         .sheet(isPresented: $session.showingSettings) {
             SettingsPopup(session: session).disabled(session.frontendReplacing)
         }

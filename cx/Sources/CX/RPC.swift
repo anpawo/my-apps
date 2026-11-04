@@ -38,6 +38,7 @@ final class RPC: Connection {
     var cwd: String?
     private var process: Process?
     private var input: FileHandle?
+    private var reader: ProviderJSONReader?
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<JSON, Error>] = [:]
     private var timeouts: [Int: DispatchWorkItem] = [:]
@@ -55,28 +56,13 @@ final class RPC: Connection {
         try process.run()
         self.process = process
         input = incoming.fileHandleForWriting
-        let reader = outgoing.fileHandleForReading
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var buffer = Data()
-            while true {
-                let data = reader.availableData
-                if data.isEmpty { break }
-                buffer.append(data)
-                guard buffer.count <= 32 * 1024 * 1024 else { break }
-                while let end = buffer.firstIndex(of: 10) {
-                    let line = Data(buffer[..<end])
-                    buffer.removeSubrange(...end)
-                    do {
-                        guard let message = try JSONSerialization.jsonObject(with: line) as? JSON else { continue }
-                        DispatchQueue.main.async { self?.receive(message) }
-                    } catch {
-                        DispatchQueue.main.async { self?.event(["method": "cx/error", "params": ["message": "Codex sent invalid JSON."]]) }
-                    }
-                }
-            }
-            try? reader.close()
-            DispatchQueue.main.async { self?.disconnected() }
-        }
+        let reader = try ProviderJSONReader(handle: outgoing.fileHandleForReading, receive: { [weak self] message in
+            guard let self, !closed else { return }; receive(message)
+        }, invalid: { [weak self] message in
+            guard let self, !closed else { return }
+            event(["method": "cx/error", "params": ["message": message.replacingOccurrences(of: "Provider", with: "Codex")]])
+        }, disconnected: { [weak self] in self?.disconnected() })
+        self.reader = reader; reader.start()
         _ = try await request("initialize", [
             "clientInfo": ["name": "vcx", "title": "Vibe Code X", "version": "0.2.0"],
             "capabilities": ["experimentalApi": true]
@@ -145,6 +131,7 @@ final class RPC: Connection {
     func close() {
         guard !closed else { return }
         closed = true
+        reader?.close(); reader = nil
         try? input?.close()
         input = nil
         if let process { endProcess(process) }

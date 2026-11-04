@@ -98,6 +98,7 @@ final class ClaudeConnection: Connection {
     var usageReader: (Account) async throws -> JSON = readClaudeUsage
     private var process: Process?
     private var input: FileHandle?
+    private var reader: ProviderJSONReader?
     private var turn = ""
     private var closed = false
     private var tools: [String: JSON] = [:]
@@ -144,25 +145,17 @@ final class ClaudeConnection: Connection {
         process.environment = agentEnvironment(account)
         process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = FileHandle.nullDevice
         try process.run(); self.process = process; input = incoming.fileHandleForWriting
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var buffer = Data()
-            while true {
-                let data = outgoing.fileHandleForReading.availableData
-                if data.isEmpty { break }
-                buffer.append(data)
-                guard buffer.count <= 32 * 1024 * 1024 else { break }
-                while let end = buffer.firstIndex(of: 10) {
-                    let line = Data(buffer[..<end]); buffer.removeSubrange(...end)
-                    guard let message = try? JSONSerialization.jsonObject(with: line) as? JSON else { continue }
-                    DispatchQueue.main.async { self?.receive(message) }
-                }
-            }
-            DispatchQueue.main.async {
-                guard let self, !self.closed else { return }
-                self.process = nil
-                self.emit("cx/disconnected", ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
-            }
-        }
+        let reader = try ProviderJSONReader(handle: outgoing.fileHandleForReading, receive: { [weak self] message in
+            guard let self, !closed, self.process === process else { return }; receive(message)
+        }, invalid: { [weak self] message in
+            guard let self, !closed, self.process === process, message != "Provider sent invalid JSON." else { return }
+            emit("cx/error", ["message": message.replacingOccurrences(of: "Provider", with: "Claude")])
+        }, disconnected: { [weak self] in
+            guard let self, !closed, self.process === process else { return }
+            self.process = nil
+            emit("cx/disconnected", ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
+        })
+        self.reader = reader; reader.start()
     }
     private var resumed = false
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
@@ -375,7 +368,7 @@ final class ClaudeConnection: Connection {
     func close() {
         for timer in timers.values { timer.cancel() }; timers.removeAll()
         for continuation in waiting.values { continuation.resume(throwing: CXError(message: "Claude is disconnected.")) }; waiting.removeAll()
-        closed = true; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
+        closed = true; reader?.close(); reader = nil; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
 }
 
 func pretty(_ value: Any) -> String {

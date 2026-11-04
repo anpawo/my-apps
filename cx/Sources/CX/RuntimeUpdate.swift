@@ -1,6 +1,24 @@
 import AppKit
 import Darwin
 
+struct FrontendReplacementProcess {
+    let pid: pid_t
+    let isTerminated: () -> Bool
+    let terminate: () -> Void
+
+    init(_ application: NSRunningApplication) {
+        pid = application.processIdentifier
+        isTerminated = { application.isTerminated }
+        terminate = { application.forceTerminate() }
+    }
+
+    init(_ process: Process) {
+        pid = process.processIdentifier
+        isTerminated = { !process.isRunning }
+        terminate = { if process.isRunning { process.terminate() } }
+    }
+}
+
 @MainActor
 enum RuntimeUpdate {
     static let openNotification = Notification.Name("com.mr.vcx.open")

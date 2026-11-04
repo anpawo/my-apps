@@ -18,19 +18,23 @@ private struct RuntimeFault: LocalizedError {
 
 @MainActor
 final class RuntimeServer {
+    static let maximumSessions = 256
+    static let maximumPeers = maximumSessions * 2 + 32
     private final class Peer {
         let channel: RuntimeChannel
         var ready = false
         var requests = 0
+        var controls = 0
         init(_ channel: RuntimeChannel) { self.channel = channel }
     }
 
     private final class Receipt {
         let fingerprint: String
+        let control: Bool
         var task: Task<JSON, Error>!
         var completed = false
         var bytes = 0
-        init(_ fingerprint: String) { self.fingerprint = fingerprint }
+        init(_ fingerprint: String, control: Bool) { self.fingerprint = fingerprint; self.control = control }
     }
 
     private final class Entry {
@@ -52,6 +56,7 @@ final class RuntimeServer {
 
     private let socketPath: String
     private let build: String
+    private let instanceID = UUID().uuidString
     private let makeSession: (JSON) async throws -> any RuntimeBackend
     private var listener: RuntimeListener?
     private var peers: [UUID: Peer] = [:]
@@ -73,7 +78,7 @@ final class RuntimeServer {
     }
 
     private func accept(_ channel: RuntimeChannel) {
-        guard !stopped, peers.count < 128 else { channel.close(); return }
+        guard !stopped, peers.count < Self.maximumPeers else { channel.close(); return }
         let peer = Peer(channel)
         peers[channel.id] = peer
         channel.onMessage = { [weak self, weak peer] message in
@@ -98,18 +103,21 @@ final class RuntimeServer {
               let params = message["params"] as? JSON else { peer.channel.close(); return }
         guard let encoded = try? JSONSerialization.data(withJSONObject: message) else { peer.channel.close(); return }
         let bytes = encoded.count
-        guard peer.requests < 64, requestBytes + bytes <= RuntimeChannel.maximumBuffered else {
+        let control = method == "perform" && ["answer", "stop", "close", "checkpoint"].contains(params["action"] as? String ?? "") && bytes <= 65_536
+        guard (control ? peer.controls < 8 : peer.requests - peer.controls < 64),
+              requestBytes + bytes <= RuntimeChannel.maximumBuffered - (control ? 0 : 65_536) else {
             fail(id, peer, RuntimeFault(code: "busy", message: "Too many pending runtime requests.")); return
         }
         peer.requests += 1; requestBytes += bytes
+        if control { peer.controls += 1 }
         Task {
-            defer { peer.requests -= 1; requestBytes -= bytes }
+            defer { peer.requests -= 1; requestBytes -= bytes; if control { peer.controls -= 1 } }
             do {
                 guard !stopped else { throw CancellationError() }
                 if method == "hello" {
                     guard params["protocol"] as? Int == 1 else { throw RuntimeFault(code: "protocolMismatch", message: "This frontend uses an incompatible runtime protocol.") }
                     peer.ready = true
-                    try reply(id, peer, ["protocol": 1, "build": build, "pid": Int(getpid()), "maximumFrameBytes": RuntimeChannel.maximumFrame, "maximumBufferedBytes": RuntimeChannel.maximumBuffered])
+                    try reply(id, peer, ["protocol": 1, "build": build, "instanceID": instanceID, "pid": Int(getpid()), "maximumFrameBytes": RuntimeChannel.maximumFrame, "maximumBufferedBytes": RuntimeChannel.maximumBuffered, "maximumQueuedFrames": RuntimeChannel.maximumQueuedFrames])
                     return
                 }
                 guard peer.ready else { throw RuntimeFault(code: "handshakeRequired", message: "Runtime hello must succeed before session requests.") }
@@ -139,8 +147,9 @@ final class RuntimeServer {
         let entry: Entry
         if let existing = entries[sessionID] { entry = existing }
         else {
+            guard params["existingOnly"] as? Bool != true else { throw RuntimeFault(code: "unknownSession", message: "The running session is no longer available.") }
             let active = entries.values.filter { !$0.ended }.count
-            guard active < 256, active + closedIDs.count < 65_536 else { throw RuntimeFault(code: "busy", message: "Runtime session capacity reached. Existing sessions remain available.") }
+            guard active < Self.maximumSessions, active + closedIDs.count < 65_536 else { throw RuntimeFault(code: "busy", message: "Runtime session capacity reached. Existing sessions remain available.") }
             var directory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: cwd, isDirectory: &directory), directory.boolValue else { throw RuntimeFault(code: "invalidAttach", message: "Session working directory is unavailable.") }
             entry = Entry(sessionID)
@@ -153,10 +162,6 @@ final class RuntimeServer {
         }
         entry.attachment += 1
         let attachment = entry.attachment
-        if let previous = entry.writer, previous !== peer.channel {
-            try? previous.send(["method": "session/leaseLost", "params": ["sessionId": entry.id]])
-        }
-        entry.writer = nil; entry.lease = ""
         let backend: any RuntimeBackend
         do { backend = try await entry.creation.value }
         catch {
@@ -164,6 +169,11 @@ final class RuntimeServer {
             throw error
         }
         guard !stopped, peers[peer.channel.id] === peer, entry.attachment == attachment else { throw RuntimeFault(code: "superseded", message: "This attachment was superseded or disconnected.") }
+        let nextLease = UUID().uuidString
+        let snapshot: JSON = ["sessionId": entry.id, "lease": nextLease, "revision": entry.revision, "state": backend.snapshot(), "lastSequence": entry.lastSequence]
+        guard try JSONSerialization.data(withJSONObject: ["id": id, "result": snapshot]).count <= RuntimeChannel.maximumFrame else {
+            throw RuntimeFault(code: "snapshotTooLarge", message: "This conversation is too large to attach. Its current frontend remains connected.")
+        }
         if entry.backend == nil {
             entry.backend = backend
             backend.onChange = { [weak self, weak entry] patch in
@@ -174,9 +184,12 @@ final class RuntimeServer {
                 catch { writer.close() }
             }
         }
-        entry.writer = peer.channel; entry.lease = UUID().uuidString
+        if let previous = entry.writer, previous !== peer.channel {
+            try? previous.send(["method": "session/leaseLost", "params": ["sessionId": entry.id]])
+        }
+        entry.writer = peer.channel; entry.lease = nextLease
         // Enqueue the snapshot before yielding so no update can overtake attachment.
-        try reply(id, peer, ["sessionId": entry.id, "lease": entry.lease, "revision": entry.revision, "state": backend.snapshot(), "lastSequence": entry.lastSequence])
+        try reply(id, peer, snapshot)
     }
 
     private func writable(_ peer: Peer, _ params: JSON) throws -> Entry {
@@ -204,9 +217,10 @@ final class RuntimeServer {
         }
         guard sequence == entry.lastSequence + 1 else { throw RuntimeFault(code: "sequenceGap", message: "Runtime actions must use the next sequence number.") }
         guard !entry.ended, let backend = entry.backend else { throw RuntimeFault(code: "closed", message: "This runtime session has ended.") }
-        guard entry.receipts.values.filter({ !$0.completed }).count < 64 else { throw RuntimeFault(code: "busy", message: "Too many pending session actions.") }
-        let receipt = Receipt(fingerprint)
         let interrupts = ["answer", "stop", "close", "checkpoint"].contains(action)
+        let smallControl = interrupts && payload.count <= 65_536
+        guard entry.receipts.values.filter({ !$0.completed && $0.control == smallControl }).count < (smallControl ? 8 : 64) else { throw RuntimeFault(code: "busy", message: "Too many pending session actions.") }
+        let receipt = Receipt(fingerprint, control: smallControl)
         let previous = interrupts ? nil : entry.orderedAction
         entry.lastSequence = sequence; entry.receipts[sequence] = receipt
         if action == "close" { entry.ended = true; entry.closeSequence = sequence; closedIDs.insert(entry.id) }
@@ -222,7 +236,7 @@ final class RuntimeServer {
                 return result
             } catch {
                 receipt.completed = true
-                if action == "close" { completeClose(entry) }
+                if action == "close" { entry.ended = false; entry.closeSequence = nil; closedIDs.remove(entry.id) }
                 prune(entry)
                 throw error
             }

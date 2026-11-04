@@ -7,6 +7,7 @@ struct LaunchOptions {
     var prompt = ""
     var runtimeID: String?
     var socketPath: String?
+    var recoveryEntry: RuntimeRecovery.Entry?
     init(_ args: [String]) throws {
         var i = 0, words: [String] = []
         while i < args.count {
@@ -42,22 +43,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var options: LaunchOptions?
     var restoreFile: String?
     var frontendLock: Int32?
+    var headless = false
+    var verificationMode: String?
+    var replacementBinary = RuntimeUpdate.installed.appendingPathComponent("Contents/MacOS/VCX")
+    var replacementLaunch: ((URL) async throws -> FrontendReplacementProcess)?
+    var replacementTimeout: Double = 15
+    private(set) var replacementTask: Task<Void, Never>?
     private var updating = false
     private var terminating = false
     private var closing = Set<ObjectIdentifier>()
     private var observers: [NSObjectProtocol] = []
     private var handoffFile: URL?
-    private var replacement: NSRunningApplication?
+    private var replacement: FrontendReplacementProcess?
+    private var replacementWaiter: CheckedContinuation<Void, Error>?
+    private var replacementDeadline: DispatchWorkItem?
+    private var replacementAcknowledged = false
     private var restorePending = 0
+    private var refreshTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = RuntimeIdentity.build
+        observeFrontendEvents()
+        let menu = NSMenu(), appMenu = NSMenu(), fileMenu = NSMenu(), editMenu = NSMenu()
+        configureMenu(menu, appMenu: appMenu, fileMenu: fileMenu, editMenu: editMenu)
+        restoreWindows()
+        Task {
+            do { _ = try await RuntimeRecovery.finishRequestedCloses() }
+            catch { NSLog("VCX pending session close: %@", error.localizedDescription) }
+        }
+        drainOpenRequests()
+        if !headless { replaceFrontend() }
+    }
+
+    func observeFrontendEvents() {
         let center = DistributedNotificationCenter.default()
         observers.append(center.addObserver(forName: RuntimeUpdate.openNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.drainOpenRequests() }
         })
         observers.append(center.addObserver(forName: RuntimeUpdate.updateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.replaceFrontend() }
+            MainActor.assumeIsolated { if self?.headless == false { self?.replaceFrontend() } }
         })
         observers.append(center.addObserver(forName: RuntimeUpdate.readyNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.completeReplacement() }
@@ -66,10 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let id = notification.userInfo?["sessionId"] as? String,
                       let entry = self?.windows.first(where: { $0.session.runtimeClient?.sessionID == id }) else { return }
+                guard self?.headless == false else { return }
                 entry.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             }
         })
-        let menu = NSMenu(), appMenu = NSMenu(), fileMenu = NSMenu(), editMenu = NSMenu()
+    }
+
+    func stopObservingFrontendEvents() {
+        for observer in observers { DistributedNotificationCenter.default().removeObserver(observer) }
+        observers.removeAll()
+    }
+
+    private func configureMenu(_ menu: NSMenu, appMenu: NSMenu, fileMenu: NSMenu, editMenu: NSMenu) {
         let app = NSMenuItem(); app.submenu = appMenu; menu.addItem(app)
         appMenu.addItem(withTitle: "About Vibe Code X", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Quit Vibe Code X", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -80,13 +112,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); edit.submenu = editMenu; menu.addItem(edit)
         for (name, selector, key) in [("Undo", #selector(UndoManager.undo), "z"), ("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] { editMenu.addItem(withTitle: name, action: selector, keyEquivalent: key) }
         NSApp.mainMenu = menu
+    }
 
+    private func restoreWindows() {
         if let restoreFile {
             do {
                 let ticket = try RuntimeUpdate.readTicket(restoreFile, suffix: ".restore.json")
                 guard let entries = ticket["windows"] as? [JSON], !entries.isEmpty else { throw CXError(message: "No windows to restore.") }
                 restorePending = entries.count
-                for entry in entries {
+                for entry in verificationMode == "partial" ? Array(entries.prefix(1)) : entries {
                     guard let cwd = entry["cwd"] as? String, let id = entry["sessionId"] as? String, UUID(uuidString: id) != nil,
                           let socket = entry["socket"] as? String else { throw CXError(message: "Invalid window restore entry.") }
                     var launch = try LaunchOptions(["--cwd", cwd])
@@ -102,15 +136,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     drainOpenRequests()
                 }
             } catch { NSLog("VCX frontend restore: %@", error.localizedDescription); NSApp.terminate(nil) }
-        } else if let options { createWindow(options) }
-        drainOpenRequests()
-        replaceFrontend()
+        } else {
+            do {
+                for entry in try RuntimeRecovery.pending() {
+                    guard var launch = try? LaunchOptions(["--cwd", entry.cwd]) else { continue }
+                    launch.runtimeID = entry.sessionID; launch.socketPath = entry.socketPath; launch.recoveryEntry = entry
+                    createWindow(launch, state: entry.windowState)
+                }
+            } catch { NSLog("VCX recovery registry: %@", error.localizedDescription) }
+            if let options { createWindow(options) }
+        }
     }
 
     func createWindow(_ options: LaunchOptions, state: JSON = [:]) {
-        let session = Session(cwd: options.cwd)
+        let session = Session(cwd: options.cwd, stateDirectory: headless ? RuntimeIdentity.directory.appendingPathComponent("frontend-state") : nil)
         session.frontendReplacing = restoreFile != nil
-        let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath)
+        let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath, recovery: options.recoveryEntry)
         session.runtimeClient = client
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
@@ -122,15 +163,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
-        else { window.setFrameAutosaveName("VCXWindow"); window.center() }
+        else if !headless { window.setFrameAutosaveName("VCXWindow"); window.center() }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
+        startRefresh()
         client.onLeaseLost = { [weak self, weak window] in
             guard let self, let window else { return }
             guard !self.updating else { return }
             self.closing.insert(ObjectIdentifier(window)); window.close()
         }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !headless {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         Task {
             do { try await client.connect(resume: options.resume, prompt: options.prompt) }
             catch {
@@ -140,14 +184,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.title = "\(session.folder) · Vibe Code X"
             RuntimeUpdate.restore(state, window: window, session: session)
             if let restoreFile {
+                if verificationMode == "partial" { exit(1) }
                 restorePending -= 1
                 if restorePending == 0 {
+                    if headless {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        let report: JSON = ["windows": windows.map { ["sessionId": $0.session.runtimeClient?.sessionID ?? "", "threadId": $0.session.threadID ?? "", "draft": draftContent($0.session.draft), "permissions": $0.session.permissions.map { $0.id.uuidString }, "busy": $0.session.busy, "state": RuntimeUpdate.state(window: $0.window, session: $0.session), "visible": $0.window.isVisible] }]
+                        try? JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: restoreFile + ".verification.json"), options: .atomic)
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreFile + ".verification.json")
+                    }
                     do { try RuntimeUpdate.acknowledge(restoreFile) }
                     catch { exit(1) }
                     for entry in windows { entry.session.frontendReplacing = false }
                 }
             }
         }
+    }
+
+    private func startRefresh() {
+        guard !headless, refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
+                guard let self else { return }
+                await refreshVisibleSessions()
+            }
+        }
+    }
+
+    @discardableResult
+    func refreshVisibleSessions() async -> Int {
+        var refreshed = 0
+        for entry in windows where entry.window.isVisible && entry.window.occlusionState.contains(.visible) {
+            await entry.session.refreshUsage()
+            await entry.session.refreshRepository()
+            refreshed += 1
+        }
+        return refreshed
     }
 
     func drainOpenRequests() {
@@ -169,12 +242,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let marker = RuntimeIdentity.directory.appendingPathComponent("installed-build")
         guard !updating, !windows.isEmpty, let installed = try? String(contentsOf: marker, encoding: .utf8),
               installed != RuntimeIdentity.build else { return }
-        updating = true
-        Task {
+        updating = true; replacementAcknowledged = false
+        replacementTask = Task {
             do {
-                let binary = RuntimeUpdate.installed.appendingPathComponent("Contents/MacOS/VCX")
                 guard let client = windows.first?.session.runtimeClient else { throw CXError(message: "No attached frontend session.") }
-                try await client.preflight(executable: binary)
+                try await client.preflight(executable: replacementBinary)
                 var entries: [JSON] = []
                 for entry in windows {
                     entry.session.frontendReplacing = true
@@ -185,18 +257,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 let file = try RuntimeUpdate.writeTicket(["windows": entries], suffix: ".restore.json")
                 handoffFile = file
-                let config = NSWorkspace.OpenConfiguration()
-                config.createsNewApplicationInstance = true
-                config.arguments = ["--restore-windows", file.path]
-                replacement = try await NSWorkspace.shared.openApplication(at: RuntimeUpdate.installed, configuration: config)
-                completeReplacement()
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                if !windows.isEmpty { throw CXError(message: "The replacement frontend did not finish attaching.") }
+                if let replacementLaunch { replacement = try await replacementLaunch(file) }
+                else {
+                    let config = NSWorkspace.OpenConfiguration()
+                    config.createsNewApplicationInstance = true
+                    config.arguments = ["--restore-windows", file.path]
+                    replacement = FrontendReplacementProcess(try await NSWorkspace.shared.openApplication(at: RuntimeUpdate.installed, configuration: config))
+                }
+                try await waitForReplacement()
             } catch {
-                if let replacement, !replacement.isTerminated {
-                    replacement.forceTerminate()
-                    for _ in 0..<30 where !replacement.isTerminated { try? await Task.sleep(nanoseconds: 100_000_000) }
-                    guard replacement.isTerminated else { return }
+                if let replacement, !replacement.isTerminated() {
+                    replacement.terminate()
+                    for _ in 0..<30 where !replacement.isTerminated() { try? await Task.sleep(nanoseconds: 100_000_000) }
+                    guard replacement.isTerminated() else { return }
                 }
                 for entry in windows where entry.session.runtimeClient?.isAttached == false {
                     try? await entry.session.runtimeClient?.reclaim()
@@ -213,10 +286,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func waitForReplacement() async throws {
+        if replacementAcknowledged { return }
+        try await withCheckedThrowingContinuation { continuation in
+            replacementWaiter = continuation
+            let timeout = DispatchWorkItem { [weak self] in
+                self?.replacementWaiter?.resume(throwing: CXError(message: "The replacement frontend did not finish attaching."))
+                self?.replacementWaiter = nil
+            }
+            replacementDeadline = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + replacementTimeout, execute: timeout)
+            completeReplacement()
+        }
+    }
+
     func completeReplacement() {
-        guard updating, let handoffFile, let replacement, !replacement.isTerminated,
+        guard updating, !replacementAcknowledged, let handoffFile, let replacement, !replacement.isTerminated(),
               let ready = try? RuntimeUpdate.readTicket(handoffFile.path + ".ready.json", suffix: ".ready.json"),
-              ready["pid"] as? Int == Int(replacement.processIdentifier) else { return }
+              ready["pid"] as? Int == Int(replacement.pid) else { return }
+        replacementAcknowledged = true
+        replacementDeadline?.cancel(); replacementDeadline = nil
+        replacementWaiter?.resume(); replacementWaiter = nil
         try? FileManager.default.removeItem(at: handoffFile)
         try? FileManager.default.removeItem(atPath: handoffFile.path + ".ready.json")
         for entry in Array(windows) { closing.insert(ObjectIdentifier(entry.window)); entry.window.close() }
@@ -256,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let entry = windows.remove(at: index)
         entry.session.close(); entry.fleet.close(); closing.remove(ObjectIdentifier(window))
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !headless }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminating || windows.isEmpty { return .terminateNow }
         Task {
@@ -275,9 +365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
+        refreshTask?.cancel()
         for entry in windows { entry.session.close(); entry.fleet.close() }
         if let frontendLock { flock(frontendLock, LOCK_UN); Darwin.close(frontendLock) }
-        for observer in observers { DistributedNotificationCenter.default().removeObserver(observer) }
+        stopObservingFrontendEvents()
     }
 }
 
@@ -297,10 +388,38 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
 }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface."); exit(0) }
-if args.contains("--check") || args.contains("--runtime-check") || args.contains("--render") || args.contains("--icon") {
-    setenv("VCX_CONFIG_HOME", (NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString), 1)
+if args.contains(where: { ["--check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
+    let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
+    setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
+    setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
 }
 let app = NSApplication.shared
+if let index = args.firstIndex(of: "--recovery-frontend"), index + 3 < args.count {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        do { try await RecoveryCheck.frontend(directory: URL(fileURLWithPath: args[index + 1]), socketPath: args[index + 2], stage: args[index + 3]); exit(0) }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    }
+    RunLoop.main.run(); exit(0)
+}
+if let index = args.firstIndex(of: "--frontend-handoff-fixture"), index + 2 < args.count {
+    app.setActivationPolicy(.prohibited)
+    let delegate = AppDelegate()
+    delegate.headless = true; delegate.verificationMode = args[index + 2]; delegate.restoreFile = args[index + 1]
+    app.delegate = delegate
+    delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+    withExtendedLifetime(delegate) { RunLoop.main.run() }
+    exit(0)
+}
+if let index = args.firstIndex(of: "--runtime-load-worker"), index + 2 < args.count {
+    app.setActivationPolicy(.prohibited)
+    do {
+        let server = try RuntimeLoadCheck.worker(socketPath: args[index + 1], directory: URL(fileURLWithPath: args[index + 2]))
+        try server.start()
+        withExtendedLifetime(server) { RunLoop.main.run() }
+    } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    exit(0)
+}
 if let index = args.firstIndex(of: "--runtime-worker") {
     app.setActivationPolicy(.prohibited)
     _ = setsid()
@@ -316,8 +435,12 @@ if let index = args.firstIndex(of: "--runtime-worker") {
     }
     let server = RuntimeServer(socketPath: args[index + 1], build: RuntimeIdentity.build) { params in
         let state = args.contains("--runtime-test") ? RuntimeIdentity.directory.appendingPathComponent("test-state") : nil
-        let backend = SessionBackend(cwd: params["cwd"] as? String ?? FileManager.default.currentDirectoryPath, stateDirectory: state)
-        backend.startInBackground(params: params, command: command)
+        let recovery = params["recovery"] as? JSON
+        let backend = SessionBackend(cwd: recovery?["conversationDirectory"] as? String ?? params["cwd"] as? String ?? FileManager.default.currentDirectoryPath, stateDirectory: state)
+        if args.contains("--runtime-recovery-test"), let command {
+            backend.session.connectionFactory = { account, cwd in RecoveryCheck.connection(command: command, account: account, cwd: cwd) }
+        }
+        backend.startInBackground(params: params, command: args.contains("--runtime-recovery-test") ? nil : command)
         return backend
     }
     server.onEmpty = { server.stop(); exit(0) }
@@ -340,7 +463,49 @@ if let index = args.firstIndex(of: "--render"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     Render.run(directory: args[index + 1]); exit(0)
 }
-if args.contains("--runtime-check") {
+if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        var report: JSON = ["status": "running", "limits": ["No desktop windows were displayed; Space switching and visible compositor performance were not measured.", "Synthetic model connections isolate VCX overhead; real provider CLI and model inference costs are excluded.", "Transcript paging and a global provider-tool concurrency budget remain separate implementation work."]]
+        func saveReport() throws {
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: args[index + 1]), options: .atomic)
+        }
+        do {
+            try saveReport()
+            guard await Check.run() else { exit(1) }
+            report["nativeAndContinuity"] = "passed"; try saveReport()
+            let bounds = try await RuntimeBoundsCheck.run()
+            report["boundsChecks"] = bounds; try saveReport()
+            let frontend = try await FrontendCheck.run()
+            report["frontendChecks"] = frontend; try saveReport()
+            let recovery = try await RecoveryCheck.run()
+            report["recoveryChecks"] = recovery; try saveReport()
+            let loadPath = args[index + 1] + ".load.json"
+            let load = try await RuntimeLoadCheck.run(reportPath: loadPath)
+            report["loadChecks"] = load
+            report["load"] = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: loadPath)))
+            report["status"] = "checks_passed_with_limits"; try saveReport()
+            print("Runtime verification checks passed; report and limits: " + args[index + 1]); exit(0)
+        } catch {
+            report["status"] = "failed"; report["error"] = error.localizedDescription; try? saveReport()
+            fputs(error.localizedDescription + "\n", stderr); exit(1)
+        }
+    }
+    RunLoop.main.run()
+} else if args.contains("--frontend-check") || args.contains("--runtime-bounds-check") || args.contains("--runtime-recovery-check") || args.contains("--runtime-load-check") {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        do {
+            if args.contains("--frontend-check") { _ = try await FrontendCheck.run() }
+            else if args.contains("--runtime-bounds-check") { _ = try await RuntimeBoundsCheck.run() }
+            else if args.contains("--runtime-recovery-check") { _ = try await RecoveryCheck.run() }
+            else if let index = args.firstIndex(of: "--runtime-load-check"), index + 1 < args.count { _ = try await RuntimeLoadCheck.run(reportPath: args[index + 1]) }
+            else { throw CXError(message: "A load report path is required.") }
+            exit(0)
+        } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    }
+    RunLoop.main.run()
+} else if args.contains("--runtime-check") {
     app.setActivationPolicy(.prohibited)
     Task {
         do { _ = try await RuntimeCheck.run(); exit(0) }

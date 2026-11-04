@@ -25,6 +25,7 @@ private func runtimePeer(_ fd: Int32) -> Bool {
 final class RuntimeChannel: @unchecked Sendable {
     static let maximumFrame = 32 * 1024 * 1024
     static let maximumBuffered = 64 * 1024 * 1024
+    static let maximumQueuedFrames = 1024
     let id = UUID()
     var onMessage: (JSON) -> Void = { _ in }
     var onClose: () -> Void = {}
@@ -91,7 +92,7 @@ final class RuntimeChannel: @unchecked Sendable {
         data.append(10)
         try synchronized {
             guard !closed else { throw CXError(message: "Runtime is disconnected.") }
-            guard outputBytes + data.count <= Self.maximumBuffered else { finish(); throw CXError(message: "Runtime client cannot keep up with output.") }
+            guard outputBytes + data.count <= Self.maximumBuffered, output.count - outputIndex < Self.maximumQueuedFrames else { finish(); throw CXError(message: "Runtime client cannot keep up with output.") }
             output.append(data); outputBytes += data.count
             write()
         }

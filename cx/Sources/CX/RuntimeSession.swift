@@ -34,10 +34,17 @@ final class SessionBackend: RuntimeBackend {
     private var startupTask: Task<Void, Never>?
     private var closed = false
     private var consumedGeneration = -1
+    private var runtimeID: String?
+    private var persistedCheckpoint: Data?
+    private var recoveryState: JSON?
+    private var configured = false
 
     init(session: Session) {
         self.session = session
-        session.onDraftConsumed = { [weak self] generation in self?.consumedGeneration = max(self?.consumedGeneration ?? -1, generation) }
+        session.onDraftConsumed = { [weak self] generation in
+            guard let self, recoveryState == nil else { return }
+            consumedGeneration = max(consumedGeneration, generation)
+        }
         subscriptions.append(session.objectWillChange.sink { [weak self] _ in self?.schedule() })
         subscriptions.append(session.$rows.sink { [weak self] rows in self?.observe(rows) })
     }
@@ -47,15 +54,67 @@ final class SessionBackend: RuntimeBackend {
     }
 
     func start(params: JSON, command: [String]? = nil) async {
+        configure(params)
         await session.connect(resume: params["resume"] as? String, prompt: params["prompt"] as? String ?? "", command: command)
+        if var recovery = recoveryState {
+            if let checkpointDraft {
+                recovery["draft"] = draftContent(checkpointDraft); recovery["draftGeneration"] = checkpointGeneration
+            }
+            recovery["windowState"] = windowState
+            RuntimeRecovery.restore(recovery, to: session)
+            if session.ready { recoveryState = nil }
+        }
+        saveCheckpointNotice()
     }
 
     func startInBackground(params: JSON, command: [String]? = nil) {
         guard startupTask == nil, !closed else { return }
+        configure(params)
         startupTask = Task { [weak self] in
             guard let self else { return }
             await start(params: params, command: command)
             startupTask = nil
+        }
+    }
+
+    private func configure(_ params: JSON) {
+        guard !configured else { return }
+        configured = true
+        runtimeID = params["sessionId"] as? String
+        if let recovery = params["recovery"] as? JSON {
+            recoveryState = recovery
+            windowState = recovery["windowState"] as? JSON ?? [:]
+            consumedGeneration = recovery["consumedGeneration"] as? Int ?? -1
+            checkpointDraft = runtimeDraft(recovery["draft"] as? [JSON] ?? [])
+            checkpointGeneration = recovery["draftGeneration"] as? Int ?? 0
+            session.draft = checkpointDraft!; session.draftGeneration = checkpointGeneration; session.draftRevision += 1
+        }
+    }
+
+    private func saveCheckpoint() throws {
+        guard let runtimeID else { return }
+        let metadata = session.runtimeMetadata()
+        var state: JSON = ["cwd": session.cwd, "conversationDirectory": metadata["conversationDirectory"] ?? session.cwd,
+                           "recordID": metadata["recordID"] ?? "", "stateDirectory": session.stateDirectory.path,
+                           "draft": draftContent(session.savedCommandDraft ?? session.draft),
+                           "draftGeneration": session.draftGeneration, "windowState": windowState,
+                           "consumedGeneration": consumedGeneration, "interrupted": session.busy, "accountID": session.account.id]
+        state["threadID"] = session.threadID
+        if let recoveryState {
+            for key in ["cwd", "conversationDirectory", "recordID", "threadID", "stateDirectory", "accountID", "interrupted"] { state[key] = recoveryState[key] }
+            if let checkpointDraft { state["draft"] = draftContent(checkpointDraft); state["draftGeneration"] = checkpointGeneration }
+        }
+        let encoded = try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])
+        guard encoded != persistedCheckpoint else { return }
+        try RuntimeRecovery.saveCheckpoint(sessionID: runtimeID, state: state)
+        persistedCheckpoint = encoded
+    }
+
+    private func saveCheckpointNotice() {
+        do { try saveCheckpoint() }
+        catch {
+            let message = "Could not checkpoint recovery state: " + error.localizedDescription
+            if session.status != message { session.status = message }
         }
     }
 
@@ -95,6 +154,7 @@ final class SessionBackend: RuntimeBackend {
 
     private func publish() {
         guard !closed else { return }
+        saveCheckpointNotice()
         var patch: JSON = [:]
         let metadata = session.runtimeMetadata()
         if !NSDictionary(dictionary: lastMetadata).isEqual(to: metadata) {
@@ -126,6 +186,7 @@ final class SessionBackend: RuntimeBackend {
 
     func perform(action: String, params: JSON) async throws -> JSON {
         guard !closed else { throw CXError(message: "This runtime session is closed.") }
+        if recoveryState != nil, startupTask == nil, session.ready { recoveryState = nil }
         if let pieces = params["draft"] as? [JSON], let generation = params["generation"] as? Int, generation >= session.draftGeneration, generation > consumedGeneration {
             let restored = runtimeDraft(pieces)
             checkpointDraft = restored; checkpointGeneration = generation
@@ -139,6 +200,7 @@ final class SessionBackend: RuntimeBackend {
                 guard let data = try? JSONSerialization.data(withJSONObject: value), data.count <= 65536 else { throw CXError(message: "Window state is too large.") }
                 windowState = value
             }
+            try saveCheckpoint()
             schedule()
             return [:]
         case "send":
@@ -180,7 +242,9 @@ final class SessionBackend: RuntimeBackend {
             let success = await session.switchThread(params["id"] as? String, fromCommand: params["fromCommand"] as? Bool ?? false)
             publish()
             return ["success": success]
-        case "close": close()
+        case "close":
+            if let runtimeID { try RuntimeRecovery.removeCheckpoint(sessionID: runtimeID) }
+            close()
         default: throw CXError(message: "Unknown runtime action.")
         }
         publish()

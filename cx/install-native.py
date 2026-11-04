@@ -67,7 +67,7 @@ case "$1" in
     fi
     exec {shlex.quote(str(python))} {shlex.quote(str(root / 'cx.py'))} "$@"
     ;;
-  --version|--help|--check|--runtime-check|--runtime-protocol)
+  --version|--help|--check|--runtime-check|--runtime-protocol|--frontend-check|--runtime-bounds-check|--runtime-recovery-check|--runtime-load-check|--verify-runtime)
     exec {shlex.quote(str(binary))} "$@"
     ;;
 esac

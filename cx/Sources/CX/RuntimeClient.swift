@@ -2,6 +2,12 @@ import AppKit
 import CryptoKit
 import Darwin
 
+struct RuntimeResponseError: LocalizedError {
+    let message: String
+    let code: String?
+    var errorDescription: String? { message }
+}
+
 enum RuntimeIdentity {
     static let executable = Bundle.main.executableURL!
     static let build = (try? Data(contentsOf: executable)).map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "unavailable"
@@ -46,18 +52,29 @@ final class RuntimeClient {
     private var acknowledgedGeneration = -1
     private let initialCwd: String
     private let resumingRuntime: Bool
+    private let recoveryEntry: RuntimeRecovery.Entry?
+    private var workerInstanceID: String?
+    private var recoveryState: JSON = [:]
+    private var windowState: JSON = [:]
+    private var coldRecoveryInProgress = false
 
-    init(session: Session, cwd: String, resumeRuntimeID: String? = nil, socketPath: String? = nil) {
+    init(session: Session, cwd: String, resumeRuntimeID: String? = nil, socketPath: String? = nil, recovery: RuntimeRecovery.Entry? = nil) {
         self.session = session
         initialCwd = cwd
         resumingRuntime = resumeRuntimeID != nil
         sessionID = resumeRuntimeID.flatMap { UUID(uuidString: $0)?.uuidString } ?? UUID().uuidString
         self.socketPath = socketPath ?? RuntimeIdentity.socket(cwd: cwd)
+        recoveryEntry = recovery
+        if let recovery {
+            recoveryState = recovery.state; windowState = recovery.windowState
+            session.applyRuntimeDraft(recovery.state)
+        }
     }
 
     func connect(resume: String?, prompt: String = "") async throws {
         if let connectTask { return try await connectTask.value }
-        let task = Task { try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime) }
+        let canRecover = recoveryEntry.map(RuntimeRecovery.hasSavedRecord) ?? false
+        let task = Task { try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime || canRecover) }
         connectTask = task
         defer { connectTask = nil }
         try await task.value
@@ -85,8 +102,16 @@ final class RuntimeClient {
         do {
             let hello = try await request("hello", ["protocol": 1], timeout: 10)
             guard hello["protocol"] as? Int == 1 else { throw CXError(message: "The frontend and runtime use incompatible protocols.") }
+            workerInstanceID = RuntimeRecovery.workerInstance(hello)
             var params: JSON = ["sessionId": sessionID, "cwd": initialCwd, "prompt": prompt]
             params["resume"] = resume
+            params["existingOnly"] = resumingRuntime
+            if let recoveryEntry, let previous = recoveryEntry.instanceID, workerInstanceID != previous {
+                guard RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw CXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
+                params["resume"] = saved; params["prompt"] = ""; params["cwd"] = recoveryEntry.cwd
+                params["recovery"] = recoveryEntry.state; params["existingOnly"] = false
+                coldRecoveryInProgress = true
+            }
             let result = try await request("attach", params)
             guard let nextLease = result["lease"] as? String, let state = result["state"] as? JSON, let nextRevision = result["revision"] as? Int else {
                 throw CXError(message: "The runtime returned an invalid session snapshot.")
@@ -96,11 +121,14 @@ final class RuntimeClient {
             revision = nextRevision
             attached = true
             session?.applyRuntimeSnapshot(state)
+            mergeRecoveryState(state)
+            windowState = state["windowState"] as? JSON ?? windowState
             acknowledgedGeneration = state["draftGeneration"] as? Int ?? -1
             attaching = false
             let updates = bufferedUpdates
             bufferedUpdates.removeAll()
             for update in updates { receive(update) }
+            try persistRecovery()
         } catch {
             attaching = false
             bufferedUpdates.removeAll()
@@ -149,12 +177,25 @@ final class RuntimeClient {
 
     func perform(_ action: String, _ params: JSON = [:]) async throws -> JSON {
         guard attached, !closed, !superseded else { throw CXError(message: "The session runtime is disconnected.") }
+        if action == "close" { try RuntimeRecovery.requestClose(sessionID: sessionID) }
         sequence += 1
-        do { return try await request("perform", ["sessionId": sessionID, "lease": lease, "sequence": sequence, "action": action, "params": params]) }
-        catch { channel?.close(); throw error }
+        do {
+            let result = try await request("perform", ["sessionId": sessionID, "lease": lease, "sequence": sequence, "action": action, "params": params])
+            if action == "close" { try RuntimeRecovery.remove(sessionID: sessionID) }
+            return result
+        }
+        catch {
+            if action == "close", let response = error as? RuntimeResponseError, ["closed", "unknownSession"].contains(response.code ?? "") {
+                try RuntimeRecovery.remove(sessionID: sessionID)
+                return [:]
+            }
+            if action == "close", error is RuntimeResponseError { try? RuntimeRecovery.cancelClose(sessionID: sessionID) }
+            channel?.close(); throw error
+        }
     }
 
     func checkpoint(draft: [JSON], generation: Int) async throws {
+        try persistRecovery(draft: draft, generation: generation)
         if let checkpointTask { try await checkpointTask.value }
         guard generation > acknowledgedGeneration else { return }
         let task = Task {
@@ -167,6 +208,8 @@ final class RuntimeClient {
     }
 
     func checkpointWindow(_ state: JSON) async throws {
+        windowState = state
+        try persistRecovery()
         if let checkpointTask { try await checkpointTask.value }
         guard let session else { return }
         _ = try await perform("checkpoint", ["draft": draftContent(session.savedCommandDraft ?? session.draft), "generation": session.draftGeneration, "windowState": state])
@@ -210,7 +253,7 @@ final class RuntimeClient {
 
     private func receive(_ message: JSON) {
         if let id = message["id"] as? String {
-            if let error = message["error"] as? JSON { finish(id, result: .failure(CXError(message: error["message"] as? String ?? "Runtime request failed."))) }
+            if let error = message["error"] as? JSON { finish(id, result: .failure(RuntimeResponseError(message: error["message"] as? String ?? "Runtime request failed.", code: error["code"] as? String))) }
             else { finish(id, result: .success(message["result"] as? JSON ?? [:])) }
             return
         }
@@ -222,6 +265,7 @@ final class RuntimeClient {
             session?.ready = false
             session?.status = "Session moved to another window."
             failPending(CXError(message: "This window no longer owns the session."))
+            channel?.close(); channel = nil
             onLeaseLost()
         } else if method == "session/update", attaching {
             guard bufferedUpdates.count < 256 else { channel?.close(); return }
@@ -233,12 +277,37 @@ final class RuntimeClient {
             }
             revision = next
             session?.applyRuntimePatch(patch)
+            if let metadata = patch["meta"] as? JSON { mergeRecoveryState(metadata) }
+            if patch["meta"] != nil || patch["draft"] != nil {
+                do { try persistRecovery() }
+                catch { session?.status = error.localizedDescription }
+            }
         }
     }
 
     private func finish(_ id: String, result: Result<JSON, Error>) {
         timeouts.removeValue(forKey: id)?.cancel()
         pending.removeValue(forKey: id)?.resume(with: result)
+    }
+    private func persistRecovery(draft: [JSON]? = nil, generation: Int? = nil) throws {
+        guard let session, !closed, !superseded else { return }
+        var state = recoveryState
+        state["cwd"] = session.cwd
+        state["conversationDirectory"] = recoveryState["conversationDirectory"] ?? initialCwd
+        state["stateDirectory"] = recoveryState["stateDirectory"] ?? session.stateDirectory.path
+        state["recordID"] = recoveryState["recordID"] ?? String(session.currentConversationID.dropFirst(7))
+        state["draft"] = draft ?? draftContent(session.savedCommandDraft ?? session.draft)
+        state["draftGeneration"] = generation ?? session.draftGeneration
+        state["windowState"] = windowState
+        try RuntimeRecovery.saveWindow(sessionID: sessionID, socketPath: socketPath, state: state, instanceID: workerInstanceID ?? recoveryEntry?.instanceID)
+    }
+    private func mergeRecoveryState(_ state: JSON) {
+        if state["ready"] as? Bool == true { coldRecoveryInProgress = false }
+        var selected = RuntimeRecovery.selectState(state)
+        if coldRecoveryInProgress {
+            for key in ["recordID", "threadID", "conversationDirectory", "stateDirectory"] { selected.removeValue(forKey: key) }
+        }
+        recoveryState.merge(selected) { _, newest in newest }
     }
     private func failPending(_ error: Error) { for id in Array(pending.keys) { finish(id, result: .failure(error)) } }
 
