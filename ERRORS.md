@@ -54,3 +54,4 @@
 - 04/11/2026: Read owned launcher source paths before rewriting them; installing from a temporary worktree can leave its path in terminal launchers.
 - 04/11/2026: Tests for dynamically loaded Python modules use patch.object on the loaded module; a spec name is not necessarily importable.
 - 04/11/2026: LaunchServices dump paths carry a trailing hexadecimal record tag; strip it before comparing paths or unregistering a bundle.
+- 04/11/2026: A VCX draft format change must hold against a runtime worker on the previous build; installs keep workers alive, and they echo every checkpointed draft back to the window, which the BugCheck fixture (no runtime client) never exercises.
