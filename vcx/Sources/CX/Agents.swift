@@ -341,9 +341,12 @@ final class ClaudeConnection: Connection {
     private func catalog() async throws -> JSON {
         if let metadata { return metadata }
         if process == nil { try launch(resume: resumed) }
-        let result = try await controlResult(["subtype": "initialize"], timeout: 20)
+        var result = try await controlResult(["subtype": "initialize"], timeout: 20)
+        let models = result["models"] as? [JSON] ?? []
+        if model == "Claude", let resolved = models.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String { model = resolved; emit("cx/model", ["model": resolved]) }
+        // "default" duplicates the alias it resolves to; the menu highlights that alias instead.
+        result["models"] = models.filter { $0["value"] as? String != "default" }
         metadata = result
-        if model == "Claude", let resolved = (result["models"] as? [JSON])?.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String { model = resolved; emit("cx/model", ["model": resolved]) }
         emit("cx/catalog", result); return result
     }
     private func controlResult(_ request: JSON, timeout: Double) async throws -> JSON {

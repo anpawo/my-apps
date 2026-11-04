@@ -362,6 +362,14 @@ enum Check {
             check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
             check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
             check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
+            check((catalog["models"] as? [JSON])?.compactMap { $0["value"] as? String } == ["fixture-claude"] && claude.model == "fixture-claude-1", "Claude resolves the default model and hides the default entry")
+            do {
+                let aliases = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("alias-state"))
+                aliases.applyClaudeCatalog(catalog)
+                aliases.model = claude.model
+                aliases.showCommands("/model " + aliases.account.provider + " ", preserveDraft: false)
+                check(aliases.commandOptions.map(\.name) == ["fixture-claude"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
+            }
             let previousModel = claude.model
             do {
                 _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me"])

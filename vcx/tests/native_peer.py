@@ -52,7 +52,7 @@ else:
                 if subtype == 'set_model' and message['request'].get('model') == 'reject-me':
                     send({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture model rejected'}})
                     continue
-                result = {'commands': [{'name': 'fixture-skill', 'description': 'Fixture skill', 'aliases': ['fixture-alias']}], 'models': [{'value': 'fixture-claude'}], 'current_permission_mode': 'bypassPermissions'} if subtype == 'initialize' else {'mcpServers': [{'name': 'fixture-mcp', 'status': 'connected'}]}
+                result = {'commands': [{'name': 'fixture-skill', 'description': 'Fixture skill', 'aliases': ['fixture-alias']}], 'models': [{'value': 'default', 'resolvedModel': 'fixture-claude-1'}, {'value': 'fixture-claude', 'resolvedModel': 'fixture-claude-1'}], 'current_permission_mode': 'bypassPermissions'} if subtype == 'initialize' else {'mcpServers': [{'name': 'fixture-mcp', 'status': 'connected'}]}
                 if subtype == 'initialize' and '--append-system-prompt' in sys.argv:
                     result['appendedSystemPrompt'] = sys.argv[sys.argv.index('--append-system-prompt') + 1]
                 send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})

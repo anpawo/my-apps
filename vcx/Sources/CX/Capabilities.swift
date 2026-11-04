@@ -71,6 +71,10 @@ extension Session {
         }
         if let catalog = catalog["models"] as? [JSON] {
             models = catalog.compactMap { $0["value"] as? String }
+            modelAliases = Dictionary(catalog.compactMap { entry in
+                guard let id = entry["value"] as? String, let resolved = entry["resolvedModel"] as? String else { return nil }
+                return (id, resolved)
+            }, uniquingKeysWith: { first, _ in first })
             modelEfforts = Dictionary(catalog.compactMap { entry in
                 guard let id = entry["value"] as? String else { return nil }
                 return (id, entry["supportsEffort"] as? Bool == false ? [] : entry["supportedEffortLevels"] as? [String] ?? [])

@@ -79,6 +79,7 @@ final class Session: ObservableObject {
     @Published var frontendReplacing = false
     var modelEfforts: [String: [String]] = [:]
     var modelDefaultEfforts: [String: String] = [:]
+    var modelAliases: [String: String] = [:]
     var pendingModelCommand: String?
     @Published var status = "Connecting…"
     @Published var ready = false
@@ -998,7 +999,7 @@ final class Session: ObservableObject {
             "usage": usage, "usageLoading": usageLoading, "tokens": tokens, "repository": repository, "branch": branch,
             "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
-            "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts,
+            "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts, "modelAliases": modelAliases,
             "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
             "recordID": recordID, "fleetContext": fleetContext,
             "recent": recent.map { ["id": $0.id, "title": $0.title, "backendID": $0.backendID as Any? ?? NSNull()] },
@@ -1047,6 +1048,7 @@ final class Session: ObservableObject {
         models = value["models"] as? [String] ?? []
         modelEfforts = value["modelEfforts"] as? [String: [String]] ?? [:]
         modelDefaultEfforts = value["modelDefaultEfforts"] as? [String: String] ?? [:]
+        modelAliases = value["modelAliases"] as? [String: String] ?? [:]
         skillPaths = value["skillPaths"] as? [String: String] ?? [:]
         legacyCommandPaths = value["legacyCommandPaths"] as? [String: String] ?? [:]
         planning = value["planning"] as? Bool ?? false

@@ -105,11 +105,11 @@ extension Session {
                 guard provider == account.provider || provider == "auto" else { return [] }
                 if args.count == 2 {
                     return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) }.map {
-                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0, isCurrent: $0 == model)
+                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0, isCurrent: $0 == model || modelAliases[$0] == model)
                     }
                 }
                 choices = (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
-                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: $0 == (args[1] == model ? effectiveEffort : modelDefaultEfforts[args[1]]))
+                    option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: $0 == (args[1] == model || modelAliases[args[1]] == model ? effectiveEffort : modelDefaultEfforts[args[1]]))
                 }
                 return choices
             case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
