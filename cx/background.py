@@ -75,7 +75,7 @@ def mark_limit(account):
 
 def environment(account):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE', 'FLEET_')) and k not in (
-        'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY')}
+        'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'VCX_SESSION_FORMAT')}
     env['PATH'] = str(HOME / '.local/bin') + ':/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
     if account.get('home'):
         env['CLAUDE_CONFIG_DIR' if account['provider'] == 'claude' else 'CODEX_HOME'] = account['home']
@@ -171,17 +171,20 @@ def options(argv):
     parser.add_argument('--resume', '-r')
     parser.add_argument('--fork-session', action='store_true')
     parser.add_argument('--session-id')
+    parser.add_argument('--session-id-format', choices=['native', 'uuid'], default=os.environ.get('VCX_SESSION_FORMAT', 'native'))
     parser.add_argument('--model')
     parser.add_argument('--output-format', choices=['text', 'json', 'stream-json'], default='text')
     parser.add_argument('--input-format', choices=['text', 'stream-json'], default='text')
     parser.add_argument('--system-prompt', default='')
     parser.add_argument('--append-system-prompt', default='')
+    parser.add_argument('--append-system-prompt-file')
     parser.add_argument('--json-schema')
     parser.add_argument('--tools')
     parser.add_argument('--allowedTools', '--allowed-tools')
     parser.add_argument('--disallowedTools', '--disallowed-tools')
     parser.add_argument('--setting-sources')
     parser.add_argument('--settings')
+    parser.add_argument('--mcp-config', action='append', default=[])
     parser.add_argument('--permission-mode')
     parser.add_argument('--effort')
     parser.add_argument('--max-turns', type=int, default=30)
@@ -197,6 +200,8 @@ def options(argv):
         parser.error('--max-turns must be positive.')
     if args.json_schema:
         json.loads(args.json_schema)
+    if args.append_system_prompt_file:
+        args.append_system_prompt += '\n' + (Path(args.cwd) / args.append_system_prompt_file).read_text()
     return args
 
 
@@ -221,6 +226,30 @@ def content_text(content):
 
 def bypass_allowed(args, prefs):
     return args.dangerously_skip_permissions or (args.permission_mode == 'bypassPermissions' if args.permission_mode else prefs['mode'] == 'bypass')
+
+
+def tool_denied(payload, restrictions):
+    tool = payload.get('tool_name', '')
+    for rule in (restrictions or '').split(','):
+        if not rule:
+            continue
+        name = rule.split('(', 1)[0]
+        if tool.startswith(name) and '(' not in rule:
+            return True
+        if tool == 'Bash' and name == 'Bash':
+            if not rule.endswith(':*)'):
+                return True
+            try:
+                prefix = shlex.split(rule[5:-3])
+                words = shlex.split(payload.get('tool_input', {}).get('command', ''))
+                words = [part.strip(';|&()$') for word in words for part in shlex.split(word)]
+            except ValueError:
+                return True
+            # Deny prefixes conservatively across shell wrappers and git options.
+            remaining = iter(words)
+            if prefix and all(any(Path(word).name == part for word in remaining) for part in prefix):
+                return True
+    return False
 
 
 def tool_activity(result):
@@ -253,6 +282,14 @@ class Runner:
         self.prefs = preferences()
         self.record_id = str(uuid.uuid4()).upper()
         self.record = {'cwd': str(Path(args.cwd).resolve()), 'rows': []}
+        if args.resume and not args.resume.startswith('native:'):
+            try:
+                record_id = str(uuid.UUID(args.resume)).upper()
+                key = hashlib.sha256(self.record['cwd'].encode()).hexdigest()[:24]
+                if (STATE / 'native' / key / (record_id + '.json')).is_file():
+                    args.resume = 'native:' + record_id
+            except ValueError:
+                pass
         self.backend = args.resume
         self.account = None
         self.lock = None
@@ -373,7 +410,7 @@ class Runner:
             self.record.setdefault('draft', [])
             if not args.no_session_persistence:
                 write_json(self.snapshot(), self.record)
-                result['session_id'] = 'native:' + self.record_id
+                result['session_id'] = self.record_id if args.session_id_format == 'uuid' else 'native:' + self.record_id
             result['provider'] = provider
             result.setdefault('type', 'result')
             if args.json_schema and not result.get('is_error') and 'structured_output' not in result:
@@ -400,6 +437,8 @@ class Runner:
             command_args += ['--permission-mode', 'bypassPermissions' if self.prefs['mode'] == 'bypass' else 'default']
         for path in args.add_dir:
             command_args += ['--add-dir', path]
+        for config in args.mcp_config:
+            command_args += ['--mcp-config', config]
         if resume:
             command_args += ['--resume', resume]
         body = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}).encode() + b'\n'
@@ -426,6 +465,10 @@ class Runner:
         sealed = args.tools is not None
         settings = json.loads(args.settings) if args.settings and args.settings.lstrip().startswith('{') else read_json(Path(args.settings)) if args.settings else {}
         hooks = settings.get('hooks', {})
+        if args.disallowedTools:
+            guard = shlex.join(['/usr/bin/python3', str(Path(__file__).resolve()), '--check-denied-tools', args.disallowedTools])
+            hooks = dict(hooks)
+            hooks['PreToolUse'] = [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': guard}]}] + hooks.get('PreToolUse', [])
         if sealed:
             guard = shlex.join(['/usr/bin/python3', str(Path(__file__).resolve()), '--check-tools', args.tools])
             hooks = dict(hooks)
@@ -452,7 +495,7 @@ class Runner:
                     '-c', 'web_search="' + ('live' if args.tools and 'Web' in args.tools else 'disabled') + '"']
         else:
             if bypass_allowed(args, self.prefs):
-                cmd += ['--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust']
+                cmd += ['--dangerously-bypass-approvals-and-sandbox']
             else:
                 cmd += ['--sandbox', 'read-only', '-c', 'approval_policy="never"']
             if not shell:
@@ -472,6 +515,21 @@ class Runner:
                         cmd += ['-c', 'mcp_servers.' + name + '.enabled=false']
         if args.disallowedTools:
             cmd += ['-c', 'features.apps=false', '-c', 'features.plugins=false']
+        for config in args.mcp_config:
+            if sealed:
+                raise ValueError('An explicit MCP configuration cannot be added to a sealed tool allowlist.')
+            value = json.loads(config) if config.lstrip().startswith('{') else json.loads((Path(args.cwd) / config).read_text())
+            for name, server in value.get('mcpServers', {}).items():
+                if server.get('type', 'stdio') not in ('stdio', 'http'):
+                    raise ProviderUnavailable('This MCP transport requires Claude.')
+                if 'command' in server:
+                    entry = {key: server[key] for key in ('command', 'args', 'env') if key in server}
+                elif 'url' in server:
+                    entry = {'url': server['url'], 'http_headers': server.get('headers', {})}
+                else:
+                    raise ValueError('An MCP server needs a command or URL.')
+                entry['enabled'] = not server.get('disabled', False)
+                cmd += ['-c', 'mcp_servers=' + toml({name: entry})]
         if hooks:
             cmd += ['--dangerously-bypass-hook-trust', '-c', 'features.hooks=true', '-c', 'features.codex_hooks=true']
             for event, groups in hooks.items():
@@ -540,6 +598,8 @@ class Runner:
         return result
 
     def qwen(self, account, content):
+        if self.args.mcp_config:
+            raise ProviderUnavailable('This task requires an MCP-capable provider.')
         ensure_qwen(self.prefs)
         args = self.args
         system = '\n\n'.join(filter(None, [args.system_prompt, args.append_system_prompt])) or 'You are Qwen in Vibe Code X. Complete the user request accurately. Check project instructions before changing files.'
@@ -597,6 +657,9 @@ class Runner:
                 script = function.get('arguments', {}).get('command', '')
                 if not enabled or function.get('name') != 'run_command' or not script or '\0' in script or len(script) > 65536:
                     raise ValueError('Qwen requested a tool that this task does not allow.')
+                if tool_denied({'tool_name': 'Bash', 'tool_input': {'command': script}}, args.disallowedTools):
+                    messages.append({'role': 'tool', 'tool_name': 'run_command', 'content': 'The command is denied by this task. Do not retry it.'})
+                    continue
                 settings = read_json(HOME / '.codex/hooks.json') if args.setting_sources != '' else {}
                 custom = json.loads(args.settings) if args.settings and args.settings.lstrip().startswith('{') else read_json(Path(args.settings)) if args.settings else {}
                 allowed = True
@@ -647,6 +710,11 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     values = sys.argv[1:] if argv is None else argv
+    if len(values) == 2 and values[0] == '--check-denied-tools':
+        if tool_denied(json.load(sys.stdin), values[1]):
+            print('This tool invocation is denied by the task.', file=sys.stderr)
+            return 2
+        return 0
     if len(values) == 2 and values[0] == '--check-tools':
         payload = json.load(sys.stdin)
         allowed = set(values[1].split(','))
