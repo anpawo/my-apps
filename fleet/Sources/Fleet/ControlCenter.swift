@@ -149,9 +149,12 @@ struct ControlCenterView: View {
                 if controller.popupsOff, controller.isPanelVisible { controller.hidePanel() }
             }
         }
-        .padding(14)
+        .padding(.vertical, 14)
+        // The card bleeds past the column instead of padding its content in, so the button
+        // ends on the same right edge as every control below it.
         .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(.white.opacity(0.06)))
+            .fill(.white.opacity(0.06))
+            .padding(.horizontal, -14))
     }
 
     private var idlePicker: some View {
