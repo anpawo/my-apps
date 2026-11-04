@@ -49,3 +49,5 @@
 - 04/11/2026: Run repo-relative verification scripts from the repository root and Swift builds in a separate call from the package directory; a failed setup command must not silently run a stale executable.
 - 04/11/2026: Import Combine explicitly when using Empty or publisher helpers; SwiftUI's observable wrappers do not expose every Combine type.
 - 04/11/2026: Inspect optional temporary-file matches with Path.glob; zsh aborts unmatched shell globs before the inspection command runs.
+- 04/11/2026: Run relocation preflight from the destination repository, outside the source and linked worktrees; its active-working-directory guard includes the invoking shell.
+- 04/11/2026: Read owned launcher source paths before rewriting them; installing from a temporary worktree can leave its path in terminal launchers.
