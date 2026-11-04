@@ -17,6 +17,10 @@ filled a live page (it is built and self-tested, but not installed).
 
 [![A terminal session: firefax scan lists a page's controls as ready locators, firefax store keeps an IBAN in the keychain, firefax fill runs a 5-step spec and prints one line per step, each verified](firefax/docs/report.png)](firefax)
 
+### [fleet](fleet)
+
+[![The panel](fleet/docs/panel.png)](fleet)
+
 ### [glance](glance)
 
 [![⌘⌥J over a terminal where a Python script failed: the panel opens at the top right, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](glance/docs/demo.gif)](glance)
