@@ -66,6 +66,7 @@ enum RuntimeLoadCheck {
                             "memoryLimitBytes": memoryLimit, "cpuPercentConvention": "100% is one CPU core",
                             "memoryConvention": "Sum of process resident sizes includes pages shared by frontend and worker; not incremental system physical memory.",
                             "environment": environment,
+                            "streamWorkload": "10 synthetic deltas per second per active session throughout each 3.3-second sample; streams stop afterward with a 30-second safety cap.",
                             "handoffScope": "Two complete native view and client generations overlap in one frontend process. Excludes a second frontend process and its additional framework mappings; overlap RSS is not a real two-process update peak.",
                             "frontendScope": "Native Session, RuntimeClient, FleetPresence and initialized offscreen CXView hosting views; one view rasterized during stream phases. No compositor or Space transitions."]
         var results: [JSON] = [], checks = 0
@@ -154,11 +155,17 @@ enum RuntimeLoadCheck {
         phases.append(try await phase(name: "session_and_native_view_setup", elapsed: milliseconds(since: startup) / 1000, frontBefore: baseline, frontAfter: Sample(getpid()), workerBefore: workerBaseline, workerAfter: Sample(worker.processIdentifier), childCPU: childCPU(clients[0]), frames: []))
         phases.append(try await measure(name: "idle", seconds: 2, worker: worker.processIdentifier, client: clients[0], host: nil))
         for client in clients.prefix(8) { _ = try await client.perform("send", ["text": "load-stream", "images": []]) }
+        try await Task.sleep(nanoseconds: 250_000_000)
         phases.append(try await measure(name: "eight_streams_one_offscreen_raster", seconds: 3.3, worker: worker.processIdentifier, client: clients[0], host: hosts[0]))
+        try check(sessions.prefix(8).allSatisfy(\.busy), "a measured stream ended before the sample completed")
+        try await stopStreams(Array(clients.prefix(8)))
         try await settled(sessions)
         let revisions = sessions.map(\.revision)
         for client in clients { _ = try await client.perform("send", ["text": "load-stream", "images": []]) }
+        try await Task.sleep(nanoseconds: 250_000_000)
         phases.append(try await measure(name: "all_streams_one_offscreen_raster", seconds: 3.3, worker: worker.processIdentifier, client: clients[0], host: hosts[0]))
+        try check(sessions.allSatisfy(\.busy), "a measured stream ended before the sample completed")
+        try await stopStreams(clients)
         try await settled(sessions)
         try check(zip(revisions, sessions).allSatisfy { $1.revision > $0 }, "some sessions did not receive streamed updates")
         try check(sessions.allSatisfy { $0.rows.flatMap(\.items).contains { $0.text.contains("load-token-") } }, "some session streams were lost")
@@ -229,6 +236,13 @@ enum RuntimeLoadCheck {
                 "checkpointAckMs": distribution(latency.map(\.0)), "checkpointProjectionMs": distribution(latency.map(\.1)),
                 "replacementAttachMs": distribution(replacements.map(\.4)),
                 "handoffHostingViews": count * 2, "handoffOverlapRSSBytes": overlapFront.rss + overlapWorker.rss, "phases": phases]
+    }
+
+    private static func stopStreams(_ clients: [RuntimeClient]) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for client in clients { group.addTask { _ = try await client.perform("stop") } }
+            try await group.waitForAll()
+        }
     }
 
     private static func settled(_ sessions: [Session]) async throws {
@@ -315,7 +329,7 @@ enum RuntimeLoadCheck {
                 event(["method": "turn/started", "params": ["threadId": threadID, "turn": ["id": turn]]])
                 stream = Task { [weak self] in
                     guard let self else { return }
-                    for index in 0..<25 {
+                    for index in 0..<300 {
                         do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
                         event(["method": "item/agentMessage/delta", "params": ["threadId": threadID, "itemId": item, "delta": "load-token-\(index) "]])
                     }
