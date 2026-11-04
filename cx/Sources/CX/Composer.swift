@@ -22,8 +22,8 @@ final class ImageChip: NSTextAttachment {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
         let label = NSAttributedString(string: "[Image #\(number)]", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
-        let image = NSImage(size: label.size(), flipped: false) { _ in
-            label.draw(at: .zero)
+        let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { _ in
+            label.draw(at: NSPoint(x: 6, y: 0))
             return true
         }
         attachmentCell = Cell(imageCell: image)
@@ -71,12 +71,14 @@ func pastedPieces(_ source: String) -> [InputPiece] {
 
 struct Composer: NSViewRepresentable {
     @ObservedObject var session: Session
+    var willSubmit: (String, [String]) -> Void = { _, _ in }
     func makeCoordinator() -> Coordinator { Coordinator(session) }
     func makeNSView(context: Context) -> NSScrollView {
         let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
+        field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         field.setDraft(session.draft)
         let scroll = NSScrollView()
@@ -89,6 +91,7 @@ struct Composer: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let field = scroll.documentView as? ComposerText else { return }
+        field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         guard context.coordinator.revision != session.draftRevision else { return }
         context.coordinator.revision = session.draftRevision
@@ -149,6 +152,7 @@ struct Composer: NSViewRepresentable {
 
 final class ComposerText: NSTextView {
     weak var session: Session?
+    var willSubmit: (String, [String]) -> Void = { _, _ in }
     var heldStorage: NSTextStorage?
     var resized: () -> Void = {}
     override init(frame: NSRect, textContainer: NSTextContainer?) {
@@ -239,6 +243,7 @@ final class ComposerText: NSTextView {
         guard let session, !session.frontendReplacing else { return }
         let (text, images) = message()
         let draft = NSAttributedString(attributedString: session.draft), generation = session.draftGeneration
+        if session.ready, !session.changing, !text.hasPrefix("/"), !text.isEmpty || !images.isEmpty { willSubmit(text, images) }
         Task { await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation) }
     }
 }

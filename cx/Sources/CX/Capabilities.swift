@@ -39,7 +39,7 @@ func hookSummary(_ hook: JSON, event: String, matcher: String? = nil) -> String 
 extension Session {
     func capabilityItems(_ title: String) -> [CapabilityItem] {
         let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
-        return values.enumerated().map { index, value in
+        let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
             let name = parts[0]
             let summary = parts.dropFirst().joined(separator: " · ")
@@ -50,6 +50,15 @@ extension Session {
             else { detail = summary.isEmpty ? "Configured MCP server" : summary }
             return CapabilityItem(name: name, detail: detail, id: String(index))
         }
+        guard title == "Hooks" else { return items }
+        var grouped: [CapabilityItem] = []
+        for item in items {
+            if let index = grouped.firstIndex(where: { $0.name == item.name }) {
+                let previous = grouped[index]
+                grouped[index] = CapabilityItem(name: item.name, detail: previous.detail + "\n\n" + item.detail)
+            } else { grouped.append(CapabilityItem(name: item.name, detail: item.detail)) }
+        }
+        return grouped
     }
     func applyClaudeCatalog(_ catalog: JSON) {
         if let commands = catalog["commands"] as? [JSON] {

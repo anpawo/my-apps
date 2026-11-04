@@ -327,6 +327,9 @@ enum Check {
         let draft = NSMutableAttributedString(string: "Look at ")
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         check(draftContent(draft).count == 2 && draftContent(draft).last?["path"] as? String == imagePath, "draft attachments retain their place")
+        let chip = ImageChip(path: imagePath, number: 1)
+        let chipLabel = NSAttributedString(string: "[Image #1]", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)])
+        check(abs((chip.attachmentCell?.cellSize().width ?? 0) - chipLabel.size().width - 12) < 0.01, "image chips reserve six points on each side without changing message text")
         draft.deleteCharacters(in: NSRange(location: draft.length - 1, length: 1))
         check(draftContent(draft).count == 1, "deleting a chip removes its attachment")
         check((try! agentImage(imagePath)).1 == "image/png", "image type is determined from its contents")
@@ -964,6 +967,45 @@ enum Check {
         check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
         check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")
         check(hookSummary(["handlerType": "prompt", "statusMessage": "Check formatting"], event: "Stop", matcher: "Bash").contains("Check formatting · Matches: Bash"), "hook summaries preserve provider descriptions and matchers")
+        codexCommands.hooks.append(hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PostToolUse"))
+        let groupedHooks = codexCommands.capabilityItems("Hooks")
+        check(groupedHooks.count == 2 && groupedHooks[0].detail.contains("PreToolUse") && groupedHooks[0].detail.contains("PostToolUse"), "repeated hooks share one card while retaining each registration")
+        check(capabilityMatches(groupedHooks, query: "PostToolUse").map(\.name) == ["check.py"], "grouped hook search includes every registration")
+        do {
+            let animation = SendAnimation()
+            let origin = CGRect(x: 170, y: 700, width: 900, height: 54)
+            let target = CGRect(x: 700, y: 500, width: 370, height: 48)
+            let old = Row("user", [Item(["id": "old", "content": [["type": "text", "text": "Send this"]]])])
+            let new = Row("user", [Item(["id": "new", "content": [["type": "text", "text": "Send this"]]])])
+            animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
+            animation.prepare(text: "Send this", images: [], rows: [old])
+            animation.update(frames: ["composer": origin, "old": target], rows: [old], reduceMotion: false)
+            check(animation.flight == nil, "existing identical messages do not animate on submission")
+            animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: false)
+            check(animation.flight?.item.id == "new" && animation.flight?.origin == origin && animation.flight?.destination == target, "accepted messages animate from the composer to their measured bubble")
+            animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
+            check(animation.flight == nil, "failed sends remove the moving bubble")
+            animation.prepare(text: "Send this", images: [], rows: [old])
+            animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: true)
+            check(animation.flight == nil, "Reduce Motion skips the send flight")
+        }
+        do {
+            let submission = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("send-animation"))
+            submission.connectionFactory = { account, _ in FixtureConnection(account) }
+            await submission.connect(resume: nil)
+            let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+            storage.addLayoutManager(manager); manager.addTextContainer(container)
+            let field = ComposerText(frame: .zero, textContainer: container)
+            field.heldStorage = storage; field.session = submission
+            var prepared = false
+            field.willSubmit = { text, images in prepared = text == "Animate this message" && images.isEmpty }
+            submission.editDraft(NSAttributedString(string: "Animate this message")); field.setDraft(submission.draft)
+            let input = Composer.Coordinator(submission)
+            check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && prepared, "Return prepares the composer morph before sending")
+            for _ in 0..<200 where submission.rows.allSatisfy({ $0.kind != "user" }) { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(submission.rows.contains { $0.kind == "user" } && submission.draft.length == 0, "the animated Return path still sends and clears the accepted draft")
+            submission.close()
+        }
         codexCommands.close()
         Settings.shared.value = Preferences(); Settings.shared.save()
         let delayed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-commands"))
@@ -1101,6 +1143,9 @@ enum Render {
         write(CapabilityPopup(session: session, title: "Skills"), size: CGSize(width: 380, height: 440), path: directory + "/skills.png")
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/hooks.png")
         write(CapabilityPopup(session: session, title: "MCP"), size: CGSize(width: 380, height: 440), path: directory + "/mcp.png")
+        write(CapabilityPopup(session: session, title: "Instructions"), size: CGSize(width: 380, height: 440), path: directory + "/instructions.png")
+        session.hooks.append(hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted"], event: "PostToolUse"))
+        write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/grouped-hooks.png")
         session.recent = [Recent(id: "1", title: "Build a clearer workspace"), Recent(id: "2", title: "Review the authentication flow"), Recent(id: "3", title: "Improve image attachments")]
         let image = NSImage(size: NSSize(width: 600, height: 360), flipped: false) { rect in
             NSColor(calibratedRed: 0.22, green: 0.14, blue: 0.38, alpha: 1).setFill(); rect.fill()
@@ -1117,8 +1162,13 @@ enum Render {
         session.draft = NSAttributedString(attributedString: draft)
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
+        draft.append(NSAttributedString(string: "next characters"))
         session.draft = draft; session.draftRevision += 1
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
+        session.preview = imagePath
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/image-popup.png")
+        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/image-popup-narrow.png")
+        session.preview = nil
         session.busy = true
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/thinking.png")
         session.event(["method": "item/started", "params": ["item": ["id": "active-tool", "type": "commandExecution", "command": "swift build", "status": "inProgress"]]])
@@ -1160,6 +1210,14 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
+        write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
+        let flightItem = Item(["content": [["type": "text", "text": "Move this text smoothly into the conversation."]]])
+        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            write(ZStack(alignment: .topLeading) {
+                Color.white
+                FlyingMessage(item: flightItem, origin: CGRect(x: 40, y: 500, width: 700, height: 60), destination: CGRect(x: 360, y: 100, width: 380, height: 60), progress: progress)
+            }, size: CGSize(width: 780, height: 600), path: directory + "/send-\(Int(progress * 100)).png")
+        }
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {

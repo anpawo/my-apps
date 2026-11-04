@@ -34,11 +34,92 @@ struct RoundButton: View {
     }
 }
 
+struct ImagePreview: View {
+    let path: String
+    let size: CGSize
+    var dismiss: () -> Void
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = thumbnail(path, size: 1600) { Image(nsImage: image).resizable().scaledToFit() }
+                else { Text("This image is no longer available.").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            }.padding(16)
+            RoundButton(icon: "xmark", label: "Close image", action: dismiss).padding(10)
+        }.frame(width: size.width * 2 / 3, height: size.height * 2 / 3)
+            .background(.white, in: RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .shadow(color: .black.opacity(0.2), radius: 28, y: 12)
+            .accessibilityAddTraits(.isModal)
+    }
+}
+
+struct MessageFrames: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, next in next }) }
+}
+
+@MainActor
+final class SendAnimation: ObservableObject {
+    struct Flight {
+        let item: Item
+        let origin: CGRect
+        let destination: CGRect
+    }
+    @Published var flight: Flight?
+    @Published var progress: CGFloat = 0
+    private var composer = CGRect.zero
+    private var pending: (content: [JSON], previous: Set<String>, origin: CGRect, date: Date)?
+
+    func prepare(text: String, images: [String], rows: [Row]) {
+        let content: [JSON] = (text.isEmpty ? [] : [["type": "text", "text": text]]) + images.map { ["type": "localImage", "path": $0] }
+        pending = (content, Set(rows.flatMap(\.items).map(\.id)), composer, Date())
+    }
+
+    func update(frames: [String: CGRect], rows: [Row], reduceMotion: Bool) {
+        if let frame = frames["composer"] { composer = frame }
+        if let flight, !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) { self.flight = nil }
+        guard let pending else { return }
+        guard !reduceMotion, Date().timeIntervalSince(pending.date) < 5, pending.origin.width > 0 else { self.pending = nil; return }
+        guard let item = rows.filter({ $0.kind == "user" }).flatMap(\.items).first(where: {
+            !pending.previous.contains($0.id) && NSArray(array: $0.data["content"] as? [JSON] ?? []).isEqual(to: pending.content)
+        }), let destination = frames[item.id], destination.minY >= 0, destination.maxY <= composer.minY else { return }
+        self.pending = nil
+        progress = 0
+        flight = Flight(item: item, origin: pending.origin, destination: destination)
+        DispatchQueue.main.async {
+            guard self.flight?.item.id == item.id else { return }
+            withAnimation(.smooth(duration: 0.45)) { self.progress = 1 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if self.flight?.item.id == item.id { self.flight = nil }
+        }
+    }
+}
+
+struct FlyingMessage: View, Animatable {
+    let item: Item
+    let origin: CGRect
+    let destination: CGRect
+    var progress: CGFloat
+    var animatableData: CGFloat { get { progress } set { progress = newValue } }
+    private func mix(_ start: CGFloat, _ end: CGFloat) -> CGFloat { start + (end - start) * progress }
+    var body: some View {
+        MessageContent(item: item, fontSize: mix(13, 11))
+            .padding(mix(14, 16))
+            .frame(width: mix(origin.width, destination.width), height: mix(origin.height, destination.height), alignment: .topLeading)
+            .background(Color.black.opacity(0.065 * (1 - progress)))
+            .background(accent.opacity(0.08 * progress))
+            .clipShape(RoundedRectangle(cornerRadius: mix(18, 17)))
+            .offset(x: mix(origin.minX, destination.minX), y: mix(origin.minY, destination.minY))
+    }
+}
+
 struct CXView: View {
     @ObservedObject var session: Session
     @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
     @State private var openCapability: String?
+    @StateObject private var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
@@ -69,18 +150,31 @@ struct CXView: View {
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
         .background(Color.white)
+        .coordinateSpace(name: "conversation")
+        .environmentObject(sending)
+        .onPreferenceChange(MessageFrames.self) { frames in
+            sending.update(frames: frames, rows: session.rows, reduceMotion: reduceMotion)
+        }
+        .overlay(alignment: .topLeading) {
+            if let flight = sending.flight {
+                FlyingMessage(item: flight.item, origin: flight.origin, destination: flight.destination, progress: sending.progress)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
         .preferredColorScheme(.light)
         .sheet(isPresented: $session.showingSettings) {
             SettingsPopup(session: session).disabled(session.frontendReplacing)
         }
         .overlay {
-            if let path = session.preview {
-                ZStack(alignment: .topTrailing) {
-                    Color.white.opacity(0.96)
-                    if let image = thumbnail(path, size: 1600) { Image(nsImage: image).resizable().scaledToFit().padding(50) }
-                    else { Text("This image is no longer available.").frame(maxWidth: .infinity, maxHeight: .infinity) }
-                    RoundButton(icon: "xmark", label: "Close image") { session.preview = nil }.padding(20)
-                }.onTapGesture { session.preview = nil }
+            GeometryReader { geometry in
+                ZStack {
+                    if let path = session.preview {
+                        Color.black.opacity(0.25).onTapGesture { session.preview = nil }.transition(.opacity)
+                        ImagePreview(path: path, size: geometry.size) { session.preview = nil }
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.24), value: session.preview != nil)
             }
         }
         .disabled(session.frontendReplacing)
@@ -221,10 +315,13 @@ struct CXView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(alignment: .bottom, spacing: 12) {
-                Composer(session: session).frame(height: session.editorHeight)
+                Composer(session: session) { text, images in
+                    sending.prepare(text: text, images: images, rows: session.rows)
+                }.frame(height: session.editorHeight)
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
+                .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
             statusBar.padding(.leading, 10)
         }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
     }
@@ -403,10 +500,10 @@ struct CapabilityPopup: View {
                             Text(item.name).font(.system(size: 12, weight: .medium))
                             Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                            .padding(title == "Hooks" ? 12 : 0)
-                            .background(title == "Hooks" ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            .padding(12)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                             .overlay {
-                                RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(title == "Hooks" ? 0.12 : 0))
+                                RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.12))
                             }
                     }
                     if matches.isEmpty {
@@ -516,16 +613,29 @@ struct ActionView: View {
 struct UserBubble: View {
     @ObservedObject var item: Item
     let session: Session
+    @EnvironmentObject private var sending: SendAnimation
     var body: some View {
         HStack {
             Spacer(minLength: 40)
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
-                    if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                    else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { session.preview = path } }
-                    else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
-                }
-            }.padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
+            MessageContent(item: item) { session.preview = $0 }
+                .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
+                .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: [item.id: geometry.frame(in: .named("conversation"))]) })
+                .opacity(sending.flight?.item.id == item.id ? 0 : 1)
+        }
+    }
+}
+
+struct MessageContent: View {
+    @ObservedObject var item: Item
+    var fontSize: CGFloat = 11
+    var preview: (String) -> Void = { _ in }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
+                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: fontSize, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
+                else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
+            }
         }
     }
 }
@@ -697,8 +807,8 @@ struct ProseView: View {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
                     Text(rich(String(title))).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-                    Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: ""))).font(.system(size: 13, weight: .medium, design: .monospaced)).lineSpacing(5).textSelection(.enabled)
-                        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
+                    Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines))).font(.system(size: 13, weight: .medium, design: .monospaced)).lineSpacing(5).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, paragraph.hasPrefix("✓") || paragraph.contains("Next:") ? 12 : 0).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     Text(rich(paragraph)).font(.system(size: 13, design: .monospaced)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }
