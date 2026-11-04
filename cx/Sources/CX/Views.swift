@@ -521,7 +521,7 @@ struct UserBubble: View {
             Spacer(minLength: 40)
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
-                    if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 15)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                     else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { session.preview = path } }
                     else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
                 }
@@ -590,7 +590,7 @@ struct MarkdownBody: View {
                                 Image(systemName: "doc.on.doc")
                             }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Copy code").accessibilityLabel("Copy code")
-                        ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) }
+                        ScrollView(.horizontal) { Text(block.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(14) }
                     }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
                 } else {
                     ProseView(text: block.text)
@@ -686,7 +686,7 @@ struct ProseView: View {
                                 if n != 1 {
                                     GridRow {
                                         ForEach(Array(tableCells(line).enumerated()), id: \.offset) { _, cell in
-                                            Text(rich(cell)).font(.system(size: 13, weight: n == 0 ? .semibold : .regular)).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                            Text(rich(cell)).font(.system(size: 11, weight: n == 0 ? .semibold : .regular, design: .monospaced)).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                                         }
                                     }
                                 }
@@ -695,12 +695,12 @@ struct ProseView: View {
                     }.background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
                 } else if paragraph.hasPrefix("#") {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
-                    Text(rich(String(title))).font(.system(size: paragraph.hasPrefix("###") ? 16 : 20, weight: .semibold)).textSelection(.enabled)
+                    Text(rich(String(title))).font(.system(size: 11, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-                    Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: ""))).font(.system(size: 14, weight: .medium)).lineSpacing(5).textSelection(.enabled)
+                    Text(rich(paragraph.replacingOccurrences(of: "⟶ ", with: ""))).font(.system(size: 11, weight: .medium, design: .monospaced)).lineSpacing(5).textSelection(.enabled)
                         .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    Text(rich(paragraph)).font(.system(size: 15)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
+                    Text(rich(paragraph)).font(.system(size: 11, design: .monospaced)).lineSpacing(6).textSelection(.enabled).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
