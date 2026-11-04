@@ -42,7 +42,7 @@ extension Session {
         let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
             let name = parts[0]
-            let summary = parts.dropFirst().joined(separator: " · ")
+            let summary = parts.dropFirst().filter { title != "Hooks" || $0 != "trusted" }.joined(separator: " · ")
             let detail: String
             if title == "Skills" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
             else if title == "Hooks" { detail = summary.isEmpty ? "Provider hook" : summary }

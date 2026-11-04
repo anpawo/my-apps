@@ -971,6 +971,7 @@ enum Check {
         let groupedHooks = codexCommands.capabilityItems("Hooks")
         check(groupedHooks.count == 2 && groupedHooks[0].detail.contains("PreToolUse") && groupedHooks[0].detail.contains("PostToolUse"), "repeated hooks share one card while retaining each registration")
         check(capabilityMatches(groupedHooks, query: "PostToolUse").map(\.name) == ["check.py"], "grouped hook search includes every registration")
+        check(!groupedHooks[0].detail.contains("trusted") && groupedHooks[1].detail.contains("disabled"), "hook cards omit trusted while preserving disabled status and descriptions")
         do {
             let animation = SendAnimation()
             let origin = CGRect(x: 170, y: 700, width: 900, height: 54)
@@ -1146,6 +1147,10 @@ enum Render {
         write(CapabilityPopup(session: session, title: "Instructions"), size: CGSize(width: 380, height: 440), path: directory + "/instructions.png")
         session.hooks.append(hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted"], event: "PostToolUse"))
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/grouped-hooks.png")
+        let catalogHooks = session.hooks
+        session.hooks = ["PreToolUse", "PermissionRequest", "PostToolUse", "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"].map { hookSummary(["command": "python3 /hooks/session-state.py", "trustStatus": "trusted"], event: $0) }
+        write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/compact-hooks.png")
+        session.hooks = catalogHooks
         session.recent = [Recent(id: "1", title: "Build a clearer workspace"), Recent(id: "2", title: "Review the authentication flow"), Recent(id: "3", title: "Improve image attachments")]
         let image = NSImage(size: NSSize(width: 600, height: 360), flipped: false) { rect in
             NSColor(calibratedRed: 0.22, green: 0.14, blue: 0.38, alpha: 1).setFill(); rect.fill()

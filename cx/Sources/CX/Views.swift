@@ -498,7 +498,18 @@ struct CapabilityPopup: View {
                     ForEach(matches) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.name).font(.system(size: 12, weight: .medium))
-                            Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                            if title == "Hooks" {
+                                ForEach(Array(item.detail.components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, detail in
+                                    let parts = detail.components(separatedBy: " · ")
+                                    HStack {
+                                        Text(parts[0]).lineLimit(1)
+                                        Spacer(minLength: 8)
+                                        if parts.contains("disabled") { Text("disabled") }
+                                    }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).help(detail).accessibilityLabel(detail)
+                                }
+                            } else {
+                                Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                            }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                             .padding(12)
                             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
