@@ -1,0 +1,716 @@
+import AppKit
+import SwiftUI
+import Combine
+import IOKit.pwr_mgt
+
+/// Drives the whole app: watches for idle, decides when the panel appears, and keeps the
+/// wakeup cadence as low as the current situation allows.
+///
+/// Battery profile, cheapest state first:
+///   • no sessions   — one `proc_listpids` every 60s, nothing else
+///   • sessions live — a full refresh every 5s, but only transcripts whose tail moved are
+///                     re-parsed; the rest is one `stat` each
+///   • panel visible — the same refresh every 1s, so tiles track their sessions live
+/// The timer carries a 50% tolerance so macOS coalesces these wakeups with other timers
+/// rather than waking the CPU just for us, and everything stops entirely on sleep.
+@MainActor
+final class AppController: ObservableObject {
+
+    @Published private(set) var sessions: [Session] = [] {
+        didSet {
+            // Only the open panel draws them, and `showPanel` reads them as it opens: 5 to 8 ms
+            // of the main thread a call, at every hidden tick (measured 2026-11-01).
+            if isPanelVisible { readDesktops() }
+            statusItem?.update(off: popupsOff)
+            notifier.update(sessions: sessions, panelVisible: isPanelVisible)
+            nameOutsiders()
+            nameFused()
+        }
+    }
+
+    /// Qwen's title for each fused session's chat, by session id, with the turn count it was
+    /// made at: see `Qwen.title`. Kept, so a render draws the last ones.
+    private var qwenTitles = UserDefaults.standard.dictionary(forKey: "qwenTitles") as? [String: String] ?? [:] {
+        didSet { UserDefaults.standard.set(qwenTitles, forKey: "qwenTitles") }
+    }
+    /// Asked this run, failures included: a new turn, which needs the PC up, asks again.
+    private var titlingQwen: Set<String> = []
+
+    /// Which sessions `/fuse` joined to Qwen, and Qwen's title for their chat (asked
+    /// 2026-11-01). `FLEET_QWEN=<session id>=<title>` fuses that one in a render.
+    private func nameFused() {
+        if let fake = ProcessInfo.processInfo.environment["FLEET_QWEN"]?.split(separator: "=", maxSplits: 1),
+           fake.count == 2 {
+            Session.qwen = [String(fake[0]): String(fake[1])]
+            return
+        }
+        let fused = Qwen.fused()
+        var shown: [String: String] = [:]
+        for session in sessions {
+            guard let sid = session.sid, let turns = fused[sid] else { continue }
+            let kept = qwenTitles[sid]?.split(separator: Self.fromTitle, maxSplits: 1).map(String.init) ?? []
+            shown[sid] = kept.first ?? ""
+            let basis = String(turns.count)
+            guard Firestore.reads, kept.last != basis, titlingQwen.insert(sid + "#" + basis).inserted
+            else { continue }
+            Task { [weak self] in
+                guard let title = await Qwen.title(of: turns) else { return }
+                self?.qwenTitles[sid] = title + String(Self.fromTitle) + basis
+            }
+        }
+        Session.qwen = shown
+    }
+
+    /// Each session's desktop, the front one 0: see `Spaces.desktops`.
+    @Published private(set) var desktops: [String: Int] = [:]
+    /// Read off the main thread for the sessions about to be set: see `refreshVisible`.
+    private var readAhead: [String: Int]?
+    private func readDesktops() {
+        desktops = DemoFleet.desktops ?? readAhead ?? Spaces.desktops(sessions)
+        readAhead = nil
+    }
+
+    /// What to call a session the directory does not name: one outside `~/self`, where the
+    /// tile would read "mr" or "Downloads", and one of several sharing a project, where every
+    /// card would read the project's name.
+    ///
+    /// Keyed by transcript file — `/clear` earns a new name, a restart keeps the old ones —
+    /// and the value carries the AI title and the prompt it was made from, so a session that
+    /// moves on to something else is named again rather than wearing this morning's name all day.
+    @Published private(set) var labels: [String: String] =
+        UserDefaults.standard.dictionary(forKey: "sessionLabels") as? [String: String] ?? [:] {
+        didSet {
+            Session.labels = Self.names(in: labels)
+            UserDefaults.standard.set(labels, forKey: "sessionLabels")
+        }
+    }
+
+    /// Splits a stored label from the title it was made from.
+    private static let fromTitle: Character = "\u{1}"
+
+    /// The names alone, which is all a tile reads.
+    private static func names(in stored: [String: String]) -> [String: String] {
+        stored.compactMapValues {
+            $0.split(separator: fromTitle, maxSplits: 1).first.map(String.init)
+        }
+    }
+
+    /// The ones already asked about this run, failures included: a session whose title Claude
+    /// cannot shorten must not be asked again every second the panel is up.
+    private var labelling: Set<String> = []
+    /// When each session was last asked for a name, this run. A restart asks again once.
+    private var labelledAt: [String: Date] = [:]
+    private static let relabelAfter: TimeInterval = 30 * 60
+
+    /// Asks Claude for a name for every session the directory does not name, and asks again
+    /// when the session's subject changes. The session's own AI title is the input — Claude
+    /// Code writes one on every session, so nothing here reads a transcript — and a session
+    /// too new to have one waits for it.
+    private func nameOutsiders() {
+        // An offscreen render or bench draws the names the app last stored. Asking here started
+        // one `claude -p` per session on every run, left running when the render exited: two
+        // sessions rendering again and again started some 85 in six minutes, load 66
+        // (2026-10-15).
+        guard Firestore.reads else { return }
+        for session in sessions {
+            if session.proc.vcx, session.context != nil { continue }
+            let project = session.isSelf ? session.dirName : nil
+                        // A session a peer drives by message gets no `ai-title` from Claude Code, and its
+            // card would keep the whole brief for a name. The brief is what names it, and it
+            // changes only when the peer hands it a new job.
+            guard let file = session.transcript?.path else { continue }
+            let title = session.topic
+            guard title != "New session" else { continue }
+            // What the stored name was made from: the title, then the prompt. Claude Code
+            // writes its title once, early, so a session that drifts to other work keeps it —
+            // "Port 8768 rework" on a session auditing breaks all afternoon. A new prompt is
+            // what says it has moved on, but not every prompt: a name that changes under your
+            // eyes is worse than one that lags, so the same title waits for its name to have
+            // stood a while.
+            let latest = session.transcript?.lastPrompt ?? ""
+            let basis = title + String(Self.fromTitle) + latest
+            let made = labels[file]?.split(separator: Self.fromTitle, maxSplits: 1).last
+                .map(String.init)
+            guard made != basis else { continue }
+            if let made, made.hasPrefix(title + String(Self.fromTitle)) || made == title,
+               let at = labelledAt[file], Date().timeIntervalSince(at) < Self.relabelAfter {
+                continue
+            }
+            let asked = file + String(Self.fromTitle) + basis
+            guard !labelling.contains(asked) else { continue }
+            labelling.insert(asked)
+            labelledAt[file] = Date()
+            let directory = session.displayPath
+            Task { [weak self] in
+                guard let name = try? await Claude.label(directory: directory, project: project,
+                                                         title: title, latest: latest)
+                else { return }
+                self?.labels[file] = name + String(Self.fromTitle) + basis
+            }
+        }
+    }
+    /// Jarvis's chat state while it runs on its Qwen chat, for its card: see `Jarvis`.
+    /// `FLEET_JARVIS=working|ready|fresh` draws the card in a render whatever Jarvis is on.
+    @Published private(set) var jarvisState = ProcessInfo.processInfo.environment["FLEET_JARVIS"]
+        .map { Jarvis.state(named: $0) } ?? Jarvis.state
+    /// Read only for the open panel, which is all that draws it.
+    private func readJarvis() {
+        let state = Jarvis.state
+        if state != jarvisState { jarvisState = state }
+    }
+
+    @Published private(set) var isPanelVisible = false
+    /// Whether ⌘ is down right now. The todo column grows a ✕ on every row while it is, so a
+    /// list you can only read becomes a list you can clear without ever leaving the panel.
+    @Published private(set) var commandHeld = false
+
+    /// The two side columns: the mail worth reading and the todo list, both from the phone's
+    /// Firestore project. Owned here so what arrived last outlives the panel being dismissed.
+    let hub = HubStore()
+
+    /// The machine's own agents — what launchd runs on a clock or keeps up. Owned here for
+    /// the same reason as the two above: the scan is off the main thread, and the panel must
+    /// find the last one already done rather than start one of its own while it is drawing.
+    let launchd = LaunchdStore()
+
+    /// What the bank account has paid out, by month — see `Money`.
+    let money = MoneyStore()
+    /// The blocks other programs write — see `PluginBlock`.
+    let plugins = PluginStore()
+
+    /// The headless Claudes out on a line of ALERT — see `Fixer`.
+    let fixer = Fixer()
+
+    /// Frees memory before the machine starts swapping itself to a standstill, and names what
+    /// it will not touch. See `Reaper` for the rule it applies.
+    let reaper = Reaper()
+
+    private let registry = SessionRegistry()
+    private let notifier = Notifier()
+    private let awake = AwakeHold()
+    private var overlay: OverlayWindowController?
+    private var controlCenter: ControlCenterController?
+    private var statusItem: StatusItemController?
+    private var timer: Timer?
+    /// When the last tick actually ran, and the interval it was due after. How far apart those
+    /// two are is Fleet's own punctuality, which is the machine's — see `Reaper.tick`.
+    private var lastTickAt = Date()
+    private var lastTickInterval: TimeInterval = 0
+    private var currentInterval: TimeInterval = 0
+    private var suspended = false
+
+    /// Guards against the panel reappearing the instant it is dismissed. Re-arms only once
+    /// the user has been active again.
+    private var armed = true
+
+    /// See `Settings.popupsOff`. Here so the settings window and the menu bar follow it.
+    @Published var popupsOff = Settings.popupsOff {
+        didSet {
+            Settings.popupsOff = popupsOff
+            statusItem?.update(off: popupsOff)
+        }
+    }
+
+    /// A `didSet` does not run for the value a property is declared with, and `--render` never
+    /// calls `start()`: the names kept from the last run reach the tiles here or not at all.
+    init() { Session.labels = Self.names(in: labels) }
+
+    func start() {
+        hub.kicksJob = true
+        launchd.repairs = true
+        // A fetch made as the lid opens fails before the wifi is up (10-10, 28 s after the
+        // wake), and the freshness window it closed kept "firestore" in ALERT for ten minutes
+        // of a network that was back after one.
+        launchd.onNetworkBack = { [weak self] in
+            guard let self, hub.failure != nil else { return }
+            hub.refresh()
+        }
+        // No `mayCheck` here on purpose: the resident app reads the collection for what the
+        // panel shows and never starts a pipeline of its own. The download, the transcription
+        // and the read belong to `fleet --reels-run`, on its own schedule — see `install.sh`.
+        hub.liveSessions = { [weak self] in
+            var found: [String: String] = [:]
+            for session in self?.sessions ?? [] {
+                guard let path = session.transcript?.path else { continue }
+                let id = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+                found[id] = "\(session.dirName) — \(session.topic.prefix(200))"
+            }
+            return found
+        }
+        overlay = OverlayWindowController(controller: self)
+        statusItem = StatusItemController(controller: self)
+        bindHotKeys()
+        notifier.start()
+        // A banner names a session; clicking it should land you in that session, which is the
+        // same handoff a tile click does.
+        notifier.onSelect = { [weak self] id in
+            guard let self, let session = sessions.first(where: { $0.id == id }) else { return }
+            activate(session)
+        }
+        // State left behind by sessions that ended without saying so — a killed terminal, a
+        // crash. Once at launch is enough; nothing else creates them.
+        Hooks.prune()
+        // A kill is silent by nature — you would otherwise find out that Docker had quit by
+        // discovering it was not there. One banner per reap, saying what went and how much
+        // that gave back.
+        reaper.onReaped = { [weak self] summary in
+            self?.notifier.announce(title: "Fleet freed some memory", body: summary)
+        }
+        fixer.report = { [weak self] title, verdict in
+            self?.notifier.announce(title: title, body: verdict, opening: Fixer.log)
+        }
+        // The machine has stopped keeping up: the sessions hear about it, you do not — see
+        // `fluidityChanged`.
+        reaper.onFluidity = { [weak self] struggling, reason in
+            MainActor.assumeIsolated { self?.fluidityChanged(struggling, reason) }
+        }
+        registry.onScreenChange = { [weak self] in
+            guard let self, !suspended, pretendFleet == nil else { return }
+            sessions = registry.refresh()
+        }
+        // Whatever the last run left behind is not evidence about this one.
+        Hooks.writeMachineState(struggling: false, reason: "", hogs: [])
+        observeSleepWake()
+        observeActivation()
+        schedule(Config.idlePollDormant)
+        tick()
+        // A moment after the first scan, so the panel is built around the fleet it will show.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            MainActor.assumeIsolated { self?.overlay?.prebuild() }
+        }
+    }
+
+    /// `--render`: populate the panel, desktops included, without any window, for offscreen
+    /// image rendering.
+    func injectSessions(_ found: [Session]) {
+        sessions = found
+        readDesktops()
+    }
+
+    /// `--fake <n>`: a fleet that isn't there, so the panel can be looked at — and scrolled —
+    /// at sizes you do not happen to have running. Held rather than refreshed into, or the
+    /// next tick would replace it with the real fleet a second later.
+    var pretendFleet: [Session]? {
+        didSet { if let pretendFleet { sessions = pretendFleet } }
+    }
+
+    /// The settings window, behind a right-click on the menu bar plane. Built on first use —
+    /// most launches never open it.
+    func showControlCenter() {
+        let center = controlCenter ?? ControlCenterController(controller: self)
+        controlCenter = center
+        center.show()
+    }
+
+    /// The panel's global chord, as currently set. Called again when the menu changes it, which
+    /// releases the old chord and claims the new one.
+    func bindHotKeys() {
+        // A toggle, because Esc is not always yours to spend: the panel goes up over a
+        // terminal, and Esc there belongs to whatever is running in it. The chord that raised
+        // the panel is the one hand already knows, so it is also the one that puts it away.
+        HotKey.register(Settings.panelChord, id: 1) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isPanelVisible { self.hidePanel() } else { self.forceShow() }
+            }
+        }
+        HotKey.register(Settings.sendLeft, id: 2) {
+            MainActor.assumeIsolated { Spaces.sendFrontWindow(by: -1) }
+        }
+        HotKey.register(Settings.sendRight, id: 3) {
+            MainActor.assumeIsolated { Spaces.sendFrontWindow(by: 1) }
+        }
+    }
+
+    /// Manual trigger — Spotlight, the `fleet` command, `--demo`. Skips the idle timer
+    /// entirely so the panel is available the moment you want to check on things, and toggles
+    /// so triggering it twice puts it away again.
+    func toggleOnDemand() {
+        if isPanelVisible {
+            hidePanel()
+            return
+        }
+        forceShow()
+    }
+
+    /// Open the panel straight away, ignoring the idle timer. An empty fleet is not a reason
+    /// to refuse: the panel is mail, todos and memory too, and the sessions grid simply has
+    /// nothing in it.
+    func forceShow() {
+        overlay?.trace("panel", lasting: 0)
+        sessions = pretendFleet ?? registry.refresh()
+        armed = false
+        showPanel()
+    }
+
+    // MARK: - Timer
+
+    private func schedule(_ interval: TimeInterval) {
+        guard interval != currentInterval || timer == nil else { return }
+        currentInterval = interval
+        timer?.invalidate()
+
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        // Generous slack: we never need precise timing, and coalesced wakeups cost far less.
+        t.tolerance = interval * Config.timerTolerance
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    private func tick() {
+        // Ahead of the suspended gate: with the display asleep this is the only thing still
+        // ticking, and a hold nobody releases keeps the machine awake all night.
+        let running = ProcessScanner.anyClaudeRunning()
+        awake.hold(running)
+        guard !suspended, pretendFleet == nil else { return }
+
+        // Ahead of the dormant gate below on purpose: memory fills up whether or not any
+        // session is running, and the machine this is protecting is the whole machine.
+        let now = Date()
+        let lateness = now.timeIntervalSince(lastTickAt) - lastTickInterval
+        lastTickAt = now
+        lastTickInterval = currentInterval
+        reaper.tick(lateness: lateness, allowed: currentInterval * Config.timerTolerance)
+        if reaper.struggling { publishMachineState() }
+        // Ahead of the dormant gate too: a Reel arrives from the phone, not from a session.
+        hub.pollReelsIfDue()
+        hub.readCheckingReel()
+        // The menu bar shows what is due today, and on a day the panel never opens nothing
+        // else would fetch it: three GETs every six hours, against a 50k daily read quota.
+        hub.refreshIfStale(freshness: 6 * 3600)
+        // Not on that clock: the scan's verdicts come off the disk, and they are what the bar
+        // and the Claude below go by.
+        hub.rereadEpitechIfWritten()
+        money.rereadIfWritten()
+        plugins.rereadIfWritten()
+        launchd.tick(now: now)
+        // What the bar shows goes to a Claude without a click (04-10). With a network only:
+        // without one it fixes nothing, and the lines an outage writes leave with the outage.
+        // Never the line `runsAlarm` puts there to be looked at, and in the resident app only.
+        if launchd.repairs, launchd.online == true, !UserDefaults.standard.bool(forKey: "runsAlarm") {
+            fixer.auto(AlertsBlock.alerts(hub, crons: launchd.jobs)
+                .filter { !AlertsBlock.networkLines.contains($0) }, crons: launchd.jobs)
+        }
+        // Same reason: a terminal left empty behind a session that ended is not a session, so
+        // nothing below this line would ever see it.
+        EmptyTerminals.sweepIfDue()
+        // The dot in the menu bar is this number, and a session list that never changes — a
+        // dormant machine — would otherwise leave it on whatever it was at launch.
+        statusItem?.update(off: popupsOff)
+
+        if isPanelVisible {
+            refreshVisible()
+            return
+        }
+
+        // Cheapest possible gate: if no session is running, do nothing else at all.
+        guard running else {
+            // Drop the last known fleet rather than leaving it stale. Nothing rendered it
+            // before, but the menu bar shows the count continuously and would keep claiming
+            // sessions that have since exited.
+            if !sessions.isEmpty { sessions = [] }
+            schedule(Config.idlePollDormant)
+            return
+        }
+        schedule(Config.idlePollActive)
+
+        // Refresh even while hidden, so what the panel shows is current the instant it opens
+        // rather than as of whenever it last appeared. Transcripts are only re-read when their
+        // size or mtime moved, so an idle fleet costs one `stat` per session.
+        let found = registry.refresh()
+        sessions = found
+
+        let idle = IdleWatcher.idleSeconds()
+        if idle < Settings.idleThreshold {
+            armed = true            // user is active; allow the next idle period to show
+            return
+        }
+        guard armed, !found.isEmpty else { return }
+
+        // Checked here rather than earlier so the refresh above still runs while off: the
+        // panel you then open by hand has to be current.
+        guard !popupsOff else { return }
+
+        // Idle because you are watching something, not because you are done. Left armed on
+        // purpose: when the video ends and the machine goes quiet for real, the next tick
+        // shows the panel as usual. Only the *idle* trigger defers — the hotkey, the menu bar
+        // and `fleet` all still open it mid-film, because those are you asking.
+        if let reason = ScreenWatcher.holdingDisplayAwake() {
+            NSLog("Fleet: not showing — something is holding the display awake (\(reason))")
+            return
+        }
+
+        armed = false
+        showPanel()
+    }
+
+    /// Where the terminals are takes the window server 5 to 8 ms, every second the panel is up:
+    /// asked off the main thread, and the cards take their desktops in the same update.
+    private var readingDesktops = false
+    private func refreshVisible() {
+        readJarvis()
+        guard !readingDesktops else { return }
+        let found = registry.refresh()
+        readingDesktops = true
+        DispatchQueue.global(qos: .userInteractive).async {
+            let desktops = Spaces.desktops(found)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self else { return }
+                    readingDesktops = false
+                    guard isPanelVisible else { return }
+                    readAhead = desktops
+                    sessions = found
+                }
+            }
+        }
+    }
+
+    // MARK: - Panel
+
+    private func showPanel() {
+        isPanelVisible = true
+        hub.advanceSpotlight()
+        // Three GETs, and only if the last batch is over ten minutes old. The columns draw whatever
+        // they already have in the meantime rather than waiting on the network.
+        hub.refreshIfStale()
+        schedule(Config.visibleRefresh)
+        // Read on the desktop it opens on: the last tick's may be another's, up to 5 s old.
+        readDesktops()
+        readJarvis()
+        overlay?.show()
+    }
+
+    /// Modifier keys, straight from the panel window — see `PanelWindow.sendEvent`. Nothing
+    /// else observes them, so this is only ever ⌘ being pressed or let go.
+    func modifiersChanged(_ flags: NSEvent.ModifierFlags) {
+        let held = flags.contains(.command)
+        guard held != commandHeld else { return }
+        // Inside a transaction, like the hover that opens an agent's box: what closes when
+        // ⌘ goes up moves the TODO block under it, and a plain assignment had it jump.
+        withAnimation(TodoColumn.unroll) { commandHeld = held }
+    }
+
+    /// `hidePanel`, as one closure for the app's life. A column handed a new closure at every
+    /// update never compares equal to itself, so its whole body was run again at every tick.
+    private(set) lazy var dismiss: () -> Void = { [unowned self] in hidePanel() }
+
+    func hidePanel() {
+        guard isPanelVisible else { return }
+        isPanelVisible = false
+        // A panel that comes back up with ⌘ still latched from last time would show its ✕s to
+        // somebody who is not holding anything.
+        commandHeld = false
+        // The pointer may never leave a panel that goes away under it, and a ⌘⌫ typed in the
+        // next one must not take out what it rested on then.
+        plugins.hovered = nil
+        hub.stopEditing()
+        hub.stopComposing()
+        overlay?.hide()
+        schedule(Config.idlePollActive)
+    }
+
+    // MARK: - Not keeping up
+
+    /// What Fleet does when the machine stops being fluid: nothing on screen. Every session is
+    /// told in its own context, the ones you are not driving are held at their next tool call
+    /// until it recovers, and the Reaper clears what dead sessions left running. The panel used
+    /// to come up as well, and it was the one reaction that cost you something — mid-sentence.
+    private func fluidityChanged(_ struggling: Bool, _ reason: String) {
+        NSLog("Fleet: machine \(struggling ? "struggling — \(reason)" : "keeping up again")")
+        publishMachineState()
+    }
+
+    /// Rewritten on every tick while the machine struggles, not only on the crossing: a hook
+    /// reads a verdict that has stopped moving as a Fleet that died, and who is held has to
+    /// follow the sessions as they come and go during a hold that can last minutes.
+    private func publishMachineState() {
+        Hooks.writeMachineState(struggling: reaper.struggling, reason: reaper.struggleReason,
+                                hogs: reaper.hogs, pause: reaper.struggling ? sessionsToPause() : [])
+    }
+
+    /// The session you typed into last.
+    var lastPrompted: Session? {
+        sessions.max {
+            ($0.transcript?.lastPromptAt ?? .distantPast) < ($1.transcript?.lastPromptAt ?? .distantPast)
+        }
+    }
+
+    /// Every session but the one you last prompted — and never a session whose directory one of
+    /// the heavy processes runs in: that is the session able to free the memory, so it keeps its
+    /// hands. Home is no one's directory; every hog on the machine is under it.
+    private func sessionsToPause() -> [String] {
+        let home = NSHomeDirectory()
+        let lead = lastPrompted
+        return sessions.compactMap { session in
+            // No Fleet hook runs inside Codex to hold it: its card would say PAUSED while it works.
+            guard session.id != lead?.id, !session.proc.codex, !session.proc.vcx,
+                  let path = session.transcript?.path else { return nil }
+            let cwd = session.cwd
+            let owns = cwd != home && reaper.hogs.contains {
+                $0.cwd == cwd || $0.cwd?.hasPrefix(cwd + "/") == true
+            }
+            return owns ? nil : ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        }
+    }
+
+    /// Return, while the panel is up: it belongs to the todo column's own field when the caret
+    /// is in it. Returns whether it was used.
+    func submitPrompt() -> Bool {
+        guard isPanelVisible else { return false }
+        // A row open for editing owns Return before the new-todo row does: only one of the two
+        // can have the caret, and the edit is the one you are looking at.
+        return hub.commitEdit() || hub.commitReelContext() || hub.commitDraft()
+    }
+
+    /// Esc, while the panel is up. The new-todo row first — backing out of a half-written todo
+    /// should not also take the fleet off screen.
+    func escape() {
+        guard isPanelVisible else { return }
+        if hub.stopEditing() { return }
+        if hub.stopComposing() { return }
+        hidePanel()
+    }
+
+    /// Tile click: drop the panel, then raise the terminal running that session. Deliberately
+    /// not `hidePanel()` — see `dismissForHandoff`.
+    func activate(_ session: Session) {
+        dismissForHandoff()
+        TerminalFocus.focus(session: session)
+    }
+
+    func openJarvis() {
+        dismissForHandoff()
+        Jarvis.open()
+    }
+
+    private func dismissForHandoff() {
+        guard isPanelVisible else { return }
+        isPanelVisible = false
+        overlay?.dismissForHandoff()
+        schedule(Config.idlePollActive)
+    }
+
+    // MARK: - Activation
+
+    /// Another app taking over — alt-tab, a window that pops up — puts the panel away, as it
+    /// does Echo's: left up, the panel would sit over that app while it takes the keys.
+    private func observeActivation() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
+                           queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hidePanel() }
+        }
+        center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                           queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.isPanelVisible else { return }
+                self.overlay?.passFocusOn()
+            }
+        }
+    }
+
+    // MARK: - Sleep
+
+    private func observeSleepWake() {
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.suspended = true
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.currentInterval = 0
+                    self.hidePanel()
+                    // The display sleeping is not the sessions ending: keep the slow tick so
+                    // the hold is dropped when the last one exits.
+                    if self.awake.held { self.schedule(Config.idlePollDormant) }
+                }
+            }
+        }
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.suspended = false
+                    self.armed = true
+                    self.schedule(Config.idlePollDormant)
+                }
+            }
+        }
+    }
+}
+
+/// Keeps the machine out of idle sleep while a session exists: sleep drops the network, and
+/// with it whatever a session was in the middle of. The same claim `caffeinate -i` makes, so
+/// closing the lid or choosing Sleep still sleeps.
+@MainActor
+final class AwakeHold {
+    private var id: IOPMAssertionID?
+    var held: Bool { id != nil }
+
+    func hold(_ wanted: Bool) {
+        guard wanted != held else { return }
+        if let id {
+            IOPMAssertionRelease(id)
+            self.id = nil
+            return
+        }
+        var new = IOPMAssertionID(0)
+        if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                                       IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                       "A Claude Code session is running" as CFString,
+                                       &new) == kIOReturnSuccess {
+            id = new
+        }
+    }
+}
+
+/// Whether something on screen is being watched rather than worked on.
+///
+/// Idle time alone cannot tell a finished day from a film: both are minutes without a
+/// keystroke. The difference is that anything playing video asks macOS to keep the display
+/// awake, so the assertion is the signal — and it is the app's own claim about what it is
+/// doing, not a guess from process names or window titles.
+///
+/// Deliberately typed on *display* sleep and not system sleep: `caffeinate`, a long download
+/// and a background build all keep the machine awake without anyone looking at it, and those
+/// are exactly the moments the panel is welcome. Audio-only playback lands the same way — the
+/// panel is silent, so a podcast is no reason to suppress it.
+enum ScreenWatcher {
+
+    private static let displayTypes: Set<String> = [
+        kIOPMAssertionTypeNoDisplaySleep as String,             // "NoDisplaySleepAssertion"
+        kIOPMAssertionTypePreventUserIdleDisplaySleep as String,
+    ]
+
+    /// The assertion's own name when something is holding the display awake — Firefox calls
+    /// its one "video-playing" — or nil when nothing is.
+    static func holdingDisplayAwake() -> String? {
+        var byProcess: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&byProcess) == kIOReturnSuccess,
+              let dict = byProcess?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else {
+            return nil
+        }
+        for (_, assertions) in dict {
+            for assertion in assertions {
+                guard let type = assertion[kIOPMAssertionTypeKey as String] as? String,
+                      displayTypes.contains(type) else { continue }
+                return assertion[kIOPMAssertionNameKey as String] as? String ?? type
+            }
+        }
+        return nil
+    }
+}
+
+/// Seconds since the last keyboard/mouse/trackpad event, straight from the HID event source.
+enum IdleWatcher {
+    private static let anyInput = CGEventType(rawValue: ~0)!
+
+    static func idleSeconds() -> TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+    }
+}
