@@ -92,6 +92,38 @@ enum Check {
         check(blocks.count == 3 && blocks[1].code && blocks[1].language == "swift", "code fences")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("fleet-state"))
+        let presence = FleetPresence(session: fleetSession)
+        let presenceFile = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
+        func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: presenceFile)) as! JSON }
+        check(fleetRecord()["state"] as? String == "fresh", "Fleet publishes an unprompted native window")
+        fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
+        fleetSession.busy = true
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "working" && fleetRecord()["prompt"] as? String == "Fix the layout", "Fleet receives the prompt and live working state")
+        let promptTime = fleetRecord()["lastPromptAt"] as? Double
+        fleetSession.permissions = [Permission(rpcID: 1, method: "item/tool/requestUserInput", params: [:])]
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "waiting", "Fleet approvals take precedence over busy")
+        fleetSession.permissions = []; fleetSession.busy = false
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "ready" && fleetRecord()["lastPromptAt"] as? Double == promptTime, "Fleet completion keeps the prompt timestamp")
+        fleetSession.show(["id": "fleet-user", "type": "userMessage", "content": [["type": "text", "text": "Fix the layout"]]])
+        presence.publish(fleetSession)
+        check(fleetRecord()["lastPromptAt"] as? Double == 123, "backend echoes preserve the original prompt timestamp")
+        let restoredItem = Item(fleetSession.rows[0].items[0].data)
+        fleetSession.rows = [Row("user", [restoredItem])]
+        presence.publish(fleetSession)
+        check(fleetRecord()["lastPromptAt"] as? Double == 123, "restoring saved rows does not invent a new Fleet prompt time")
+        fleetSession.busy = true
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        check(fleetRecord()["state"] as? String == "working", "Fleet observes state changes after published values settle")
+        let mode = (try! FileManager.default.attributesOfItem(atPath: presenceFile.path))[.posixPermissions] as? Int
+        check(mode == 0o600, "Fleet state is private")
+        presence.close()
+        fleetSession.busy = false
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        check(!FileManager.default.fileExists(atPath: presenceFile.path), "closing a window removes Fleet presence and cancels updates")
         let sourceFixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/native_peer.py").path
         let imagePath = directory.appendingPathComponent("screen shot.png").path
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -220,6 +252,7 @@ enum Check {
         check(session.ready && session.account.provider == "claude", "Claude is the default")
         session.draft = NSAttributedString(string: "Build the feature")
         await session.send(text: "Build the feature", images: [])
+        check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
         for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
         check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
@@ -275,12 +308,14 @@ enum Check {
         let record = try! JSONSerialization.jsonObject(with: Data(contentsOf: files[0])) as! JSON
         check(record["accountId"] as? String == "codex-default", "snapshot tracks the selected account")
         check((record["draft"] as? [JSON])?.first?["text"] as? String == "Unsent draft", "unsent draft is persisted")
+        let promptTimes = session.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double }
         session.close()
         let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         restored.connectionFactory = { account, _ in FixtureConnection(account) }
         await restored.connect(resume: "last")
         check(restored.ready && restored.draft.string == "Unsent draft", "saved native conversation restores its draft")
         check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
+        check(!promptTimes.isEmpty && restored.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double } == promptTimes, "saved conversation restores its original prompt times")
         check(restored.effort == "low", "saved conversation restores the selected effort")
         let secondWindow = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         secondWindow.connectionFactory = { account, _ in FixtureConnection(account) }

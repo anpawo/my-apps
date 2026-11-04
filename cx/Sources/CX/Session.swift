@@ -300,7 +300,7 @@ final class Session: ObservableObject {
         var data = source
         if data["type"] as? String == "agentMessage", data["provider"] == nil { data["provider"] = providerLabel }
         guard let id = data["id"] as? String, let kind = data["type"] as? String else { return }
-        if let item = itemMap[id] { item.data = data; return }
+        if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; item.data = data; return }
         if kind == "userMessage" {
             let client = data["clientId"] as? String ?? id
             guard !seen.contains(id), !seen.contains(client) else { return }
@@ -475,7 +475,7 @@ final class Session: ObservableObject {
             else { pendingInput = (text, images) }
         }
         content += images.map { ["type": "localImage", "path": $0] }
-        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": content])])
+        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": content, "sentAt": Date().timeIntervalSince1970])])
         promptHistoryIndex = nil
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1

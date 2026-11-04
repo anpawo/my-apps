@@ -5,3 +5,4 @@
 - 04/11/2026: Swift search filters explicitly allow empty queries: String.contains("") and localizedCaseInsensitiveContains("") return false. Standalone probes of Foundation string methods import Foundation.
 - 04/11/2026: Swift usage fixtures need explicit JSON types and isolated display sessions; inferred dictionaries promote integer fields to Double, and exhausted Codex windows persist fallback settings that affect later checks.
 - 04/11/2026: Composer input checks recreate its retained NSTextStorage, NSLayoutManager and NSTextContainer; a standalone ComposerText with a nil container has no storage and cannot test typed text.
+- 04/11/2026: Keep prompt timestamps in saved message data; restoring a UI row creates a new UUID, not a newly sent prompt.
