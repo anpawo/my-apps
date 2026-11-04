@@ -11,6 +11,8 @@ struct ChatCommand: Identifiable, Equatable {
 
 @MainActor
 extension Session {
+    var modelCommand: String { "/model " + account.provider + " " }
+
     var appCommands: [ChatCommand] {
         [
             ("model", "Choose provider, model, and reasoning effort", true),
@@ -168,7 +170,7 @@ extension Session {
         guard !changing else { return }
         if savedCommandDraft == nil { savedCommandDraft = draft }
         showCommands(source)
-        if source != "/mode " && source != "/model " { Task { await command(source) } }
+        if source != "/mode " && source != "/model " && source != modelCommand { Task { await command(source) } }
     }
     func chooseCommand(_ command: ChatCommand) {
         if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider ") || command.insert.hasPrefix("/mode "),

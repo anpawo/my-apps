@@ -392,6 +392,13 @@ enum Check {
         session.models = ["other-model", "fixture-model"]
         session.modelEfforts = ["other-model": ["low", "high"], "fixture-model": ["low", "high"]]
         session.effort = "high"
+        let pickerProvider = Settings.shared.value.provider
+        session.statusCommand(session.modelCommand)
+        await Task.yield()
+        check(session.commandOptions.map(\.name) == session.models, "clicking Model opens the active provider's models")
+        check(session.commandOptions[session.commandSelection].name == "fixture-model", "clicking Model highlights the current model")
+        check(Settings.shared.value.provider == pickerProvider, "opening the model picker preserves the provider preference")
+        session.dismissCommands()
         session.showCommands("/model ")
         check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen"], "model selection lists providers without Auto")
         check(session.commandOptions[session.commandSelection].name == "Codex", "opening model selection highlights the active provider after fallback")
@@ -942,7 +949,7 @@ enum Render {
         modelMenu.model = "claude-opus-5-5"; modelMenu.effort = "high"
         modelMenu.models = ["claude-haiku-4-5", "claude-opus-5-5"]
         modelMenu.modelEfforts = ["claude-opus-5-5": ["low", "medium", "high"]]
-        for (name, query) in [("provider", "/model "), ("model", "/model claude "), ("effort", "/model claude claude-opus-5-5 ")] {
+        for (name, query) in [("provider", "/model "), ("model", modelMenu.modelCommand), ("effort", "/model claude claude-opus-5-5 ")] {
             modelMenu.showCommands(query, preserveDraft: false)
             write(CommandPalette(session: modelMenu), size: CGSize(width: 700, height: 260), path: directory + "/selected-" + name + ".png")
         }

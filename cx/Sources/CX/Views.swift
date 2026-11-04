@@ -245,7 +245,7 @@ struct CXView: View {
             separator
             setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: .red)
             separator
-            setting("Model", value: session.modelStatusLabel, command: "/model ", color: Color(red: 1, green: 0.47, blue: 0.78))
+            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 1, green: 0.47, blue: 0.78))
         }
     }
     private var usageStatus: some View {
@@ -305,7 +305,7 @@ struct SettingsPopup: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     setting("Provider", session.providerLabel, "/model ")
-                    setting("Model", session.modelLabel, "/model ")
+                    setting("Model", session.modelLabel, session.modelCommand)
                     setting("Effort", session.effort ?? "Default", "/model ")
                     setting("Permissions", session.mode, "/mode ")
                     setting("Working directory", session.cwd, "/dir ")
