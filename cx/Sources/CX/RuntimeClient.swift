@@ -45,17 +45,19 @@ final class RuntimeClient {
     private var checkpointTask: Task<Void, Error>?
     private var acknowledgedGeneration = -1
     private let initialCwd: String
+    private let resumingRuntime: Bool
 
     init(session: Session, cwd: String, resumeRuntimeID: String? = nil, socketPath: String? = nil) {
         self.session = session
         initialCwd = cwd
+        resumingRuntime = resumeRuntimeID != nil
         sessionID = resumeRuntimeID.flatMap { UUID(uuidString: $0)?.uuidString } ?? UUID().uuidString
         self.socketPath = socketPath ?? RuntimeIdentity.socket(cwd: cwd)
     }
 
     func connect(resume: String?, prompt: String = "") async throws {
         if let connectTask { return try await connectTask.value }
-        let task = Task { try await attach(resume: resume, prompt: prompt, launch: true) }
+        let task = Task { try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime) }
         connectTask = task
         defer { connectTask = nil }
         try await task.value
