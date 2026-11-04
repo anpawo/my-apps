@@ -164,11 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
-        else if !headless {
-            window.setFrameAutosaveName("VCXWindow")
-            // A zoomed window saves a screen-sized frame; new windows open at the default size instead.
-            if let screen = (window.screen ?? NSScreen.main)?.visibleFrame, window.frame.width >= screen.width, window.frame.height >= screen.height { window.setContentSize(NSSize(width: 1280, height: 820)) }
-            window.center()
+        else if !headless, let screen = NSScreen.main?.visibleFrame {
+            // New windows always open at 4/5 of the screen's width, centered, whatever size the last one was left at.
+            window.setFrame(screen.insetBy(dx: screen.width / 10, dy: screen.height / 20).integral, display: false)
         }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
         startRefresh()
