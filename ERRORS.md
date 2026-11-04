@@ -35,5 +35,6 @@
 - 04/11/2026: After merging concurrent changes into a worktree, read its new HEAD before integrating it; the earlier feature commit still diverges from main.
 - 04/11/2026: Run install-native.py without an outer build-stack wrapper; its nested Swift build otherwise waits on the installer's own queue slot.
 - 04/11/2026: Before cancelling a queued build, verify its ancestry reaches this tool's parent PID; queue position and matching installer names do not establish ownership.
+- 04/11/2026: Accept native Int and decoded JSON numeric PID values through Int32(exactly:); a direct Int32 cast rejects native Int even when wire-decoded NSNumber succeeds.
 - 04/11/2026: Provider callbacks use self.process when a local Process shadows the property; fixture drivers inject connections instead of assigning Session.testing through its private setter.
 - 04/11/2026: Headless frontend fixtures disable automatic update discovery and notifications; only the injected launcher may replace them, so verification cannot launch the installed GUI.

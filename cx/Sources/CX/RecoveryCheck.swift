@@ -106,6 +106,11 @@ enum RecoveryCheck {
         }
         let legacyIdentity = RuntimeRecovery.workerInstance(["pid": Int(getpid())])
         try check(legacyIdentity?.hasPrefix("process:\(getpid()):") == true && legacyIdentity == RuntimeRecovery.workerInstance(["pid": Int(getpid())]), "legacy worker identity was not stable and tied to its process start")
+        let decodedHello = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: ["pid": Int(getpid())])) as! JSON
+        try check(RuntimeRecovery.workerInstance(decodedHello) == legacyIdentity, "wire-decoded and native numeric worker identities disagreed")
+        try check(RuntimeRecovery.workerInstance(["pid": Int(Int32.max) + 1]) == nil && RuntimeRecovery.workerInstance(["pid": -1]) == nil, "out-of-range worker PID was not rejected")
+        let decodedOverflow = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: ["pid": Int(Int32.max) + 1])) as! JSON
+        try check(RuntimeRecovery.workerInstance(decodedOverflow) == nil, "wire-decoded oversized worker PID was not rejected")
         let bootIdentity = UUID().uuidString
         try check(RuntimeRecovery.workerInstance(["pid": Int(getpid()), "instanceID": bootIdentity]) == bootIdentity, "new worker identity did not take precedence over the legacy fallback")
         try check(RuntimeRecovery.workerInstance(["pid": 0]) == nil, "an unavailable worker process received a fabricated identity")

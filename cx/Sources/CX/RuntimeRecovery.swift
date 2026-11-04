@@ -78,7 +78,7 @@ enum RuntimeRecovery {
 
     static func workerInstance(_ hello: JSON) -> String? {
         if let raw = hello["instanceID"] as? String, let id = UUID(uuidString: raw) { return id.uuidString }
-        guard let pid = hello["pid"] as? Int32, pid > 1 else { return nil }
+        guard let rawPID = hello["pid"] as? Int, let pid = Int32(exactly: rawPID), pid > 1 else { return nil }
         var info = proc_bsdinfo()
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size), info.pbi_uid == getuid() else { return nil }
         return "process:\(pid):\(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)"
