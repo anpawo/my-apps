@@ -120,7 +120,8 @@ final class Session: ObservableObject {
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var draft = NSAttributedString(string: "")
     var submitDraft: () -> Void = {}
-    private(set) var cwd: String
+    @Published private(set) var cwd: String
+    private var conversationDirectory: String
     private(set) var threadID: String?
     private(set) var turnID: String?
     let stateDirectory: URL
@@ -154,7 +155,9 @@ final class Session: ObservableObject {
     private var lastUsageRefresh = Date.distantPast
 
     init(cwd: String, stateDirectory: URL? = nil) {
-        self.cwd = URL(fileURLWithPath: cwd).standardized.path
+        let directory = URL(fileURLWithPath: cwd).standardized.path
+        self.cwd = directory
+        conversationDirectory = directory
         self.stateDirectory = stateDirectory ?? URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx", isDirectory: true)
         do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
@@ -162,7 +165,7 @@ final class Session: ObservableObject {
     let fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
     var fleetInstructions: String {
-        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions."
+        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions. Select the task's project with a standalone cd command. Shell calls may be isolated: use that project's absolute workdir for subsequent commands in the same turn. VCX retains the selected directory for later turns without starting a new conversation."
     }
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
@@ -170,7 +173,7 @@ final class Session: ObservableObject {
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
     var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }
     var modelStatusLabel: String { modelLabel + (effectiveEffort.map { " - " + $0 } ?? "") }
-    var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
+    var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(conversationDirectory.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
     var modelLabel: String {
@@ -406,7 +409,16 @@ final class Session: ObservableObject {
                 }
                 flush()
                 show(data)
-                if method == "item/completed" { deltas.removeValue(forKey: data["id"] as? String ?? "") }
+                if method == "item/completed" {
+                    deltas.removeValue(forKey: data["id"] as? String ?? "")
+                    if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd {
+                        cwd = directory
+                        repositoryDirectory = nil; branch = ""; repositoryStatus = ""
+                        (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
+                        Task { await refreshRepository() }
+                        save()
+                    }
+                }
             }
         case "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta":
             guard let id = p["itemId"] as? String, let delta = p["delta"] as? String else { return }
@@ -544,6 +556,7 @@ final class Session: ObservableObject {
         if let skill { outgoing.append(skill) }
         if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
         var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
+        if !wasBusy { params["cwd"] = cwd }
         if !wasBusy, let effort { params["effort"] = effort }
         if !wasBusy, account.provider == "codex" {
             params["collaborationMode"] = ["mode": planning ? "plan" : "default", "settings": ["model": model, "reasoning_effort": (effort ?? defaultEffort) as Any? ?? NSNull(), "developer_instructions": NSNull()]]
@@ -761,7 +774,7 @@ final class Session: ObservableObject {
         let directory = nativeDirectory
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         return files.sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }.prefix(40).compactMap { url in
-            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == cwd else { return nil }
+            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == conversationDirectory else { return nil }
             return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: record["title"] as? String ?? "New conversation", backendID: record["threadId"] as? String)
         }
     }
@@ -790,7 +803,7 @@ final class Session: ObservableObject {
             }
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let title = conversationName ?? rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
-            var record: JSON = ["cwd": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
+            var record: JSON = ["cwd": conversationDirectory, "workingDirectory": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft)]
             record["effort"] = effort
             record["planning"] = planning
             record["conversationName"] = conversationName
@@ -819,8 +832,11 @@ final class Session: ObservableObject {
         guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
         let resumeID = selected.id == accountID ? thread : nil
         let generation = draftGeneration
+        let previousDirectory = cwd
+        let restoredDirectory = record["workingDirectory"] as? String ?? record["cwd"] as? String ?? conversationDirectory
+        cwd = workingDirectory(restoredDirectory, within: conversationDirectory) ?? conversationDirectory
         do { try await activate(selected, resume: resumeID, keepRows: true) }
-        catch { pendingRestore = id; throw error }
+        catch { cwd = previousDirectory; pendingRestore = id; throw error }
         pendingRestore = nil
         do { try (record["fleetContext"] as? String ?? "").write(to: fleetContextFile, atomically: true, encoding: .utf8) }
         catch { NSLog("VCX: could not restore Fleet context: %@", error.localizedDescription) }
@@ -856,14 +872,14 @@ final class Session: ObservableObject {
         if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
         else if draft.string.hasPrefix("/dir ") || draft.string.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
         save()
-        let previous = (cwd, recordID, draft, draftGeneration)
-        cwd = url.path; recordID = UUID().uuidString; draft = NSAttributedString(string: ""); draftRevision += 1
+        let previous = (cwd, recordID, draft, draftGeneration, conversationDirectory)
+        cwd = url.path; conversationDirectory = cwd; recordID = UUID().uuidString; draft = NSAttributedString(string: ""); draftRevision += 1
         do {
             guard let next = available.first else { throw CXError(message: "No enabled account is available.") }
             try await activate(next, resume: nil, keepRows: false)
             await refreshCatalog()
             (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
-        } catch { cwd = previous.0; recordID = previous.1; pendingActivation = nil; pendingRestore = nil
+        } catch { cwd = previous.0; conversationDirectory = previous.4; recordID = previous.1; pendingActivation = nil; pendingRestore = nil
             restoreDraft(previous.2, since: previous.3); throw error }
     }
 

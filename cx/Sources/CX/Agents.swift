@@ -90,7 +90,8 @@ func configuredClaudeEffort(account: Account, cwd: String, model: String) -> Str
 final class ClaudeConnection: Connection {
     var event: (JSON) -> Void = { _ in }
     let account: Account
-    let cwd: String
+    private(set) var cwd: String
+    private let initialDirectory: String
     var thread = "claude:" + UUID().uuidString.lowercased()
     var model = "Claude"
     var history = ""
@@ -113,7 +114,7 @@ final class ClaudeConnection: Connection {
     private var timers: [String: DispatchWorkItem] = [:]
     private var mode = Settings.shared.value.mode
     private var developerInstructions = ""
-    init(account: Account, cwd: String) { self.account = account; self.cwd = cwd }
+    init(account: Account, cwd: String) { self.account = account; self.cwd = cwd; initialDirectory = cwd }
     func start(command: [String]? = nil) async throws {
         self.command = command
         guard command == nil else { return }
@@ -293,7 +294,7 @@ final class ClaudeConnection: Connection {
                     emit("item/completed", ["item": ["id": id + "-\(index)", "type": "agentMessage", "text": text, "provider": "Claude"]])
                 } else if block["type"] as? String == "tool_use", let toolID = block["id"] as? String {
                     let input = block["input"] as? JSON ?? [:], name = block["name"] as? String ?? "Tool"
-                    let tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "status": "inProgress"]
+                    let tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]
                     tools[toolID] = tool; emit("item/started", ["item": tool])
                 }
             }
@@ -302,6 +303,7 @@ final class ClaudeConnection: Connection {
                 if let id = block["tool_use_id"] as? String, var tool = tools[id] {
                     tool["aggregatedOutput"] = String((block["content"] as? String ?? pretty(block["content"] ?? "")).suffix(16384))
                     tool["status"] = block["is_error"] as? Bool == true ? "failed" : "completed"
+                    if let directory = shellDirectory(tool, current: cwd, initial: initialDirectory) { cwd = directory }
                     tools[id] = tool; emit("item/completed", ["item": tool])
                 }
             }
@@ -390,7 +392,8 @@ final class QwenConnection: Connection {
     private var task: Task<Void, Never>?
     private var turn = ""
     let preferences: Preferences
-    let cwd: String
+    private(set) var cwd: String
+    private let initialDirectory: String
     private var selectedModel: String?
     private var permissions: [String: CheckedContinuation<Bool, Never>] = [:]
     private var commandProcess: Process?
@@ -399,7 +402,7 @@ final class QwenConnection: Connection {
         if let network { return network }
         let session = try qwenNetwork(preferences); network = session; return session
     }
-    init(preferences: Preferences, cwd: String = FileManager.default.currentDirectoryPath) { self.preferences = preferences; self.cwd = cwd }
+    init(preferences: Preferences, cwd: String = FileManager.default.currentDirectoryPath) { self.preferences = preferences; self.cwd = cwd; initialDirectory = cwd }
     func start(command: [String]? = nil) async throws {
         guard preferences.qwenWake else { return }
         guard let helper = Bundle.main.resourceURL?.appendingPathComponent("background.py"), FileManager.default.fileExists(atPath: helper.path) else { return }
@@ -422,6 +425,7 @@ final class QwenConnection: Connection {
         case "account/rateLimits/read": return [:]
         case "model/list": return ["data": [["id": preferences.qwenModel], ["id": preferences.qwenVisionModel]]]
         case "turn/start":
+            if let path = params["cwd"] as? String, let directory = workingDirectory(path, within: initialDirectory) { cwd = directory }
             guard let url = URL(string: preferences.qwenURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { throw CXError(message: "Set a valid Ollama URL in Settings.") }
             let pieces = params["input"] as? [JSON] ?? []
             let text = pieces.compactMap { $0["text"] as? String }.joined(separator: "\n")
@@ -510,7 +514,8 @@ final class QwenConnection: Connection {
 
     private func commandResult(_ command: String) async throws -> String {
         let id = UUID().uuidString
-        emit("item/started", ["item": ["id": id, "type": "commandExecution", "command": command, "status": "inProgress"]])
+        let directory = cwd
+        emit("item/started", ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "status": "inProgress"]])
         let allowed = preferences.mode == "bypass" ? true : await withCheckedContinuation { continuation in
             permissions[id] = continuation
             event(["id": id, "method": "item/commandExecution/requestApproval", "params": ["threadId": thread, "command": command, "reason": "Qwen wants to run this command in " + cwd]])
@@ -541,7 +546,9 @@ final class QwenConnection: Connection {
             }
         }
         timeout.cancel(); commandProcess = nil
-        emit("item/completed", ["item": ["id": id, "type": "commandExecution", "command": command, "aggregatedOutput": result.0, "exitCode": result.1, "status": result.1 == 0 ? "completed" : "failed"]])
+        let item: JSON = ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "aggregatedOutput": result.0, "exitCode": result.1, "status": result.1 == 0 ? "completed" : "failed"]
+        if let directory = shellDirectory(item, current: cwd, initial: initialDirectory) { cwd = directory }
+        emit("item/completed", ["item": item])
         return "Exit: \(result.1)\n" + result.0
     }
     func respond(_ id: Any, _ result: JSON) throws { permissions.removeValue(forKey: String(describing: id))?.resume(returning: result["decision"] as? String == "accept") }
