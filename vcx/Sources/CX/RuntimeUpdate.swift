@@ -24,7 +24,7 @@ enum RuntimeUpdate {
     static let openNotification = Notification.Name("com.mr.vcx.open")
     static let updateNotification = Notification.Name("com.mr.vcx.update")
     static let readyNotification = Notification.Name("com.mr.vcx.ready")
-    static var installed: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Vibe Code X (VCX).app") }
+    static var installed: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Vibe Code X.app") }
 
     static func writeTicket(_ value: JSON, suffix: String) throws -> URL {
         try RuntimeIdentity.prepareDirectory()

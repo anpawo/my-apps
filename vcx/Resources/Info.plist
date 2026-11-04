@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Vibe Code X (VCX)</string>
+	<string>Vibe Code X</string>
 	<key>CFBundleExecutable</key>
 	<string>VCX</string>
 	<key>CFBundleGetInfoString</key>

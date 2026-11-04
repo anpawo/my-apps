@@ -19,7 +19,7 @@ class NativeInstallTests(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory)
-                target = home / 'Applications/Vibe Code X (VCX).app'
+                target = home / 'Applications/Vibe Code X.app'
                 calls = []
                 staged = []
 
@@ -50,7 +50,7 @@ class NativeInstallTests(unittest.TestCase):
     def test_failed_staged_checks_preserve_installed_app(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            app = home / 'Applications/Vibe Code X (VCX).app'
+            app = home / 'Applications/Vibe Code X.app'
             (app / 'Contents').mkdir(parents=True)
             marker = app / 'Contents/Info.plist'
             original = plistlib.dumps({'CFBundleIdentifier': 'com.mr.vcx'})
@@ -148,7 +148,7 @@ class NativeInstallTests(unittest.TestCase):
     def test_unrelated_app_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            app = home / 'Applications/Vibe Code X (VCX).app'
+            app = home / 'Applications/Vibe Code X.app'
             app.mkdir(parents=True)
             with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run') as run:
                 with self.assertRaises(SystemExit):

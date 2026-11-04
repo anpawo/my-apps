@@ -12,7 +12,7 @@ from pathlib import Path
 
 def install():
     root = Path(__file__).resolve().parent
-    target = Path.home() / 'Applications/Vibe Code X (VCX).app'
+    target = Path.home() / 'Applications/Vibe Code X.app'
     launchers = [Path.home() / '.local/bin' / name for name in ('vcx', 'cx')]
     codex = shutil.which('codex')
     for launcher in launchers:
@@ -30,7 +30,7 @@ def install():
             raise SystemExit('Refusing to replace an unrelated application.')
     subprocess.run([str(root / 'build.sh')], check=True)
 
-    source = root / 'dist/Vibe Code X (VCX).app'
+    source = root / 'dist/Vibe Code X.app'
     target.parent.mkdir(parents=True, exist_ok=True)
     backup = target.with_name(f'.VCX-backup-{os.getpid()}.app')
     lsregister = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
@@ -101,7 +101,7 @@ exec /usr/bin/open -n -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
             with os.fdopen(fd, 'w') as stream:
                 json.dump(values, stream)
     subprocess.run([str(binary), '--publish-update'], check=True)
-    print('Installed Vibe Code X (VCX). Compatible open frontends update automatically; agent runtimes keep running.')
+    print('Installed Vibe Code X. Compatible open frontends update automatically; agent runtimes keep running.')
 
 
 if __name__ == '__main__':
