@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import NaturalLanguage
 
 @MainActor
 enum VCX {
@@ -20,9 +21,12 @@ enum VCX {
                   var record = object(path) else { return nil }
             record["pid"] = pid
             record["startedAt"] = bsd.pbi_start_tvsec
-            record["state"] = (record["rows"] as? [[String: Any]])?.last?["kind"] as? String == "user" ? "working" : "ready"
+            let rows = record["rows"] as? [[String: Any]] ?? []
+            record["prompt"] = (rows.last { $0["kind"] as? String == "user" }?["items"] as? [[String: Any]])?
+                .flatMap { $0["content"] as? [[String: Any]] ?? [] }.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            record["state"] = rows.last?["kind"] as? String == "user" ? "working" : "ready"
             record["updatedAt"] = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date)?.timeIntervalSince1970
-            record["preview"] = (record["rows"] as? [[String: Any]] ?? []).suffix(16).flatMap { row in
+            record["preview"] = rows.suffix(16).flatMap { row in
                 (row["items"] as? [[String: Any]] ?? []).suffix(4).map { item -> [String: Any] in
                     let kind = row["kind"] as? String ?? "assistant"
                     let text = kind == "user" ? (item["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
@@ -60,7 +64,7 @@ enum VCX {
         }
         let started = Date(timeIntervalSince1970: TimeInterval(startedAt))
         let activity = (record["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? started
-        let info = TranscriptInfo(path: path, title: record["title"] as? String,
+        let info = TranscriptInfo(path: path, title: shortTitle(prompt ?? record["title"] as? String ?? "New session"),
                                   lastPrompt: prompt,
                                   lastPromptAt: (record["lastPromptAt"] as? Double).map(Date.init(timeIntervalSince1970:)),
                                   hasPendingTool: false, pendingToolNames: [], pendingToolLabels: [], pendingTaskIDs: [],
@@ -68,6 +72,24 @@ enum VCX {
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
                        transcript: info, state: state, cpuPercent: 0)
+    }
+
+    static func shortTitle(_ text: String) -> String {
+        let text = String(text.prefix(2000))
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        tagger.string = text
+        var words: [String] = []
+        let ignored: Set<String> = ["context", "conversation", "user", "assistant", "thing"]
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word, scheme: .lexicalClass,
+                             options: [.omitWhitespace, .omitPunctuation]) { tag, range in
+            let word = text[range].lowercased()
+            if tag == .noun,
+               !ignored.contains(word), !words.contains(word), (words + [word]).joined(separator: " ").count <= 24 {
+                words.append(word)
+            }
+            return words.count < 3
+        }
+        return words.isEmpty ? "VCX session" : words.joined(separator: " ")
     }
 
     private static func object(_ path: String) -> [String: Any]? {

@@ -59,10 +59,20 @@ enum SelfCheck {
         let session = read()
         expect(session?.proc.vcx == true && session?.proc.tty == "" && session?.state == .ready,
                true, "VCX: a native window is a ready session without a terminal")
-        expect(session?.topic == "Fix the layout" && session?.steps.map(\.text) == ["Fix the layout", "swift build", "Fixed"],
-               true, "VCX: the card keeps its prompt and conversation rail")
+        expect(session?.topic == "layout" && session?.steps.map(\.text) == ["Fix the layout", "swift build", "Fixed"],
+               true, "VCX: the card summarizes the task and keeps its conversation data")
         expect(session?.lastTouched == Date(timeIntervalSince1970: 105), true,
                "VCX: prompt time sorts the native card with terminal sessions")
+        record["prompt"] = "Please investigate why the native VCX window has a very long prompt instead of a short card name"
+        let unnamed = read()
+        expect((unnamed?.label ?? unnamed?.topic ?? "").split(whereSeparator: \.isWhitespace).count <= 3, true,
+               "VCX: an unavailable short-name generator never displays the full prompt")
+        expect(VCX.shortTitle("Please inspect the windows and fix the session labels").contains("please"), false,
+               "VCX: local titles name the task instead of keeping the prompt's opening words")
+        expect(VCX.shortTitle("").split(whereSeparator: \.isWhitespace).count <= 3, true,
+               "VCX: an empty prompt still has a short name")
+        expect(VCX.shortTitle("Plan a trip to New York City and Los Angeles").split(whereSeparator: \.isWhitespace).count <= 3, true,
+               "VCX: names spanning several words still fit the three-word limit")
         expect(read(43) == nil && read(42, 101) == nil, true,
                "VCX: stale records cannot attach to a different or recycled process")
         for (value, state) in [("working", SessionState.running), ("waiting", .awaitingAnswer), ("fresh", .fresh)] {
