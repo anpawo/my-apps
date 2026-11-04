@@ -101,10 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observers.removeAll()
     }
 
-    private func configureMenu(_ menu: NSMenu, appMenu: NSMenu, fileMenu: NSMenu, editMenu: NSMenu) {
+    func configureMenu(_ menu: NSMenu, appMenu: NSMenu, fileMenu: NSMenu, editMenu: NSMenu) {
         let app = NSMenuItem(); app.submenu = appMenu; menu.addItem(app)
         appMenu.addItem(withTitle: "About Vibe Code X", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Quit Vibe Code X", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Close Session", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "q")
         let file = NSMenuItem(title: "File", action: nil, keyEquivalent: ""); file.submenu = fileMenu; menu.addItem(file)
         fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow), keyEquivalent: "N")
         fileMenu.addItem(withTitle: "Open Project…", action: #selector(openProject), keyEquivalent: "o")

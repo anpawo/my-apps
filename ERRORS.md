@@ -38,3 +38,5 @@
 - 04/11/2026: Accept native Int and decoded JSON numeric PID values through Int32(exactly:); a direct Int32 cast rejects native Int even when wire-decoded NSNumber succeeds.
 - 04/11/2026: Provider callbacks use self.process when a local Process shadows the property; fixture drivers inject connections instead of assigning Session.testing through its private setter.
 - 04/11/2026: Headless frontend fixtures disable automatic update discovery and notifications; only the injected launcher may replace them, so verification cannot launch the installed GUI.
+
+- 04/11/2026: AppKit shortcut fixtures use Swift names makeKey() and performKeyEquivalent(with:); Objective-C spellings are unavailable.

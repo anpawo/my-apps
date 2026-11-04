@@ -64,7 +64,7 @@ enum FrontendCheck {
         }
         try Data("fixture-new-build".utf8).write(to: directory.appendingPathComponent("installed-build"))
 
-        for mode in ["launch-failure", "preflight-failure", "partial", "success"] {
+        for mode in ["launch-failure", "preflight-failure", "partial", "success", "close"] {
             let frontend = AppDelegate()
             frontends.append(frontend)
             frontend.headless = true
@@ -95,6 +95,30 @@ enum FrontendCheck {
                 entry.session.follow.attached = false; entry.session.details = true
                 try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: entry.window, session: entry.session))
                 try check(!entry.window.isVisible, "verification displayed a window")
+            }
+            if mode == "close" {
+                let menu = NSMenu(), appMenu = NSMenu()
+                frontend.configureMenu(menu, appMenu: appMenu, fileMenu: NSMenu(), editMenu: NSMenu())
+                guard let quit = appMenu.items.first(where: { $0.keyEquivalent == "q" }) else {
+                    throw CXError(message: "Cmd+Q menu item is missing.")
+                }
+                try check(quit.action == #selector(NSWindow.performClose(_:)), "Cmd+Q terminates every session instead of closing the focused window")
+                try check(quit.target == nil && quit.keyEquivalentModifierMask == .command, "Cmd+Q bypasses the focused responder")
+                try check(NSApp.sendAction(quit.action!, to: old[1].window, from: quit), "Cmd+Q action was not handled by the second window")
+                try await wait { frontend.windows.count == 1 }
+                try check(frontend.windows[0].window === old[0].window, "Cmd+Q closed the unfocused window")
+                try check(old[0].session.runtimeClient?.isAttached == true && old[0].session.busy, "Cmd+Q stopped the unfocused session")
+                _ = try await old[0].session.runtimeClient?.perform("refreshRepository")
+                try check(draftContent(old[0].session.draft).first?["text"] as? String == "handoff draft 0", "Cmd+Q changed the other session's draft")
+                try check(old.allSatisfy { !$0.window.isVisible }, "quit verification displayed a window")
+                try check(NSApp.sendAction(quit.action!, to: old[0].window, from: quit), "last session did not handle Cmd+Q")
+                try await wait { frontend.windows.isEmpty }
+                frontend.headless = false
+                try check(frontend.applicationShouldTerminateAfterLastWindowClosed(NSApp), "closing the last session did not quit the app")
+                try check(frontend.applicationShouldTerminate(NSApp) == .terminateNow, "empty app did not allow termination")
+                frontend.headless = true
+                frontend.stopObservingFrontendEvents()
+                continue
             }
             if mode == "launch-failure" {
                 frontend.replacementLaunch = { _ in throw CXError(message: "Expected fixture launch failure.") }
