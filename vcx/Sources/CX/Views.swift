@@ -757,18 +757,19 @@ struct ActionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let command = item.data["command"] as? String ?? ""
-        VStack(alignment: .leading, spacing: 8) {
+        // The header carries the card's padding so its hover tint fills the card's top, not a box inside it.
+        VStack(alignment: .leading, spacing: 0) {
             Button { withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { open.toggle() } } label: {
                 HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right").rotationEffect(.degrees(open && !item.failed ? 90 : 0)); Text(item.title).lineLimit(1) }
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 6), outset: 4)).font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 9).padding(.bottom, open ? 8 : 9).contentShape(Rectangle())
+            }.buttonStyle(.reactive(Rectangle())).font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
             if open {
                 VStack(alignment: .leading, spacing: 8) {
                     if !command.isEmpty, command != item.title { Text(command).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.75)).textSelection(.enabled) }
                     if !item.output.isEmpty { Text(item.output).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
-                }.frame(maxWidth: .infinity, alignment: .leading).transition(.opacity)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 9).transition(.opacity)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 9)
+        }.frame(maxWidth: .infinity, alignment: .leading)
             .background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 8)).clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
