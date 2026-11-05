@@ -31,7 +31,7 @@ enum SelfCheck {
                     print("FAIL: notification launches a terminal instead of the VCX app")
                     return 1
                 }
-                guard task.arguments == ["--cwd", folder.path] + expected else {
+                guard task.arguments == ["--cwd", folder.path, "--focus"] + expected else {
                     print("FAIL: notification lost its conversation or task text")
                     return 1
                 }
@@ -42,7 +42,7 @@ enum SelfCheck {
                 task.executableURL = stub
                 try task.run(); task.waitUntilExit()
                 let captured = try String(contentsOfFile: stub.path + ".args", encoding: .utf8)
-                guard task.terminationStatus == 0, captured == (["--cwd", folder.path] + expected).joined(separator: "\0") + "\0" else {
+                guard task.terminationStatus == 0, captured == (["--cwd", folder.path, "--focus"] + expected).joined(separator: "\0") + "\0" else {
                     print("FAIL: notification arguments changed at the process boundary")
                     return 1
                 }

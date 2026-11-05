@@ -227,7 +227,7 @@ final class Inbox: NSObject, ObservableObject {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
         task.currentDirectoryURL = URL(fileURLWithPath: item.dir, isDirectory: true)
-        var args = ["--cwd", item.dir]
+        var args = ["--cwd", item.dir, "--focus"]
         if let session = item.session {
             let id = session.hasPrefix("native:") || session.hasPrefix("claude:") || item.options.contains("--codex") ? session : "claude:" + session
             args += ["--resume", id]
