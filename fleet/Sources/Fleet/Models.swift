@@ -401,9 +401,10 @@ struct Session: Identifiable {
     /// The project is the nearest folder holding a repository, named alone: a plain folder
     /// that gathers repos (hackathon/{deepfake,agents}) groups by repo (asked 2026-10-23).
     /// `outermost` takes the repo furthest out instead, which is what a card gathers: a repo
-    /// inside a repo (s14/scientcapital) sits in its parent's group (asked 2026-10-30). Only a
-    /// `.git` folder counts: a worktree's is a file, and its sessions belong to the repo it was
-    /// cut from. No repository: the top folder.
+    /// inside a repo (s14/scientcapital) sits in its parent's group (asked 2026-10-30). A
+    /// worktree's `.git` is a file pointing at the repo it was cut from, and its sessions belong
+    /// to that repo, wherever the worktree sits (~/self/temp/maike-hero is "maike", 2026-11-05).
+    /// No repository: the top folder.
     static func project(for cwd: String, under projects: String = NSHomeDirectory() + "/self/",
                         outermost: Bool = false) -> String {
         if cwd.hasPrefix(projects) {
@@ -411,9 +412,15 @@ struct Session: Identifiable {
             let depths = Array(stride(from: parts.count, to: 0, by: -1))
             for depth in outermost ? depths.reversed() : depths {
                 var folder: ObjCBool = false
-                let git = projects + parts.prefix(depth).joined(separator: "/") + "/.git"
-                if FileManager.default.fileExists(atPath: git, isDirectory: &folder), folder.boolValue {
-                    return parts[depth - 1]
+                let dir = projects + parts.prefix(depth).joined(separator: "/")
+                guard FileManager.default.fileExists(atPath: dir + "/.git", isDirectory: &folder) else { continue }
+                if folder.boolValue { return parts[depth - 1] }
+                if let pointer = try? String(contentsOfFile: dir + "/.git", encoding: .utf8),
+                   pointer.hasPrefix("gitdir: "),
+                   let cut = pointer.range(of: "/.git/worktrees/") {
+                    let main = String(pointer[pointer.index(pointer.startIndex, offsetBy: 8)..<cut.lowerBound])
+                    let repo = main.hasPrefix("/") ? main : ((dir as NSString).appendingPathComponent(main) as NSString).standardizingPath
+                    return project(for: repo, under: projects, outermost: outermost)
                 }
             }
             if let project = parts.first { return project }

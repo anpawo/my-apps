@@ -362,6 +362,13 @@ enum SelfCheck {
             try? FileManager.default.createDirectory(atPath: root + dir, withIntermediateDirectories: true)
         }
         FileManager.default.createFile(atPath: root + "repo/wt/.git", contents: Data("gitdir: x".utf8))
+        try? FileManager.default.createDirectory(atPath: root + "temp/far", withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: root + "temp/far/.git",
+                                       contents: Data("gitdir: \(root)repo/sub/.git/worktrees/far\n".utf8))
+        expect(Session.project(for: root + "temp/far/src", under: root), "sub",
+               "projects: a worktree outside its repo is named by the repo it was cut from")
+        expect(Session.project(for: root + "temp/far", under: root, outermost: true), "repo",
+               "projects: and sits in that repo's group")
         expect(Session.project(for: root + "plain/a/src", under: root), "a",
                "projects: a repo inside a plain folder is its own group, named alone")
         expect(Session.project(for: root + "plain/b", under: root), "plain",
