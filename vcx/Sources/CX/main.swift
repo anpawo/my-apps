@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     launch.runtimeID = id; launch.socketPath = socket
                     createWindow(launch, state: entry["windowState"] as? JSON ?? [:])
                 }
+                if !headless { for entry in windows.reversed() { entry.window.makeKeyAndOrderFront(nil) } }
                 Task {
                     for _ in 0..<100 {
                         if let lock = try? RuntimeUpdate.lockFrontend() { frontendLock = lock; break }
@@ -258,7 +259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard windows.first?.session.runtimeClient != nil else { throw CXError(message: "No attached frontend session.") }
                 try await RuntimeClient.preflight(executable: replacementBinary)
                 var entries: [JSON] = []
-                for entry in windows {
+                // Front to back, so the replacement can put the window he was on back in front.
+                let order = NSApp.orderedWindows
+                for entry in windows.sorted(by: { (order.firstIndex(of: $0.window) ?? .max) < (order.firstIndex(of: $1.window) ?? .max) }) {
                     entry.session.frontendReplacing = true
                     guard let runtime = entry.session.runtimeClient else { continue }
                     let state = RuntimeUpdate.state(window: entry.window, session: entry.session)
@@ -320,6 +323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         replacementWaiter?.resume(); replacementWaiter = nil
         try? FileManager.default.removeItem(at: handoffFile)
         try? FileManager.default.removeItem(atPath: handoffFile.path + ".ready.json")
+        // Still active here: hand focus to the replacement before closing, or macOS gives it to whatever app is next.
+        if NSApp.isActive { NSRunningApplication(processIdentifier: replacement.pid)?.activate(options: []) }
         for entry in Array(windows) { closing.insert(ObjectIdentifier(entry.window)); entry.window.close() }
     }
 
