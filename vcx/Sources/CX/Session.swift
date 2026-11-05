@@ -525,7 +525,7 @@ final class Session: ObservableObject {
         case "error", "cx/error", "cx/disconnected":
             if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
             notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.")
-            if method == "cx/disconnected" { needsAttention = true; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = "Disconnected"; permissions.removeAll(); save() }
+            if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); save() }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
@@ -1178,6 +1178,7 @@ final class Session: ObservableObject {
             guard let name = piece["name"] as? String, let detail = piece["detail"] as? String, let source = piece["source"] as? String, let insert = piece["insert"] as? String else { return nil }
             return ChatCommand(name: name, detail: detail, source: source, insert: insert, isCurrent: piece["isCurrent"] as? Bool ?? false)
         }
+        if status == "Ended" { (NSApp.delegate as? AppDelegate)?.closeWindow(session: self) }
     }
 
     func applyRuntimeDraft(_ value: JSON) {

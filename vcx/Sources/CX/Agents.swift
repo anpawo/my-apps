@@ -154,7 +154,16 @@ final class ClaudeConnection: Connection {
         }, disconnected: { [weak self] in
             guard let self, !closed, self.process === process else { return }
             self.process = nil
-            emit("cx/disconnected", ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
+            Task { [weak self] in
+                // A TERM or HUP from outside (the ck/tk skills' kill.sh) ends the session on purpose: Claude catches both and exits 143 or 129.
+                let ended = await Task.detached { () -> Bool in
+                    process.waitUntilExit()
+                    let status = process.terminationStatus
+                    return process.terminationReason == .exit ? [128 + SIGTERM, 128 + SIGHUP].contains(status) : [SIGTERM, SIGHUP].contains(status)
+                }.value
+                guard let self, !closed else { return }
+                emit("cx/disconnected", ended ? ["ended": true, "message": "Claude session ended."] : ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
+            }
         })
         self.reader = reader; reader.start()
     }

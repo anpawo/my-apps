@@ -401,6 +401,31 @@ enum Check {
             do { _ = try await rpc.request("timeout", [:], timeout: 0.03); check(false, "timeout must throw") } catch { check(true, "RPC timeout") }
         } catch { check(false, "RPC integration: " + error.localizedDescription) }
         rpc.close()
+        for (code, ended) in [(143, true), (129, true), (1, false)] {
+            let exiting = ClaudeConnection(account: Account(id: "exit", name: "Exit", provider: "claude"), cwd: directory.path)
+            var disconnect: JSON?
+            exiting.event = { if $0["method"] as? String == "cx/disconnected" { disconnect = $0["params"] as? JSON } }
+            do {
+                try await exiting.start(command: ["/bin/sh", "-c", "read line; exit \(code)"])
+                _ = try await exiting.request("turn/start", ["input": [["type": "text", "text": "bye"]]])
+                for _ in 0..<300 where disconnect == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+            } catch { check(false, "exiting Claude fixture: " + error.localizedDescription) }
+            check(disconnect != nil && (disconnect?["ended"] as? Bool == true) == ended, "Claude exit \(code) \(ended ? "ends the session" : "stays a reconnectable disconnect")")
+        }
+        do {
+            let frontend = AppDelegate(), previous = NSApp.delegate
+            let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("ended-state"))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false; window.delegate = frontend
+            NSApp.delegate = frontend
+            frontend.windows.append(AppDelegate.FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
+            session.applyRuntimeMetadata(["status": "Disconnected"])
+            check(frontend.windows.count == 1, "a disconnected session keeps its window")
+            session.applyRuntimeMetadata(["status": "Ended"])
+            for _ in 0..<100 where !frontend.windows.isEmpty { try? await Task.sleep(nanoseconds: 10_000_000) }
+            NSApp.delegate = previous
+            check(frontend.windows.isEmpty, "a session whose agent ended closes its window")
+        }
         let account = Account(id: "test", name: "Test", provider: "claude")
         let claude = ClaudeConnection(account: account, cwd: directory.path)
         var claudeText = "", claudeDone = false, claudeCompletions = 0, claudeStarts = 0, claudeMessageIDs: [String] = []
