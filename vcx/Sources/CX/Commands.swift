@@ -76,6 +76,22 @@ extension Session {
         }
     }
 
+    var commandCatalog: [ChatCommand] {
+        var commands = appCommands + providerCommands
+        if account.provider == "codex" {
+            commands += codexNativeCommands
+            commands += claudeAliases.keys.sorted().filter { !codexNativeNames.contains($0) }.map { ChatCommand(name: "/" + $0, detail: "Claude alias for /" + claudeAliases[$0]!, source: "Claude compatibility", insert: "/" + $0) }
+        }
+        if account.provider == "claude" { commands += claudeNativeCommands }
+        if ["claude", "codex"].contains(account.provider) { commands += [ChatCommand(name: "/compact", detail: "Compact the current context", source: providerLabel, insert: "/compact"), ChatCommand(name: "/review", detail: "Review uncommitted changes or custom instructions", source: providerLabel, insert: "/review ")] }
+        return commands
+    }
+
+    // Names that do something here, without their "/": what the composer lights up.
+    var commandWords: Set<String> {
+        Set(commandCatalog.filter { !$0.source.hasSuffix(" terminal") }.flatMap { [$0.name, $0.insert.trimmingCharacters(in: .whitespaces)] }.map { String($0.dropFirst()) })
+    }
+
     var commandOptions: [ChatCommand] {
         guard let query = commandQuery else { return [] }
         let parts = query.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
@@ -130,13 +146,7 @@ extension Session {
             }
             return choices.filter { argument.isEmpty || $0.name.lowercased().contains(argument) || $0.insert.lowercased().contains(query.lowercased()) }
         }
-        var commands = appCommands + providerCommands
-        if account.provider == "codex" {
-            commands += codexNativeCommands
-            commands += claudeAliases.keys.sorted().filter { !codexNativeNames.contains($0) }.map { ChatCommand(name: "/" + $0, detail: "Claude alias for /" + claudeAliases[$0]!, source: "Claude compatibility", insert: "/" + $0) }
-        }
-        if account.provider == "claude" { commands += claudeNativeCommands }
-        if ["claude", "codex"].contains(account.provider) { commands += [ChatCommand(name: "/compact", detail: "Compact the current context", source: providerLabel, insert: "/compact"), ChatCommand(name: "/review", detail: "Review uncommitted changes or custom instructions", source: providerLabel, insert: "/review ")] }
+        var commands = commandCatalog
         if query.hasPrefix("/vcx:") { commands = appCommands.map { var c = $0; c.insert = c.insert.replacingOccurrences(of: "/", with: "/vcx:"); return c } }
         let needle = query.replacingOccurrences(of: "/vcx:", with: "/").lowercased()
         func rank(_ command: ChatCommand) -> Int {
@@ -150,27 +160,52 @@ extension Session {
     }
 
     func updateCommands(_ text: String, caret: Int) {
-        if !text.isEmpty, !text.hasPrefix("/"), text == draft.string, let saved = savedCommandDraft {
+        let typed = text == draft.string ? draft.commandText : text
+        if !typed.isEmpty, !typed.hasPrefix("/"), text == draft.string, let saved = savedCommandDraft {
             let restored = NSMutableAttributedString(attributedString: saved)
             if restored.length > 0 { restored.append(NSAttributedString(string: "\n")) }
             restored.append(draft); draft = restored; savedCommandDraft = nil; draftRevision += 1; commandQuery = nil
             return
         }
-        let trimmed = text.trimmingCharacters(in: .newlines)
-        let next: String? = trimmed.hasPrefix("/") && !trimmed.contains("\n") && caret == (text as NSString).length ? trimmed : nil
+        let trimmed = typed.trimmingCharacters(in: .newlines)
+        var next: String? = trimmed.hasPrefix("/") && !trimmed.contains("\n") && caret == (text as NSString).length ? trimmed : nil
+        let word = slashWord(text, caret: caret)
+        commandToken = nil
+        if let word, word.location > 0 || next == nil { next = (text as NSString).substring(with: word); commandToken = word }
         if next != commandQuery {
             commandQuery = next; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0
-            if next?.contains(" ") == true, commandOptions.isEmpty { commandQuery = nil }
+            if next?.contains(" ") == true || commandToken != nil, commandOptions.isEmpty { commandQuery = nil }
         }
+    }
+    // The "/word" ending at the caret, at the start of the text or after a space.
+    func slashWord(_ text: String, caret: Int) -> NSRange? {
+        let string = text as NSString
+        func blank(_ index: Int) -> Bool { UnicodeScalar(string.character(at: index)).map(CharacterSet.whitespacesAndNewlines.contains) ?? false }
+        guard caret <= string.length, caret == string.length || blank(caret) else { return nil }
+        var start = caret
+        while start > 0, !blank(start - 1) { start -= 1 }
+        guard start < caret, string.character(at: start) == 47 else { return nil }
+        return NSRange(location: start, length: caret - start)
+    }
+    func lockCommand(_ label: String, _ value: String, space: Bool, in range: NSRange) {
+        let piece = NSMutableAttributedString(attachment: CommandChip(label: label, value: value))
+        piece.addAttribute(.toolTip, value: value, range: NSRange(location: 0, length: piece.length))
+        if space { piece.append(NSAttributedString(string: " ")) }
+        commandToken = nil
+        if replaceInComposer(range, piece) { return }
+        let edited = NSMutableAttributedString(attributedString: draft)
+        edited.replaceCharacters(in: NSMaxRange(range) <= draft.length ? range : NSRange(location: 0, length: draft.length), with: piece)
+        editDraft(edited)
     }
     func showCommands(_ text: String, preserveDraft: Bool = true) {
         guard !changing || !preserveDraft else { notice("Wait for the connection change before opening session settings."); return }
         if preserveDraft, draft.length > 0, savedCommandDraft == nil { savedCommandDraft = draft }
         editDraft(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]))
+        commandToken = nil
         commandQuery = text; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0; focusComposer()
     }
     func dismissCommands() {
-        commandQuery = nil
+        commandQuery = nil; commandToken = nil
         if let saved = savedCommandDraft { editDraft(saved); savedCommandDraft = nil }
     }
     func statusCommand(_ source: String) {
@@ -187,6 +222,16 @@ extension Session {
                 showCommands(command.insert, preserveDraft: false)
             }
             Task { await self.command(command.insert) }
+            return
+        }
+        // A command (not one of its values) locks in as a chip showing its name.
+        let value = command.insert.trimmingCharacters(in: .whitespaces)
+        if !value.contains(" ") {
+            let inline = commandToken
+            lockCommand(command.name, value, space: command.insert.hasSuffix(" "), in: inline ?? NSRange(location: 0, length: draft.length))
+            commandQuery = inline == nil && command.insert.hasSuffix(" ") ? command.insert : nil
+            commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0
+            focusComposer()
             return
         }
         showCommands(command.insert, preserveDraft: false)
@@ -238,7 +283,7 @@ extension Session {
             let localCommands = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit", "/details", "/focus"]
             if !localCommands.contains(verb) {
                 let generation = draftGeneration
-                let preserved = savedCommandDraft ?? (draft.string == source ? NSAttributedString(string: "") : draft)
+                let preserved = savedCommandDraft ?? (draft.commandText == source ? NSAttributedString(string: "") : draft)
                 commandQuery = nil
                 let result = await performRuntime("command", ["text": source, "draft": draftContent(preserved), "generation": generation])
                 Settings.shared.reload()
@@ -248,7 +293,7 @@ extension Session {
                     showCommands(query, preserveDraft: false)
                 } else if result != nil {
                     if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
-                    else if draft.string == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                    else if draft.commandText == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
                     checkpointRuntimeDraft()
                 }
                 return
@@ -260,7 +305,7 @@ extension Session {
         defer {
             if let saved = savedCommandDraft, commandQuery == nil {
                 let restored = NSMutableAttributedString(attributedString: saved)
-                if draft.length > 0, draftGeneration != commandGeneration || (draft.string != source && !draft.isEqual(to: commandDraft)) {
+                if draft.length > 0, draftGeneration != commandGeneration || (draft.commandText != source && !draft.isEqual(to: commandDraft)) {
                     if restored.length > 0 { restored.append(NSAttributedString(string: "\n")) }
                     restored.append(draft)
                 }
@@ -270,14 +315,16 @@ extension Session {
         }
         if let native = providerSkill(source) {
             let name = native.name.dropFirst()
-            if draft.string == source { commandQuery = nil }
+            if draft.commandText == source { commandQuery = nil }
+            // The chat shows the command as typed, never its namespace or the prompt it becomes.
+            let shown = source.replacingOccurrences(of: "^/(claude|codex):(skill:)?", with: "/", options: .regularExpression)
             if let path = legacyCommandPaths[String(name)] {
-                await send(text: "Run the Claude command /\(name) from \(path) using the available Codex tools. Read the complete command file first. Substitute $ARGUMENTS with the following arguments, and $1, $2, etc. with their positional values. Preserve the command's restrictions and use normal approval checks for shell commands. If an instruction cannot be enforced, stop and explain it.\nArguments: " + argument, images: images, commandHandled: true)
+                await send(text: "Run the Claude command /\(name) from \(path) using the available Codex tools. Read the complete command file first. Substitute $ARGUMENTS with the following arguments, and $1, $2, etc. with their positional values. Preserve the command's restrictions and use normal approval checks for shell commands. If an instruction cannot be enforced, stop and explain it.\nArguments: " + argument, images: images, commandHandled: true, displayText: shown)
                 return
             }
             let prefix = account.provider == "codex" ? "$" : "/"
             let skill = skillPaths[String(name)].map { ["type": "skill", "name": String(name), "path": $0] }
-            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: images, commandHandled: true, skill: skill, displayText: source)
+            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: images, commandHandled: true, skill: skill, displayText: shown)
             return
         }
         do {
@@ -287,7 +334,7 @@ extension Session {
                 guard !changing else { throw CXError(message: "A connection change is already in progress.") }
                 if busy {
                     pendingModelCommand = "/model " + argument
-                    if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.string.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                    if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.commandText.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
                     return
                 }
                 let args = argument.split(separator: " ").map(String.init)
@@ -313,7 +360,7 @@ extension Session {
                     guard ready else { throw CXError(message: "Reconnect before changing models.") }
                     await changeModel(argument)
                 }
-                if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.string.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.commandText.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
             case "/perms":
                 guard !argument.isEmpty else { showCommands("/perms ", preserveDraft: false); return }
                 guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /perms bypass or /perms ask.") }
@@ -451,7 +498,7 @@ extension Session {
                 }
                 throw CXError(message: "Unknown command. Type / to see the active provider’s commands and vcx settings.")
             }
-            if draftGeneration == commandGeneration, draft.string == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
+            if draftGeneration == commandGeneration, draft.commandText == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
             commandQuery = nil
         } catch { notice(error.localizedDescription); commandQuery = nil }
     }

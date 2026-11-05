@@ -43,18 +43,46 @@ final class PasteChip: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 }
 
+// A command chosen in the composer: shows what was typed, runs `value` (hover shows it).
+final class CommandChip: NSTextAttachment {
+    let label: String
+    let value: String
+    init(label: String, value: String) {
+        self.label = label; self.value = value
+        super.init(data: nil, ofType: nil)
+        attachmentCell = chipCell(label, fill: NSColor.black.withAlphaComponent(0.09))
+    }
+    required init?(coder: NSCoder) { nil }
+}
+
+extension NSAttributedString {
+    // A leading command chip reads as the command it runs, a later one as the name typed.
+    var commandText: String {
+        var text = ""
+        enumerateAttribute(.attachment, in: NSRange(location: 0, length: length)) { value, range, _ in
+            if let chip = value as? CommandChip { text += text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? chip.value : chip.label }
+            else { text += (string as NSString).substring(with: range) }
+        }
+        return text
+    }
+}
+
 private final class ChipCell: NSTextAttachmentCell {
     override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
 }
 
-private func chipCell(_ title: String) -> NSTextAttachmentCell {
+private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachmentCell {
     let label = NSAttributedString(string: title, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
-    let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { _ in
+    let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { rect in
+        if let fill { fill.setFill(); NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 0), xRadius: 4, yRadius: 4).fill() }
         label.draw(at: NSPoint(x: 6, y: 0))
         return true
     }
     return ChipCell(imageCell: image)
 }
+
+private let commandWordPattern = try! NSRegularExpression(pattern: #"(?<![\w/:.\-])/?([\w\-]+(?::[\w\-]+)*)(?![\w/\-]|[.:]\w)"#)
+private let commandTint = NSColor(red: 0.43, green: 0.23, blue: 0.75, alpha: 0.16)
 
 enum InputPiece { case text(String), image(String) }
 
@@ -109,6 +137,10 @@ struct Composer: NSViewRepresentable {
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.documentView = field
         field.resized = { [weak field, coordinator = context.coordinator] in if let field { coordinator.measure(field) } }
         session.submitDraft = { [weak field] in field?.submit() }
+        session.replaceInComposer = { [weak field] range, piece in
+            guard let field, NSMaxRange(range) <= (field.string as NSString).length else { return false }
+            field.insertPiece(piece, replacing: range); return true
+        }
         session.focusComposer = { [weak field] in DispatchQueue.main.async { if let field { field.window?.makeFirstResponder(field) } } }
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return scroll
@@ -145,6 +177,17 @@ struct Composer: NSViewRepresentable {
             guard !syncing, let field = notification.object as? ComposerText else { return }
             session.updateCommands(field.string, caret: field.selectedRange().location)
         }
+        // A space after an exact command name locks it into a chip.
+        func textView(_ view: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            guard text == " ", range.length == 0, !view.hasMarkedText(), let word = session.slashWord(view.string, caret: range.location) else { return true }
+            let typed = (view.string as NSString).substring(with: word)
+            guard let command = session.commandCatalog.first(where: { $0.name.caseInsensitiveCompare(typed) == .orderedSame || $0.insert.trimmingCharacters(in: .whitespaces) == typed }) else { return true }
+            session.lockCommand(typed, command.insert.trimmingCharacters(in: .whitespaces), space: true, in: word)
+            return false
+        }
+        func textView(_ view: NSTextView, shouldChangeTypingAttributes old: [String: Any], toAttributes new: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+            new.filter { $0.key != .toolTip }
+        }
         func measure(_ field: NSTextView) {
             guard let manager = field.layoutManager, let container = field.textContainer else { return }
             manager.ensureLayout(for: container)
@@ -163,6 +206,7 @@ struct Composer: NSViewRepresentable {
             if selector == #selector(NSResponder.moveDown(_:)), session.movePromptHistory(1) { return true }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
+                    if session.commandToken != nil { _ = session.completeCommand(); return true }
                     let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
                     if session.providerCommands.contains(selected) {
                         session.commandQuery = nil
@@ -210,9 +254,22 @@ final class ComposerText: NSTextView {
         textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: draft.length))
         textColor = .black
         typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black]
+        draft.enumerateAttribute(.attachment, in: NSRange(location: 0, length: draft.length)) { value, range, _ in
+            if let chip = value as? CommandChip { textStorage?.addAttribute(.toolTip, value: chip.value, range: range) }
+        }
+        highlightCommands()
+    }
+    // Words naming a command light up, typed with or without "/"; display only, never stored.
+    func highlightCommands() {
+        guard let manager = layoutManager, let words = session?.commandWords else { return }
+        let text = string as NSString, all = NSRange(location: 0, length: text.length)
+        manager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: all)
+        for match in commandWordPattern.matches(in: string, range: all) where words.contains(text.substring(with: match.range(at: 1))) {
+            manager.addTemporaryAttribute(.backgroundColor, value: commandTint, forCharacterRange: match.range)
+        }
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
-    override func didChangeText() { lastPaste = nil; super.didChangeText(); needsDisplay = true }
+    override func didChangeText() { lastPaste = nil; highlightCommands(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
@@ -268,7 +325,7 @@ final class ComposerText: NSTextView {
         textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, _, _ in if value is Chip { count += 1 } }
         return count
     }
-    private func insertPiece(_ value: NSAttributedString, replacing: NSRange? = nil) {
+    func insertPiece(_ value: NSAttributedString, replacing: NSRange? = nil) {
         let piece = NSMutableAttributedString(attributedString: value)
         var attributes = typingAttributes; attributes.removeValue(forKey: .attachment)
         piece.addAttributes(attributes, range: NSRange(location: 0, length: piece.length))
@@ -295,6 +352,7 @@ final class ComposerText: NSTextView {
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             if let chip = value as? ImageChip { images.append(chip.path) }
             else if let chip = value as? PasteChip { text += chip.text }
+            else if let chip = value as? CommandChip { text += text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? chip.value : chip.label }
             else if value == nil { text += (storage.string as NSString).substring(with: range) }
         }
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), images)
@@ -347,6 +405,8 @@ func draftContent(_ draft: NSAttributedString) -> [JSON] {
     draft.enumerateAttribute(.attachment, in: NSRange(location: 0, length: draft.length)) { value, range, _ in
         if let chip = value as? ImageChip { pieces.append(["type": "localImage", "path": chip.path]) }
         else if let chip = value as? PasteChip { pieces.append(["type": "paste", "text": chip.text, "number": chip.number]) }
+        // "text" keeps the runnable command, so a worker on an older build restores it as plain text.
+        else if let chip = value as? CommandChip { pieces.append(["type": "command", "text": chip.value, "label": chip.label]) }
         else if value == nil { pieces.append(["type": "text", "text": (draft.string as NSString).substring(with: range)]) }
     }
     return pieces
@@ -355,7 +415,7 @@ func draftContent(_ draft: NSAttributedString) -> [JSON] {
 // A runtime worker started before paste chips existed echoes them back as plain text: same draft.
 func plainDraftContent(_ pieces: [JSON]) -> [JSON] {
     pieces.reduce(into: []) { plain, piece in
-        let piece: JSON = piece["type"] as? String == "paste" ? ["type": "text", "text": piece["text"] as? String ?? ""] : piece
+        let piece: JSON = ["paste", "command"].contains(piece["type"] as? String) ? ["type": "text", "text": piece["text"] as? String ?? ""] : piece
         if piece["type"] as? String == "text", let last = plain.last, last["type"] as? String == "text" {
             plain[plain.count - 1]["text"] = (last["text"] as? String ?? "") + (piece["text"] as? String ?? "")
         } else { plain.append(piece) }

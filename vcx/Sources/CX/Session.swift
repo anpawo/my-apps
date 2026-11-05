@@ -136,6 +136,9 @@ final class Session: ObservableObject {
     @Published var draftRevision = 0
     @Published var commandQuery: String?
     @Published var commandSelection = 0
+    // The "/word" being completed inside the text; nil when the whole draft is the command.
+    var commandToken: NSRange?
+    var replaceInComposer: (NSRange, NSAttributedString) -> Bool = { _, _ in false }
     @Published var tokens = "Not reported"
     @Published var usagePercent: Double?
     @Published var contextUsed: Int?
@@ -1046,6 +1049,7 @@ final class Session: ObservableObject {
         let restoredDraft = NSMutableAttributedString(string: "")
         for (n, piece) in (record["draft"] as? [JSON] ?? []).enumerated() {
             if piece["type"] as? String == "paste", let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(attachment: PasteChip(text: text, number: piece["number"] as? Int ?? 1))) }
+            else if piece["type"] as? String == "command", let text = piece["text"] as? String, let label = piece["label"] as? String { restoredDraft.append(NSAttributedString(attachment: CommandChip(label: label, value: text))) }
             else if let text = piece["text"] as? String { restoredDraft.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
             else if let path = piece["path"] as? String { restoredDraft.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
         }
@@ -1062,7 +1066,7 @@ final class Session: ObservableObject {
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Directory does not exist.") }
         if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
-        else if draft.string.hasPrefix("/dir ") || draft.string.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+        else if draft.commandText.hasPrefix("/dir ") || draft.commandText.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
         save()
         let previous = (cwd, recordID, draft, draftGeneration, conversationDirectory)
         cwd = url.path; conversationDirectory = cwd; recordID = UUID().uuidString; draft = NSAttributedString(string: ""); draftRevision += 1

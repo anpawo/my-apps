@@ -1007,7 +1007,26 @@ enum Check {
             }
             ranking.updateCommands("/sm", caret: 3)
             check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
-            check(ranking.completeCommand() && ranking.draft.string == "/sm ", "completion inserts the exact skill instead of a description match")
+            check(ranking.completeCommand() && ranking.draft.commandText == "/sm ", "completion inserts the exact skill instead of a description match")
+            check((ranking.draft.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.label == "/sm", "a chosen command locks in as a chip named as typed")
+            let restoredChip = runtimeDraft(draftContent(ranking.draft))
+            check((restoredChip.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.value == "/sm" && NSArray(array: plainDraftContent(draftContent(ranking.draft))).isEqual(to: [["type": "text", "text": "/sm "]]), "a command chip survives the worker and reads as plain text to an older one")
+            ranking.editDraft(NSAttributedString(string: "please a/sm"))
+            ranking.updateCommands(ranking.draft.string, caret: 11)
+            check(ranking.commandQuery == nil, "a slash inside a word opens no popup")
+            ranking.editDraft(NSAttributedString(string: "please /s"))
+            ranking.updateCommands(ranking.draft.string, caret: 9)
+            check(ranking.commandQuery == "/s" && ranking.commandToken == NSRange(location: 7, length: 2), "a slash after a space opens the popup mid-sentence")
+            ranking.editDraft(NSAttributedString(string: "please "))
+            ranking.updateCommands(ranking.draft.string, caret: 7)
+            check(ranking.commandQuery == nil && ranking.commandToken == nil, "deleting the slash closes the popup and chooses nothing")
+            ranking.editDraft(NSAttributedString(string: "please /s"))
+            ranking.updateCommands(ranking.draft.string, caret: 9)
+            ranking.commandSelection = ranking.commandOptions.firstIndex { $0.name == "/sm" } ?? 0
+            check(ranking.completeCommand() && ranking.draft.commandText == "please /sm " && ranking.commandQuery == nil, "a mid-sentence command locks in without opening its arguments")
+            ranking.lockCommand("/skills", "/codex:skill:skills", space: true, in: NSRange(location: 0, length: 0))
+            check(ranking.draft.commandText.hasPrefix("/codex:skill:skills please /sm"), "a leading chip runs its real value, a later one sends the name typed")
+            check(ranking.commandWords.contains("sm") && ranking.commandWords.contains("model") && !ranking.commandWords.contains("theme"), "command words cover what runs here, not terminal-only commands")
             ranking.updateCommands("/", caret: 1)
             check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
             ranking.close()
@@ -1018,6 +1037,7 @@ enum Check {
         await codexCommands.command("/codex:skill:fixture check")
         let skillInput = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
         check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
+        check((codexCommands.rows.last { $0.kind == "user" }?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture check", "the chat shows a namespaced skill as typed")
         for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
         await codexCommands.send(text: "/fixture look", images: [imagePath])
         let imageSkill = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
@@ -1064,7 +1084,7 @@ enum Check {
         editor.session = codexCommands; editor.string = "/"
         let coordinator = Composer.Coordinator(codexCommands)
         check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.moveDown(_:))) && codexCommands.commandSelection == 1, "composer arrow keys navigate completion")
-        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.insertTab(_:))) && codexCommands.draft.string == "/account ", "composer Tab completes without sending")
+        check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.insertTab(_:))) && codexCommands.draft.commandText == "/account ", "composer Tab completes without sending")
         check(coordinator.textView(editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))) && codexCommands.commandQuery == nil, "composer Escape dismisses completion")
         codexCommands.editDraft(NSAttributedString(string: ""))
         codexCommands.rows = [Row("user", [Item(["content": [["type": "text", "text": "First prompt"]]])]), Row("user", [Item(["content": [["type": "text", "text": "Latest prompt "], ["type": "localImage", "path": imagePath]]])])]
@@ -1428,6 +1448,11 @@ enum Render {
         session.showCommands("/")
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
+        let chipped = NSMutableAttributedString(attachment: CommandChip(label: "/cd", value: "/claude:cd"))
+        chipped.append(NSAttributedString(string: " ~/atlas then ui-tweak the footer, check model and /po", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]))
+        session.draft = chipped; session.draftRevision += 1
+        session.updateCommands(chipped.string, caret: chipped.length)
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/command-chips.png")
         session.commandQuery = nil
         session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
         session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]); session.draftRevision += 1
