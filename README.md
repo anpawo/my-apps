@@ -1,8 +1,7 @@
 # my-apps
 
 Little apps made for my needs. Each one is a folder at the root of this repo, and each one
-runs on my Mac today, except glance, which is unfinished, and firefax, which has not yet
-filled a live page (it is built and self-tested, but not installed).
+runs on my Mac today, except glance, which is unfinished.
 
 Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
