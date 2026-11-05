@@ -825,20 +825,34 @@ struct MarkdownBody: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(markdownBlocks(text)) { block in
                 if block.code {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string) } label: {
-                            HStack {
-                                Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
-                                Image(systemName: "doc.on.doc")
-                            }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
-                        }.buttonStyle(.plain).help("Copy code").accessibilityLabel("Copy code")
-                        ScrollView(.horizontal) { Text(block.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).padding(14) }
-                    }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
+                    CodeBlock(block: block)
                 } else {
                     ProseView(text: block.text)
                 }
             }
         }
+    }
+}
+
+struct CodeBlock: View {
+    let block: MarkdownBlock
+    @State private var copied = false
+    @State private var reset: Task<Void, Never>?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string)
+                copied = true; reset?.cancel()
+                reset = Task { try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled { copied = false } }
+            } label: {
+                HStack {
+                    Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
+            ScrollView(.horizontal) { Text(block.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).padding(14) }
+        }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
+        .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
     }
 }
 
