@@ -818,6 +818,8 @@ final class Session: ObservableObject {
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
+        // The shared default picks a session's provider once; a later change to it (an older VCX build still writes it) must not move this session.
+        if providerChoice == nil { providerChoice = preferredProvider }
         let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
         let previousUsagePercent = usagePercent
         flush()
@@ -992,6 +994,7 @@ final class Session: ObservableObject {
             record["planning"] = planning
             record["conversationName"] = conversationName
             record["fleetContext"] = fleetContext
+            record["providerChoice"] = providerChoice; record["accountChoice"] = accountChoice; record["modeChoice"] = modeChoice
             try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
             try JSONSerialization.data(withJSONObject: ["recordId": recordID]).write(to: nativePointer, options: .atomic)
@@ -1010,6 +1013,7 @@ final class Session: ObservableObject {
         }
         let url = nativeDirectory.appendingPathComponent(id + ".json")
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
+        providerChoice = record["providerChoice"] as? String ?? providerChoice; accountChoice = record["accountChoice"] as? String ?? accountChoice; modeChoice = record["modeChoice"] as? String ?? modeChoice
         let settings = Settings.shared
         let stored = settings.candidates.first { $0.id == accountID } ?? settings.value.accounts.first { $0.id == accountID }
         let preferred = preferredProvider != "auto" ? available.first : available.first { $0.id == stored?.id } ?? available.first

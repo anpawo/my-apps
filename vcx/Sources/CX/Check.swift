@@ -758,7 +758,7 @@ enum Check {
         try! "Keep task".write(to: transactional.fleetContextFile, atomically: true, encoding: .utf8)
         let originalID = transactional.threadID
         let originalConversation = transactional.currentConversationID
-        Settings.shared.value.provider = "codex"; Settings.shared.save()
+        Settings.shared.value.provider = "codex"; Settings.shared.save(); transactional.providerChoice = "codex"
         Settings.shared.updateLimit(account: "codex-default", reset: 0)
         transactional.draft = NSAttributedString(string: "Keep my work")
         await transactional.send(text: "Keep my work", images: [])
@@ -870,6 +870,16 @@ enum Check {
             check(bystander.activeMode == "bypass" && bystander.available.first?.id == "claude-default" && (bystander.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never", "a session's mode and account choices leave other running sessions alone")
             check(Settings.shared.value.mode == "bypass" && Settings.shared.value.accounts.allSatisfy(\.enabled), "a session's mode and account choices leave the shared defaults")
             chooser.close(); bystander.close()
+            Settings.shared.value = Preferences(); Settings.shared.save()
+        }
+        do {
+            let running = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("default-change"))
+            running.connectionFactory = { account, _ in FixtureConnection(account) }
+            await running.connect(resume: nil)
+            Settings.shared.value.provider = "qwen"; Settings.shared.save()
+            await running.reconnect()
+            check(running.account.provider == "claude", "a changed shared default leaves running sessions on their provider")
+            running.close()
             Settings.shared.value = Preferences(); Settings.shared.save()
         }
         let draftsDirectory = directory.appendingPathComponent("draft-switches")
