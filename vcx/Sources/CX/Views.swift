@@ -878,7 +878,7 @@ struct CodeBlock: View {
             } label: {
                 HStack {
                     Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: copied ? 19 : 13, weight: copied ? .light : .regular)).frame(height: 18)
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
             }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
             ScrollView(.horizontal) { Text(block.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).padding(14) }
