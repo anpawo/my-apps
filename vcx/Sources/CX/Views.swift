@@ -15,7 +15,8 @@ struct ConversationSection: Identifiable {
 func conversationSections(_ rows: [Row]) -> [ConversationSection] {
     var sections: [ConversationSection] = []
     for row in rows {
-        if row.kind == "user" {
+        // A message from another session starts a turn like a prompt does, so it heads its own section.
+        if row.kind == "user" || (row.kind == "peer" && row.items.first?.data["direction"] as? String == "received") {
             sections.append(ConversationSection(id: row.id, question: row))
         } else {
             if sections.isEmpty { sections.append(ConversationSection(id: row.id)) }
@@ -27,9 +28,9 @@ func conversationSections(_ rows: [Row]) -> [ConversationSection] {
 
 // The last message (the latest thought while working, the answer once done) stays visible; the rest folds into one block.
 func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row]) {
-    var work = rows.filter { $0.kind != "notice" }
+    var work = rows.filter { !["notice", "peer"].contains($0.kind) }
     let last = work.lastIndex(where: { $0.kind == "assistant" }).map { work.remove(at: $0) }
-    return (work, last, rows.filter { $0.kind == "notice" })
+    return (work, last, rows.filter { ["notice", "peer"].contains($0.kind) })
 }
 
 // A pinned question covers the answer under it, so one taller than half the transcript scrolls with its answer instead.
@@ -730,8 +731,21 @@ struct ConversationRow: View, Equatable {
         if let item = row.items.first {
             if row.kind == "user" { UserBubble(item: item, session: session) }
             else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
+            else if row.kind == "peer" { PeerLine(item: item) }
             else { AssistantBubble(item: item) }
         }
+    }
+}
+
+struct PeerLine: View {
+    @ObservedObject var item: Item
+    var body: some View {
+        let first = item.text.split(separator: "\n").first.map(String.init) ?? ""
+        Button { focusPeer(item.data) } label: {
+            Label(item.title + (first.isEmpty ? "" : " · " + first), systemImage: item.data["direction"] as? String == "sent" ? "arrow.up.right" : "arrow.down.left")
+                .lineLimit(1).truncationMode(.tail)
+                .font(.system(size: 12)).foregroundStyle(.black.opacity(item.failed ? 0.3 : 0.45))
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help(item.text)
     }
 }
 

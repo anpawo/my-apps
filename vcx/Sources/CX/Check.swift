@@ -56,6 +56,38 @@ enum Check {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
         do {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-peers-" + UUID().uuidString)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let previousFolder = claudeSessionsFolder; claudeSessionsFolder = folder.path
+            defer { claudeSessionsFolder = previousFolder }
+            let me = Int(getpid())
+            func register(_ pid: Int, _ name: String, _ started: Double) {
+                try? JSONSerialization.data(withJSONObject: ["pid": pid, "name": name, "startedAt": started] as JSON).write(to: folder.appendingPathComponent("\(pid).json"))
+            }
+            register(me, "fixture-peer", 1793877912277)
+            register(99_999, "fixture-peer", 1793877999999)
+            let claude = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: folder.path)
+            var emitted: [JSON] = []
+            claude.event = { emitted.append($0) }
+            claude.receive(["type": "assistant", "message": ["id": "peer-turn", "content": [["type": "tool_use", "id": "send-1", "name": "SendMessage", "input": ["to": "fixture-peer [abc123]", "message": "Handoff\nsecond line"] as JSON] as JSON] as [JSON]] as JSON])
+            claude.receive(["type": "user", "message": ["content": [["type": "tool_result", "tool_use_id": "send-1", "content": "sent", "is_error": false] as JSON] as [JSON]] as JSON])
+            claude.receive(["type": "user", "uuid": "peer-in", "message": ["role": "user", "content": "<cross-session-message>"] as JSON, "origin": ["kind": "peer", "name": "fixture-peer", "verifiedPeerPid": me, "body": "Reply please"] as JSON])
+            claude.receive(["type": "user", "uuid": "replayed", "isReplay": true, "message": ["role": "user", "content": [["type": "text", "text": "my own prompt"] as JSON] as [JSON]] as JSON])
+            let items = emitted.compactMap { ($0["params"] as? JSON)?["item"] as? JSON }
+            let sent = items.last { $0["id"] as? String == "send-1" } ?? [:], received = items.first { $0["id"] as? String == "peer-in" } ?? [:]
+            check(sent["type"] as? String == "peerMessage" && sent["direction"] as? String == "sent" && sent["pid"] as? Int == me && sent["status"] as? String == "completed", "SendMessage shows as a sent peer message tied to its live session")
+            check(received["direction"] as? String == "received" && received["name"] as? String == "fixture-peer" && received["text"] as? String == "Reply please", "a peer session's message shows as received")
+            check(emitted.contains { $0["method"] as? String == "turn/started" } && items.count == 3, "a peer message opens a turn and a replayed prompt adds no row")
+            check(peerTarget(sent) == me && peerItem(id: "uds", direction: "sent", peer: "uds:/tmp/cc-socks/\(me).sock", text: "")["pid"] as? Int == me, "a peer is found by name or by socket address")
+            register(me, "fixture-peer", 1)
+            check(peerTarget(sent) == nil && peerTarget(peerItem(id: "missing", direction: "sent", peer: "missing", text: "")) == nil, "a peer that is gone or replaced is not focused")
+            let session = Session(cwd: folder.path, stateDirectory: folder.appendingPathComponent("state"))
+            session.show(sent); session.show(["id": "answer", "type": "agentMessage", "text": "Done"]); session.show(received)
+            let sections = conversationSections(session.rows)
+            check(session.rows.map(\.kind) == ["peer", "assistant", "peer"] && sections.count == 2 && sections[1].question?.kind == "peer" && sectionParts(sections[0].rows).notices.count == 1 && session.rows[0].items[0].title == "Sent to fixture-peer", "peer messages stay visible and a received one opens its own section")
+            session.close(); claude.close()
+        }
+        do {
             let session = Session(cwd: "/fixture")
             session.model = "gpt-6-astra"; session.effort = "high"
             session.contextLimit = 258400; session.usage = "16% wk - reset 1h"
@@ -1437,6 +1469,14 @@ enum Render {
         write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work.png")
         expansion(directory: directory, session: work)
         write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work-open.png", scrollOffsets: [0])
+        let peers = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/peers"))
+        peers.ready = true; peers.status = "Ready"
+        peers.show(["id": "peer-q", "type": "userMessage", "content": [["type": "text", "text": "If another session is on it, hand it the context."]]])
+        peers.show(["id": "peer-out", "type": "peerMessage", "direction": "sent", "name": "claude-92", "status": "completed", "text": "Handoff from a duplicate session: the Qwen switch hit four conversations today.\nDetails follow."])
+        peers.show(["id": "peer-answer", "type": "agentMessage", "provider": "Claude", "text": "Sent the findings to claude-92."])
+        peers.show(["id": "peer-in", "type": "peerMessage", "direction": "received", "name": "claude-92", "status": "completed", "text": "Thanks, the old worker was the cause. Close your window when you are done."])
+        peers.show(["id": "peer-reply", "type": "agentMessage", "provider": "Claude", "text": "Closing once this turn ends."])
+        write(CXView(session: peers), size: CGSize(width: 1120, height: 700), path: directory + "/peers.png")
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
         session.contextUsed = 0; session.contextLimit = 258400

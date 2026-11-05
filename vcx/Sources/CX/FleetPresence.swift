@@ -37,9 +37,9 @@ final class FleetPresence {
         let preview: [JSON] = session.rows.suffix(16).flatMap { row in
             row.items.suffix(4).compactMap { item in
                 let text = row.kind == "user" ? (item.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-                    : row.kind == "activity" ? item.title : item.text
+                    : ["activity", "peer"].contains(row.kind) ? item.title : item.text
                 guard !text.isEmpty else { return nil }
-                return ["kind": row.kind == "user" ? "user" : row.kind == "activity" ? "tool" : "assistant", "text": String(text.prefix(2000))]
+                return ["kind": row.kind == "user" ? "user" : ["activity", "peer"].contains(row.kind) ? "tool" : "assistant", "text": String(text.prefix(2000))]
             }
         }
         let state = session.needsAttention && session.status == "Failed" && session.permissions.isEmpty ? "failed"

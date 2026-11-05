@@ -140,7 +140,7 @@ final class ClaudeConnection: Connection {
     private func launch(resume: Bool) throws {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
+        process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = agentEnvironment(account)
@@ -314,10 +314,17 @@ final class ClaudeConnection: Connection {
                     let input = block["input"] as? JSON ?? [:], name = block["name"] as? String ?? "Tool"
                     var tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]
                     if name == "Bash", let description = input["description"] as? String { tool["description"] = description }
+                    if name == "SendMessage" { tool = peerItem(id: toolID, direction: "sent", peer: input["to"] as? String ?? "", text: input["message"] as? String ?? "") }
                     tools[toolID] = tool; emit("item/started", ["item": tool])
                 }
             }
         case "user":
+            // Replayed prompts come back too; only a peer session's message has an origin.
+            if let origin = message["origin"] as? JSON, origin["kind"] as? String == "peer" {
+                if pendingUsers.isEmpty { turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]]) }
+                emit("item/completed", ["item": peerItem(id: message["uuid"] as? String ?? UUID().uuidString, direction: "received", peer: origin["name"] as? String ?? "", pid: origin["verifiedPeerPid"] as? Int, text: origin["body"] as? String ?? "")])
+                return
+            }
             for block in (message["message"] as? JSON)?["content"] as? [JSON] ?? [] {
                 if let id = block["tool_use_id"] as? String, var tool = tools[id] {
                     tool["aggregatedOutput"] = String((block["content"] as? String ?? pretty(block["content"] ?? "")).suffix(16384))
@@ -433,6 +440,44 @@ extension ClaudeConnection: AdoptableConnection {
 func pretty(_ value: Any) -> String {
     if let text = value as? String { return text }
     return (try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .fragmentsAllowed])).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+}
+
+var claudeSessionsFolder = NSHomeDirectory() + "/.claude/sessions"
+func claudeRegistry(_ pid: Int) -> JSON? {
+    (try? Data(contentsOf: URL(fileURLWithPath: claudeSessionsFolder + "/\(pid).json"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON }
+}
+
+// SendMessage names a peer by its ListAgents name, maybe followed by " [ref]", or by its uds:/…/<pid>.sock address.
+func peerItem(id: String, direction: String, peer: String, pid: Int? = nil, text: String) -> JSON {
+    let name = peer.components(separatedBy: " [")[0]
+    var pid = pid ?? Int(name.replacingOccurrences(of: #"^uds:.*/(\d+)\.sock$"#, with: "$1", options: .regularExpression))
+    var entry = pid.flatMap(claudeRegistry)
+    if pid == nil {
+        entry = ((try? FileManager.default.contentsOfDirectory(atPath: claudeSessionsFolder)) ?? []).compactMap { Int($0.replacingOccurrences(of: ".json", with: "")) }
+            .compactMap(claudeRegistry).filter { entry in entry["name"] as? String == name && (entry["pid"] as? Int).map { $0 > 0 && kill(pid_t($0), 0) == 0 } == true }
+            .max { ($0["startedAt"] as? Double ?? 0) < ($1["startedAt"] as? Double ?? 0) }
+        pid = entry?["pid"] as? Int
+    }
+    var item: JSON = ["id": id, "type": "peerMessage", "direction": direction, "name": entry?["name"] as? String ?? (name.hasPrefix("uds:") ? "another session" : name), "text": text, "status": direction == "sent" ? "inProgress" : "completed"]
+    if let pid, let started = entry?["startedAt"] { item["pid"] = pid; item["startedAt"] = started }
+    return item
+}
+
+// The start time tells the peer apart from a later process that reused its pid.
+func peerTarget(_ item: JSON) -> Int? {
+    guard let pid = item["pid"] as? Int, pid > 0, kill(pid_t(pid), 0) == 0, let started = item["startedAt"] as? Double,
+          claudeRegistry(pid)?["startedAt"] as? Double == started else { return nil }
+    return pid
+}
+
+// Fleet raises the peer's VCX window or terminal tab; a peer that is gone is left alone.
+func focusPeer(_ item: JSON) {
+    guard let pid = peerTarget(item) else { return }
+    let fleet = Process()
+    fleet.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Fleet.app/Contents/MacOS/Fleet")
+    fleet.arguments = ["--focus", String(pid)]
+    fleet.standardOutput = FileHandle.nullDevice; fleet.standardError = FileHandle.nullDevice
+    try? fleet.run()
 }
 
 @MainActor

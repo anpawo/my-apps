@@ -27,6 +27,7 @@ final class Item: ObservableObject, Identifiable {
         case "fileChange": return "Edit " + (data["changes"] as? [JSON] ?? []).compactMap { ($0["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent } }.joined(separator: ", ")
         case "mcpToolCall", "dynamicToolCall": return ["server", "namespace", "tool"].compactMap { data[$0] as? String }.joined(separator: ".")
         case "webSearch": return "Search: " + (data["query"] as? String ?? "web")
+        case "peerMessage": return (data["direction"] as? String == "sent" ? (failed ? "Not sent to " : "Sent to ") : "Message from ") + (data["name"] as? String ?? "another session")
         case "reasoning": return "Thinking"
         default: return kind.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized
         }
@@ -434,6 +435,9 @@ final class Session: ObservableObject {
         if ["agentMessage", "plan", "userMessage"].contains(kind) {
             group = nil
             rows.append(Row(kind == "userMessage" ? "user" : "assistant", [item]))
+        } else if kind == "peerMessage" {
+            group = nil
+            rows.append(Row("peer", [item]))
         } else {
             if group == nil {
                 let row = Row("activity", [])
