@@ -8,6 +8,13 @@ protocol RuntimeBackend: AnyObject {
     func snapshot() -> JSON
     func perform(action: String, params: JSON) async throws -> JSON
     func close()
+    func swapState() -> JSON?
+    func thawSwap()
+}
+
+extension RuntimeBackend {
+    func swapState() -> JSON? { nil }
+    func thawSwap() {}
 }
 
 private struct RuntimeFault: LocalizedError {
@@ -56,7 +63,7 @@ final class RuntimeServer {
 
     private let socketPath: String
     private let build: String
-    private let instanceID = UUID().uuidString
+    private let instanceID: String
     private let makeSession: (JSON) async throws -> any RuntimeBackend
     private var listener: RuntimeListener?
     private var peers: [UUID: Peer] = [:]
@@ -66,8 +73,8 @@ final class RuntimeServer {
     private var stopped = false
     var onEmpty: () -> Void = {}
 
-    init(socketPath: String, build: String, makeSession: @escaping (JSON) async throws -> any RuntimeBackend) {
-        self.socketPath = socketPath; self.build = build; self.makeSession = makeSession
+    init(socketPath: String, build: String, instanceID: String = UUID().uuidString, makeSession: @escaping (JSON) async throws -> any RuntimeBackend) {
+        self.socketPath = socketPath; self.build = build; self.instanceID = instanceID; self.makeSession = makeSession
     }
 
     func start() throws {
@@ -174,22 +181,24 @@ final class RuntimeServer {
         guard try JSONSerialization.data(withJSONObject: ["id": id, "result": snapshot]).count <= RuntimeChannel.maximumFrame else {
             throw RuntimeFault(code: "snapshotTooLarge", message: "This conversation is too large to attach. Its current frontend remains connected.")
         }
-        if entry.backend == nil {
-            entry.backend = backend
-            backend.onChange = { [weak self, weak entry] patch in
-                guard let self, let entry, !self.stopped else { return }
-                entry.revision += 1
-                guard let writer = entry.writer else { return }
-                do { try writer.send(["method": "session/update", "params": ["sessionId": entry.id, "revision": entry.revision, "patch": patch]]) }
-                catch { writer.close() }
-            }
-        }
+        if entry.backend == nil { bind(backend, entry) }
         if let previous = entry.writer, previous !== peer.channel {
             try? previous.send(["method": "session/leaseLost", "params": ["sessionId": entry.id]])
         }
         entry.writer = peer.channel; entry.lease = nextLease
         // Enqueue the snapshot before yielding so no update can overtake attachment.
         try reply(id, peer, snapshot)
+    }
+
+    private func bind(_ backend: any RuntimeBackend, _ entry: Entry) {
+        entry.backend = backend
+        backend.onChange = { [weak self, weak entry] patch in
+            guard let self, let entry, !self.stopped else { return }
+            entry.revision += 1
+            guard let writer = entry.writer else { return }
+            do { try writer.send(["method": "session/update", "params": ["sessionId": entry.id, "revision": entry.revision, "patch": patch]]) }
+            catch { writer.close() }
+        }
     }
 
     private func writable(_ peer: Peer, _ params: JSON) throws -> Entry {
@@ -279,6 +288,50 @@ final class RuntimeServer {
         let fault = error as? RuntimeFault
         do { try peer.channel.send(["id": id, "error": ["code": fault?.code ?? "actionFailed", "message": error.localizedDescription]]) }
         catch { peer.channel.close() }
+    }
+
+    // A live update execs only with no request or action in flight, so nothing has to be resumed in the new image.
+    var swappable: Bool {
+        !stopped && listener != nil && peers.values.allSatisfy { $0.requests == 0 }
+            && entries.values.allSatisfy { $0.ended ? $0.closeCompleted : $0.backend != nil && $0.receipts.values.allSatisfy(\.completed) }
+    }
+
+    func freezeForSwap() -> JSON? {
+        guard swappable, let listener else { return nil }
+        var sessions: [JSON] = [], frozen: [any RuntimeBackend] = []
+        for entry in entries.values where !entry.ended {
+            guard let backend = entry.backend, let state = backend.swapState() else { frozen.forEach { $0.thawSwap() }; return nil }
+            frozen.append(backend)
+            sessions.append(["sessionId": entry.id, "revision": entry.revision, "lastSequence": entry.lastSequence, "backend": state])
+        }
+        listener.pause()
+        let descriptors = listener.descriptors
+        return ["instanceID": instanceID, "closedIDs": Array(closedIDs), "listener": Int(descriptors.listener), "lock": Int(descriptors.lock), "sessions": sessions]
+    }
+
+    func thawSwap() {
+        listener?.resume()
+        for entry in entries.values { entry.backend?.thawSwap() }
+    }
+
+    // Told before their socket closes, frontends reattach silently instead of reporting a stopped runtime.
+    func closePeersForSwap() {
+        for peer in peers.values { try? peer.channel.send(["method": "runtime/swapping", "params": [:]]); peer.channel.close() }
+    }
+
+    func adopt(listener descriptor: Int32, lock: Int32, closedIDs: [String], sessions: [(id: String, revision: Int, lastSequence: Int, backend: any RuntimeBackend)]) throws {
+        guard self.listener == nil, !stopped else { throw CXError(message: "Runtime server is already started or stopped.") }
+        let listener = RuntimeListener(path: socketPath) { [weak self] channel in self?.accept(channel) }
+        try listener.adopt(listener: descriptor, lock: lock)
+        self.listener = listener
+        self.closedIDs = Set(closedIDs)
+        for session in sessions {
+            let entry = Entry(session.id), backend = session.backend
+            entry.revision = session.revision; entry.lastSequence = session.lastSequence
+            entry.creation = Task { () throws -> any RuntimeBackend in backend }
+            bind(backend, entry)
+            entries[entry.id] = entry
+        }
     }
 
     func stop() {

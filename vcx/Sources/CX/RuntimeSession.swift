@@ -254,6 +254,34 @@ final class SessionBackend: RuntimeBackend {
         return [:]
     }
 
+    // The connection freezes last, so a session that cannot swap leaves its agent reader untouched.
+    func swapState() -> JSON? {
+        guard !closed, startupTask == nil, let extras = session.swapState(), let adoptable = session.rpc as? AdoptableConnection else { return nil }
+        let value = snapshot()
+        guard let connection = adoptable.freezeForSwap() else { return nil }
+        try? saveCheckpoint()
+        var state: JSON = ["snapshot": value, "session": extras, "connection": connection, "windowState": windowState, "consumedGeneration": consumedGeneration, "checkpointGeneration": checkpointGeneration]
+        state["runtimeID"] = runtimeID; state["recoveryState"] = recoveryState
+        state["checkpointDraft"] = checkpointDraft.map(draftContent)
+        return state
+    }
+
+    func thawSwap() { (session.rpc as? AdoptableConnection)?.thawSwap() }
+
+    convenience init(adopting state: JSON) throws {
+        guard let value = state["snapshot"] as? JSON, let extras = state["session"] as? JSON, let connection = state["connection"] as? JSON,
+              let cwd = value["cwd"] as? String, let directory = value["stateDirectory"] as? String else { throw CXError(message: "Invalid live update session.") }
+        let rpc = try adoptConnection(connection)
+        self.init(session: Session(cwd: cwd, stateDirectory: URL(fileURLWithPath: directory, isDirectory: true)))
+        configured = true
+        windowState = state["windowState"] as? JSON ?? [:]
+        consumedGeneration = state["consumedGeneration"] as? Int ?? -1
+        checkpointGeneration = state["checkpointGeneration"] as? Int ?? 0
+        checkpointDraft = (state["checkpointDraft"] as? [JSON]).map(runtimeDraft)
+        runtimeID = state["runtimeID"] as? String; recoveryState = state["recoveryState"] as? JSON
+        session.adoptSwap(extras, snapshot: value, connection: rpc)
+    }
+
     func close() {
         guard !closed else { return }
         closed = true

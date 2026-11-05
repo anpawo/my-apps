@@ -57,6 +57,7 @@ final class RuntimeClient {
     private var recoveryState: JSON = [:]
     private var windowState: JSON = [:]
     private var coldRecoveryInProgress = false
+    private var swapping = false
 
     init(session: Session, cwd: String, resumeRuntimeID: String? = nil, socketPath: String? = nil, recovery: RuntimeRecovery.Entry? = nil) {
         self.session = session
@@ -105,7 +106,7 @@ final class RuntimeClient {
             workerInstanceID = RuntimeRecovery.workerInstance(hello)
             var params: JSON = ["sessionId": sessionID, "cwd": initialCwd, "prompt": prompt]
             params["resume"] = resume
-            params["existingOnly"] = resumingRuntime
+            params["existingOnly"] = resumingRuntime || swapping
             if let recoveryEntry, let previous = recoveryEntry.instanceID, workerInstanceID != previous {
                 guard RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw CXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
                 params["resume"] = saved; params["prompt"] = ""; params["cwd"] = recoveryEntry.cwd
@@ -119,7 +120,7 @@ final class RuntimeClient {
             lease = nextLease
             sequence = result["lastSequence"] as? Int ?? 0
             revision = nextRevision
-            attached = true
+            attached = true; swapping = false
             session?.applyRuntimeSnapshot(state)
             mergeRecoveryState(state)
             windowState = state["windowState"] as? JSON ?? windowState
@@ -175,7 +176,8 @@ final class RuntimeClient {
         throw CXError(message: "Timed out waiting for the runtime to start.")
     }
 
-    func perform(_ action: String, _ params: JSON = [:]) async throws -> JSON {
+    func perform(_ action: String, _ params: JSON = [:], retried: Bool = false) async throws -> JSON {
+        if swapping, let reconnectTask { await reconnectTask.value }
         guard attached, !closed, !superseded else { throw CXError(message: "The session runtime is disconnected.") }
         if action == "close" { try RuntimeRecovery.requestClose(sessionID: sessionID) }
         sequence += 1
@@ -185,6 +187,8 @@ final class RuntimeClient {
             return result
         }
         catch {
+            // The worker freezes before a live update closes the socket, so an action lost in that close never ran: send it once more.
+            if swapping, !retried, !(error is RuntimeResponseError) { return try await perform(action, params, retried: true) }
             if action == "close", let response = error as? RuntimeResponseError, ["closed", "unknownSession"].contains(response.code ?? "") {
                 try RuntimeRecovery.remove(sessionID: sessionID)
                 return [:]
@@ -216,7 +220,7 @@ final class RuntimeClient {
         acknowledgedGeneration = max(acknowledgedGeneration, session.draftGeneration)
     }
 
-    func preflight(executable: URL) async throws {
+    static func preflight(executable: URL) async throws {
         let check = Process()
         check.executableURL = executable
         check.arguments = ["--runtime-protocol"]
@@ -257,6 +261,8 @@ final class RuntimeClient {
             else { finish(id, result: .success(message["result"] as? JSON ?? [:])) }
             return
         }
+        // The worker is re-executing itself on a new build and keeps every session; reattach without a visible interruption.
+        if message["method"] as? String == "runtime/swapping" { swapping = true; return }
         guard let method = message["method"] as? String, let params = message["params"] as? JSON, params["sessionId"] as? String == sessionID else { return }
         if method == "session/leaseLost" {
             superseded = true
@@ -316,8 +322,10 @@ final class RuntimeClient {
         attached = false
         failPending(CXError(message: "Connection lost. Accepted actions continue in the runtime and will not be replayed."))
         guard !closed, !superseded, reconnectTask == nil else { return }
-        session?.ready = false
-        session?.status = "Reconnecting to the running session…"
+        if !swapping {
+            session?.ready = false
+            session?.status = "Reconnecting to the running session…"
+        }
         reconnectTask = Task { [weak self] in
             guard let self else { return }
             defer { reconnectTask = nil }

@@ -198,7 +198,9 @@ final class RuntimeListener: @unchecked Sendable {
     private let queue = DispatchQueue(label: "vcx.runtime.listener")
     private var source: DispatchSourceRead?
     private var lock: Int32 = -1
+    private var listener: Int32 = -1
     private var ownsEndpoint = false
+    private var paused = false
 
     init(path: String, onAccept: @escaping (RuntimeChannel) -> Void) { self.path = path; self.onAccept = onAccept }
 
@@ -228,13 +230,31 @@ final class RuntimeListener: @unchecked Sendable {
                 guard result == 0 else { throw CXError(message: "Cannot bind runtime listener.") }
                 ownsEndpoint = true
                 guard chmod(path, 0o600) == 0, listen(fd, 64) == 0 else { throw CXError(message: "Cannot secure runtime listener.") }
-                let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-                source.setEventHandler { [weak self] in self?.accept(fd) }
-                source.setCancelHandler { Darwin.close(fd) }
-                self.source = source; source.resume()
+                watch(fd)
             } catch { Darwin.close(fd); throw error }
         } catch { close(); throw error }
     }
+
+    // A live update re-execs with the bound socket and the held lock inherited, so connects wait in the backlog.
+    func adopt(listener fd: Int32, lock: Int32) throws {
+        try runtimeDescriptor(fd)
+        guard fcntl(lock, F_SETFD, FD_CLOEXEC) == 0 else { throw CXError(message: "Cannot adopt runtime ownership lock.") }
+        self.lock = lock; ownsEndpoint = true
+        watch(fd)
+    }
+
+    private func watch(_ fd: Int32) {
+        listener = fd
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { [weak self] in self?.accept(fd) }
+        source.setCancelHandler { Darwin.close(fd) }
+        self.source = source; source.resume()
+    }
+
+    var descriptors: (listener: Int32, lock: Int32) { (listener, lock) }
+
+    func pause() { queue.sync { if source != nil, !paused { paused = true; source?.suspend() } } }
+    func resume() { queue.sync { if paused { paused = false; source?.resume() } } }
 
     private func accept(_ fd: Int32) {
         for _ in 0..<64 {
@@ -253,6 +273,7 @@ final class RuntimeListener: @unchecked Sendable {
     }
 
     func close() {
+        if paused { paused = false; source?.resume() }
         source?.cancel(); source = nil
         if ownsEndpoint { unlink(path); ownsEndpoint = false }
         if lock >= 0 { flock(lock, LOCK_UN); Darwin.close(lock); lock = -1 }

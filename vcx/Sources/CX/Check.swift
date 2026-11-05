@@ -50,6 +50,8 @@ enum Check {
         await ClaudeParityCheck.run()
         do { _ = try await RuntimeCheck.run() }
         catch { fputs(error.localizedDescription + "\n", stderr); return false }
+        do { print(try await RuntimeSwapCheck.run()) }
+        catch { fputs(error.localizedDescription + "\n", stderr); return false }
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
         do {

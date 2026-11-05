@@ -19,8 +19,8 @@ final class ProviderJSONReader: @unchecked Sendable {
     private var paused = false
     private var closed = false
 
-    init(handle: FileHandle, receive: @escaping (JSON) -> Void, invalid: @escaping (String) -> Void = { _ in }, disconnected: @escaping () -> Void) throws {
-        self.handle = handle; fd = handle.fileDescriptor
+    init(handle: FileHandle, leftover: Data = Data(), receive: @escaping (JSON) -> Void, invalid: @escaping (String) -> Void = { _ in }, disconnected: @escaping () -> Void) throws {
+        self.handle = handle; fd = handle.fileDescriptor; input = leftover
         self.receive = receive; self.invalid = invalid; self.disconnected = disconnected
         let flags = fcntl(fd, F_GETFL)
         guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { throw CXError(message: "Cannot configure provider output reader.") }
@@ -37,6 +37,26 @@ final class ProviderJSONReader: @unchecked Sendable {
             let handle = handle
             source.setCancelHandler { try? handle.close() }
             self.source = source; source.resume()
+            if !input.isEmpty { read() }
+        }
+    }
+
+    var descriptor: Int32 { fd }
+
+    // A live update stops reading between lines; nil while parsed lines are still queued for the main actor.
+    // It reuses the backpressure pause, so close and deinit resume the source before cancelling it.
+    func freeze() -> Data? {
+        queue.sync {
+            guard source != nil, !closed, !paused, messages == 0 else { return nil }
+            paused = true; source?.suspend()
+            return input
+        }
+    }
+
+    func thaw() {
+        queue.sync {
+            guard paused, !closed, messages == 0 else { return }
+            paused = false; source?.resume(); read()
         }
     }
 

@@ -54,15 +54,7 @@ final class RPC: Connection {
         process.standardOutput = outgoing
         process.standardError = FileHandle.nullDevice
         try process.run()
-        self.process = process
-        input = incoming.fileHandleForWriting
-        let reader = try ProviderJSONReader(handle: outgoing.fileHandleForReading, receive: { [weak self] message in
-            guard let self, !closed else { return }; receive(message)
-        }, invalid: { [weak self] message in
-            guard let self, !closed else { return }
-            event(["method": "cx/error", "params": ["message": message.replacingOccurrences(of: "Provider", with: "Codex")]])
-        }, disconnected: { [weak self] in self?.disconnected() })
-        self.reader = reader; reader.start()
+        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading)
         _ = try await request("initialize", [
             "clientInfo": ["name": "vcx", "title": "Vibe Code X", "version": "0.2.0"],
             "capabilities": ["experimentalApi": true]
@@ -77,6 +69,18 @@ final class RPC: Connection {
             let roots = ClaudeCompatibility(cwd: cwd ?? FileManager.default.currentDirectoryPath).skillRoots
             if !roots.isEmpty { _ = try await request("skills/extraRoots/set", ["extraRoots": roots]) }
         }
+    }
+
+    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data()) throws {
+        self.process = process
+        self.input = input
+        let reader = try ProviderJSONReader(handle: output, leftover: leftover, receive: { [weak self] message in
+            guard let self, !closed else { return }; receive(message)
+        }, invalid: { [weak self] message in
+            guard let self, !closed else { return }
+            event(["method": "cx/error", "params": ["message": message.replacingOccurrences(of: "Provider", with: "Codex")]])
+        }, disconnected: { [weak self] in self?.disconnected() })
+        self.reader = reader; reader.start()
     }
 
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
@@ -137,6 +141,30 @@ final class RPC: Connection {
         if let process { endProcess(process) }
         for id in Array(pending.keys) { finish(id, .failure(CXError(message: "Codex is disconnected."))) }
         process = nil
+    }
+}
+
+extension RPC: AdoptableConnection {
+    func freezeForSwap() -> JSON? {
+        guard pending.isEmpty else { return nil }
+        var state: JSON = ["kind": "codex", "nextID": nextID, "closed": closed]
+        state["cwd"] = cwd
+        state["account"] = account.flatMap { try? JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }
+        guard !closed else { return state }
+        guard let process, process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
+        state["agent"] = ["pid": Int(process.processIdentifier), "input": Int(input.fileDescriptor), "output": Int(reader.descriptor), "leftover": leftover.base64EncodedString()]
+        return state
+    }
+
+    func thawSwap() { reader?.thaw() }
+
+    convenience init(adopting state: JSON) throws {
+        self.init()
+        cwd = state["cwd"] as? String
+        account = (state["account"] as? JSON).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { try? JSONDecoder().decode(Account.self, from: $0) }
+        nextID = state["nextID"] as? Int ?? 0
+        closed = state["closed"] as? Bool ?? false
+        if let agent = try adoptedAgent(state) { try attach(agent.process, input: agent.input, output: agent.output, leftover: agent.leftover) }
     }
 }
 

@@ -26,22 +26,22 @@ enum RuntimeUpdate {
     static let readyNotification = Notification.Name("com.mr.vcx.ready")
     static var installed: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Vibe Code X.app") }
 
-    static func writeTicket(_ value: JSON, suffix: String) throws -> URL {
+    static func writeTicket(_ value: JSON, suffix: String, maximumBytes: Int = 1_048_576) throws -> URL {
         try RuntimeIdentity.prepareDirectory()
         let file = RuntimeIdentity.directory.appendingPathComponent(UUID().uuidString + suffix)
         let data = try JSONSerialization.data(withJSONObject: value)
-        guard data.count <= 1_048_576 else { throw CXError(message: "Frontend handoff is too large.") }
+        guard data.count <= maximumBytes else { throw CXError(message: "Frontend handoff is too large.") }
         guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CXError(message: "Cannot save frontend handoff.") }
         return file
     }
 
-    static func readTicket(_ path: String, suffix: String) throws -> JSON {
+    static func readTicket(_ path: String, suffix: String, maximumBytes: Int = 1_048_576) throws -> JSON {
         let file = URL(fileURLWithPath: path).standardizedFileURL
         var info = stat()
         guard file.deletingLastPathComponent() == RuntimeIdentity.directory.standardizedFileURL,
               file.lastPathComponent.hasSuffix(suffix), lstat(file.path, &info) == 0,
               info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
-              info.st_mode & 0o077 == 0, info.st_size <= 1_048_576 else { throw CXError(message: "Unsafe frontend handoff file.") }
+              info.st_mode & 0o077 == 0, info.st_size <= maximumBytes else { throw CXError(message: "Unsafe frontend handoff file.") }
         let fd = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw CXError(message: "Cannot read frontend handoff.") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)

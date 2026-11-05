@@ -209,7 +209,7 @@ final class Session: ObservableObject {
         do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
     }
-    let fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
+    var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
     var fleetInstructions: String {
         "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions. Select the task's project with a standalone cd command. Shell calls may be isolated: use that project's absolute workdir for subsequent commands in the same turn. VCX retains the selected directory for later turns without starting a new conversation."
@@ -1217,6 +1217,30 @@ final class Session: ObservableObject {
             return row
         }
         applyRuntimeMetadata(value); applyRuntimeDraft(value); revision += 1
+    }
+
+    // What a live update carries beyond the runtime snapshot; nil while a turn, a prompt or a switch is in flight.
+    func swapState() -> JSON? {
+        guard !busy, !changing, !submitting, !transferring, !loading, pendingLimit == nil, pendingInput == nil, pendingActivation == nil, permissions.isEmpty else { return nil }
+        flush()
+        var state: JSON = ["seen": Array(seen), "injectedContext": injectedContext, "testing": testing, "fleetContextFile": fleetContextFile.path, "autoResumes": autoResumes]
+        state["providerChoice"] = providerChoice
+        return state
+    }
+
+    func adoptSwap(_ state: JSON, snapshot: JSON, connection: any Connection) {
+        applyRuntimeSnapshot(snapshot); runtimeFleetContext = nil
+        seen = Set(state["seen"] as? [String] ?? [])
+        injectedContext = state["injectedContext"] as? String ?? ""
+        testing = state["testing"] as? Bool ?? false
+        autoResumes = state["autoResumes"] as? Int ?? 0
+        providerChoice = state["providerChoice"] as? String
+        if let path = state["fleetContextFile"] as? String {
+            try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())
+            fleetContextFile = URL(fileURLWithPath: path)
+        }
+        rpc = connection; rpc.event = { [weak self] message in self?.event(message) }
+        save()
     }
 
     func applyRuntimePatch(_ value: JSON) {

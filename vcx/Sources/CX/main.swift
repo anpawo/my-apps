@@ -255,8 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updating = true; replacementAcknowledged = false
         replacementTask = Task {
             do {
-                guard let client = windows.first?.session.runtimeClient else { throw CXError(message: "No attached frontend session.") }
-                try await client.preflight(executable: replacementBinary)
+                guard windows.first?.session.runtimeClient != nil else { throw CXError(message: "No attached frontend session.") }
+                try await RuntimeClient.preflight(executable: replacementBinary)
                 var entries: [JSON] = []
                 for entry in windows {
                     entry.session.frontendReplacing = true
@@ -404,6 +404,10 @@ MainActor.assumeIsolated {
 signal(SIGPIPE, SIG_IGN)
 let args = Array(CommandLine.arguments.dropFirst())
 if args.contains("--runtime-protocol") { print("1"); exit(0) }
+if let index = args.firstIndex(of: "--adopt-check"), index + 1 < args.count {
+    do { _ = try RuntimeSwap.manifest(args[index + 1]); exit(0) }
+    catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+}
 if args.contains("--publish-update") {
     do { try RuntimeUpdate.publish(); exit(0) }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
@@ -416,7 +420,7 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
 }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface."); exit(0) }
-if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
+if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
@@ -461,26 +465,35 @@ if let index = args.firstIndex(of: "--runtime-worker") {
         }
         command = value
     }
-    let server = RuntimeServer(socketPath: args[index + 1], build: RuntimeIdentity.build) { params in
+    var manifest: JSON?
+    if let adopt = args.firstIndex(of: "--adopt"), adopt + 1 < args.count {
+        do { manifest = try RuntimeSwap.manifest(args[adopt + 1]) }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+        try? FileManager.default.removeItem(atPath: args[adopt + 1])
+    }
+    let server = RuntimeServer(socketPath: args[index + 1], build: RuntimeIdentity.build, instanceID: manifest?["instanceID"] as? String ?? UUID().uuidString) { params in
         let state = args.contains("--runtime-test") ? RuntimeIdentity.directory.appendingPathComponent("test-state") : nil
         let recovery = params["recovery"] as? JSON
         let backend = SessionBackend(cwd: recovery?["conversationDirectory"] as? String ?? params["cwd"] as? String ?? FileManager.default.currentDirectoryPath, stateDirectory: state)
         if args.contains("--runtime-recovery-test"), let command {
             backend.session.connectionFactory = { account, cwd in RecoveryCheck.connection(command: command, account: account, cwd: cwd) }
         }
+        if args.contains("--runtime-swap-test"), let command { RuntimeSwapCheck.start(backend, params: params, command: command); return backend }
         backend.startInBackground(params: params, command: args.contains("--runtime-recovery-test") ? nil : command)
         return backend
     }
     server.onEmpty = { server.stop(); exit(0) }
-    do { try server.start() }
+    do { if let manifest { try RuntimeSwap.adopt(manifest, into: server) } else { try server.start() } }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    let swap = RuntimeSwap(server: server, testing: args.contains("--runtime-test"))
+    swap?.start()
     let signals = [SIGTERM, SIGINT].map { value -> DispatchSourceSignal in
         signal(value, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: value, queue: .main)
         source.setEventHandler { server.stop(); exit(0) }
         source.resume(); return source
     }
-    withExtendedLifetime((server, signals)) { RunLoop.main.run() }
+    withExtendedLifetime((server, signals, swap)) { RunLoop.main.run() }
     exit(0)
 }
 if let index = args.firstIndex(of: "--icon"), index + 1 < args.count {
@@ -520,13 +533,14 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
         }
     }
     RunLoop.main.run()
-} else if args.contains("--frontend-check") || args.contains("--runtime-bounds-check") || args.contains("--runtime-recovery-check") || args.contains("--runtime-load-check") {
+} else if args.contains("--frontend-check") || args.contains("--runtime-bounds-check") || args.contains("--runtime-recovery-check") || args.contains("--runtime-load-check") || args.contains("--runtime-swap-check") {
     app.setActivationPolicy(.prohibited)
     Task {
         do {
             if args.contains("--frontend-check") { _ = try await FrontendCheck.run() }
             else if args.contains("--runtime-bounds-check") { _ = try await RuntimeBoundsCheck.run() }
             else if args.contains("--runtime-recovery-check") { _ = try await RecoveryCheck.run() }
+            else if args.contains("--runtime-swap-check") { print(try await RuntimeSwapCheck.run()) }
             else if let index = args.firstIndex(of: "--runtime-load-check"), index + 1 < args.count { _ = try await RuntimeLoadCheck.run(reportPath: args[index + 1]) }
             else { throw CXError(message: "A load report path is required.") }
             exit(0)

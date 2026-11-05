@@ -145,8 +145,12 @@ final class ClaudeConnection: Connection {
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = agentEnvironment(account)
         process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = FileHandle.nullDevice
-        try process.run(); self.process = process; input = incoming.fileHandleForWriting
-        let reader = try ProviderJSONReader(handle: outgoing.fileHandleForReading, receive: { [weak self] message in
+        try process.run()
+        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading)
+    }
+    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data()) throws {
+        self.process = process; self.input = input
+        let reader = try ProviderJSONReader(handle: output, leftover: leftover, receive: { [weak self] message in
             guard let self, !closed, self.process === process else { return }; receive(message)
         }, invalid: { [weak self] message in
             guard let self, !closed, self.process === process, message != "Provider sent invalid JSON." else { return }
@@ -393,6 +397,34 @@ final class ClaudeConnection: Connection {
         for timer in timers.values { timer.cancel() }; timers.removeAll()
         for continuation in waiting.values { continuation.resume(throwing: CXError(message: "Claude is disconnected.")) }; waiting.removeAll()
         closed = true; reader?.close(); reader = nil; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
+}
+
+extension ClaudeConnection: AdoptableConnection {
+    func freezeForSwap() -> JSON? {
+        guard waiting.isEmpty, controls.isEmpty, pendingUsers.isEmpty else { return nil }
+        var state: JSON = ["kind": "claude", "thread": thread, "model": model, "history": history, "mode": mode, "developerInstructions": developerInstructions,
+                           "resumed": resumed, "cwd": cwd, "initialDirectory": initialDirectory, "closed": closed]
+        state["account"] = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(account))
+        state["command"] = command; state["metadata"] = metadata; state["servedModel"] = servedModel
+        guard !closed, let process else { return state }
+        guard process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
+        state["agent"] = ["pid": Int(process.processIdentifier), "input": Int(input.fileDescriptor), "output": Int(reader.descriptor), "leftover": leftover.base64EncodedString()]
+        return state
+    }
+
+    func thawSwap() { reader?.thaw() }
+
+    convenience init(adopting state: JSON) throws {
+        guard let encoded = (state["account"] as? JSON).flatMap({ try? JSONSerialization.data(withJSONObject: $0) }), let account = try? JSONDecoder().decode(Account.self, from: encoded),
+              let cwd = state["cwd"] as? String, let initial = state["initialDirectory"] as? String, let thread = state["thread"] as? String else { throw CXError(message: "Invalid adopted Claude connection.") }
+        self.init(account: account, cwd: initial)
+        self.cwd = cwd; self.thread = thread
+        model = state["model"] as? String ?? model; history = state["history"] as? String ?? ""
+        mode = state["mode"] as? String ?? mode; developerInstructions = state["developerInstructions"] as? String ?? ""
+        resumed = state["resumed"] as? Bool ?? false; closed = state["closed"] as? Bool ?? false
+        command = state["command"] as? [String]; metadata = state["metadata"] as? JSON; servedModel = state["servedModel"] as? String
+        if let agent = try adoptedAgent(state) { try attach(agent.process, input: agent.input, output: agent.output, leftover: agent.leftover) }
+    }
 }
 
 func pretty(_ value: Any) -> String {
