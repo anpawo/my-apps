@@ -20,6 +20,8 @@ struct Preferences: Codable {
     var qwenModel = "qwen3-8b-abl"
     var qwenVisionModel = "qwen3-vl:4b-instruct"
     var qwenWake = false
+    // Workers started before live update write each session's /model pick into "provider"; a key they never write keeps that pick out of new sessions.
+    enum CodingKeys: String, CodingKey { case provider = "defaultProvider", mode, accounts, limits, qwenProxy, qwenURL, qwenModel, qwenVisionModel, qwenWake }
 }
 
 @MainActor

@@ -404,7 +404,9 @@ class BackgroundTests(unittest.TestCase):
 
     def test_disabled_profiles_and_cached_limits_are_respected(self):
         prefs = bg.preferences()
-        prefs['provider'] = 'codex'
+        prefs['provider'] = 'qwen'
+        self.assertEqual(bg.candidates(prefs, bg.options(['-p']))[0]['provider'], 'claude')
+        prefs['defaultProvider'] = 'codex'
         prefs['accounts'][0]['enabled'] = False
         self.assertEqual([a['provider'] for a in bg.candidates(prefs, bg.options(['-p']))], ['codex', 'qwen'])
 

@@ -79,7 +79,7 @@ enum RecoveryCheck {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: command.path)
         let config = directory.appendingPathComponent("config")
         try FileManager.default.createDirectory(at: config, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        try write(["provider": "codex", "mode": "ask", "accounts": [["id": "codex-default", "name": "Fixture", "provider": "codex", "enabled": true]]], to: config.appendingPathComponent("settings.json"))
+        try write(["defaultProvider": "codex", "mode": "ask", "accounts": [["id": "codex-default", "name": "Fixture", "provider": "codex", "enabled": true]]], to: config.appendingPathComponent("settings.json"))
         let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32)!
         try image.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("attachment.png"))
         guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create recovery fixture tool gate.") }

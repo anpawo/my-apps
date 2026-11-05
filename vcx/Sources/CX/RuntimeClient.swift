@@ -17,7 +17,8 @@ enum RuntimeIdentity {
     }
     static func socket(cwd: String) -> String {
         let group = SHA256.hash(data: Data(URL(fileURLWithPath: cwd).standardized.path.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
-        return directory.appendingPathComponent(String(group) + ".sock").path
+        // A worker that cannot move onto this build (older swap version, or none) keeps its sessions; new ones get a worker of this build.
+        return directory.appendingPathComponent("v\(RuntimeSwap.version)-" + String(group) + ".sock").path
     }
     static func prepareDirectory() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

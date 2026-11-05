@@ -766,6 +766,14 @@ enum Check {
         check(envA["CODEX_HOME"] == "/tmp/account-a" && envB["CODEX_HOME"] == "/tmp/account-b", "account homes stay isolated")
         check(envA["OPENAI_API_KEY"] == nil && envA["ANTHROPIC_API_KEY"] == nil, "subscription mode strips inherited API keys")
         check(Settings.shared.candidates.map(\.provider) == ["claude", "codex", "qwen"], "default provider priority")
+        do {
+            let file = Settings.directory.appendingPathComponent("settings.json"), original = try? Data(contentsOf: file)
+            try? FileManager.default.createDirectory(at: Settings.directory, withIntermediateDirectories: true)
+            try? JSONSerialization.data(withJSONObject: ["provider": "qwen"]).write(to: file)
+            check(Settings().candidates.first?.provider == "claude", "a /model pick an older worker writes to the shared settings leaves new sessions on Claude")
+            if let original { try? original.write(to: file) } else { try? FileManager.default.removeItem(at: file) }
+            Settings.shared.reload()
+        }
         check(try! LaunchOptions(["--cwd", directory.path, "--resume"]).resume == "last", "CLI resume is compatible")
         check(try! LaunchOptions(["--cwd", directory.path, "--focus", "hi"]).focus && !(try! LaunchOptions(["--cwd", directory.path]).focus), "only --focus asks a new window to take focus")
         let settingsA = Settings(), settingsB = Settings()

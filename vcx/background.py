@@ -58,7 +58,7 @@ def toml(value):
 
 
 def preferences():
-    return dict(provider='auto', mode='bypass', limits={}, accounts=[
+    return dict(defaultProvider='auto', mode='bypass', limits={}, accounts=[
         dict(id='claude-default', provider='claude'), dict(id='codex-default', provider='codex')],
         qwenURL='http://localhost:11434/api/chat', qwenProxy='', qwenModel='qwen3-8b-abl',
         qwenVisionModel='qwen3-vl:4b-instruct') | read_json(CONFIG / 'settings.json')
@@ -245,7 +245,7 @@ def options(argv):
 
 
 def candidates(prefs, args, current=None):
-    preferred = args.provider or ('codex' if args.codex else prefs['provider'])
+    preferred = args.provider or ('codex' if args.codex else prefs['defaultProvider'])
     order = ['claude', 'codex', 'qwen']
     if preferred != 'auto':
         order.remove(preferred)
