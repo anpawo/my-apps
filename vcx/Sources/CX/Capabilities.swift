@@ -60,12 +60,16 @@ extension Session {
         }
         return grouped
     }
+    // One spelling on every provider; the namespace stays only where a vcx command owns the bare name.
+    func skillInsert(_ name: String) -> String {
+        appCommands.contains { $0.name == "/" + name } ? "/" + account.provider + ":skill:" + name + " " : "/" + name + " "
+    }
     func applyClaudeCatalog(_ catalog: JSON) {
         if let commands = catalog["commands"] as? [JSON] {
             providerCommands = commands.flatMap { command -> [ChatCommand] in
                 guard let name = command["name"] as? String else { return [] }
                 let names = [name] + (command["aliases"] as? [String] ?? [])
-                return names.map { ChatCommand(name: "/" + $0, detail: command["description"] as? String ?? "Claude command", source: "Claude", insert: "/claude:skill:" + $0 + " ") }
+                return names.map { ChatCommand(name: "/" + $0, detail: command["description"] as? String ?? "Claude command", source: "Claude", insert: skillInsert($0)) }
             }
             skills = commands.compactMap { $0["name"] as? String }.sorted()
         }
@@ -128,9 +132,9 @@ extension Session {
             let catalog = (result["data"] as? [JSON] ?? []).flatMap { $0["skills"] as? [JSON] ?? [] }.filter { $0["enabled"] as? Bool != false }
             skills = catalog.compactMap { $0["name"] as? String }.sorted()
             skillPaths = Dictionary(catalog.compactMap { item in guard let name = item["name"] as? String, let path = item["path"] as? String else { return nil }; return (name, path) }, uniquingKeysWith: { first, _ in first })
-            providerCommands = catalog.compactMap { item in guard let name = item["name"] as? String else { return nil }; return ChatCommand(name: "/" + name, detail: item["description"] as? String ?? "Codex skill", source: "Codex skill", insert: "/codex:skill:" + name + " ") }
+            providerCommands = catalog.compactMap { item in guard let name = item["name"] as? String else { return nil }; return ChatCommand(name: "/" + name, detail: item["description"] as? String ?? "Codex skill", source: "Codex skill", insert: skillInsert(name)) }
             legacyCommandPaths = claudeCompatibility.commands.filter { skillPaths[$0.key] == nil }
-            providerCommands += legacyCommandPaths.keys.sorted().map { ChatCommand(name: "/" + $0, detail: "Claude command translated for Codex", source: "Claude command", insert: "/codex:skill:" + $0 + " ") }
+            providerCommands += legacyCommandPaths.keys.sorted().map { ChatCommand(name: "/" + $0, detail: "Claude command translated for Codex", source: "Claude command", insert: skillInsert($0)) }
             skills = Array(Set(skills + legacyCommandPaths.keys)).sorted()
         } catch { guard rpc === connection else { return }; skills = ["Catalog unavailable: " + error.localizedDescription] }
         instructions = Array(Set(instructions + claudeCompatibility.instructions().paths.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") })).sorted()

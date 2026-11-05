@@ -409,6 +409,13 @@ final class Session: ObservableObject {
     func show(_ source: JSON) {
         var data = source
         if data["type"] as? String == "agentMessage", data["provider"] == nil { data["provider"] = providerLabel }
+        // Codex stores a skill prompt as the "$name" it was sent as; show the "/name" that was typed.
+        if data["type"] as? String == "userMessage", var content = data["content"] as? [JSON],
+           let name = content.first(where: { $0["type"] as? String == "skill" })?["name"] as? String,
+           let index = content.firstIndex(where: { ($0["text"] as? String).map { $0 == "$" + name || $0.hasPrefix("$" + name + " ") } == true }),
+           let text = content[index]["text"] as? String {
+            content[index]["text"] = "/" + text.dropFirst(); data["content"] = content
+        }
         guard let id = data["id"] as? String, let kind = data["type"] as? String else { return }
         if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; item.data = data; return }
         if kind == "userMessage" {
@@ -611,7 +618,7 @@ final class Session: ObservableObject {
         }
         let submissionDraft = expectedDraft ?? draft, submissionGeneration = expectedGeneration ?? draftGeneration
         if !testing { Settings.shared.reload() }
-        if text.hasPrefix("/"), images.isEmpty, !commandHandled, !retry { await command(text); return }
+        if text.hasPrefix("/"), images.isEmpty || providerSkill(text) != nil, !commandHandled, !retry { await command(text, images: images); return }
         guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
         if !testing, !busy, !retry, activeMode != preferredMode {
             await reconnect()

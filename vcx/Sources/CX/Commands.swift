@@ -203,7 +203,15 @@ extension Session {
         chooseCommand(options[min(commandSelection, options.count - 1)]); return true
     }
 
-    func command(_ source: String) async {
+    // A provider or skill namespace (/codex:skill:sm, /claude:sm) names the same skill as /sm; a bare name owned by vcx stays vcx's.
+    func providerSkill(_ source: String) -> ChatCommand? {
+        let original = String(source.split(separator: " ", maxSplits: 1).first ?? "")
+        guard !original.hasPrefix("/vcx:") else { return nil }
+        let verb = original.replacingOccurrences(of: "^/(claude|codex):(skill:)?", with: "/", options: .regularExpression)
+        return providerCommands.first { $0.name == verb && (verb != original || !appCommands.contains { $0.name == original }) }
+    }
+
+    func command(_ source: String, images: [String] = []) async {
         guard !frontendReplacing else { return }
         let pieces = source.split(separator: " ", maxSplits: 1).map(String.init)
         let original = pieces.first ?? ""
@@ -260,17 +268,16 @@ extension Session {
             }
             if !changing { save() }
         }
-        let skillVerb = account.provider == "codex" ? original.replacingOccurrences(of: "/claude:", with: "/codex:") : original
-        if !original.hasPrefix("/vcx:"), let native = providerCommands.first(where: { ($0.insert.trimmingCharacters(in: .whitespaces) == skillVerb || skillVerb == "/" + account.provider + ":" + $0.name.dropFirst()) && $0.insert.hasPrefix("/" + account.provider + ":") || $0.name == original && !appCommands.contains(where: { $0.name == original }) }) {
+        if let native = providerSkill(source) {
             let name = native.name.dropFirst()
             if draft.string == source { commandQuery = nil }
             if let path = legacyCommandPaths[String(name)] {
-                await send(text: "Run the Claude command /\(name) from \(path) using the available Codex tools. Read the complete command file first. Substitute $ARGUMENTS with the following arguments, and $1, $2, etc. with their positional values. Preserve the command's restrictions and use normal approval checks for shell commands. If an instruction cannot be enforced, stop and explain it.\nArguments: " + argument, images: [], commandHandled: true)
+                await send(text: "Run the Claude command /\(name) from \(path) using the available Codex tools. Read the complete command file first. Substitute $ARGUMENTS with the following arguments, and $1, $2, etc. with their positional values. Preserve the command's restrictions and use normal approval checks for shell commands. If an instruction cannot be enforced, stop and explain it.\nArguments: " + argument, images: images, commandHandled: true)
                 return
             }
             let prefix = account.provider == "codex" ? "$" : "/"
             let skill = skillPaths[String(name)].map { ["type": "skill", "name": String(name), "path": $0] }
-            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true, skill: skill, displayText: source)
+            await send(text: prefix + name + (argument.isEmpty ? "" : " " + argument), images: images, commandHandled: true, skill: skill, displayText: source)
             return
         }
         do {

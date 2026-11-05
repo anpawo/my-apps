@@ -826,6 +826,13 @@ enum Check {
         commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
         commands.updateCommands("/fixture", caret: 8)
         check(commands.commandOptions.count == 2, "provider commands and aliases appear in slash search")
+        check(commands.providerCommands.map(\.insert) == ["/fixture-skill ", "/fixture-alias "], "skills insert their bare name, one spelling on every provider")
+        do {
+            let collision = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-collision"))
+            collision.applyClaudeCatalog(["commands": [["name": "model"]]])
+            check(collision.providerCommands.first?.insert == "/claude:skill:model ", "a skill named like a vcx command keeps its namespace")
+            collision.close()
+        }
         commands.draft = NSAttributedString(string: "/claude:fixture-skill check")
         await commands.command("/claude:fixture-skill check")
         check(((commands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == "/fixture-skill check", "provider slash commands are forwarded without a vcx formatting prompt")
@@ -924,18 +931,18 @@ enum Check {
         do {
             let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
             ranking.providerCommands = [
-                ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/codex:skill:beeper "),
-                ChatCommand(name: "/smoke", detail: "Run checks", source: "Codex skill", insert: "/codex:skill:smoke "),
-                ChatCommand(name: "/sm", detail: "Summarize", source: "Codex skill", insert: "/codex:skill:sm "),
-                ChatCommand(name: "/xlsx", detail: "Read .xlsm files", source: "Codex skill", insert: "/codex:skill:xlsx ")
+                ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/beeper "),
+                ChatCommand(name: "/smoke", detail: "Run checks", source: "Codex skill", insert: "/smoke "),
+                ChatCommand(name: "/sm", detail: "Summarize", source: "Codex skill", insert: "/sm "),
+                ChatCommand(name: "/xlsx", detail: "Read .xlsm files", source: "Codex skill", insert: "/xlsx ")
             ]
-            for query in ["/sm", "/SM", "/codex:skill:sm"] {
+            for query in ["/sm", "/SM"] {
                 ranking.updateCommands(query, caret: query.count)
                 check(ranking.commandOptions.first?.name == "/sm" && ranking.commandSelection == 0, "exact command names rank before prefixes and description matches: \(query)")
             }
             ranking.updateCommands("/sm", caret: 3)
             check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
-            check(ranking.completeCommand() && ranking.draft.string == "/codex:skill:sm ", "completion inserts the exact skill instead of a description match")
+            check(ranking.completeCommand() && ranking.draft.string == "/sm ", "completion inserts the exact skill instead of a description match")
             ranking.updateCommands("/", caret: 1)
             check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
             ranking.close()
@@ -947,6 +954,12 @@ enum Check {
         let skillInput = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
         check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
         for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        await codexCommands.send(text: "/fixture look", images: [imagePath])
+        let imageSkill = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
+        check(imageSkill.contains { $0["text"] as? String == "$fixture look" } && imageSkill.contains { $0["type"] as? String == "localImage" } && imageSkill.last?["type"] as? String == "skill", "a slash skill sent with an image still runs the skill")
+        for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        codexCommands.show(["id": "resumed-skill", "type": "userMessage", "content": [["type": "text", "text": "$fixture look"], ["type": "skill", "name": "fixture", "path": "/fixture/SKILL.md"]]])
+        check((codexCommands.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture look", "a resumed Codex skill prompt shows the slash name it was typed with")
         do {
             for provider in ["claude", "codex"] {
                 Settings.shared.value.provider = provider; Settings.shared.save()
