@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -195,6 +196,16 @@ enum Check {
         check(follow.attached, "starts attached")
         follow.userScroll(distance: 120); check(!follow.attached, "scroll up detaches")
         follow.userScroll(distance: 0); check(follow.attached, "return to bottom attaches")
+        do {
+            let scrolled = Session(cwd: "/fixture")
+            var publishes = 0
+            let sink = scrolled.objectWillChange.sink { publishes += 1 }
+            scrolled.userScroll(distance: 0); scrolled.userScroll(distance: 10)
+            check(publishes == 0, "scrolling near the end does not redraw the session")
+            scrolled.userScroll(distance: 120); scrolled.userScroll(distance: 300)
+            check(publishes == 1 && !scrolled.follow.attached, "leaving the end redraws the session once")
+            sink.cancel()
+        }
         do {
             let notice = Row("notice", []), question = Row("user", []), activity = Row("activity", []), answer = Row("assistant", []), nextQuestion = Row("user", [])
             let sections = conversationSections([notice, question, activity, answer, nextQuestion])

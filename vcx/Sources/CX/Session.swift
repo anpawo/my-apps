@@ -121,6 +121,11 @@ final class Session: ObservableObject {
     @Published var usageLoading = true
     @Published var revision = 0
     @Published var follow = FollowState()
+    // Scrolling calls this every frame; assigning follow republishes the session and rebuilds the window even when nothing changed.
+    func userScroll(distance: CGFloat) {
+        var next = follow; next.userScroll(distance: distance)
+        if next.attached != follow.attached { follow = next }
+    }
     @Published var permissions: [Permission] = [] {
         didSet { if questionFlow?.request.id != permissions.first?.id { questionFlow = permissions.first.flatMap(QuestionFlow.init) } }
     }

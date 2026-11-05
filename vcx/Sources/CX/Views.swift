@@ -388,11 +388,11 @@ struct CXView: View {
                 }
                 .onScrollPhaseChange { _, phase, context in
                     userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
-                    if userScrolling { session.follow.userScroll(distance: context.geometry.contentSize.height - context.geometry.contentOffset.y - context.geometry.containerSize.height) }
+                    if userScrolling { session.userScroll(distance: context.geometry.contentSize.height - context.geometry.contentOffset.y - context.geometry.containerSize.height) }
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height)
-                } action: { _, distance in if userScrolling { session.follow.userScroll(distance: distance) } }
+                } action: { _, distance in if userScrolling { session.userScroll(distance: distance) } }
                 .onChange(of: session.revision) { _, _ in
                     guard session.follow.attached else { return }
                     let animate = !reduceMotion && (sending.hasPending || sending.flight != nil)
