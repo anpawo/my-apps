@@ -508,14 +508,17 @@ final class Session: ObservableObject {
             permissions.removeAll()
             let turn = p["turn"] as? JSON ?? [:]
             let outcome = turn["status"] as? String
-            needsAttention = outcome == "interrupted" || outcome == "failed" || turn["error"] is JSON
+            // A stop the user asked for (Escape, Stop button, /stop) leaves the session ready, as Claude Code does after Esc;
+            // closing mid-turn or a stop nobody asked for still needs attention.
+            let asked = stopSource != nil && stopSource != "Close Session"
+            needsAttention = (outcome == "interrupted" && !asked) || outcome == "failed" || turn["error"] is JSON
             if outcome == "interrupted" {
                 notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
             } else if needsAttention {
                 notice((turn["error"] as? JSON)?["message"] as? String ?? "Turn failed. Send a message to retry.")
             }
             stopSource = nil
-            status = needsAttention ? (outcome == "interrupted" ? "Stopped" : "Failed") : "Ready"
+            status = outcome == "interrupted" ? "Stopped" : needsAttention ? "Failed" : "Ready"
             save()
             resumeWhenOnline(after: turn)
             if let command = pendingModelCommand {
