@@ -86,7 +86,6 @@ enum Capture {
     @MainActor
     static func windows() -> [WindowInfo] {
         let mainHeight = NSScreen.screens[0].frame.height
-        let screens = NSScreen.screens.map(\.frame)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
         let radii = cornerRadii(list.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
@@ -97,7 +96,7 @@ enum Capture {
                   let id = w[kCGWindowNumber as String] as? CGWindowID,
                   let bounds = CGRect(dictionaryRepresentation: w[kCGWindowBounds as String] as! CFDictionary),
                   bounds.width > 32, bounds.height > 32,
-                  pickable(layer: layer, frame: appKit(bounds, mainHeight: mainHeight), screens: screens)
+                  pickable(layer: layer, frame: appKit(bounds, mainHeight: mainHeight))
             else { return nil }
             return WindowInfo(id: id, frame: appKit(bounds, mainHeight: mainHeight),
                               app: w[kCGWindowOwnerName as String] as? String ?? "", radius: radii[id] ?? 16,

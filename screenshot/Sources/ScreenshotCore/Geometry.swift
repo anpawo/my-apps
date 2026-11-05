@@ -20,10 +20,10 @@ public func appKit(_ r: CGRect, mainHeight: CGFloat) -> CGRect {
 }
 
 /// Whether window mode offers a window: the normal ones and the panels floating above them
-/// (Jarvis), but not the menu bar and its icons (no taller than 40 pt) nor an overlay covering
-/// a whole screen (Fleet, Watcher), which would take every click.
-public func pickable(layer: Int, frame: CGRect, screens: [CGRect]) -> Bool {
-    layer == 0 || layer > 0 && frame.height > 40 && !screens.contains { frame.contains($0) }
+/// (Jarvis) or covering the screen (Fleet, Watcher: on screen only while open), but not the menu
+/// bar and its icons (no taller than 40 pt).
+public func pickable(layer: Int, frame: CGRect) -> Bool {
+    layer == 0 || layer > 0 && frame.height > 40
 }
 
 public func rect(from a: CGPoint, to b: CGPoint) -> CGRect {
