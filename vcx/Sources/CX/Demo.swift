@@ -53,24 +53,54 @@ enum Demo {
         // An animation's frame lasts until the next one is taken: it runs on the real clock, so the GIF plays it at its
         // speed however slow a capture is. A step (a key, a hold) gets its own duration.
         var shots: [(name: String, at: Date, lasts: Double?)] = []
-        func capture(_ lasts: Double? = nil) {
+        func editor(_ view: NSView) -> ComposerText? { (view as? ComposerText) ?? view.subviews.lazy.compactMap(editor).first }
+        // The window is never key, so AppKit draws no insertion point: it is drawn into the frame where the text ends.
+        func drawCaret(into rep: NSBitmapImageRep) {
+            guard let field = editor(host), let window = field.window else { return }
+            let screen = field.firstRect(forCharacterRange: NSRange(location: (field.string as NSString).length, length: 0), actualRange: nil)
+            var rect = host.convert(window.convertFromScreen(screen), from: nil)
+            // Empty text has no line to measure: the caret stands where the first character would.
+            if rect.height == 0, let font = field.font, let manager = field.layoutManager {
+                let origin = field.textContainerOrigin, padding = field.textContainer?.lineFragmentPadding ?? 0
+                rect = host.convert(NSRect(x: origin.x + padding, y: origin.y, width: 0, height: manager.defaultLineHeight(for: font)), from: field)
+            }
+            guard rect.height > 0 else { return }
+            if host.isFlipped { rect.origin.y = host.bounds.height - rect.maxY }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            field.insertionPointColor.setFill()
+            NSRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        func capture(_ lasts: Double? = nil, caret: Bool = true) {
             host.layoutSubtreeIfNeeded()
             guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("Demo capture failed") }
             host.cacheDisplay(in: host.bounds, to: rep)
+            if caret { drawCaret(into: rep) }
             let name = String(format: "%03d.png", shots.count)
             try! rep.representation(using: .png, properties: [:])!.write(to: dir.appendingPathComponent(name))
             shots.append((name, Date(), lasts))
         }
+        // The caret blinks every half second, and stays lit while keys come in.
+        let blink = 0.5
         func play(_ seconds: Double) {
-            let end = Date().addingTimeInterval(seconds)
-            repeat { RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 30)); capture() } while Date() < end
+            let start = Date(), end = start.addingTimeInterval(seconds)
+            repeat {
+                RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 30))
+                capture(caret: Int(Date().timeIntervalSince(start) / blink) % 2 == 0)
+            } while Date() < end
         }
-        func hold(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(0.05)); capture(seconds) }
+        func hold(_ seconds: Double) {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            var left = seconds, lit = true
+            while left > 0.001 { capture(min(left, blink), caret: lit); left -= blink; lit.toggle() }
+        }
+        func stroke(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(0.05)); capture(seconds) }
         func type(_ text: String) {
             for end in stride(from: 2, through: text.count + 1, by: 2) {
                 session.draft = NSAttributedString(string: String(text.prefix(end)), attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])
                 session.draftRevision += 1
-                hold(0.06)
+                stroke(0.06)
             }
         }
         func press(_ shown: String, _ action: () -> Void) {
@@ -94,7 +124,6 @@ enum Demo {
         type(prompt)
         hold(0.5)
         press("↵") {
-            func editor(_ view: NSView) -> ComposerText? { (view as? ComposerText) ?? view.subviews.lazy.compactMap(editor).first }
             guard let field = editor(host), let snapshot = field.sendSnapshot() else { fatalError("Composer not found") }
             field.willSubmit(prompt, [], snapshot)
             session.draft = NSAttributedString(string: ""); session.draftRevision += 1
@@ -124,7 +153,7 @@ enum Demo {
         press("/") { session.showCommands("/", preserveDraft: false) }
         play(0.5); key.shown = nil
         hold(1.4)
-        for end in 2..."/model ".count { session.showCommands(String("/model ".prefix(end)), preserveDraft: false); hold(0.09) }
+        for end in 2..."/model ".count { session.showCommands(String("/model ".prefix(end)), preserveDraft: false); stroke(0.09) }
         play(0.3)
         hold(2.4)
         press("esc") { session.dismissCommands(); session.draft = NSAttributedString(string: ""); session.draftRevision += 1 }
