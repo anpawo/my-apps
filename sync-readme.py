@@ -18,5 +18,5 @@ def card(readme):
 
 page = root / "README.md"
 head, rest = page.read_text().split(START)
-cards = "\n\n".join(card(r) for r in sorted(root.glob("*/README.md")))
+cards = "\n\n".join(card(r) for r in sorted(root.glob("*/README.md")) if not r.parent.is_symlink())
 page.write_text(f"{head}{START}\n{cards}\n{END}{rest.split(END)[1]}")
