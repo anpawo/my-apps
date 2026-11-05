@@ -699,7 +699,6 @@ final class Session: ObservableObject {
         guard busy else { return }
         if !stopRequested {
             stopSource = source
-            notice("Stop requested by " + source + ".")
             save()
         }
         stopRequested = true
