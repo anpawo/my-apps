@@ -1460,8 +1460,10 @@ extension View {
                 .overlay(corner.strokeBorder(tint, lineWidth: 1))
                 // A gauge inherits whatever animation is in flight when the panel opens, and
                 // one being animated in is one you watch fill up. It is a reading: it is right
-                // the instant it is on screen. Other blocks keep theirs, to fold smoothly.
-                .transaction { if level != nil { $0.animation = nil } }
+                // the instant it is on screen. Other blocks keep theirs, to fold smoothly, and so
+                // does a gauge's own hover fold: refused, MEMORY's frame snapped shut and left its
+                // details pane hanging outside it (2026-11-05).
+                .transaction { if level != nil, $0.animation != OverlayView.fold { $0.animation = nil } }
                 .padding(.top, -topSpread)
                 .padding(.horizontal, -spread)
                 .padding(.bottom, -(bottomSpread ?? spread))
