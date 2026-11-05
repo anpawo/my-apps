@@ -514,7 +514,9 @@ class Runner:
                 command_args.append('--' + flag.replace('_', '-'))
         command_args += ['--max-turns', str(args.max_turns)]
         if not args.permission_mode and not args.dangerously_skip_permissions:
-            command_args += ['--permission-mode', 'bypassPermissions' if self.prefs['mode'] == 'bypass' else 'default']
+            # Claude Code 2.1.318 refuses bypassPermissions under --restricted; default denies WebFetch in -p, auto allows it.
+            bypass = 'auto' if args.restricted else 'bypassPermissions'
+            command_args += ['--permission-mode', bypass if self.prefs['mode'] == 'bypass' else 'default']
         for path in args.add_dir:
             command_args += ['--add-dir', path]
         for config in args.mcp_config:

@@ -343,6 +343,15 @@ class BackgroundTests(unittest.TestCase):
                 runner.qwen({'provider': 'qwen'}, [{'type': 'text', 'text': 'Task'}])
         command.assert_not_called()
 
+    def test_restricted_claude_never_gets_bypass(self):
+        for extra, mode in [(['--restricted'], 'auto'), ([], 'bypassPermissions')]:
+            runner = self.runner('--no-session-persistence', *extra)
+            runner.prefs['mode'] = 'bypass'
+            with patch.object(bg, 'command', return_value=(0, b'', b'')) as command:
+                runner.claude({'provider': 'claude'}, [{'type': 'text', 'text': 'Task'}], None)
+            args = command.call_args.args[0]
+            self.assertEqual(args[args.index('--permission-mode') + 1], mode)
+
     def test_sealed_tool_guard_denies_native_file_edits(self):
         import io
         for tool, status in [('Bash', 0), ('apply_patch', 2), ('Read', 2)]:
