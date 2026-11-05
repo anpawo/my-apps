@@ -250,9 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func replaceFrontend() {
-        let marker = RuntimeIdentity.directory.appendingPathComponent("installed-build")
-        guard !updating, !windows.isEmpty, let installed = try? String(contentsOf: marker, encoding: .utf8),
-              installed != RuntimeIdentity.build else { return }
+        guard !updating, !windows.isEmpty, RuntimeUpdate.pendingBuild() != nil else { return }
         updating = true; replacementAcknowledged = false
         replacementTask = Task {
             do {
@@ -414,7 +412,11 @@ if let index = args.firstIndex(of: "--adopt-check"), index + 1 < args.count {
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
 }
 if args.contains("--publish-update") {
-    do { try RuntimeUpdate.publish(); exit(0) }
+    do { try RuntimeUpdate.publish(manual: args.contains("--manual")); exit(0) }
+    catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+}
+if args.contains("--update-now") {
+    do { try RuntimeUpdate.requestUpdate(); exit(0) }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
 }
 if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].contains($0) }) {
@@ -424,7 +426,7 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
     perror("vcx"); exit(1)
 }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
-if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface."); exit(0) }
+if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }
 if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--icon"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)

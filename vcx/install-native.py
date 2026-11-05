@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -76,7 +77,7 @@ case "$1" in
     fi
     exec {shlex.quote(str(python))} {shlex.quote(str(root / 'cx.py'))} "$@"
     ;;
-  --version|--help|--check|--bug-check|--runtime-check|--runtime-protocol|--frontend-check|--runtime-bounds-check|--runtime-recovery-check|--runtime-load-check|--verify-runtime)
+  --version|--help|--check|--bug-check|--runtime-check|--runtime-protocol|--frontend-check|--runtime-bounds-check|--runtime-recovery-check|--runtime-load-check|--verify-runtime|--update-now)
     exec {shlex.quote(str(binary))} "$@"
     ;;
 esac
@@ -102,8 +103,12 @@ exec /usr/bin/open -n $background -a {shlex.quote(str(target))} --args --cwd "$P
             fd = os.open(settings, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'w') as stream:
                 json.dump(values, stream)
-    subprocess.run([str(binary), '--publish-update'], check=True)
-    print('Installed Vibe Code X. Compatible open frontends update automatically; agent runtimes keep running.')
+    manual = '--manual' in sys.argv[1:]
+    subprocess.run([str(binary), '--publish-update'] + (['--manual'] if manual else []), check=True)
+    if manual:
+        print('Installed Vibe Code X. Running sessions and windows stay on their build until vcx --update-now.')
+    else:
+        print('Installed Vibe Code X. Compatible open frontends update automatically; agent runtimes keep running.')
 
 
 if __name__ == '__main__':

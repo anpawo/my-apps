@@ -51,12 +51,39 @@ enum RuntimeUpdate {
         return value
     }
 
-    static func publish() throws {
+    static func publish(manual: Bool = false) throws {
         try RuntimeIdentity.prepareDirectory()
-        let file = RuntimeIdentity.directory.appendingPathComponent("installed-build")
-        try Data(RuntimeIdentity.build.utf8).write(to: file, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        if manual { try write(RuntimeIdentity.build, "manual-build") }
+        else { try? FileManager.default.removeItem(at: RuntimeIdentity.directory.appendingPathComponent("manual-build")) }
+        try write(RuntimeIdentity.build, "installed-build")
         DistributedNotificationCenter.default().postNotificationName(updateNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    }
+
+    // Any session or build may send this; it names the installed build, not the sender's own.
+    static func requestUpdate() throws {
+        guard let installed = read("installed-build") else { throw CXError(message: "No installed VCX build has been published.") }
+        try write(installed, "update-request")
+        DistributedNotificationCenter.default().postNotificationName(updateNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    }
+
+    // The build running workers and windows should move to: a build installed with --manual waits for --update-now.
+    static func pendingBuild() -> String? {
+        guard let installed = read("installed-build"), installed != RuntimeIdentity.build else { return nil }
+        return read("manual-build") == installed && read("update-request") != installed ? nil : installed
+    }
+
+    // Changes with every --update-now, so a worker retries a build it already failed to move to.
+    static var requestStamp: String {
+        let date = try? FileManager.default.attributesOfItem(atPath: RuntimeIdentity.directory.appendingPathComponent("update-request").path)[.modificationDate] as? Date
+        return date.map { String($0.timeIntervalSince1970) } ?? ""
+    }
+
+    private static func read(_ name: String) -> String? { try? String(contentsOf: RuntimeIdentity.directory.appendingPathComponent(name), encoding: .utf8) }
+
+    private static func write(_ value: String, _ name: String) throws {
+        let file = RuntimeIdentity.directory.appendingPathComponent(name)
+        try Data(value.utf8).write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
     static func acknowledge(_ ticket: String) throws {

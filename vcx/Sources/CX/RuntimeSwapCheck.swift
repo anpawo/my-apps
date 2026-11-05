@@ -162,7 +162,11 @@ enum RuntimeSwapCheck {
         image.append(Data("vcx-swap-check".utf8))
         try install(image)
         let buildB = SHA256.hash(data: image).map { String(format: "%02x", $0) }.joined()
+        try write(Data(buildB.utf8), "runtime/manual-build")
         try publish(buildB)
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        try check(!logged("armed for build " + buildB), "a build installed with --manual armed without --update-now")
+        try write(Data(buildB.utf8), "runtime/update-request")
         try await wait("armed swap", seconds: 15) { logged("armed for build " + buildB) }
         try await Task.sleep(nanoseconds: 1_000_000_000)
         try check(try await probe(socket)["build"] as? String == buildA && session.busy && !logged("executing build"), "the worker swapped during a running turn")

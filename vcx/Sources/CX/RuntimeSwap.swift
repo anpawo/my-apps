@@ -103,9 +103,8 @@ final class RuntimeSwap {
 
     private func tick() {
         if let armed { attempt(armed); return }
-        guard !preflighting, let marker = try? String(contentsOf: RuntimeIdentity.directory.appendingPathComponent("installed-build"), encoding: .utf8),
-              marker != RuntimeIdentity.build, marker != handled else { return }
-        handled = marker; preflighting = true
+        guard !preflighting, let marker = RuntimeUpdate.pendingBuild(), marker + RuntimeUpdate.requestStamp != handled else { return }
+        handled = marker + RuntimeUpdate.requestStamp; preflighting = true
         Task {
             defer { preflighting = false }
             do { try await RuntimeClient.preflight(executable: executable) }
