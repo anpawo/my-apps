@@ -148,6 +148,19 @@ enum ClaudeParityCheck {
         await restored.connect(resume: savedConversation)
         check(restored.planning && restored.conversationName == "Parity fixture", "saved conversations restore planning and their explicit name")
         restored.close()
+        let notices = Session(cwd: child.path, stateDirectory: root.appendingPathComponent("notices"))
+        let refused = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: child.path)
+        refused.event = { message in
+            var message = message, params = message["params"] as? JSON ?? [:]
+            params.removeValue(forKey: "threadId"); message["params"] = params
+            notices.event(message)
+        }
+        refused.receive(["type": "system", "subtype": "informational", "level": "notice", "content": "Opus 5.5's safeguards stopped the response above"])
+        refused.receive(["type": "system", "subtype": "model_refusal_fallback", "content": "Opus 4.8 is answering instead.", "fallback_model": "claude-opus-4-8"])
+        refused.receive(["type": "system", "subtype": "informational", "level": "info", "content": "Transcript-only line"])
+        let shown = notices.rows.filter { $0.kind == "notice" }.flatMap { $0.items.map(\.text) }
+        check(shown == ["Opus 5.5's safeguards stopped the response above", "Opus 4.8 is answering instead."], "Claude's safeguard and fallback notices show in the conversation, transcript-only lines do not")
+        notices.close()
         print("\(count) Claude-to-Codex parity checks passed")
     }
 }

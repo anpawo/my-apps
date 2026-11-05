@@ -255,6 +255,9 @@ final class ClaudeConnection: Connection {
         case "system":
             if message["subtype"] as? String == "init", let model = message["model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
             if message["subtype"] as? String == "background_tasks_changed" { emit("cx/backgroundTasks", ["count": (message["tasks"] as? [Any])?.count ?? 0]) }
+            // A safeguard stop, a model fallback or a prompt a hook dropped; Claude Code keeps "info" lines for its transcript view.
+            if ["informational", "model_fallback", "model_consent_fallback", "model_refusal_fallback", "model_refusal_no_fallback"].contains(message["subtype"] as? String ?? ""),
+               message["level"] as? String != "info", let content = message["content"] as? String, !content.isEmpty { emit("warning", ["message": content]) }
             // Idle Claude answers a finished background task with a turn of its own.
             if message["subtype"] as? String == "task_notification", pendingUsers.isEmpty {
                 turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]])
