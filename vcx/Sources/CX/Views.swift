@@ -38,7 +38,37 @@ struct RoundButton: View {
     var action: () -> Void
     var body: some View {
         Button(action: action) { Image(systemName: icon).font(.system(size: 17.5, weight: .medium)).frame(width: 34, height: 34).background(.black.opacity(0.07), in: Circle()) }
-            .buttonStyle(.plain).help(label).accessibilityLabel(label)
+            .buttonStyle(.reactive(Circle())).help(label).accessibilityLabel(label)
+    }
+}
+
+// Hover tints a button inside its own shape; a press tints it darker and pulls its edges in by a few points whatever its width.
+struct Reactive: ButtonStyle {
+    var shape = AnyShape(RoundedRectangle(cornerRadius: 8))
+    var outset: CGFloat = 0
+    func makeBody(configuration: Configuration) -> some View { configuration.label.modifier(HoverPress(shape: shape, outset: outset, pressed: configuration.isPressed)) }
+}
+
+extension ButtonStyle where Self == Reactive {
+    static var reactive: Reactive { Reactive() }
+    static func reactive(_ shape: some Shape, outset: CGFloat = 0) -> Reactive { Reactive(shape: AnyShape(shape), outset: outset) }
+}
+
+struct HoverPress: ViewModifier {
+    var shape = AnyShape(RoundedRectangle(cornerRadius: 8))
+    var outset: CGFloat = 0
+    var pressed = false
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        let shrink = pressed && enabled && !reduceMotion
+        content
+            .overlay(shape.fill(.black.opacity(!enabled ? 0 : pressed ? 0.1 : hovering ? 0.05 : 0)).padding(-outset).allowsHitTesting(false))
+            .visualEffect { content, geometry in content.scaleEffect(shrink ? max(0.94, 1 - 6 / max(geometry.size.width, 1)) : 1) }
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(.easeOut(duration: 0.08), value: pressed)
     }
 }
 
@@ -260,8 +290,8 @@ struct CXView: View {
                     .padding(12).frame(maxWidth: .infinity)
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
-                    .contentShape(Rectangle()).padding(10)
-            }.buttonStyle(.plain).keyboardShortcut(",", modifiers: .command)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.reactive).keyboardShortcut(",", modifiers: .command).padding(10)
             Divider().overlay(.black.opacity(0.04))
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
@@ -290,7 +320,7 @@ struct CXView: View {
             }
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
-        }.buttonStyle(.plain).help(command).accessibilityLabel("\(title): \(value). \(command)")
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
     private func capability(_ title: String) -> some View {
@@ -304,7 +334,7 @@ struct CXView: View {
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
                     .contentShape(Rectangle())
-            }.buttonStyle(.plain).help("Browse " + title.lowercased())
+            }.buttonStyle(.reactive).help("Browse " + title.lowercased())
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
             }
@@ -318,7 +348,7 @@ struct CXView: View {
                 Button(settings.signingIn ? "Cancel" : "Dismiss") {
                     if settings.signingIn { settings.cancelSignIn() }
                     else { settings.loginMessage = "" }
-                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6))
+                }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6))
             }
             ScrollView { Text(settings.loginMessage).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 90)
         }.padding(14).background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 32).padding(.bottom, 8)
@@ -375,7 +405,7 @@ struct CXView: View {
                 if !session.follow.attached {
                     Button { session.follow.attached = true; proxy.scrollTo("bottom", anchor: .bottom) } label: {
                         Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule())
-                    }.buttonStyle(.plain).padding(.bottom, 12)
+                    }.buttonStyle(.reactive(Capsule())).padding(.bottom, 12)
                 }
             }
         }
@@ -404,7 +434,7 @@ struct CXView: View {
                 }.frame(height: session.editorHeight)
                     .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
-                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.plain).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
+                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.reactive(Circle())).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
                 }
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -523,7 +553,7 @@ struct SettingsPopup: View {
                 Spacer()
                 Text(value).multilineTextAlignment(.trailing)
             }.font(.system(size: 12)).padding(.vertical, 8).frame(maxWidth: .infinity).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 8), outset: 6))
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -640,7 +670,7 @@ struct CommandPalette: View {
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                     Text(command.source).font(.system(size: 9, weight: .medium)).foregroundStyle(accent.opacity(0.9)).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.1), in: Capsule())
                                 }.padding(.horizontal, 10).padding(.vertical, 9).background(index == session.commandSelection ? accent.opacity(0.17) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
-                            }.buttonStyle(.plain).id(command.id)
+                            }.buttonStyle(.reactive).id(command.id)
                         }
                         if session.commandOptions.isEmpty {
                             Text("No matching commands").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).frame(maxWidth: .infinity).padding(.vertical, 25)
@@ -700,7 +730,7 @@ struct WorkBlock: View {
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
                 }.frame(height: 40).foregroundStyle(.black.opacity(0.6)).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(pinned ? "Collapse" : "Keep open (hovering the tinted edge opens it)")
+            }.buttonStyle(.reactive(Rectangle())).help(pinned ? "Collapse" : "Keep open (hovering the tinted edge opens it)")
             if open {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(rows) { row in
@@ -731,7 +761,7 @@ struct ActionView: View {
             Button { withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { open.toggle() } } label: {
                 HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right").rotationEffect(.degrees(open && !item.failed ? 90 : 0)); Text(item.title).lineLimit(1) }
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain).font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
+            }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 6), outset: 4)).font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
             if open {
                 VStack(alignment: .leading, spacing: 8) {
                     if !command.isEmpty, command != item.title { Text(command).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.75)).textSelection(.enabled) }
@@ -784,7 +814,7 @@ struct PictureView: View {
                 VStack(alignment: .leading, spacing: 4) { Text("Image").font(.system(size: 12, weight: .semibold)); Text("Click to preview").font(.system(size: 10)).opacity(0.6) }
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).opacity(0.5)
             }.padding(8).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
-        }.buttonStyle(.plain).task(id: path) { image = await Task.detached { thumbnail(path) }.value }
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 11))).task(id: path) { image = await Task.detached { thumbnail(path) }.value }
     }
 }
 
@@ -849,7 +879,7 @@ struct CodeBlock: View {
                     Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
+            }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
             ScrollView(.horizontal) { Text(block.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).padding(14) }
         }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
         .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
@@ -869,10 +899,10 @@ struct PermissionView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack {
-                    Button("Cancel") { session.answer(request, result: ["decision": "cancel"]) }
+                    Button("Cancel") { session.answer(request, result: ["decision": "cancel"]) }.modifier(HoverPress(shape: AnyShape(RoundedRectangle(cornerRadius: 5))))
                     Spacer()
-                    Button("Decline") { session.answer(request, result: ["decision": "decline"]) }
-                    Button("Allow") { session.answer(request, result: ["decision": "accept"]) }.buttonStyle(.borderedProminent).tint(accent)
+                    Button("Decline") { session.answer(request, result: ["decision": "decline"]) }.modifier(HoverPress(shape: AnyShape(RoundedRectangle(cornerRadius: 5))))
+                    Button("Allow") { session.answer(request, result: ["decision": "accept"]) }.buttonStyle(.borderedProminent).tint(accent).modifier(HoverPress(shape: AnyShape(RoundedRectangle(cornerRadius: 5))))
                         .disabled(request.method == "item/fileChange/requestApproval" && (request.params["changes"] as? [JSON] ?? []).isEmpty)
                 }
             }.padding(16).frame(maxWidth: 750).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.black.opacity(0.1)))
@@ -892,7 +922,7 @@ struct QuestionPanel: View {
                 Image(systemName: "questionmark.bubble").foregroundStyle(accent)
                 Text(([flow.questions.count > 1 ? "Question \(flow.step + 1) of \(flow.questions.count)" : "Your answer is needed", question["header"] as? String].compactMap { $0 }).joined(separator: " · "))
                 Spacer()
-                Button("Cancel") { session.answer(flow.request, result: ["answers": [:]]) }.buttonStyle(.plain).help("Answer nothing and let the agent continue")
+                Button("Cancel") { session.answer(flow.request, result: ["answers": [:]]) }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help("Answer nothing and let the agent continue")
             }.font(.system(size: 11, weight: .semibold)).foregroundStyle(.black.opacity(0.6))
             Text(question["question"] as? String ?? "Question").font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true)
             let options = VStack(alignment: .leading, spacing: 6) {
@@ -908,7 +938,7 @@ struct QuestionPanel: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
                             .background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.reactive)
                 }
             }
             ScrollView { options }.frame(maxHeight: 260).fixedSize(horizontal: false, vertical: true)
