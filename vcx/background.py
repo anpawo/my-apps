@@ -226,7 +226,7 @@ def options(argv):
     parser.add_argument('--mcp-config', action='append', default=[])
     parser.add_argument('--permission-mode')
     parser.add_argument('--effort')
-    parser.add_argument('--max-turns', type=int, default=30)
+    parser.add_argument('--max-turns', type=int)
     parser.add_argument('--add-dir', action='append', default=[])
     for name in ['strict-mcp-config', 'disable-slash-commands', 'no-session-persistence',
                  'dangerously-skip-permissions', 'restricted', 'verbose', 'include-partial-messages']:
@@ -235,7 +235,7 @@ def options(argv):
     args = parser.parse_args(argv)
     if not Path(args.cwd).is_dir():
         parser.error('Working folder does not exist.')
-    if args.max_turns < 1:
+    if args.max_turns is not None and args.max_turns < 1:
         parser.error('--max-turns must be positive.')
     if args.json_schema:
         json.loads(args.json_schema)
@@ -512,7 +512,9 @@ class Runner:
         for flag in ['strict_mcp_config', 'disable_slash_commands', 'no_session_persistence', 'dangerously_skip_permissions', 'restricted', 'fork_session']:
             if getattr(args, flag):
                 command_args.append('--' + flag.replace('_', '-'))
-        command_args += ['--max-turns', str(args.max_turns)]
+        # Uncapped unless asked, as claude -p: a 30-turn default cut the watch audit and checker follow-ups.
+        if args.max_turns:
+            command_args += ['--max-turns', str(args.max_turns)]
         if not args.permission_mode and not args.dangerously_skip_permissions:
             # Claude Code 2.1.318 refuses bypassPermissions under --restricted; default denies WebFetch in -p, auto allows it.
             bypass = 'auto' if args.restricted else 'bypassPermissions'
@@ -729,7 +731,7 @@ class Runner:
         tool = {'type': 'function', 'function': {'name': 'run_command', 'description': 'Run a shell command in the working folder.',
                 'parameters': {'type': 'object', 'properties': {'command': {'type': 'string'}}, 'required': ['command']}}}
         rows = self.activity
-        for _ in range(args.max_turns):
+        for _ in range(args.max_turns or 30):
             body = dict(model=self.prefs['qwenVisionModel' if images else 'qwenModel'], messages=messages, stream=False, think=False, keep_alive='5m')
             if enabled:
                 body['tools'] = [tool]

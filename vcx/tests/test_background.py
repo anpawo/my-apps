@@ -352,6 +352,14 @@ class BackgroundTests(unittest.TestCase):
             args = command.call_args.args[0]
             self.assertEqual(args[args.index('--permission-mode') + 1], mode)
 
+    def test_claude_turns_capped_only_when_asked(self):
+        for extra, cap in [([], None), (['--max-turns', '5'], '5')]:
+            runner = self.runner('--no-session-persistence', *extra)
+            with patch.object(bg, 'command', return_value=(0, b'', b'')) as command:
+                runner.claude({'provider': 'claude'}, [{'type': 'text', 'text': 'Task'}], None)
+            args = command.call_args.args[0]
+            self.assertEqual(args[args.index('--max-turns') + 1] if '--max-turns' in args else None, cap)
+
     def test_sealed_tool_guard_denies_native_file_edits(self):
         import io
         for tool, status in [('Bash', 0), ('apply_patch', 2), ('Read', 2)]:
