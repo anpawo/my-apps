@@ -1009,6 +1009,8 @@ enum Check {
             check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
             check(ranking.completeCommand() && ranking.draft.commandText == "/sm ", "completion inserts the exact skill instead of a description match")
             check((ranking.draft.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.label == "/sm", "a chosen command locks in as a chip named as typed")
+            let typedWidth = NSAttributedString(string: "/sm", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]).size().width
+            check(abs((CommandChip(label: "/sm", value: "/sm").attachmentCell?.cellSize().width ?? 0) - typedWidth) < 0.5, "a command chip is as wide as its letters typed, like the purple tint")
             let restoredChip = runtimeDraft(draftContent(ranking.draft))
             check((restoredChip.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.value == "/sm" && NSArray(array: plainDraftContent(draftContent(ranking.draft))).isEqual(to: [["type": "text", "text": "/sm "]]), "a command chip survives the worker and reads as plain text to an older one")
             ranking.editDraft(NSAttributedString(string: "please a/sm"))

@@ -73,9 +73,11 @@ private final class ChipCell: NSTextAttachmentCell {
 
 private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachmentCell {
     let label = NSAttributedString(string: title, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
-    let image = NSImage(size: NSSize(width: label.size().width + 12, height: label.size().height), flipped: false) { rect in
-        if let fill { fill.setFill(); NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 0), xRadius: 4, yRadius: 4).fill() }
-        label.draw(at: NSPoint(x: 6, y: 0))
+    // A command chip hugs its letters like the purple tint does, so they sit where typed text would.
+    let padding: CGFloat = fill == nil ? 6 : 0
+    let image = NSImage(size: NSSize(width: label.size().width + 2 * padding, height: label.size().height), flipped: false) { rect in
+        if let fill { fill.setFill(); rect.fill() }
+        label.draw(at: NSPoint(x: padding, y: 0))
         return true
     }
     return ChipCell(imageCell: image)
