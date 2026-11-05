@@ -83,11 +83,11 @@ class BackgroundTests(unittest.TestCase):
             runner.close()
 
     def test_auth_failure_before_actions_uses_another_provider(self):
-        runner = self.runner('--no-session-persistence')
-        with patch.object(runner, 'claude', return_value={'is_error': True, 'result': 'Not logged in'}), patch.object(runner, 'codex', return_value={'result': 'Done'}) as codex:
+        runner = self.runner('--provider', 'codex', '--no-session-persistence')
+        with patch.object(runner, 'codex', return_value={'is_error': True, 'result': 'Not logged in'}), patch.object(runner, 'claude', return_value={'result': 'Done'}) as claude:
             result = runner.turn([{'type': 'text', 'text': 'Task'}])
-        self.assertEqual(result['provider'], 'codex')
-        codex.assert_called_once()
+        self.assertEqual(result['provider'], 'claude')
+        claude.assert_called_once()
 
     def test_quota_after_a_started_file_change_never_replays(self):
         runner = self.runner('--provider', 'codex', '--no-session-persistence')
@@ -259,6 +259,15 @@ class BackgroundTests(unittest.TestCase):
             result = runner.turn([{'type': 'text', 'text': 'Task'}])
         self.assertEqual(result['provider'], 'claude')
         claude.assert_called_once()
+
+    def test_claude_start_failure_does_not_switch_provider(self):
+        for failure in [dict(side_effect=FileNotFoundError()), dict(return_value={'result': 'Not logged in. Please run /login', 'is_error': True})]:
+            runner = self.runner('--no-session-persistence')
+            with patch.object(runner, 'claude', **failure), patch.object(runner, 'codex') as codex, patch.object(runner, 'qwen') as qwen:
+                result = runner.turn([{'type': 'text', 'text': 'Task'}])
+            self.assertTrue(result['is_error'])
+            codex.assert_not_called()
+            qwen.assert_not_called()
 
     def test_codex_tool_events_stream_before_completion(self):
         import io

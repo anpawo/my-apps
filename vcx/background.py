@@ -437,6 +437,8 @@ class Runner:
                 continue
             except FileNotFoundError:
                 failures.append(provider + ': command not installed')
+                if provider == 'claude':
+                    break
                 continue
             except subprocess.TimeoutExpired:
                 failed = True
@@ -453,6 +455,9 @@ class Runner:
             activity = tool_activity(result)
             if not failed and result.get('is_error') and AUTH.search(result.get('result', '')) and not activity:
                 failures.append(provider + ': authentication unavailable')
+                # Only a usage limit may move a task off Claude.
+                if provider == 'claude':
+                    break
                 continue
             if not failed and result.get('is_error') and QUOTA.search(result.get('result', '')):
                 mark_limit(account)

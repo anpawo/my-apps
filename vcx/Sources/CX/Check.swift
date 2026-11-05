@@ -1196,6 +1196,17 @@ enum Check {
         check(listing.savedCommandDraft == nil && listing.draft.string.contains("Typed while connecting") && draftContent(listing.draft).contains { $0["path"] as? String == imagePath }, "resume listing keeps text and images entered while catalog refreshes")
         listing.close()
         Settings.shared.value = Preferences(); Settings.shared.save()
+        let claudeLimit = Settings.shared.value.limits["claude-default"]
+        let claudeDown = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("claude-down"))
+        claudeDown.connectionFactory = { account, _ in
+            let connection = FixtureConnection(account)
+            connection.failStart = account.provider == "claude"
+            return connection
+        }
+        await claudeDown.connect(resume: nil)
+        check(!claudeDown.ready && claudeDown.account.provider == "claude" && claudeDown.status == "Connection failed" && Settings.shared.value.limits["claude-default"] == claudeLimit, "a Claude start failure shows its error instead of switching provider")
+        claudeDown.close()
+        Settings.shared.value.provider = "codex"; Settings.shared.save()
         let unavailable = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unavailable"))
         unavailable.connectionFactory = { account, _ in
             let connection = FixtureConnection(account)
@@ -1203,7 +1214,7 @@ enum Check {
             return connection
         }
         await unavailable.connect(resume: nil)
-        check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "an unavailable first provider is skipped silently at startup")
+        check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "a session started on Codex never reaches the failing Claude")
         unavailable.draft = draftA
         unavailable.effort = "high"
         unavailable.showCommands("/model ")
