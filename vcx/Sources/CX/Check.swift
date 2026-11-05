@@ -837,6 +837,19 @@ enum Check {
         check(commands.cwd == nextDirectory.path && commands.ready, "chat changes directory and starts a session there")
         commands.close()
         Settings.shared.value = Preferences(); Settings.shared.save()
+        do {
+            Settings.shared.value.accounts.append(Account(id: "claude-second", name: "Second Claude", provider: "claude")); Settings.shared.save()
+            let isolation = directory.appendingPathComponent("choice-isolation")
+            let chooser = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("chooser")), bystander = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("bystander"))
+            for session in [chooser, bystander] { session.connectionFactory = { account, _ in FixtureConnection(account) }; await session.connect(resume: nil) }
+            await chooser.command("/mode ask")
+            await chooser.command("/account claude-second")
+            check(chooser.activeMode == "ask" && chooser.account.id == "claude-second", "mode and account choices apply to their session")
+            check(bystander.activeMode == "bypass" && bystander.available.first?.id == "claude-default" && (bystander.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never", "a session's mode and account choices leave other running sessions alone")
+            check(Settings.shared.value.mode == "bypass" && Settings.shared.value.accounts.allSatisfy(\.enabled), "a session's mode and account choices leave the shared defaults")
+            chooser.close(); bystander.close()
+            Settings.shared.value = Preferences(); Settings.shared.save()
+        }
         let draftsDirectory = directory.appendingPathComponent("draft-switches")
         let first = Session(cwd: directory.path, stateDirectory: draftsDirectory)
         first.connectionFactory = { account, _ in FixtureConnection(account) }

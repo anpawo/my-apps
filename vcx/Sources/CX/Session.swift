@@ -168,9 +168,12 @@ final class Session: ObservableObject {
     var rpc: any Connection = RPC()
     @Published var providerLabel = "Claude"
     private(set) var account = Account(id: "claude-default", name: "Default Claude", provider: "claude")
-    // A provider picked in one session stays in it; new sessions start on the shared default.
+    // A provider, account or permission mode picked in one session stays in it; new sessions start on the shared default.
     var providerChoice: String?
     var preferredProvider: String { providerChoice ?? Settings.shared.value.provider }
+    var accountChoice: String?
+    var modeChoice: String?
+    var preferredMode: String { modeChoice ?? Settings.shared.value.mode }
     private var recordID = UUID().uuidString
     private var pendingInput: (String, [String])?
     private var transferring = false
@@ -349,7 +352,7 @@ final class Session: ObservableObject {
             bufferedEvents.removeAll()
             for message in pending { event(message) }
         }
-        activeMode = Settings.shared.value.mode
+        activeMode = preferredMode
         var params: JSON = ["cwd": cwd, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
         params["developerInstructions"] = developerInstructions
         if account.provider == "codex", resume == nil { params["dynamicTools"] = [ClaudeCompatibility.questionTool] }
@@ -610,7 +613,7 @@ final class Session: ObservableObject {
         if !testing { Settings.shared.reload() }
         if text.hasPrefix("/"), images.isEmpty, !commandHandled, !retry { await command(text); return }
         guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
-        if !testing, !busy, !retry, activeMode != Settings.shared.value.mode {
+        if !testing, !busy, !retry, activeMode != preferredMode {
             await reconnect()
             guard ready else { return }
         }
@@ -795,7 +798,8 @@ final class Session: ObservableObject {
 
     var available: [Account] {
         let settings = Settings.shared
-        return settings.candidates(preferredProvider).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
+        let chosen = settings.value.accounts.filter { $0.id == accountChoice && $0.provider == preferredProvider }
+        return (chosen + settings.candidates(preferredProvider).filter { $0.id != accountChoice }).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
     }
 
     func activate(_ next: Account, resume: String?, keepRows: Bool) async throws {
@@ -812,11 +816,13 @@ final class Session: ObservableObject {
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
-        activeMode = Settings.shared.value.mode
+        activeMode = preferredMode
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         if let connectionFactory { rpc = connectionFactory(next, cwd) } else { switch next.provider {
         case "claude": rpc = ClaudeConnection(account: next, cwd: cwd)
-        case "qwen": rpc = QwenConnection(preferences: Settings.shared.value, cwd: cwd)
+        case "qwen":
+            var preferences = Settings.shared.value; preferences.mode = activeMode
+            rpc = QwenConnection(preferences: preferences, cwd: cwd)
         default:
             let connection = RPC(); connection.account = next; connection.cwd = cwd; rpc = connection
         }
@@ -927,7 +933,7 @@ final class Session: ObservableObject {
             target = (selected, selected.id == account.id ? threadID : nil, true, recordID)
         }
         if let latest = Settings.shared.value.accounts.first(where: { $0.id == target.0.id }) {
-            if latest.enabled { target.0 = latest }
+            if latest.enabled || latest.id == accountChoice { target.0 = latest }
             else if let selected = available.first { target = (selected, nil, true, recordID) }
         }
         if !available.contains(where: { $0.id == target.0.id }) { target = (fallback, nil, true, recordID) }
@@ -1227,7 +1233,7 @@ final class Session: ObservableObject {
         guard !busy, !changing, !submitting, !transferring, !loading, pendingLimit == nil, pendingInput == nil, pendingActivation == nil, permissions.isEmpty else { return nil }
         flush()
         var state: JSON = ["seen": Array(seen), "injectedContext": injectedContext, "testing": testing, "fleetContextFile": fleetContextFile.path, "autoResumes": autoResumes]
-        state["providerChoice"] = providerChoice
+        state["providerChoice"] = providerChoice; state["accountChoice"] = accountChoice; state["modeChoice"] = modeChoice
         return state
     }
 
@@ -1237,7 +1243,7 @@ final class Session: ObservableObject {
         injectedContext = state["injectedContext"] as? String ?? ""
         testing = state["testing"] as? Bool ?? false
         autoResumes = state["autoResumes"] as? Int ?? 0
-        providerChoice = state["providerChoice"] as? String
+        providerChoice = state["providerChoice"] as? String; accountChoice = state["accountChoice"] as? String; modeChoice = state["modeChoice"] as? String
         if let path = state["fleetContextFile"] as? String {
             try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())
             fleetContextFile = URL(fileURLWithPath: path)

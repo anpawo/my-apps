@@ -310,7 +310,7 @@ extension Session {
             case "/mode":
                 guard !argument.isEmpty else { showCommands("/mode ", preserveDraft: false); return }
                 guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /mode bypass or /mode ask.") }
-                try idle(); settings.value.mode = argument == "yolo" ? "bypass" : argument; try saveSettings(); await reconnect()
+                try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await reconnect()
             case "/account":
                 guard !argument.isEmpty else { showCommands("/account ", preserveDraft: false); return }
                 try idle()
@@ -322,11 +322,10 @@ extension Session {
                     guard args.count == 3, !args[2].isEmpty else { throw CXError(message: "Use /account rename <id> <name>.") }
                     settings.value.accounts[index].name = args[2]
                 } else if operation == "use" {
-                    let selected = settings.value.accounts[index]
-                    providerChoice = selected.provider
-                    for n in settings.value.accounts.indices where settings.value.accounts[n].provider == selected.provider { settings.value.accounts[n].enabled = n == index }
+                    providerChoice = settings.value.accounts[index].provider; accountChoice = settings.value.accounts[index].id
                 } else { settings.value.accounts[index].enabled = operation == "enable" }
-                try saveSettings(); await reconnect()
+                if operation != "use" { try saveSettings() }
+                await reconnect()
             case "/dir":
                 if argument.isEmpty { notice(cwd + "\nUse /dir <folder> to change directory.") }
                 else { try await changeDirectory(unquoted(argument)) }
