@@ -543,6 +543,16 @@ struct CXView: View {
     private var separator: some View { Text("|").font(.system(size: 13, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
 }
 
+extension CXView {
+    // The window alone sets its size: measured at zero width, a wrapped question gave a minimum height over 3,000 pt,
+    // which grew the window past the bottom of the screen with the composer.
+    static func host(_ session: Session) -> NSHostingView<CXView> {
+        let host = NSHostingView(rootView: CXView(session: session))
+        host.sizingOptions = []
+        return host
+    }
+}
+
 struct ActivityDot: NSViewRepresentable {
     let busy: Bool
     var pending = false

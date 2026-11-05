@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .aqua)
         window.minSize = NSSize(width: 780, height: 560)
-        window.contentView = NSHostingView(rootView: CXView(session: session))
+        window.contentView = CXView.host(session)
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }

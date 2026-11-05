@@ -150,6 +150,24 @@ enum BugCheck {
             check(late["cancelled"] as? Bool == false && prompts().last == "raced", "a prompt the agent took in before the withdrawal stays sent")
             backendSession.editDraft(NSAttributedString(string: ""))
         }
+        do {
+            let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("tall-question"))
+            asking.ready = true; asking.status = "Ready"
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 780, height: 560)
+            window.contentView = CXView.host(asking)
+            defer { window.close() }
+            let before = window.frame.height
+            let question = "Which part should keep the editor's font when a word is highlighted as a command: the gray chip's box, the tint that appears while typing, or the purple word in the transcript? Pick the one you meant."
+            asking.permissions = [Permission(rpcID: "tall", method: "item/tool/requestUserInput", params: ["questions": [["id": "font", "header": "What changes", "question": question, "options": [["label": "The gray chip's box", "description": "Keep the chip's text in the composer's font."]]]]])]
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("tall-question.png"))
+            }
+            print("Window with a \(question.count)-character question: \(Int(before)) pt tall before, \(Int(window.frame.height)) after")
+            check(window.frame.height == before, "a long question keeps the window its size, composer on screen")
+        }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")
