@@ -1338,7 +1338,7 @@ struct MemoryStrip: View {
             }
             if open {
                 MemoryDetailsPane(details: reaper.details, amber: amber)
-                    .transition(.opacity)
+                    .transition(.modifier(active: Reveal(shown: 0), identity: Reveal(shown: 1)))
             }
         }
         .onAppear { if open { reaper.detailsOpen = true } }
@@ -1519,6 +1519,16 @@ enum BlockTint {
     static let youtube = Color(red: 0.47, green: 0.09, blue: 0.09)
 }
 
+/// Shows the top `shown` share of a view, so what unfolds with a block is uncovered by the
+/// block's own growth: faded in at full size, the pane stood out past a frame still opening
+/// (asked 2026-11-05).
+private struct Reveal: ViewModifier {
+    var shown: CGFloat
+    func body(content: Content) -> some View {
+        content.mask(alignment: .top) { Rectangle().scaleEffect(x: 1, y: max(shown, 0.001), anchor: .top) }
+    }
+}
+
 /// The MEMORY block unfolded: the machine's figures, then the heaviest programs by RAM, CPU and
 /// GPU. On a dark pane, as the mail cards sit on theirs: the gauge's fill runs under it.
 private struct MemoryDetailsPane: View {
@@ -1557,8 +1567,10 @@ private struct MemoryDetailsPane: View {
             .tracking(1)
             .foregroundStyle(.white.opacity(0.35))
             .padding(.top, 5)
-        if rows.isEmpty { Text("\u{2026}").foregroundStyle(.white.opacity(0.4)) }
         ForEach(rows) { row($0.name, $0.value) }
+        // Always three lines: the CPU and GPU lists fill half a second after the block opens,
+        // and rows coming and going made it jump under the pointer.
+        ForEach(rows.count ..< 3, id: \.self) { _ in Text(" ") }
     }
 }
 
