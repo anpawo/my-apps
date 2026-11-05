@@ -214,6 +214,10 @@ final class SessionBackend: RuntimeBackend {
             }
             await session.send(text: text, images: images, expectedDraft: (params["draft"] as? [JSON]).map(runtimeDraft), expectedGeneration: params["generation"] as? Int)
         case "stop": await session.stop(source: params["source"] as? String ?? "Stop command")
+        case "unsend":
+            let cancelled = await session.unsend(params["id"] as? String ?? "")
+            publish()
+            return ["cancelled": cancelled]
         case "answer":
             guard let rpcID = params["rpcID"], let method = params["method"] as? String, let result = params["result"] as? JSON,
                   let permission = session.permissions.first(where: { $0.method == method && NSDictionary(dictionary: ["id": $0.rpcID]).isEqual(to: ["id": rpcID]) }) else {

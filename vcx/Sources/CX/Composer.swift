@@ -202,7 +202,8 @@ struct Composer: NSViewRepresentable {
                 if selector == #selector(NSResponder.insertTab(_:)) { return session.completeCommand() }
                 if selector == #selector(NSResponder.cancelOperation(_:)) { session.dismissCommands(); return true }
             }
-            if selector == #selector(NSResponder.moveUp(_:)), session.movePromptHistory(-1) { return true }
+            if selector == #selector(NSResponder.moveUp(_:)), session.recallQueued() || session.movePromptHistory(-1) { return true }
+            if selector == #selector(NSResponder.cancelOperation(_:)), session.restoreRecalled() { return true }
             if selector == #selector(NSResponder.moveDown(_:)), session.movePromptHistory(1) { return true }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {

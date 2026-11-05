@@ -38,11 +38,21 @@ if mode == 'http':
     print(server.server_port, flush=True)
     server.serve_forever()
 else:
+    # After WAIT, the turn holds every prompt in its queue until READ, as Claude does until its running tool returns.
+    holding, queue = False, []
     for line in sys.stdin:
         message = json.loads(line)
         if mode == 'claude':
             if message.get('type') == 'control_request':
                 subtype = message.get('request', {}).get('subtype')
+                if subtype == 'cancel_async_message':
+                    uuid = message['request']['message_uuid']
+                    cancelled = any(queued == uuid for queued, _ in queue)
+                    queue = [(queued, text) for queued, text in queue if queued != uuid]
+                    send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': {'cancelled': cancelled}}})
+                    if cancelled:
+                        send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'cancelled'})
+                    continue
                 if subtype == 'apply_flag_settings':
                     settings = message['request']['settings']
                     error = settings.get('model') == 'reject-me' or settings.get('effortLevel') not in [None, 'low', 'medium', 'high']
@@ -57,6 +67,23 @@ else:
                     result['appendedSystemPrompt'] = sys.argv[sys.argv.index('--append-system-prompt') + 1]
                 send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})
             if message.get('type') == 'user':
+                uuid, text = message.get('uuid'), ''.join(block.get('text', '') for block in message['message']['content'])
+                if holding:
+                    send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'queued'})
+                    queue.append((uuid, text))
+                    if text == 'READ':
+                        for queued, _ in queue:
+                            send({'type': 'command_lifecycle', 'command_uuid': queued, 'state': 'started'})
+                        answer = 'Read: ' + ', '.join(text for _, text in queue)
+                        send({'type': 'assistant', 'message': {'id': 'msg-read', 'content': [{'type': 'text', 'text': answer}]}})
+                        send({'type': 'result', 'is_error': False, 'result': answer, 'queued_turn_count': 0})
+                        holding, queue = False, []
+                    continue
+                if text == 'WAIT':
+                    holding = True
+                    send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'queued'})
+                    send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'started'})
+                    continue
                 send({'type': 'system', 'subtype': 'init', 'model': 'test-claude'})
                 send({'type': 'stream_event', 'event': {'type': 'message_start', 'message': {'id': 'msg-1'}}})
                 send({'type': 'stream_event', 'event': {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}}})

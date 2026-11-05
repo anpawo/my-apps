@@ -163,6 +163,7 @@ final class Session: ObservableObject {
     private var runtimeFleetContext: String?
     var draftGeneration = 0
     private var promptHistoryIndex: Int?
+    private(set) var recalled: (record: String, content: [JSON])?
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var onDraftConsumed: ((Int) -> Void)?
     var draft = NSAttributedString(string: "") {
@@ -487,6 +488,8 @@ final class Session: ObservableObject {
                 if let served, contextWindows[served] != limit { contextWindows[served] = limit }
             } else if let served, let known = contextWindows[served] { contextLimit = known }
         case "cx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
+        case "cx/userQueue":
+            if let id = p["id"] as? String, let item = userItem(id) { item.data["queued"] = p["queued"] as? Bool == true ? true : nil }
         case "cx/model":
             model = p["model"] as? String ?? model
             if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
@@ -621,6 +624,7 @@ final class Session: ObservableObject {
 
     func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil, displayText: String? = nil) async {
         guard !frontendReplacing else { return }
+        recalled = nil
         if runtimeClient != nil {
             if text.hasPrefix("/"), images.isEmpty, !commandHandled { await command(text); return }
             await performRuntime("send", ["text": text, "images": images, "draft": draftContent(expectedDraft ?? draft), "generation": expectedGeneration ?? draftGeneration])
@@ -1103,6 +1107,47 @@ final class Session: ObservableObject {
         promptHistoryIndex = index < prompts.count ? index : nil
         draft = restored; draftGeneration += 1; draftRevision += 1
         checkpointRuntimeDraft()
+        return true
+    }
+
+    // Up arrow on the last prompt while the agent has not read it: it leaves the queue and comes back into the composer.
+    // Already read, it cannot be withdrawn, so up arrow only copies it, as for any earlier prompt.
+    func recallQueued() -> Bool {
+        guard !frontendReplacing, commandQuery == nil, savedCommandDraft == nil, promptHistoryIndex == nil, draft.length == 0,
+              let item = rows.last(where: { $0.kind == "user" })?.items.first, item.data["queued"] as? Bool == true,
+              let content = item.data["content"] as? [JSON] else { return false }
+        Task {
+            let unsent = runtimeClient == nil ? await unsend(item.id) : await performRuntime("unsend", ["id": item.id])?["cancelled"] as? Bool == true
+            guard unsent else { _ = movePromptHistory(-1); return }
+            recalled = (recordID, content)
+            let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
+            restored.append(draft)
+            editDraft(restored)
+        }
+        return true
+    }
+
+    // Escape while editing a withdrawn prompt sends it back as it was.
+    func restoreRecalled() -> Bool {
+        guard let (record, content) = recalled, record == recordID else { recalled = nil; return false }
+        editDraft(NSAttributedString(string: ""))
+        Task { await send(text: content.compactMap { $0["text"] as? String }.joined(), images: content.compactMap { $0["path"] as? String }) }
+        return true
+    }
+
+    // A prompt sent from here is in rows only; itemMap holds what the provider echoed.
+    private func userItem(_ id: String) -> Item? { rows.last { $0.kind == "user" && $0.items.first?.id == id }?.items.first }
+
+    func unsend(_ id: String) async -> Bool {
+        guard let result = try? await rpc.request("cx/unsend", ["id": id], timeout: 5), result["cancelled"] as? Bool == true else { return false }
+        let content = userItem(id)?.data["content"] as? [JSON] ?? []
+        let guidance = "\n\nAdditional guidance: " + content.compactMap { $0["text"] as? String }.joined()
+        if let input = pendingInput, input.0.hasSuffix(guidance) {
+            pendingInput = (String(input.0.dropLast(guidance.count)), Array(input.1.dropLast(content.filter { $0["path"] != nil }.count)))
+        }
+        rows.removeAll { $0.kind == "user" && $0.items.first?.id == id }
+        itemMap[id] = nil
+        revision += 1; save()
         return true
     }
 

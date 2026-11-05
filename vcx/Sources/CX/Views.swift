@@ -855,12 +855,16 @@ struct UserBubble: View {
     let session: Session
     @EnvironmentObject private var sending: SendAnimation
     var body: some View {
+        let unread = item.data["queued"] as? Bool == true
         HStack {
             Spacer(minLength: 40)
-            MessageContent(item: item) { session.preview = $0 }
-                .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
-                .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: [item.id: geometry.frame(in: .named("conversation"))]) })
-                .opacity(sending.hides(item) ? 0 : 1)
+            VStack(alignment: .trailing, spacing: 5) {
+                MessageContent(item: item) { session.preview = $0 }
+                    .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
+                    .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: [item.id: geometry.frame(in: .named("conversation"))]) })
+                    .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
+                if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
+            }
         }
     }
 }

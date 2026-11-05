@@ -1738,6 +1738,7 @@ final class FixtureConnection: Connection {
     var limit = false
     var hold = false
     var closed = false
+    var unread: Set<String> = []
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
@@ -1775,6 +1776,7 @@ final class FixtureConnection: Connection {
             }
             return ["turn": ["id": pendingTurn]]
         case "turn/interrupt": event(["method": "turn/completed", "params": ["turn": ["id": pendingTurn, "status": "interrupted"]]]); return [:]
+        case "cx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
         default: return [:]
         }
     }

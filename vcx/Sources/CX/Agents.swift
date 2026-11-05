@@ -221,6 +221,12 @@ final class ClaudeConnection: Connection {
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
         case "turn/interrupt": stopped = true; try control(["subtype": "interrupt"]); return [:]
+        // Claude drops a prompt only while it waits in its queue; once the turn has taken it in, it answers cancelled: false.
+        case "cx/unsend":
+            guard let id = params["id"] as? String else { throw CXError(message: "Missing message ID.") }
+            let result = try await controlResult(["subtype": "cancel_async_message", "message_uuid": id], timeout: 5)
+            if result["cancelled"] as? Bool == true { pendingUsers.removeAll { $0 == id } }
+            return result
         case "thread/compact/start": throw CXError(message: "Claude manages context compaction automatically.")
         case "review/start": throw CXError(message: "Ask Claude to review your changes in a message.")
         default: throw CXError(message: "Unsupported Claude action: \(method)")
@@ -264,6 +270,9 @@ final class ClaudeConnection: Connection {
             }
         case "control_cancel_request":
             if let id = message["request_id"] as? String { controls.removeValue(forKey: id); emit("serverRequest/resolved", ["requestId": id]) }
+        // "queued" when a prompt waits for the running turn, "started" once the turn has taken it in.
+        case "command_lifecycle":
+            if let id = message["command_uuid"] as? String { emit("cx/userQueue", ["id": id, "queued": message["state"] as? String == "queued"]) }
         case "control_request":
             guard let id = message["request_id"] as? String, let request = message["request"] as? JSON else { return }
             guard request["subtype"] as? String == "can_use_tool" else {

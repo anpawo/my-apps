@@ -100,6 +100,56 @@ enum BugCheck {
         await settle(); host.layoutSubtreeIfNeeded()
         check(frontend.draft.length == 0 && RuntimeUpdate.composer(in: host)?.string.isEmpty == true, "sending an image clears the visible runtime composer")
         check(try state() == "working", "Fleet reports a running runtime session as working")
+        do {
+            let (backField, backCoordinator) = editor(backendSession)
+            defer { withExtendedLifetime(backCoordinator) {} }
+            func prompts() -> [String] { backendSession.rows.filter { $0.kind == "user" }.compactMap { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String } }
+            func sentTexts() -> [String] { connection.sent.compactMap { ($0["input"] as? [JSON])?.first?["text"] as? String } }
+            func queueLast(read: Bool = false) -> String {
+                let id = connection.sent.last?["clientUserMessageId"] as? String ?? ""
+                if !read { connection.unread.insert(id) }
+                connection.event(["method": "cx/userQueue", "params": ["id": id, "queued": !read]])
+                return id
+            }
+            func key(_ selector: Selector) async -> Bool { let handled = backCoordinator.textView(backField, doCommandBy: selector); await settle(); return handled }
+            backendSession.editDraft(NSAttributedString(string: ""))
+            await backendSession.send(text: "first version", images: [])
+            let first = queueLast()
+            await settle()
+            let mirrored = frontend.rows.flatMap(\.items).first { $0.id == first }
+            check(mirrored?.data["queued"] as? Bool == true, "the window shows a prompt the agent has not read yet")
+            if let mirrored {
+                let bubble = NSHostingView(rootView: UserBubble(item: mirrored, session: frontend).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).background(Color.white))
+                bubble.frame = NSRect(origin: .zero, size: bubble.fittingSize); bubble.layoutSubtreeIfNeeded()
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = bubble.bitmapImageRepForCachingDisplay(in: bubble.bounds) {
+                    bubble.cacheDisplay(in: bubble.bounds, to: bitmap)
+                    try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("unread-prompt.png"))
+                }
+            }
+            check(await key(#selector(NSResponder.moveUp(_:))) && backendSession.draft.string == "first version" && !prompts().contains("first version") && connection.unread.isEmpty,
+                  "up arrow withdraws an unread prompt into the composer")
+            check(await key(#selector(NSResponder.cancelOperation(_:))) && backendSession.draft.length == 0 && prompts().last == "first version" && sentTexts().last == "first version" && backendSession.busy,
+                  "Escape sends the withdrawn prompt back unchanged without stopping the agent")
+            let sentBefore = connection.sent.count
+            _ = queueLast()
+            check(await key(#selector(NSResponder.moveUp(_:))) && backendSession.draft.string == "first version", "up arrow withdraws the prompt again")
+            backendSession.editDraft(NSAttributedString(string: "edited version"))
+            await backendSession.send(text: "edited version", images: [])
+            check(sentTexts().suffix(connection.sent.count - sentBefore) == ["edited version"] && prompts().suffix(2) == ["with image", "edited version"],
+                  "Enter sends the edited prompt in place of the withdrawn one, which the agent never receives")
+            _ = queueLast(read: true)
+            let readMark = backendSession.rows.last { $0.kind == "user" }?.items.first?.data["queued"]
+            let copied = await key(#selector(NSResponder.moveUp(_:)))
+            check(readMark == nil && copied && backendSession.draft.string == "edited version" && prompts().last == "edited version",
+                  "up arrow on a prompt the agent has read only copies it")
+            backendSession.editDraft(NSAttributedString(string: ""))
+            await backendSession.send(text: "raced", images: [])
+            let raced = queueLast()
+            connection.unread.remove(raced)
+            let late = try await backend.perform(action: "unsend", params: ["id": raced])
+            check(late["cancelled"] as? Bool == false && prompts().last == "raced", "a prompt the agent took in before the withdrawal stays sent")
+            backendSession.editDraft(NSAttributedString(string: ""))
+        }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")
@@ -133,6 +183,33 @@ enum BugCheck {
         recovered.applyInterruptedRecovery(["interrupted": true])
         check(recovered.needsAttention, "recovering active work requests attention")
         recovered.close()
+        do {
+            let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path
+                ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/native_peer.py").path
+            let claude = ClaudeConnection(account: Account(id: "bug-claude", name: "Fixture", provider: "claude"), cwd: directory.path)
+            defer { claude.close() }
+            var queued: [String: Bool] = [:], answer = "", done = false
+            claude.event = { message in
+                let p = message["params"] as? JSON ?? [:]
+                if message["method"] as? String == "cx/userQueue", let id = p["id"] as? String { queued[id] = p["queued"] as? Bool }
+                if message["method"] as? String == "item/completed", let item = p["item"] as? JSON { answer = item["text"] as? String ?? answer }
+                if message["method"] as? String == "turn/completed" { done = true }
+            }
+            try await claude.start(command: ["python3", fixture, "claude"])
+            let turn = ((try await claude.request("turn/start", ["input": [["type": "text", "text": "WAIT"]]]))["turn"] as? JSON)?["id"] as? String ?? ""
+            func steer(_ text: String, _ id: String) async throws { _ = try await claude.request("turn/steer", ["expectedTurnId": turn, "clientUserMessageId": id, "input": [["type": "text", "text": text]]]) }
+            try await steer("first version", "unsent")
+            for _ in 0..<200 where queued["unsent"] == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(queued["unsent"] == true, "Claude reports a prompt sent during its turn as not read yet")
+            let withdrawn = try await claude.request("cx/unsend", ["id": "unsent"])
+            try await steer("edited version", "edited")
+            try await steer("READ", "read")
+            for _ in 0..<200 where !done { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(withdrawn["cancelled"] as? Bool == true && answer == "Read: edited version, READ", "a prompt withdrawn before Claude reads it never reaches Claude")
+            check(queued["edited"] == false, "Claude reports a prompt its turn took in as read")
+            let late = try await claude.request("cx/unsend", ["id": "edited"])
+            check(late["cancelled"] as? Bool == false, "a prompt Claude has read cannot be withdrawn")
+        } catch { check(false, "Claude withdrawal: " + error.localizedDescription) }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }
