@@ -18,6 +18,10 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 [![A terminal session: firefax scan lists a page's controls as ready locators, firefax store keeps an IBAN in the keychain, firefax fill runs a 5-step spec and prints one line per step, each verified](firefax/docs/report.png)](firefax)
 
+### [fleet](fleet)
+
+[![The panel](fleet/docs/panel.png)](fleet)
+
 ### [glance](glance)
 
 [![⌘⌥J over a terminal where a Python script failed: the panel opens at the top right, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](glance/docs/demo.gif)](glance)
@@ -29,6 +33,10 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 ### [screenshot](screenshot)
 
 [![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](screenshot/docs/demo.gif)](screenshot)
+
+### [vcx](vcx)
+
+[![A prompt typed into an empty Vibe Code X window and sent with ↵: it flies into the chat, Claude's actions fold into one block that counts them as they run, a question card asks which button style to use and 1 picks the first option, then the answer comes back with its green summary, the orange Done line and the blue Next line; / opens the command palette, /model lists Claude, Codex and Qwen, and esc closes it](vcx/docs/demo.gif)](vcx)
 
 ### [watcher](watcher)
 
