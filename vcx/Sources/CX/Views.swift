@@ -461,7 +461,7 @@ struct CXView: View {
             separator
             setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 0.68, green: 0.18, blue: 0.45))
             separator
-            setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/mode ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
+            setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/perms ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
         }
     }
     private var usageStatus: some View {
@@ -568,7 +568,7 @@ struct SettingsPopup: View {
                     setting("Provider", session.providerLabel, "/model ")
                     setting("Model", session.modelLabel, session.modelCommand)
                     if let effort = session.effectiveEffort { setting("Effort", effort, session.modelCommand + session.model + " ") }
-                    setting("Permissions", session.mode, "/mode ")
+                    setting("Permissions", session.mode, "/perms ")
                     setting("Working directory", session.cwd, "/dir ")
                     Divider().padding(.vertical, 8)
                     Text("Accounts").font(.system(size: 13, weight: .semibold))

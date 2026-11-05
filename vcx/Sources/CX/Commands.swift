@@ -17,7 +17,7 @@ extension Session {
         [
             ("model", "Choose provider, model, and reasoning effort", true),
             ("account", "Use, enable, disable, or rename a subscription account", true),
-            ("mode", "Choose bypass / YOLO or ask for approval", true),
+            ("perms", "Choose bypass / YOLO or ask for approval", true),
             ("dir", "Change the working directory", true),
             ("window", "Open another window, optionally in a directory", false),
             ("new", "Start a new conversation; current work stays saved", false),
@@ -61,18 +61,18 @@ extension Session {
         codexNativeNames.map { name in
             let mapped = codexAliases[name] ?? name
             let available = appCommands.contains { $0.name == "/" + mapped } || ["compact", "review"].contains(mapped)
-            return ChatCommand(name: "/" + name, detail: available ? "Use through vcx /" + mapped : "Unavailable in vcx (Codex terminal action)", source: available ? "Codex" : "Codex terminal", insert: "/codex:" + name + (available && ["mode", "model", "resume"].contains(mapped) ? " " : ""))
+            return ChatCommand(name: "/" + name, detail: available ? "Use through vcx /" + mapped : "Unavailable in vcx (Codex terminal action)", source: available ? "Codex" : "Codex terminal", insert: "/codex:" + name + (available && ["perms", "model", "resume"].contains(mapped) ? " " : ""))
         }
     }
 
     // shortcut: CLI reference built-ins are a snapshot; refresh after upstream changes. SDK skills stay live.
     var claudeNativeNames: [String] { "add-dir advisor agents artifact-capabilities artifact-diagramming artifacts auto-mode-setup autocompact autofix-pr background batch branch btw bug cd chrome claude-api claude-in-chrome clear code-review color compact config context copy cost dataviz debug deep-research design design-login design-sync desktop diff doctor effort exit export fast feedback fewer-permission-prompts focus fork goal heapdump help hooks ide import init insights install-github-app install-slack-app keybindings list-agents login logout loop mcp memory mobile model output-style passes permissions plan plugin plugin-authoring powerup pr-comments privacy-settings radio rate-limit-options recap release-notes reload-plugins reload-skills remote-control remote-env rename restart resume review rewind run run-skill-generator sandbox schedule scroll-speed security-review setup-bedrock setup-vertex simplify skill-doctor skills slides stats status statusline stickers stop subtask tasks team-onboarding teleport terminal-setup theme tui ultraplan ultrareview update-config upgrade usage usage-credits verify vim voice web-setup workflow-authoring workflows".split(separator: " ").map(String.init) }
-    var claudeAliases: [String: String] { ["permissions": "mode", "config": "settings", "cd": "dir", "context": "tokens", "cost": "tokens", "memory": "instructions", "restart": "reconnect", "reload-skills": "skills", "reload-plugins": "reconnect"] }
+    var claudeAliases: [String: String] { ["permissions": "perms", "config": "settings", "cd": "dir", "context": "tokens", "cost": "tokens", "memory": "instructions", "restart": "reconnect", "reload-skills": "skills", "reload-plugins": "reconnect"] }
     var claudeNativeCommands: [ChatCommand] {
         claudeNativeNames.map { name in
             let mapped = claudeAliases[name] ?? name
             let available = appCommands.contains { $0.name == "/" + mapped } || ["compact", "review"].contains(mapped)
-            return ChatCommand(name: "/" + name, detail: available ? "Use through vcx /" + mapped : "Unavailable in vcx (Claude CLI reference)", source: available ? "Claude" : "Claude terminal", insert: "/claude:" + name + (available && ["mode", "model", "resume"].contains(mapped) ? " " : ""))
+            return ChatCommand(name: "/" + name, detail: available ? "Use through vcx /" + mapped : "Unavailable in vcx (Claude CLI reference)", source: available ? "Claude" : "Claude terminal", insert: "/claude:" + name + (available && ["perms", "model", "resume"].contains(mapped) ? " " : ""))
         }
     }
 
@@ -112,7 +112,7 @@ extension Session {
                     option(provider + " " + args[1] + " " + $0, "Reasoning effort", label: $0, isCurrent: $0 == (args[1] == model || modelAliases[args[1]] == model ? effectiveEffort : modelDefaultEfforts[args[1]]))
                 }
                 return choices
-            case "/mode": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
+            case "/perms": choices = [option("bypass", "YOLO: no tool approval prompts"), option("ask", "Ask before actions that need permission")]
             case "/plan": choices = [option("on", "Plan without implementing"), option("off", "Return to implementation")]
             case "/effort": choices = (modelEfforts[model] ?? []).map { option($0, "Reasoning effort", isCurrent: $0 == effort) }
             case "/account":
@@ -177,12 +177,12 @@ extension Session {
         guard !changing else { return }
         if savedCommandDraft == nil { savedCommandDraft = draft }
         showCommands(source)
-        if source != "/mode " && source != "/model " && source != modelCommand { Task { await command(source) } }
+        if source != "/perms " && source != "/model " && source != modelCommand { Task { await command(source) } }
     }
     func chooseCommand(_ command: ChatCommand) {
-        if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider ") || command.insert.hasPrefix("/mode "),
+        if command.insert.hasPrefix("/model ") || command.insert.hasPrefix("/provider ") || command.insert.hasPrefix("/perms "),
            command.insert.split(separator: " ").count > 1 {
-            if command.insert.hasPrefix("/mode ") {
+            if command.insert.hasPrefix("/perms ") {
                 if savedCommandDraft == nil { savedCommandDraft = NSAttributedString(string: "") }
                 showCommands(command.insert, preserveDraft: false)
             }
@@ -225,7 +225,7 @@ extension Session {
         var argument = pieces.count > 1 ? pieces[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         if ["/reload-skills", "/claude:reload-skills"].contains(original) { argument = "reload" }
         if runtimeClient != nil {
-            if argument.isEmpty, ["/provider", "/model", "/mode", "/account", "/qwen"].contains(verb) {
+            if argument.isEmpty, ["/provider", "/model", "/perms", "/account", "/qwen"].contains(verb) {
                 showCommands((verb == "/provider" ? "/model" : verb) + " ", preserveDraft: false)
                 return
             }
@@ -314,9 +314,9 @@ extension Session {
                     await changeModel(argument)
                 }
                 if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.string.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
-            case "/mode":
-                guard !argument.isEmpty else { showCommands("/mode ", preserveDraft: false); return }
-                guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /mode bypass or /mode ask.") }
+            case "/perms":
+                guard !argument.isEmpty else { showCommands("/perms ", preserveDraft: false); return }
+                guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /perms bypass or /perms ask.") }
                 try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await reconnect()
             case "/account":
                 guard !argument.isEmpty else { showCommands("/account ", preserveDraft: false); return }

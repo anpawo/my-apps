@@ -790,9 +790,13 @@ enum Check {
         await commands.send(text: "/help", images: [])
         check(!commands.ready && commands.rows.last?.items.first?.text.contains("/model") == true, "commands work before a provider is connected")
         commands.updateCommands("/", caret: 1)
-        check(commands.commandOptions.contains { $0.name == "/mode" }, "slash opens application command catalog")
-        commands.updateCommands("/mode ", caret: 6)
+        check(commands.commandOptions.contains { $0.name == "/perms" }, "slash opens application command catalog")
+        commands.updateCommands("/perms ", caret: 7)
         check(commands.commandOptions.map(\.name) == ["bypass", "ask"], "permission choices autocomplete")
+        for typed in ["/mod", "/mode"] {
+            commands.updateCommands(typed, caret: typed.count)
+            check(commands.commandOptions.first?.name == "/model" && !commands.commandOptions.contains { $0.name == "/perms" }, "typing toward /model offers /model first, never /perms")
+        }
         commands.updateCommands("/answer yes", caret: 11)
         check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
         commands.updateCommands("/qwen ", caret: 6)
@@ -808,7 +812,7 @@ enum Check {
         await commands.connect(resume: nil)
         check(commands.ready && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never" && (commands.rpc as? FixtureConnection)?.opened.first?["sandbox"] as? String == "danger-full-access", "Codex-compatible threads apply bypass, not only the label")
         commands.draft = NSAttributedString(string: "Keep this prompt")
-        commands.statusCommand("/mode ")
+        commands.statusCommand("/perms ")
         commands.chooseCommand(commands.commandOptions[1])
         for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "footer mode selection executes the permission command without Return")
@@ -820,8 +824,8 @@ enum Check {
         commands.statusCommand("/repo")
         for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
-        commands.draft = NSAttributedString(string: "/mode ask")
-        await commands.command("/mode ask")
+        commands.draft = NSAttributedString(string: "/perms ask")
+        await commands.command("/perms ask")
         check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "chat mode change reconnects using the requested policy")
         commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
         commands.updateCommands("/fixture", caret: 8)
@@ -849,7 +853,7 @@ enum Check {
             let isolation = directory.appendingPathComponent("choice-isolation")
             let chooser = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("chooser")), bystander = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("bystander"))
             for session in [chooser, bystander] { session.connectionFactory = { account, _ in FixtureConnection(account) }; await session.connect(resume: nil) }
-            await chooser.command("/mode ask")
+            await chooser.command("/perms ask")
             await chooser.command("/account claude-second")
             check(chooser.activeMode == "ask" && chooser.account.id == "claude-second", "mode and account choices apply to their session")
             check(bystander.activeMode == "bypass" && bystander.available.first?.id == "claude-default" && (bystander.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never", "a session's mode and account choices leave other running sessions alone")
@@ -891,7 +895,7 @@ enum Check {
         first.draft = NSAttributedString(string: "New visible draft"); first.save()
         check(storedDraft(secondID).first?["text"] as? String == "New visible draft", "later saves cannot persist a stale command buffer")
         first.draft = NSAttributedString(string: "/review unfinished")
-        first.showCommands("/mode "); first.dismissCommands()
+        first.showCommands("/perms "); first.dismissCommands()
         check(first.draft.string == "/review unfinished", "shortcuts preserve slash-prefixed drafts too")
         first.showCommands("/profile broken"); await first.command("/profile broken")
         check(first.draft.string == "/review unfinished" && first.savedCommandDraft == nil, "failed configuration restores the original draft")
