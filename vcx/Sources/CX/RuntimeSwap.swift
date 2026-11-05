@@ -1,5 +1,10 @@
 import Darwin
 import Foundation
+import os
+
+// NSLog from a worker never reached the system log; os_log does, so `log show --predicate 'subsystem == "com.mr.vcx"'` finds swaps.
+private let swapLogger = OSLog(subsystem: "com.mr.vcx", category: "live-update")
+func swapLog(_ format: String, _ arguments: CVarArg...) { os_log("%{public}@", log: swapLogger, type: .default, String(format: format, arguments: arguments)) }
 
 @MainActor
 protocol AdoptableConnection: AnyObject {
@@ -99,8 +104,8 @@ final class RuntimeSwap {
         Task {
             defer { preflighting = false }
             do { try await RuntimeClient.preflight(executable: executable) }
-            catch { NSLog("VCX live update: preflight failed for build %@: %@", marker, error.localizedDescription); return }
-            NSLog("VCX live update: armed for build %@", marker)
+            catch { swapLog("VCX live update: preflight failed for build %@: %@", marker, error.localizedDescription); return }
+            swapLog("VCX live update: armed for build %@", marker)
             armed = marker; schedule(0.2)
         }
     }
@@ -123,7 +128,7 @@ final class RuntimeSwap {
         var arguments = CommandLine.arguments
         if let index = arguments.firstIndex(of: "--adopt"), index + 1 < arguments.count { arguments.removeSubrange(index...index + 1) }
         arguments[0] = executable.path; arguments += ["--adopt", file.path]
-        NSLog("VCX live update: executing build %@ with %d sessions", build, (manifest["sessions"] as? [JSON])?.count ?? 0)
+        swapLog("VCX live update: executing build %@ with %d sessions", build, (manifest["sessions"] as? [JSON])?.count ?? 0)
         fflush(stdout); fflush(stderr)
         let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
         argv.withUnsafeBufferPointer { _ = execv(executable.path, $0.baseAddress!) }
@@ -137,7 +142,7 @@ final class RuntimeSwap {
         if let file { try? FileManager.default.removeItem(at: file) }
         server.thawSwap()
         armed = nil; schedule(2)
-        NSLog("VCX live update: %@; staying on build %@", reason, RuntimeIdentity.build)
+        swapLog("VCX live update: %@; staying on build %@", reason, RuntimeIdentity.build)
     }
 
     // Blocking on purpose: an await here would let requests run between the freeze and execv.
@@ -177,9 +182,9 @@ final class RuntimeSwap {
             do {
                 sessions.append((id, session["revision"] as? Int ?? 0, session["lastSequence"] as? Int ?? 0, try SessionBackend(adopting: state)))
                 carried += (((state["connection"] as? JSON)?["agent"] as? JSON)?["leftover"] as? String).flatMap { Data(base64Encoded: $0) }?.count ?? 0
-            } catch { NSLog("VCX live update: session %@ was not adopted: %@", id, error.localizedDescription) }
+            } catch { swapLog("VCX live update: session %@ was not adopted: %@", id, error.localizedDescription) }
         }
         try server.adopt(listener: Int32(listener), lock: Int32(lock), closedIDs: manifest["closedIDs"] as? [String] ?? [], sessions: sessions)
-        NSLog("VCX live update: adopted %d sessions on build %@, carrying %d unparsed bytes", sessions.count, RuntimeIdentity.build, carried)
+        swapLog("VCX live update: adopted %d sessions on build %@, carrying %d unparsed bytes", sessions.count, RuntimeIdentity.build, carried)
     }
 }
