@@ -227,6 +227,7 @@ struct CXView: View {
     @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
     @State private var viewport = CGSize.zero
+    @State private var landed: UUID?
     @State private var openCapability: String?
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -417,19 +418,33 @@ struct CXView: View {
                     guard session.follow.attached else { return }
                     let animate = !reduceMotion && (sending.hasPending || sending.flight != nil)
                     DispatchQueue.main.async {
-                        if animate { withAnimation(.spring(duration: 0.42, bounce: 0.08)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+                        if animate {
+                            landed = conversationSections(session.rows).last?.id
+                            withAnimation(.spring(duration: 0.42, bounce: 0.08)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        } else if conversationSections(session.rows).last?.id != landed { land(proxy) }
                         else { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
                 .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
                 if !session.follow.attached {
-                    Button { session.follow.attached = true; proxy.scrollTo("bottom", anchor: .bottom) } label: {
+                    Button { session.follow.attached = true; land(proxy) } label: {
                         Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule())
                     }.buttonStyle(.reactive(Capsule())).padding(.bottom, 12)
                 }
             }
         }
         .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["transcript": geometry.frame(in: .named("conversation"))]) })
+    }
+
+    // Sent straight to the end, the lazy stack sizes the last exchange from the ones above; after taller exchanges it
+    // parked past the real end, blank until a manual scroll. Placed by its top first, the last exchange is measured and the
+    // end lands right. Only on a new last exchange: within one, it would flash its top while the answer streams.
+    private func land(_ proxy: ScrollViewProxy) {
+        guard let last = conversationSections(session.rows).last?.id else { return proxy.scrollTo("bottom", anchor: .bottom) }
+        landed = last
+        proxy.scrollTo(last, anchor: .top)
+        // A timer, not async: a main-queue block queued from one runs before SwiftUI applies the first scroll.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
     private func questionRow(_ question: Row, closesUp: Bool) -> some View {

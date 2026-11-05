@@ -1455,6 +1455,7 @@ enum Render {
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         followKeepsEnd(session: sticky)
         opensOnAnswer(directory: directory)
+        opensOnEnd(directory: directory)
         let work = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/work"))
         work.ready = true; work.status = "Ready"
         work.show(["id": "work-q1", "type": "userMessage", "content": [["type": "text", "text": "The first option button has a weird size. Make it the same as the others."]]])
@@ -1528,7 +1529,48 @@ enum Render {
         precondition(abs(after - end) < 1, "A revision moved a transcript scrolled to its end")
     }
     static func opensOnAnswer(directory: String) {
-        let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/opening"))
+        let (rep, frame) = opening(directory: directory, name: "opening") { session in
+            session.show(["id": "opening-question", "type": "userMessage", "content": [["type": "text", "text": (1...45).map { "- item-\($0)/repository (Python, 1,234★): a pasted line long enough to wrap https://example.com/item-\($0)" }.joined(separator: "\n")]]])
+            session.show(["id": "opening-action", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0])
+            session.show(["id": "opening-answer", "type": "agentMessage", "provider": "Claude", "text": (1...14).map { "- Answer line \($0), with [its link](https://example.com/answer-\($0))." }.joined(separator: "\n")])
+        }
+        let scale = CGFloat(rep.pixelsWide) / 1176
+        // Only left-aligned rows (work, answer) draw this close to the left edge; the question bubble starts 40 pt further in.
+        var ink = 0
+        for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 2) {
+            for x in stride(from: Int((frame.minX + 20) * scale), to: Int((frame.minX + 60) * scale), by: 2) where (rep.colorAt(x: x, y: y)?.brightnessComponent ?? 1) < 0.6 { ink += 1 }
+        }
+        print("Opening transcript: \(ink) dark samples beside the question")
+        precondition(ink > 50, "An opening session does not show its answer")
+    }
+    // A long session opens on the end of its last answer, as a session holding only that exchange does. Earlier exchanges
+    // taller than the last one made the lazy transcript overestimate it and park past the real end, blank until a manual scroll.
+    static func opensOnEnd(directory: String) {
+        let table = "| Item | What | Where |\n|---|---|---|\n" + (1...12).map { "| Item \($0) | a cell long enough to wrap onto a second line | source line \($0) |" }.joined(separator: "\n")
+        func exchange(_ id: String, lines: Int, tables: Int, _ session: Session) {
+            session.show(["id": id + "-question", "type": "userMessage", "content": [["type": "text", "text": (1...10).map { "\($0): a short numbered answer." }.joined(separator: "\n")]]])
+            session.show(["id": id + "-action", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0])
+            session.show(["id": id + "-answer", "type": "agentMessage", "provider": "Claude", "text": Array(repeating: table, count: tables).joined(separator: "\n\n") + "\n\n" + (1...lines).map { "- Line \($0) of \(id), with [its link](https://example.com/\(id)/\($0))." }.joined(separator: "\n")])
+        }
+        let (alone, frame) = opening(directory: directory, name: "opening-alone") { exchange("last", lines: 14, tables: 2, $0) }
+        let (long, _) = opening(directory: directory, name: "opening-long") { session in
+            for turn in 0..<20 { exchange("turn\(turn)", lines: 40, tables: 3, session) }
+            exchange("last", lines: 14, tables: 2, session)
+        }
+        let scale = CGFloat(alone.pixelsWide) / 1176
+        var differing = 0, total = 0
+        for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 3) {
+            for x in stride(from: Int(frame.minX * scale), to: Int(frame.maxX * scale), by: 3) {
+                total += 1
+                if abs((alone.colorAt(x: x, y: y)?.brightnessComponent ?? 1) - (long.colorAt(x: x, y: y)?.brightnessComponent ?? 1)) > 0.1 { differing += 1 }
+            }
+        }
+        print("Opening a long transcript: \(differing) of \(total) samples differ from its last exchange alone"); fflush(stdout)
+        precondition(differing * 100 < total, "A long session does not open on the end of its last answer")
+    }
+    // Opens a session as a runtime snapshot does and returns its picture with the transcript's frame in it.
+    static func opening(directory: String, name: String, show: (Session) -> Void) -> (NSBitmapImageRep, CGRect) {
+        let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/" + name))
         session.status = "Starting"
         let host = NSHostingView(rootView: CXView(session: session))
         host.appearance = NSAppearance(named: .aqua)
@@ -1540,26 +1582,18 @@ enum Render {
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
         // A runtime snapshot delivers the rows and the ready state together, as when a headless session is resumed.
-        session.show(["id": "opening-question", "type": "userMessage", "content": [["type": "text", "text": (1...45).map { "- item-\($0)/repository (Python, 1,234★): a pasted line long enough to wrap https://example.com/item-\($0)" }.joined(separator: "\n")]]])
-        session.show(["id": "opening-action", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0])
-        session.show(["id": "opening-answer", "type": "agentMessage", "provider": "Claude", "text": (1...14).map { "- Answer line \($0), with [its link](https://example.com/answer-\($0))." }.joined(separator: "\n")])
+        show(session)
         session.ready = true; session.status = "Ready"; session.revision += 1
         RunLoop.main.run(until: Date().addingTimeInterval(0.6)); host.layoutSubtreeIfNeeded()
         func scrolls(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrolls) }
         guard let scroll = scrolls(host).filter({ !($0.documentView is ComposerText) }).max(by: { $0.frame.width < $1.frame.width }),
               let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("Opening transcript not found") }
         host.cacheDisplay(in: host.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: directory + "/opening.png"))
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: directory + "/" + name + ".png"))
         var frame = scroll.convert(scroll.bounds, to: host)
         if !host.isFlipped { frame.origin.y = host.bounds.height - frame.maxY }
-        let scale = CGFloat(rep.pixelsWide) / host.bounds.width
-        // Only left-aligned rows (work, answer) draw this close to the left edge; the question bubble starts 40 pt further in.
-        var ink = 0
-        for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 2) {
-            for x in stride(from: Int((frame.minX + 20) * scale), to: Int((frame.minX + 60) * scale), by: 2) where (rep.colorAt(x: x, y: y)?.brightnessComponent ?? 1) < 0.6 { ink += 1 }
-        }
-        print("Opening transcript: offset \(Int(scroll.contentView.bounds.origin.y)) of \(Int(scroll.documentView?.frame.height ?? 0)), \(ink) dark samples beside the question")
-        precondition(ink > 50, "An opening session does not show its answer")
+        print("\(name): offset \(Int(scroll.contentView.bounds.origin.y)) of \(Int(scroll.documentView?.frame.height ?? 0))"); fflush(stdout)
+        return (rep, frame)
     }
     static func expansion(directory: String, session: Session) {
         let host = NSHostingView(rootView: CXView(session: session))
