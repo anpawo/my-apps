@@ -342,9 +342,7 @@ final class Session: ObservableObject {
             let result = try await connection.request("account/rateLimits/read")
             guard rpc === connection else { return }
             updateUsage(result["rateLimits"] as? JSON ?? [:])
-        } catch {
-            if rpc === connection { usage = "Usage unavailable"; usagePercent = nil }
-        }
+        } catch {}
     }
 
     func open(_ resume: String?, keepRows: Bool = false, selectedModel: String? = nil) async throws {

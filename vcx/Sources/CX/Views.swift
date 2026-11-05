@@ -528,8 +528,10 @@ struct CXView: View {
     private var usageStatus: some View {
         HStack(spacing: 8) {
             setting("Tokens", value: session.contextLabel, command: "/tokens", color: Color(red: 0.13, green: 0.39, blue: 0.67))
-            separator
-            quotaStatus
+            if session.account.provider != "qwen", session.usageLoading || !session.usage.isEmpty {
+                separator
+                quotaStatus
+            }
         }
     }
     private var quotaStatus: some View {

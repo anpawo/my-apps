@@ -1155,8 +1155,8 @@ enum Check {
             claudeContext.usageReader = { _ in [:] }
             do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
             await usageDisplay.refreshUsage()
-            check(usageDisplay.usage == "Usage unavailable", "failed usage refresh stays explicit without disconnecting")
-            check(usageDisplay.usagePercent == nil && !usageDisplay.usageLoading, "unavailable usage clears the old quota color and loading indicator")
+            check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk" && usageDisplay.usagePercent == 32, "a failed usage refresh keeps the last reported quota")
+            check(!usageDisplay.usageLoading, "a failed usage refresh stops the loading indicator")
         } catch { check(false, "Claude usage: " + error.localizedDescription) }
         claudeContext.event = { message in
             var message = message, params = message["params"] as? JSON ?? [:]
@@ -1171,6 +1171,8 @@ enum Check {
         claudeContext.receive(["type": "system", "subtype": "task_notification", "task_id": "fixture-task", "status": "completed"])
         claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": []])
         check(codexCommands.backgroundTasks == 0 && codexCommands.busy, "a finished background task starts Claude's own turn")
+        claudeContext.receive(["type": "rate_limit_event", "rate_limit_info": ["status": "allowed", "unifiedWindows": ["seven_day": ["utilization": 0.22, "resetsAt": 4_097_000_000, "status": "allowed"]]]])
+        check(codexCommands.usagePercent.map { abs($0 - 22) < 0.001 } == true && codexCommands.usage.hasPrefix("22% wk - reset "), "Claude's stream reports plan usage without polling the usage endpoint")
         claudeContext.receive(["type": "result"])
         check(!codexCommands.busy && codexCommands.status == "Ready", "Claude's background-task turn ends on its result")
         do {

@@ -335,7 +335,15 @@ final class ClaudeConnection: Connection {
             }
         case "rate_limit_event":
             let info = message["rate_limit_info"] as? JSON ?? [:]
-            emit("cx/claudeLimit", info)
+            // The stream carries the plan windows; polling /api/oauth/usage from every session gets HTTP 429.
+            var limits: JSON = [:]
+            for (source, target, minutes) in [("five_hour", "primary", 300), ("seven_day", "secondary", 10080)] {
+                guard let window = (info["unifiedWindows"] as? JSON)?[source] as? JSON, let used = (window["utilization"] as? NSNumber)?.doubleValue else { continue }
+                var rate: JSON = ["usedPercent": used * 100, "windowDurationMins": minutes]
+                rate["resetsAt"] = (window["resetsAt"] as? NSNumber)?.doubleValue
+                limits[target] = rate
+            }
+            if limits.isEmpty { emit("cx/claudeLimit", info) } else { emit("account/rateLimits/updated", ["rateLimits": limits]) }
             if info["status"] as? String == "rejected" { limit = info }
         case "result":
             // `model` can be "Claude" or an alias; modelUsage is keyed by the model that served the turn.
