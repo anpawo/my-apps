@@ -1217,6 +1217,11 @@ enum Check {
             animation.prepare(text: "Send this", images: [], rows: [old])
             animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: true)
             check(animation.flight == nil, "Reduce Motion skips the send flight")
+            let updates = NSMutableArray()
+            for _ in 0..<10 { animation.receive([:], rows: { updates.add(1); return [] }, reduceMotion: false) }
+            check(updates.count == 4, "a layout loop of frame updates stops after four in one run loop turn")
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            check(updates.count == 5, "the latest frames of a cut burst apply on the next turn")
         }
         do {
             let submission = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("send-animation"))

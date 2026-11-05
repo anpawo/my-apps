@@ -137,6 +137,23 @@ final class SendAnimation: ObservableObject {
         let date = Date()
     }
     var hasPending: Bool { pending != nil }
+    private var burst = 0
+    private var queued: [String: CGRect]?
+
+    /// On 2026-11-05 the frontend logged "MessageFrames tried to update multiple times per frame" and never left SwiftUI's
+    /// flush again, so no click, key or new-window request was handled. Past a few updates in one run loop turn, the
+    /// latest frames wait for the next turn, which ends such a loop. Not every update: one turn late, the sent message
+    /// vanished for three frames before its flight.
+    func receive(_ frames: [String: CGRect], rows: @escaping @MainActor () -> [Row], reduceMotion: Bool) {
+        burst += 1
+        if burst == 1 {
+            DispatchQueue.main.async { [self] in
+                burst = 0
+                if let frames = queued { queued = nil; update(frames: frames, rows: rows(), reduceMotion: reduceMotion) }
+            }
+        }
+        if burst <= 4 { update(frames: frames, rows: rows(), reduceMotion: reduceMotion) } else { queued = frames }
+    }
 
     func prepare(text: String, images: [String], rows: [Row], snapshot: ComposerSnapshot? = nil) {
         let content: [JSON] = (text.isEmpty ? [] : [["type": "text", "text": text]]) + images.map { ["type": "localImage", "path": $0] }
@@ -158,8 +175,10 @@ final class SendAnimation: ObservableObject {
         if let flight {
             if reduceMotion || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
                 self.flight = nil; generation += 1; moving = false
-            } else if let measured = frames[flight.item.id], target(measured) != flight.destination {
-                let destination = target(measured)
+            // Sub-point remeasures are ignored, so a frame that jitters between layout passes cannot keep republishing the flight.
+            } else if let measured = frames[flight.item.id], case let destination = target(measured),
+                      [destination.minX - flight.destination.minX, destination.minY - flight.destination.minY,
+                       destination.width - flight.destination.width, destination.height - flight.destination.height].contains(where: { abs($0) >= 0.5 }) {
                 self.flight?.destination = destination
                 if moving { move(to: destination) }
             }
@@ -265,7 +284,7 @@ struct CXView: View {
         .coordinateSpace(name: "conversation")
         .environmentObject(sending)
         .onPreferenceChange(MessageFrames.self) { frames in
-            sending.update(frames: frames, rows: session.rows, reduceMotion: reduceMotion)
+            sending.receive(frames, rows: { session.rows }, reduceMotion: reduceMotion)
         }
         .overlay(alignment: .topLeading) {
             if let flight = sending.flight {
