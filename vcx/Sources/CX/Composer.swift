@@ -81,7 +81,7 @@ private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachment
     return ChipCell(imageCell: image)
 }
 
-private let commandWordPattern = try! NSRegularExpression(pattern: #"(?<![\w/:.\-])/?([\w\-]+(?::[\w\-]+)*)(?![\w/\-]|[.:]\w)"#)
+private let commandWordPattern = try! NSRegularExpression(pattern: #"(?<![\w/:.\-])([\w\-]+(?::[\w\-]+)*)(?![\w/\-]|[.:]\w)"#)
 private let commandTint = NSColor(red: 0.43, green: 0.23, blue: 0.75, alpha: 0.16)
 
 enum InputPiece { case text(String), image(String) }
@@ -260,7 +260,7 @@ final class ComposerText: NSTextView {
         }
         highlightCommands()
     }
-    // Words naming a command light up, typed with or without "/"; display only, never stored.
+    // Words naming a command light up when typed without "/"; display only, never stored.
     func highlightCommands() {
         guard let manager = layoutManager, let words = session?.commandWords else { return }
         let text = string as NSString, all = NSRange(location: 0, length: text.length)

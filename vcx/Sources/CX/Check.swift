@@ -1027,6 +1027,13 @@ enum Check {
             ranking.lockCommand("/skills", "/codex:skill:skills", space: true, in: NSRange(location: 0, length: 0))
             check(ranking.draft.commandText.hasPrefix("/codex:skill:skills please /sm"), "a leading chip runs its real value, a later one sends the name typed")
             check(ranking.commandWords.contains("sm") && ranking.commandWords.contains("model") && !ranking.commandWords.contains("theme"), "command words cover what runs here, not terminal-only commands")
+            let tintStorage = NSTextStorage(), tintManager = NSLayoutManager(), tintContainer = NSTextContainer(size: NSSize(width: 600, height: 150))
+            tintStorage.addLayoutManager(tintManager); tintManager.addTextContainer(tintContainer)
+            let tinted = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 24), textContainer: tintContainer)
+            tinted.heldStorage = tintStorage
+            tinted.session = ranking; tinted.setDraft(NSAttributedString(string: "plan /model"))
+            let tint = { (at: Int) -> Bool in tintManager.temporaryAttribute(NSAttributedString.Key.backgroundColor, atCharacterIndex: at, effectiveRange: nil) != nil }
+            check(tint(0) && !tint(5) && !tint(6), "a bare command word lights up, a slash command does not")
             ranking.updateCommands("/", caret: 1)
             check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
             ranking.close()
