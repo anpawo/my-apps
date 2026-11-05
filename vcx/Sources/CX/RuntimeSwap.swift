@@ -3,8 +3,12 @@ import Foundation
 import os
 
 // NSLog from a worker never reached the system log; os_log does, so `log show --predicate 'subsystem == "com.mr.vcx"'` finds swaps.
+// stderr too: the live update check reads the worker's stderr.
 private let swapLogger = OSLog(subsystem: "com.mr.vcx", category: "live-update")
-func swapLog(_ format: String, _ arguments: CVarArg...) { os_log("%{public}@", log: swapLogger, type: .default, String(format: format, arguments: arguments)) }
+func swapLog(_ format: String, _ arguments: CVarArg...) {
+    let message = String(format: format, arguments: arguments)
+    os_log("%{public}@", log: swapLogger, type: .default, message); fputs(message + "\n", stderr)
+}
 
 @MainActor
 protocol AdoptableConnection: AnyObject {
