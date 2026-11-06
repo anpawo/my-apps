@@ -364,7 +364,7 @@ extension Session {
             case "/perms":
                 guard !argument.isEmpty else { showCommands("/perms ", preserveDraft: false); return }
                 guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /perms bypass or /perms ask.") }
-                try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await reconnect(reason: "permission mode changed")
+                try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await switchMode()
             case "/account":
                 guard !argument.isEmpty else { showCommands("/account ", preserveDraft: false); return }
                 try idle()

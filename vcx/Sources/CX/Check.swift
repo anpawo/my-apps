@@ -500,6 +500,8 @@ enum Check {
             let catalog = try await claude.request("cx/catalog")
             check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
             check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
+            let switched = try await claude.request("cx/mode", ["mode": "ask"]), followed = try await claude.request("cx/catalog")
+            check(switched["mode"] as? String == "default" && followed["current_permission_mode"] as? String == "default", "Claude switches to ask through set_permission_mode, and its catalog follows")
             check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
             check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
             check((catalog["models"] as? [JSON])?.compactMap { $0["value"] as? String } == ["fixture-claude"] && claude.model == "fixture-claude-1", "Claude resolves the default model and hides the default entry")
@@ -683,10 +685,13 @@ enum Check {
             await reconnecting.send(text: "First task", images: [])
             for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
             await reconnecting.command("/perms ask")
+            check(fixtures.count == 1 && fixtures.last?.modes == ["ask"] && reconnecting.activeMode == "ask" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Permission mode changed to Ask for approval.",
+                  "/perms switches Claude's permission mode live, without a restart")
+            await reconnecting.command("/reconnect")
             let reason = reconnecting.rows.last?.items.first?.data["text"] as? String
             await reconnecting.send(text: "Second task", images: [])
             let resumedInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
-            check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: permission mode changed. Context kept." && resumedInput.first?["text"] as? String == "Second task",
+            check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: reconnect requested. Context kept." && resumedInput.first?["text"] as? String == "Second task",
                   "a reconnect resumes Claude's own thread without pasting the chat, and says why")
             for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
             reconnecting.event(["method": "cx/resumeFailed", "params": [:]])
@@ -696,7 +701,23 @@ enum Check {
             check(fixtures.count == 3 && fixtures.last?.opened.last?["threadId"] == nil && (fallbackInput.first?["text"] as? String)?.hasPrefix("Context from this conversation") == true
                   && reconnecting.rows.contains { $0.items.first?.data["text"] as? String == "Claude could not resume this conversation, so a new one started. Recent messages are passed to it as context." },
                   "a failed resume falls back to the handoff and says so")
+            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            fixtures.last?.failMode = true
+            await reconnecting.command("/perms bypass")
+            check(fixtures.count == 4 && reconnecting.activeMode == "bypass" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Reconnected to Claude: permission mode changed. Context kept.",
+                  "a Claude that refuses the live switch is restarted in the new mode")
             reconnecting.close()
+        }
+        do {
+            let codex = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-mode-state"))
+            let fixture = FixtureConnection(Account(id: "codex-default", name: "Default Codex", provider: "codex"))
+            codex.providerChoice = "codex"; codex.connectionFactory = { _, _ in fixture }
+            try? await codex.activate(fixture.account, resume: nil, keepRows: false)
+            await codex.command("/perms ask")
+            await codex.send(text: "Codex task", images: [])
+            check(fixture.opened.count == 1 && codex.activeMode == "ask" && fixture.sent.last?["approvalPolicy"] as? String == "on-request" && (fixture.sent.last?["sandboxPolicy"] as? JSON)?["type"] as? String == "workspaceWrite",
+                  "Codex takes a new permission mode with its next turn, without a restart")
+            codex.close()
         }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         session.connectionFactory = { account, _ in
@@ -965,7 +986,7 @@ enum Check {
         commands.statusCommand("/perms ")
         commands.chooseCommand(commands.commandOptions[1])
         for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "footer mode selection executes the permission command without Return")
+        check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask"], "footer mode selection executes the permission command without Return")
         check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
         commands.statusCommand("/tokens")
         for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
@@ -976,7 +997,7 @@ enum Check {
         check(commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
         commands.draft = NSAttributedString(string: "/perms ask")
         await commands.command("/perms ask")
-        check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "on-request", "chat mode change reconnects using the requested policy")
+        check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask", "ask"], "chat mode change applies the requested policy live")
         commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
         commands.updateCommands("/fixture", caret: 8)
         check(commands.commandOptions.count == 2, "provider commands and aliases appear in slash search")
@@ -1885,6 +1906,8 @@ final class FixtureConnection: Connection {
     var closed = false
     var unread: Set<String> = []
     var fleetFile: String?
+    var modes: [String] = []
+    var failMode = false
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
@@ -1924,6 +1947,7 @@ final class FixtureConnection: Connection {
         case "turn/interrupt": event(["method": "turn/completed", "params": ["turn": ["id": pendingTurn, "status": "interrupted"]]]); return [:]
         case "cx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
         case "account/rateLimits/read": usageReads += 1; return [:]
+        case "cx/mode": if failMode { throw CXError(message: "bypass_not_launched") }; modes.append(params["mode"] as? String ?? ""); return [:]
         default: return [:]
         }
     }

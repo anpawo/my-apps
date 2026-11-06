@@ -196,6 +196,7 @@ final class Session: ObservableObject {
     private var pendingLimit: JSON?
     private var resumeTask: Task<Void, Never>?
     private var autoResumes = 0
+    private var modeOverride = false
     var online: () async -> Bool = Session.reachesInternet
     var resumePoll: UInt64 = 10_000_000_000
     var rateLimitRetries: [Double] = [10, 30, 60]
@@ -366,7 +367,7 @@ final class Session: ObservableObject {
             bufferedEvents.removeAll()
             for message in pending { event(message) }
         }
-        activeMode = preferredMode
+        activeMode = preferredMode; modeOverride = false
         var params: JSON = ["cwd": cwd, "approvalPolicy": activeMode == "bypass" ? "never" : "on-request", "sandbox": activeMode == "bypass" ? "danger-full-access" : "workspace-write"]
         params["developerInstructions"] = developerInstructions
         if account.provider == "codex", resume == nil { params["dynamicTools"] = [ClaudeCompatibility.questionTool] }
@@ -642,7 +643,7 @@ final class Session: ObservableObject {
         if text.hasPrefix("/"), images.isEmpty || providerSkill(text) != nil, !commandHandled, !retry { await command(text, images: images); return }
         guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
         if !testing, !busy, !retry, activeMode != preferredMode {
-            await reconnect(reason: "permission mode changed in Settings")
+            await switchMode()
             guard ready else { return }
         }
         if !testing, !busy, !retry {
@@ -681,6 +682,11 @@ final class Session: ObservableObject {
         if !wasBusy, let effort { params["effort"] = effort }
         if !wasBusy, account.provider == "codex" {
             params["collaborationMode"] = ["mode": planning ? "plan" : "default", "settings": ["model": model, "reasoning_effort": (effort ?? defaultEffort) as Any? ?? NSNull(), "developer_instructions": NSNull()]]
+            // Codex takes a new mode with a turn and keeps it for the turns after.
+            if modeOverride {
+                params["approvalPolicy"] = activeMode == "bypass" ? "never" : "on-request"
+                params["sandboxPolicy"] = activeMode == "bypass" ? ["type": "dangerFullAccess"] : ["type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false] as JSON
+            }
         }
         if wasBusy { params["expectedTurnId"] = turnID }
         do {
@@ -976,6 +982,17 @@ final class Session: ObservableObject {
             await refreshCatalog()
             await send(text: input.0, images: input.1, retry: true)
         } catch { notice("Could not connect to the fallback: " + error.localizedDescription); status = "Fallback connection failed" }
+    }
+
+    // The running agent takes the new mode; one that refuses it (a Claude an older build started) is restarted.
+    func switchMode() async {
+        let next = preferredMode
+        guard ready else { await reconnect(reason: "permission mode changed"); return }
+        do {
+            if account.provider == "codex" { modeOverride = true } else { _ = try await rpc.request("cx/mode", ["mode": next], timeout: 20) }
+            activeMode = next; save()
+            notice("Permission mode changed to " + mode + ".")
+        } catch { await reconnect(reason: "permission mode changed") }
     }
 
     func reconnect(reason: String = "reconnect requested") async {
@@ -1340,7 +1357,7 @@ final class Session: ObservableObject {
     func swapState() -> JSON? {
         guard !busy, !changing, !submitting, !transferring, !loading, pendingLimit == nil, pendingInput == nil, pendingActivation == nil, permissions.isEmpty else { return nil }
         flush()
-        var state: JSON = ["seen": Array(seen), "injectedContext": injectedContext, "testing": testing, "fleetContextFile": fleetContextFile.path, "autoResumes": autoResumes]
+        var state: JSON = ["seen": Array(seen), "injectedContext": injectedContext, "testing": testing, "fleetContextFile": fleetContextFile.path, "autoResumes": autoResumes, "modeOverride": modeOverride]
         state["providerChoice"] = providerChoice; state["accountChoice"] = accountChoice; state["modeChoice"] = modeChoice
         return state
     }
@@ -1351,6 +1368,7 @@ final class Session: ObservableObject {
         injectedContext = state["injectedContext"] as? String ?? ""
         testing = state["testing"] as? Bool ?? false
         autoResumes = state["autoResumes"] as? Int ?? 0
+        modeOverride = state["modeOverride"] as? Bool ?? false
         providerChoice = state["providerChoice"] as? String; accountChoice = state["accountChoice"] as? String; modeChoice = state["modeChoice"] as? String
         if let path = state["fleetContextFile"] as? String {
             try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())

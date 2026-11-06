@@ -60,6 +60,9 @@ else:
                     response = {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture settings rejected'} if error else {'subtype': 'success', 'request_id': message['request_id'], 'response': {'settings': settings}}
                     send({'type': 'control_response', 'response': response})
                     continue
+                if subtype == 'set_permission_mode':
+                    send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': {'mode': message['request']['mode']}}})
+                    continue
                 if subtype == 'set_model' and message['request'].get('model') == 'reject-me':
                     send({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': message['request_id'], 'error': 'Fixture model rejected'}})
                     continue

@@ -143,7 +143,7 @@ final class ClaudeConnection: Connection {
     private func launch(resume: Bool) throws {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
+        process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default", "--allow-dangerously-skip-permissions"] +
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
         process.environment = agentEnvironment(account, fleet: fleetFile)
@@ -240,6 +240,12 @@ final class ClaudeConnection: Connection {
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
         case "turn/interrupt": stopped = true; try control(["subtype": "interrupt"]); return [:]
+        // Claude refuses bypass live unless it was launched with --allow-dangerously-skip-permissions, which an older VCX build did not pass.
+        case "cx/mode":
+            let value = params["mode"] as? String == "bypass" ? "bypass" : "ask", native = value == "bypass" ? "bypassPermissions" : "default"
+            var result: JSON = [:]
+            if process != nil { result = try await controlResult(["subtype": "set_permission_mode", "mode": native], timeout: 15); metadata?["current_permission_mode"] = native }
+            mode = value; return result
         // Claude drops a prompt only while it waits in its queue; once the turn has taken it in, it answers cancelled: false.
         case "cx/unsend":
             guard let id = params["id"] as? String else { throw CXError(message: "Missing message ID.") }
@@ -530,7 +536,7 @@ final class QwenConnection: Connection {
     private var developerInstructions = ""
     private var task: Task<Void, Never>?
     private var turn = ""
-    let preferences: Preferences
+    var preferences: Preferences
     private(set) var cwd: String
     private let initialDirectory: String
     var fleetFile: String?
@@ -563,6 +569,7 @@ final class QwenConnection: Connection {
             return ["thread": ["id": thread], "model": selectedModel ?? preferences.qwenModel]
         case "thread/turns/list", "thread/list": return ["data": []]
         case "account/rateLimits/read": return [:]
+        case "cx/mode": preferences.mode = params["mode"] as? String == "bypass" ? "bypass" : "ask"; return [:]
         case "model/list": return ["data": [["id": preferences.qwenModel], ["id": preferences.qwenVisionModel]]]
         case "turn/start":
             if let path = params["cwd"] as? String, let directory = workingDirectory(path, within: initialDirectory) { cwd = directory }
