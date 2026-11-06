@@ -179,6 +179,34 @@ enum BugCheck {
                 let pinned = height(true), full = height(false)
                 print("Question with six lines and two pictures: \(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
                 check(pinned < 160 && full > pinned + 40, "a pinned question keeps two lines and one row of pictures until hovered")
+                // Sampled at 60 fps, the opening bubble grows through several heights and never shrinks back.
+                let hover = HoverProbe.State()
+                let host = NSHostingView(rootView: HoverProbe(state: hover, item: item, session: asking).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 1200)
+                let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host
+                defer { window.close() }
+                host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                var halfway: NSBitmapImageRep?
+                func tinted() -> Int {
+                    host.layoutSubtreeIfNeeded()
+                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let x = Int(922 * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+                    let rows = (0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
+                    if halfway == nil, rows > 400, rows < 560 { halfway = bitmap }
+                    return rows
+                }
+                var heights = [tinted()]
+                let start = Date()
+                withAnimation(UserBubble.opening(reduceMotion: false)) { hover.open = true }
+                for frame in 1...30 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); heights.append(tinted()) }
+                print("Bubble opening, tinted rows per frame: " + heights.map(String.init).joined(separator: " "))
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let png = halfway?.representation(using: .png, properties: [:]) {
+                    try? png.write(to: URL(fileURLWithPath: destination).appendingPathComponent("bubble-opening.png"))
+                }
+                check(Set(heights).count >= 6 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
+                      "hovering opens a pinned question in one smooth motion")
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
@@ -252,4 +280,13 @@ enum BugCheck {
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }
+}
+
+// Stands in for the pointer: hovering only flips a state inside an animation.
+struct HoverProbe: View {
+    final class State: ObservableObject { @Published var open = false }
+    @ObservedObject var state: State
+    let item: Item
+    let session: Session
+    var body: some View { UserBubble(item: item, session: session, collapsible: !state.open) }
 }

@@ -867,6 +867,8 @@ struct UserBubble: View {
     var collapsible = false
     @State private var hovering = false
     @EnvironmentObject private var sending: SendAnimation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering
         HStack {
@@ -880,7 +882,7 @@ struct UserBubble: View {
                         let frame = geometry.frame(in: .named("conversation"))
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
                     })
-                    .onHover { hovering = $0 }
+                    .onHover { inside in withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = inside } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
@@ -906,6 +908,7 @@ struct MessageContent: View {
             ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, run in
                 if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
                     Text(text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                        .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
                 } else { PictureRow(pieces: run, preview: preview) }
             }
         }
