@@ -1468,7 +1468,10 @@ final class Session: ObservableObject {
                 itemMap = itemMap.filter { retained.contains($0.key) }
             }
         }
-        applyRuntimeDraft(value); revision += 1
+        applyRuntimeDraft(value)
+        // A revision scrolls the chat to its end. Each key typed comes back as a draft patch: scrolled on every key, the
+        // lazy transcript once re-measured itself mid-frame and stayed blank until the next message (06/11, typing /sm).
+        if value["items"] != nil || value["rowUpdates"] != nil || value["rowOrder"] != nil { revision += 1 }
     }
 
     func close() {

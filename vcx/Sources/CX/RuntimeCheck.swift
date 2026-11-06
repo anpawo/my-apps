@@ -80,7 +80,8 @@ enum RuntimeCheck {
         let rows = session.rows, items = session.rows.flatMap(\.items), revision = session.revision
         try await frontend.checkpoint(draft: [["text": "newer fixture draft"]], generation: 2)
         for _ in 0..<100 where session.draftGeneration < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
-        try check(session.draftGeneration == 2 && session.draft.string == "newer fixture draft" && session.revision > revision, "ordered checkpoint update did not reach projection")
+        try check(session.draftGeneration == 2 && session.draft.string == "newer fixture draft", "ordered checkpoint update did not reach projection")
+        try check(session.revision == revision, "a draft checkpoint scrolled the chat")
         try await frontend.checkpoint(draft: [["text": "older fixture draft"]], generation: 1)
         try check(session.draftGeneration == 2 && session.draft.string == "newer fixture draft", "older checkpoint replaced newer draft")
         try check(zip(rows, session.rows).allSatisfy { $0 === $1 } && rows.count == session.rows.count, "checkpoint replaced row objects")
