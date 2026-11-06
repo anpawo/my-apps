@@ -272,7 +272,7 @@ final class ComposerText: NSTextView {
         }
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
-    override func didChangeText() { lastPaste = nil; highlightCommands(); super.didChangeText(); needsDisplay = true }
+    override func didChangeText() { highlightCommands(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
@@ -305,7 +305,6 @@ final class ComposerText: NSTextView {
         return true
     }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { paste(from: sender.draggingPasteboard) }
-    private var lastPaste: PasteChip?
     func putImage(_ path: String) {
         guard session?.frontendReplacing != true else { return }
         insertPiece(NSAttributedString(attachment: ImageChip(path: path, number: chips(ImageChip.self) + 1)))
@@ -314,12 +313,11 @@ final class ComposerText: NSTextView {
         guard session?.frontendReplacing != true else { return }
         let chip = PasteChip(text: text, number: chips(PasteChip.self) + 1)
         insertPiece(NSAttributedString(attachment: chip))
-        lastPaste = chip
     }
     func expandPaste() -> Bool {
         let caret = selectedRange()
-        guard let chip = lastPaste, caret.length == 0, caret.location > 0,
-              textStorage?.attribute(.attachment, at: caret.location - 1, effectiveRange: nil) as? PasteChip === chip else { return false }
+        guard caret.length == 0, caret.location > 0,
+              let chip = textStorage?.attribute(.attachment, at: caret.location - 1, effectiveRange: nil) as? PasteChip else { return false }
         insertPiece(NSAttributedString(string: chip.text), replacing: NSRange(location: caret.location - 1, length: 1))
         return true
     }
