@@ -1067,7 +1067,7 @@ enum Check {
             tinted.heldStorage = tintStorage
             tinted.session = ranking; tinted.setDraft(NSAttributedString(string: "plan /model"))
             let tint = { (at: Int) -> Bool in tintManager.temporaryAttribute(NSAttributedString.Key.backgroundColor, atCharacterIndex: at, effectiveRange: nil) != nil }
-            check(tint(0) && !tint(5) && !tint(6), "a bare command word lights up, a slash command does not")
+            check(!tint(0) && tint(5) && tint(6), "a slash command lights up, a bare command word does not")
             ranking.updateCommands("/", caret: 1)
             check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
             ranking.close()
