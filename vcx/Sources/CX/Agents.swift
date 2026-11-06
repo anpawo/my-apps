@@ -629,7 +629,7 @@ final class QwenConnection: Connection {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
         var outgoing = messages
-        outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
+        outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + qwenProjectRule(cwd) + "\n" + developerInstructions
         request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
@@ -665,7 +665,7 @@ final class QwenConnection: Connection {
         }
         let process = Process(), output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-lc", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd); process.environment = agentEnvironment()
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd); process.environment = agentEnvironment().merging(["VCX_THREAD_ID": thread]) { $1 }
         process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = output
         try process.run(); commandProcess = process
         let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }
@@ -696,6 +696,15 @@ final class QwenConnection: Connection {
         for continuation in permissions.values { continuation.resume(returning: false) }
         permissions.removeAll(); task = nil; network?.invalidateAndCancel()
     }
+}
+
+// Claude picks its project from his CLAUDE.md; Qwen reads none, so it gets the same rule here. A standalone cd moves the window.
+func qwenProjectRule(_ cwd: String) -> String {
+    let root = NSHomeDirectory() + "/self"
+    guard !cwd.hasPrefix(root + "/"), let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { return "" }
+    var directory: ObjCBool = false
+    let projects = names.filter { !$0.hasPrefix(".") && FileManager.default.fileExists(atPath: root + "/" + $0, isDirectory: &directory) && directory.boolValue }.sorted()
+    return "His projects are the folders of ~/self: " + projects.joined(separator: ", ") + ". When a request is about one of them, your first tool call is run_command with exactly `cd ~/self/<folder>` and nothing else; then do the task. Requests about Qwen itself (its models, llama.cpp, Ollama, fuse, this Qwen adapter) go to ~/self/qwen."
 }
 
 func validQwenProxy(_ text: String) -> Bool {

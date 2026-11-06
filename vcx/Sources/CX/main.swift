@@ -247,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 createWindow(options)
             } catch { NSLog("VCX open request: %@", error.localizedDescription) }
         }
+        AgentMessages.drain(windows)
     }
 
     func replaceFrontend() {
@@ -425,6 +426,8 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
     arguments.withUnsafeBufferPointer { _ = execv("/usr/bin/python3", $0.baseAddress!) }
     perror("vcx"); exit(1)
 }
+if args.first == "--sessions" { exit(AgentMessages.list()) }
+if args.first == "--send" { exit(AgentMessages.send(Array(args.dropFirst()))) }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }
 if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--icon"].contains($0) }) {
