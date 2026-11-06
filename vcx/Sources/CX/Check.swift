@@ -494,10 +494,12 @@ enum Check {
             if message["method"] as? String == "turn/started" { claudeStarts += 1 }
         }
         do {
+            claude.fleetFile = "/tmp/vcx-fixture-fleet"
             try await claude.start(command: ["python3", fixture, "claude"])
             _ = try await claude.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
             let catalog = try await claude.request("cx/catalog")
             check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
+            check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
             check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
             check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
             check((catalog["models"] as? [JSON])?.compactMap { $0["value"] as? String } == ["fixture-claude"] && claude.model == "fixture-claude-1", "Claude resolves the default model and hides the default entry")
@@ -705,7 +707,21 @@ enum Check {
         }
         await session.connect(resume: nil)
         check(session.ready && session.account.provider == "claude", "Claude is the default")
-        check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == session.fleetInstructions, "native thread creation supplies the session's exact Fleet context path")
+        check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == Session.agentInstructions && connections["claude-default"]?.fleetFile == session.fleetContextFile.path,
+              "Claude gets the session's Fleet file through FLEET_CONTEXT_FILE, not a label or cd rule in its prompt")
+        check(agentEnvironment(fleet: "/tmp/fleet-a")["FLEET_CONTEXT_FILE"] == "/tmp/fleet-a" && agentEnvironment()["FLEET_CONTEXT_FILE"] == nil, "an agent's FLEET_CONTEXT_FILE is its own session's, never an inherited one")
+        do {
+            let home = directory.appendingPathComponent("fleet-home")
+            try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            try? "## Style\nShort.\n\n## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".\n\n## Next\nOther.\n".write(to: home.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+            check(ClaudeCompatibility(cwd: home.path, home: home.path).fleetSection == "## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".", "Qwen's Fleet rule is the CLAUDE.md section that names FLEET_CONTEXT_FILE")
+            let qwen = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-state")), fixture = FixtureConnection(Account(id: "qwen", name: "Qwen", provider: "qwen"))
+            qwen.connectionFactory = { _, _ in fixture }
+            try? await qwen.activate(fixture.account, resume: nil, keepRows: false)
+            let text = fixture.opened.first?["developerInstructions"] as? String ?? ""
+            check(fixture.fleetFile == qwen.fleetContextFile.path && text.hasSuffix(Session.projectAdvice + "\n\n" + Session.agentInstructions) && !text.contains(qwen.fleetContextFile.path), "Qwen, which reads no CLAUDE.md, gets its Fleet file and the project advice")
+            qwen.close()
+        }
         try! "Build feature".write(to: session.fleetContextFile, atomically: true, encoding: .utf8)
         Settings.shared.value.provider = "claude"; Settings.shared.save()
         session.draft = NSAttributedString(string: "Build the feature")
@@ -713,7 +729,7 @@ enum Check {
         check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
         for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
         check(session.account.provider == "codex", "explicit limit falls back to Codex")
-        check(session.fleetContext == "Build feature" && (connections["codex-default"]?.opened.first?["developerInstructions"] as? String)?.hasSuffix(session.fleetInstructions) == true, "provider fallback retains context and supplies it to Codex")
+        check(session.fleetContext == "Build feature" && (connections["codex-default"]?.opened.first?["developerInstructions"] as? String)?.hasSuffix(Session.agentInstructions) == true, "provider fallback retains context and supplies it to Codex")
         check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
         check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
         check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
@@ -1868,6 +1884,7 @@ final class FixtureConnection: Connection {
     var hold = false
     var closed = false
     var unread: Set<String> = []
+    var fleetFile: String?
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }

@@ -93,6 +93,7 @@ final class ClaudeConnection: Connection {
     let account: Account
     private(set) var cwd: String
     private let initialDirectory: String
+    var fleetFile: String?
     var thread = "claude:" + UUID().uuidString.lowercased()
     var model = "Claude"
     var history = ""
@@ -145,7 +146,7 @@ final class ClaudeConnection: Connection {
         process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
-        process.environment = agentEnvironment(account)
+        process.environment = agentEnvironment(account, fleet: fleetFile)
         // Claude names a --resume ID it cannot find only on stderr. An unlinked file, unlike a pipe, still takes writes after a live swap ends this process.
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-claude-" + UUID().uuidString)
         FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
@@ -532,6 +533,7 @@ final class QwenConnection: Connection {
     let preferences: Preferences
     private(set) var cwd: String
     private let initialDirectory: String
+    var fleetFile: String?
     private var selectedModel: String?
     private var permissions: [String: CheckedContinuation<Bool, Never>] = [:]
     private var commandProcess: Process?
@@ -671,7 +673,7 @@ final class QwenConnection: Connection {
         }
         let process = Process(), output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh"); process.arguments = ["-lc", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd); process.environment = agentEnvironment().merging(["VCX_THREAD_ID": thread]) { $1 }
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd); process.environment = agentEnvironment(fleet: fleetFile).merging(["VCX_THREAD_ID": thread]) { $1 }
         process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = output
         try process.run(); commandProcess = process
         let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }

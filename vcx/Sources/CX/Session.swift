@@ -227,9 +227,9 @@ final class Session: ObservableObject {
     }
     var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
-    var fleetInstructions: String {
-        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions. Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands. To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id> \"<message>\"`; a message that starts with [Agent message via VCX, not from Marius] came from such an agent, not from him."
-    }
+    // His CLAUDE.md labels Fleet through FLEET_CONTEXT_FILE and picks the project; this is what only VCX knows.
+    static let agentInstructions = "To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id> \"<message>\"`; a message that starts with [Agent message via VCX, not from Marius] came from such an agent, not from him."
+    static let projectAdvice = "Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands."
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
     var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
@@ -269,7 +269,7 @@ final class Session: ObservableObject {
         do {
             testing = command != nil
             if testing {
-                let connection = RPC(); connection.cwd = cwd
+                let connection = RPC(); connection.cwd = cwd; connection.fleetFile = fleetContextFile.path
                 rpc = connection
                 account = Account(id: "codex-default", name: "Default Codex", provider: "codex")
                 providerLabel = "Codex"
@@ -859,6 +859,7 @@ final class Session: ObservableObject {
             let connection = RPC(); connection.account = next; connection.cwd = cwd; rpc = connection
         }
         }
+        rpc.fleetFile = fleetContextFile.path
         rpc.event = { [weak self] message in self?.event(message) }
         do {
             try await rpc.start(command: nil)
@@ -1355,7 +1356,7 @@ final class Session: ObservableObject {
             try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())
             fleetContextFile = URL(fileURLWithPath: path)
         }
-        rpc = connection; rpc.event = { [weak self] message in self?.event(message) }
+        rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.event = { [weak self] message in self?.event(message) }
         save()
     }
 

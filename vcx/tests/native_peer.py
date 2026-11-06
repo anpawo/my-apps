@@ -1,5 +1,6 @@
 import http.server
 import json
+import os
 import shlex
 import sys
 
@@ -65,6 +66,8 @@ else:
                 result = {'commands': [{'name': 'fixture-skill', 'description': 'Fixture skill', 'aliases': ['fixture-alias']}], 'models': [{'value': 'default', 'resolvedModel': 'fixture-claude-1'}, {'value': 'fixture-claude', 'resolvedModel': 'fixture-claude-1'}], 'current_permission_mode': 'bypassPermissions'} if subtype == 'initialize' else {'mcpServers': [{'name': 'fixture-mcp', 'status': 'connected'}]}
                 if subtype == 'initialize' and '--append-system-prompt' in sys.argv:
                     result['appendedSystemPrompt'] = sys.argv[sys.argv.index('--append-system-prompt') + 1]
+                if subtype == 'initialize' and 'FLEET_CONTEXT_FILE' in os.environ:
+                    result['fleetContextFile'] = os.environ['FLEET_CONTEXT_FILE']
                 send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})
             if message.get('type') == 'user':
                 uuid, text = message.get('uuid'), ''.join(block.get('text', '') for block in message['message']['content'])

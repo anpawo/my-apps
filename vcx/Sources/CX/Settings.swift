@@ -166,7 +166,7 @@ func parseLoginEnvironment(_ data: Data) -> [String: String]? {
     return environment.isEmpty ? nil : environment
 }
 
-func agentEnvironment(_ account: Account? = nil) -> [String: String] {
+func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [String: String] {
     var environment = (loginEnvironment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("CLAUDE") && !["PWD", "OLDPWD", "SHLVL"].contains($0.key) }
     // Claude's Bash hook puts the build queue's swift first; Codex and Qwen shells get it here.
     let queue = NSHomeDirectory() + "/.local/lib/build-stack/bin"
@@ -177,5 +177,7 @@ func agentEnvironment(_ account: Account? = nil) -> [String: String] {
     // Subscription selection must not silently use an inherited, metered API key.
     for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"] { environment.removeValue(forKey: key) }
     if let home = account?.home { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
+    // His CLAUDE.md labels Fleet through this file; an inherited one belongs to another session.
+    environment["FLEET_CONTEXT_FILE"] = fleet
     return environment
 }

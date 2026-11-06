@@ -63,7 +63,7 @@ enum ClaudeParityCheck {
         await session.refreshCatalog()
         let instructions = connection.opened.last?["developerInstructions"] as? String ?? ""
         check(instructions.contains("Local rules"), "Codex receives project Claude instructions (cwd exists: \(FileManager.default.fileExists(atPath: session.cwd)), source exists: \(FileManager.default.fileExists(atPath: session.cwd + "/CLAUDE.local.md")))")
-        check(instructions.contains(ClaudeCompatibility.guidance) && instructions.hasSuffix(session.fleetInstructions), "Codex receives compatibility guidance and Fleet context")
+        check(instructions.contains(ClaudeCompatibility.guidance) && instructions.hasSuffix(Session.agentInstructions) && !instructions.contains(session.fleetContextFile.path), "Codex receives compatibility guidance and VCX's own instructions")
         await session.command("/claude:plan on")
         check(session.planning, "Claude plan command selects native Codex plan mode")
         await session.send(text: "Plan the fixture", images: [])

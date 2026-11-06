@@ -25,10 +25,12 @@ protocol Connection: AnyObject {
     func respond(_ id: Any, _ result: JSON) throws
     func reject(_ id: Any, method: String) throws
     func close()
+    var fleetFile: String? { get set }
 }
 
 extension Connection {
     func request(_ method: String, _ params: JSON = [:]) async throws -> JSON { try await request(method, params, timeout: 120) }
+    var fleetFile: String? { get { nil } set {} }
 }
 
 @MainActor
@@ -36,6 +38,7 @@ final class RPC: Connection {
     var event: (JSON) -> Void = { _ in }
     var account: Account?
     var cwd: String?
+    var fleetFile: String?
     private var process: Process?
     private var input: FileHandle?
     private var reader: ProviderJSONReader?
@@ -48,7 +51,7 @@ final class RPC: Connection {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = command ?? ["codex", "app-server"]
-        process.environment = agentEnvironment(account)
+        process.environment = agentEnvironment(account, fleet: fleetFile)
         if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         process.standardInput = incoming
         process.standardOutput = outgoing

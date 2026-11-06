@@ -31,6 +31,11 @@ struct ClaudeCompatibility {
         return result
     }
 
+    var fleetSection: String {
+        guard let text = try? String(contentsOfFile: home + "/CLAUDE.md", encoding: .utf8) else { return "" }
+        return ("\n" + text).components(separatedBy: "\n## ").dropFirst().map { "## " + $0 }.first { $0.contains("FLEET_CONTEXT_FILE") }?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
     func instructions(nativeSources: [String] = []) -> (text: String, paths: [String]) {
         let native = Set(nativeSources.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path })
         var seen: Set<String> = [], paths: [String] = [], sections: [String] = []
@@ -103,11 +108,13 @@ struct ClaudeCompatibility {
 extension Session {
     var claudeCompatibility: ClaudeCompatibility { ClaudeCompatibility(cwd: cwd) }
     var developerInstructions: String {
-        guard account.provider == "codex" else { return fleetInstructions }
+        // Qwen reads no CLAUDE.md, so it gets his Fleet rule from it and VCX's project advice.
+        if account.provider == "qwen" { return [claudeCompatibility.fleetSection, Session.projectAdvice, Session.agentInstructions].filter { !$0.isEmpty }.joined(separator: "\n\n") }
+        guard account.provider == "codex" else { return Session.agentInstructions }
         let home = account.home ?? NSHomeDirectory() + "/.codex"
         let native = ([URL(fileURLWithPath: home)] + claudeCompatibility.folders).compactMap { folder in
             ["AGENTS.override.md", "AGENTS.md"].map { folder.appendingPathComponent($0).path }.first { FileManager.default.fileExists(atPath: $0) }
         }
-        return [claudeCompatibility.instructions(nativeSources: native).text, ClaudeCompatibility.guidance, fleetInstructions].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        return [claudeCompatibility.instructions(nativeSources: native).text, ClaudeCompatibility.guidance, Session.agentInstructions].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 }
