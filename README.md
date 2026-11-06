@@ -10,9 +10,9 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 | | App | What it does |
 |:-:|---|---|
-| <img src="alt-tab/docs/icon.png" width="40" alt=""> | [alt-tab](alt-tab) | The ⌘Tab switcher, one tile per window with its picture. |
-| <img src="opener/docs/icon.png" width="40" alt=""> | [opener](opener) | Spotlight for apps only, on ⌘Space. |
-| <img src="screenshot/docs/icon.png" width="40" alt=""> | [screenshot](screenshot) | A ⌘⇧5 replacement whose file is on disk the moment you click. |
+| <img src="alt-tab/docs/icon.png" width="40" alt=""> | [alt-tab](alt-tab) | The ⌘Tab switcher, one tile per window (its screenshot, no Finder). |
+| <img src="opener/docs/icon.png" width="40" alt=""> | [opener](opener) | Spotlight for apps only, on ⌘Space (no constant indexing of my files). |
+| <img src="screenshot/docs/icon.png" width="40" alt=""> | [screenshot](screenshot) | A ⌘⇧5 replacement (copied + saved, pinned a few sec in the top right corner). |
 
 #### My own apps
 
@@ -21,8 +21,8 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 | <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
-| <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex and Qwen. |
-| <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | The answers you are waiting for, one at a time, on ⌘⌥K. |
+| <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
+| <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | Watches what you are waiting for: mail answers, PR reviews and more... |
 
 ### [alt-tab](alt-tab)
 

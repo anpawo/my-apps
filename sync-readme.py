@@ -9,16 +9,16 @@ START, END = "<!-- apps:start -->", "<!-- apps:end -->"
 # the tables, and each app's line in its own, short enough to stay on one line: a new app needs its line
 TABLES = {
     "macOS apps, reworked for my needs": {
-        "alt-tab": "The ⌘Tab switcher, one tile per window with its picture.",
-        "opener": "Spotlight for apps only, on ⌘Space.",
-        "screenshot": "A ⌘⇧5 replacement whose file is on disk the moment you click.",
+        "alt-tab": "The ⌘Tab switcher, one tile per window (its screenshot, no Finder).",
+        "opener": "Spotlight for apps only, on ⌘Space (no constant indexing of my files).",
+        "screenshot": "A ⌘⇧5 replacement (copied + saved, pinned a few sec in the top right corner).",
     },
     "My own apps": {
         "autocorrect": "Fixes the word you just typed, in French and in English.",
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
-        "vcx": "Vibe Code X: a native window for Claude Code, Codex and Qwen.",
-        "watcher": "The answers you are waiting for, one at a time, on ⌘⌥K.",
+        "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
+        "watcher": "Watches what you are waiting for: mail answers, PR reviews and more...",
     },
 }
 
