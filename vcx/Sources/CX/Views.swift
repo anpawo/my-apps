@@ -35,7 +35,7 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row]) {
 
 // A pinned question covers the answer under it, so one taller than half the transcript scrolls with its answer instead.
 func pinsQuestion(_ question: Row, viewport: CGSize) -> Bool {
-    let width = viewport.width - 128 // transcript padding, the bubble's spacer and its own padding
+    let width = viewport.width * 0.85 - 32 // the bubble's share of the transcript, less its own padding
     guard width > 0, viewport.height > 0 else { return true }
     var height: CGFloat = 32
     for run in pieceRuns(question.items.first?.data["content"] as? [JSON] ?? []) {
@@ -874,8 +874,8 @@ struct UserBubble: View {
             VStack(alignment: .trailing, spacing: 5) {
                 MessageContent(item: item, collapsed: collapsed) { session.preview = $0 }
                     .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
-                    // Pinned, only the bubble hides what scrolls under it.
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 17))
+                    // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript.
+                    .background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
                     .background(GeometryReader { geometry in
                         let frame = geometry.frame(in: .named("conversation"))
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
@@ -883,7 +883,7 @@ struct UserBubble: View {
                     .onHover { hovering = $0 }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
-            }
+            }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
         }
     }
 }

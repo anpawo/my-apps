@@ -171,7 +171,7 @@ enum BugCheck {
         do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("pinned-question"))
             asking.ready = true; asking.status = "Ready"
-            let lines = (1...6).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen." }.joined(separator: "\n")
+            let lines = (1...6).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen, and to wrap where the bubble's width ends." }.joined(separator: "\n")
             asking.show(["id": "pinned-question", "type": "userMessage", "content": [["type": "text", "text": lines], ["type": "localImage", "path": "/fixture-one.png"], ["type": "localImage", "path": "/fixture-two.png"]]])
             asking.show(["id": "pinned-answer", "type": "agentMessage", "provider": "Claude", "text": (1...60).map { "- Answer line \($0), long enough to reach the left edge beside the pinned question." }.joined(separator: "\n")])
             if let item = asking.rows.first?.items.first {
