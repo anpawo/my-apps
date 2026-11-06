@@ -24,15 +24,50 @@ func mcpSummary(_ server: JSON) -> String? {
     return [name, status, detail].filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
-func hookSummary(_ hook: JSON, event: String, matcher: String? = nil) -> String {
+func hookSummary(_ hook: JSON, event: String, matcher: String? = nil, plugin: String? = nil) -> String {
     let descriptions = ["sessionstart": "Loads context when a session starts.", "sessionend": "Runs cleanup when a session ends.", "userpromptsubmit": "Checks a prompt before it is sent.", "pretooluse": "Checks a tool call before it runs.", "posttooluse": "Runs after a tool call completes.", "posttoolusefailure": "Handles a failed tool call.", "permissionrequest": "Handles tool permission requests.", "notification": "Handles session notifications.", "stop": "Runs when the agent finishes responding.", "precompact": "Preserves context before compaction.", "configchange": "Responds to configuration changes.", "messagedisplay": "Formats messages for display."]
     let command = hook["command"] as? String ?? ""
     let script = command.range(of: #"[^/\s"']+\.(?:py|sh|bash|zsh|mjs|js|rb|pl|ps1)(?=[\s"']|$)"#, options: .regularExpression).map { String(command[$0]) }
-    let name = hook["name"] as? String ?? script ?? hook["tool"] as? String ?? event
+    let name = hook["name"] as? String ?? script ?? plugin ?? hook["tool"] as? String ?? event
     let status = hook["enabled"] as? Bool == false ? "disabled" : hook["trustStatus"] as? String ?? "configured"
     let detail = hook["description"] as? String ?? hook["statusMessage"] as? String ?? descriptions[event.lowercased()] ?? "Runs on " + event + "."
     let match = matcher ?? hook["matcher"] as? String ?? ""
-    return ([name, event, status, detail] + (match.isEmpty ? [] : ["Matches: " + match])).joined(separator: " · ")
+    return ([name, event, status, detail] + (match.isEmpty ? [] : ["Matches: " + match]) + (plugin.map { ["Plugin: " + $0] } ?? [])).joined(separator: " · ")
+}
+
+// What Claude Code loads: user settings, each ancestor's project settings, and the hooks of enabled plugins.
+func claudeHooks(home: String, folders: [URL]) -> [String] {
+    func read(_ url: URL) -> JSON? { (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON } }
+    func summaries(_ config: JSON?, plugin: String? = nil) -> [String] {
+        let events = config?["hooks"] as? JSON ?? [:]
+        return events.keys.sorted().flatMap { event in
+            (events[event] as? [JSON] ?? []).flatMap { group in
+                (group["hooks"] as? [JSON] ?? []).map { hookSummary($0, event: event, matcher: group["matcher"] as? String, plugin: plugin) }
+            }
+        }
+    }
+    var paths: [String] = []
+    for url in [URL(fileURLWithPath: home).appendingPathComponent("settings.json")] + folders.flatMap({ folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }) where !paths.contains(url.standardizedFileURL.path) {
+        paths.append(url.standardizedFileURL.path)
+    }
+    let settings = paths.compactMap { read(URL(fileURLWithPath: $0)) }
+    var enabled: [String: Bool] = [:]
+    for value in settings { enabled.merge(value["enabledPlugins"] as? [String: Bool] ?? [:]) { $1 } }
+    let installed = read(URL(fileURLWithPath: home).appendingPathComponent("plugins/installed_plugins.json"))?["plugins"] as? JSON ?? [:]
+    let folderPaths = Set(folders.map(\.standardizedFileURL.path))
+    let plugins = enabled.filter(\.value).keys.sorted().flatMap { id -> [String] in
+        let entries = installed[id] as? [JSON] ?? []
+        guard let root = entries.first(where: { ($0["projectPath"] as? String).map { folderPaths.contains(URL(fileURLWithPath: $0).standardizedFileURL.path) } ?? true })?["installPath"] as? String else { return [] }
+        let base = URL(fileURLWithPath: root), name = String(id.split(separator: "@").first ?? Substring(id))
+        let declared = read(base.appendingPathComponent(".claude-plugin/plugin.json"))?["hooks"]
+        var files: [URL] = []
+        for file in ["hooks/hooks.json"] + ((declared as? String).map { [$0] } ?? declared as? [String] ?? []) {
+            let url = base.appendingPathComponent(file).standardizedFileURL
+            if !files.contains(url) { files.append(url) }
+        }
+        return (files.compactMap(read) + [declared as? JSON].compactMap { $0 }).flatMap { summaries($0, plugin: name) }
+    }
+    return settings.flatMap { summaries($0) } + plugins
 }
 
 @MainActor
@@ -109,16 +144,7 @@ extension Session {
             return
         }
         if account.provider == "claude" {
-            let files = [URL(fileURLWithPath: base).appendingPathComponent("settings.json")] + folders.flatMap { folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }
-            hooks = files.flatMap { file -> [String] in
-                guard let data = try? Data(contentsOf: file), let value = try? JSONSerialization.jsonObject(with: data) as? JSON else { return [] }
-                let events = value["hooks"] as? JSON ?? [:]
-                return events.keys.sorted().flatMap { event in
-                    (events[event] as? [JSON] ?? []).flatMap { group in
-                        (group["hooks"] as? [JSON] ?? []).map { hookSummary($0, event: event, matcher: group["matcher"] as? String) }
-                    }
-                }
-            }
+            hooks = claudeHooks(home: base, folders: folders)
             do {
                 let catalog = try await connection.request("cx/catalog", [:], timeout: 25)
                 guard rpc === connection else { return }

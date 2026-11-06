@@ -49,6 +49,19 @@ enum ClaudeParityCheck {
         write("profile/CLAUDE.md", "@./depth0.md")
         let deep = bridge.instructions().text
         check(deep.contains("Depth 4") && !deep.contains("Depth 5"), "imports stop after five hops")
+        func hook(_ event: String, _ command: String) -> String { #"{"hooks": {""# + event + #"": [{"hooks": [{"type": "command", "command": ""# + command + #""}]}]}}"# }
+        write("user/.claude/settings.json", #"{"enabledPlugins": {"tool@market": true, "off@market": false}, "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "python3 /hooks/user-check.py"}]}]}}"#)
+        write("user/work/.claude/settings.json", hook("Stop", "bash /hooks/project-stop.sh"))
+        write("user/.claude/plugins/installed_plugins.json", #"{"version": 2, "plugins": {"tool@market": [{"scope": "user", "installPath": ""# + root.path + #"/tool"}], "off@market": [{"scope": "user", "installPath": ""# + root.path + #"/off"}]}}"#)
+        write("tool/hooks/hooks.json", hook("SessionStart", "node ${CLAUDE_PLUGIN_ROOT}/hooks/start.js"))
+        write("tool/.claude-plugin/plugin.json", #"{"name": "tool", "hooks": "./hooks/extra.json"}"#)
+        write("tool/hooks/extra.json", hook("UserPromptSubmit", "node -e 1"))
+        write("off/hooks/hooks.json", hook("SessionStart", "node /hooks/off.js"))
+        let user = root.appendingPathComponent("user")
+        let listed = claudeHooks(home: user.appendingPathComponent(".claude").path, folders: [user, user.appendingPathComponent("work")])
+        check(listed.filter { $0.hasPrefix("user-check.py · ") }.count == 1 && listed.contains { $0.hasPrefix("project-stop.sh · Stop") }, "user settings under the home folder are read once beside project settings")
+        check(listed.contains { $0.hasPrefix("start.js · SessionStart") && $0.hasSuffix("Plugin: tool") } && listed.contains { $0.hasPrefix("tool · UserPromptSubmit") }, "enabled plugin hooks are listed from hooks.json and plugin.json")
+        check(!listed.joined().contains("off.js"), "disabled plugin hooks are not listed")
 
         let saved = Settings.shared.value
         defer { Settings.shared.value = saved; Settings.shared.save() }
