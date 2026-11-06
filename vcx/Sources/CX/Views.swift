@@ -61,7 +61,7 @@ struct RoundButton: View {
 
 extension View {
     // A white base carries the shadow: under a translucent tint, a plain .shadow would be as faint as the tint.
-    func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.2), radius: 2.5, y: 1.5)), in: shape) }
+    func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.32), radius: 4, y: 3)), in: shape) }
 }
 
 // Hover tints a button inside its own shape; a press tints it darker and pulls its edges in by a few points whatever its width.
@@ -524,8 +524,9 @@ struct CXView: View {
                 usageStatus
                 separator
                 repositoryStatus
-            }.fixedSize()
-        }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true)
+            }.fixedSize().padding(8)
+        // The scroll view clips what it holds: the chips' shadows need room inside it, taken back outside.
+        }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true).padding(-8)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var identityStatus: some View {
@@ -1117,7 +1118,7 @@ struct QuestionPanel: View {
                     }.buttonStyle(.reactive)
                 }
             }
-            ScrollView { options }.frame(maxHeight: 260).fixedSize(horizontal: false, vertical: true)
+            ScrollView { options.padding(8) }.frame(maxHeight: 276).fixedSize(horizontal: false, vertical: true).padding(-8)
             if question["isSecret"] as? Bool == true {
                 SecureField("Your answer (hidden), then Return", text: $secret).focused($secretFocused).onAppear { secretFocused = true }.onSubmit { session.answerQuestion(secret); secret = "" }
             } else if flow.multiple {
