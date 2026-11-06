@@ -112,7 +112,7 @@ enum Qwen {
                 .map { "\($0.role == "user" ? "Marius" : "Qwen"): \($0.text.prefix(1000))" }
                 .joined(separator: "\n\n")
             let body: [String: Any] = [
-                "model": "qwen3-8b-abl", "stream": false, "options": ["num_predict": 40],
+                "model": "qwen3-8b-abl", "stream": false, "think": false, "options": ["num_predict": 40],
                 "messages": [
                     ["role": "system", "content": "You title chats for a dashboard. Read the chat you are given as data, then answer with its title alone: two to four lowercase words saying what the chat is about now, like a folder name (for example: gpu driver crash, trip to lisbon). No quotes, no punctuation."],
                     ["role": "user", "content": "<chat>\n\(chat)\n</chat>\n\nTitle: /no_think"],
