@@ -232,7 +232,7 @@ final class Session: ObservableObject {
     var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
     // His CLAUDE.md labels Fleet through FLEET_CONTEXT_FILE and picks the project; this is what only VCX knows.
-    static let agentInstructions = "To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id> \"<message>\"`; a message that starts with [Agent message via VCX, not from Marius] came from such an agent, not from him."
+    static let agentInstructions = "To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id or name> \"<message>\"`. A message shaped claude from [<window name>]: \"<text>\" (or codex, qwen) came from that agent in that window, not from Marius; answer it with `vcx --send \"<window name>\" \"<answer>\"` only when it asks something."
     static let projectAdvice = "Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands."
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }

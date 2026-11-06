@@ -584,6 +584,7 @@ enum Check {
             }
             let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
             check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
+            check(AgentMessages.match("B", messageWindows)?.provider == "claude" && AgentMessages.isMessage("qwen from [b]: \"hi\"") && !AgentMessages.isMessage("from [b]: \"hi\""), "an agent answers a window by its name, and its message reads as one")
             qwen.close()
             let tools = QwenConnection(preferences: preferences, cwd: directory.path)
             var approved = false, toolDone = false, toolOutput = ""

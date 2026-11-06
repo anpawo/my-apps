@@ -877,11 +877,12 @@ struct UserBubble: View {
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering
+        let fromAgent = AgentMessages.isMessage(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
                 MessageContent(item: item, collapsed: collapsed) { session.preview = $0 }
-                    .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
+                    .padding(16).background(fromAgent ? Color(red: 0.93, green: 0.3, blue: 0.6).opacity(0.15) : accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript.
                     .background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
                     .background(GeometryReader { geometry in

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import NaturalLanguage
 
-// One agent writes to another VCX window as Marius would type, under a header saying it is not him.
+// One agent writes to another VCX window as Marius would type, shaped `claude from [<window name>]: "<text>"` so it is not taken for him.
 // `vcx --send` drops a ticket beside the open tickets; the frontend sends it once that window is idle.
 @MainActor
 enum AgentMessages {
@@ -50,7 +50,14 @@ enum AgentMessages {
     static func match(_ key: String, _ windows: [Window]) -> Window? {
         let key = key.lowercased()
         let hits = windows.filter { $0.id.lowercased() == key || (key.count >= 4 && $0.id.lowercased().hasPrefix(key)) }
-        return hits.count == 1 ? hits[0] : nil
+        if hits.count == 1 { return hits[0] }
+        let named = windows.filter { $0.name.lowercased() == key }
+        return named.count == 1 ? named[0] : nil
+    }
+
+    // What another window's agent sent, as he sees it and as the agent reads it.
+    static func isMessage(_ text: String) -> Bool {
+        ["claude", "codex", "qwen", "agent"].contains { text.hasPrefix($0 + " from [") } && text.contains("]: \"") && text.hasSuffix("\"")
     }
 
     static func list() -> Int32 {
@@ -67,7 +74,7 @@ enum AgentMessages {
             words.append(args[i]); i += 1
         }
         guard words.count >= 2 else {
-            FileHandle.standardError.write(Data("usage: vcx --send <window id> [--from <window id>] <message…>   (message - reads stdin; vcx --sessions lists windows)\n".utf8))
+            FileHandle.standardError.write(Data("usage: vcx --send <window id or name> [--from <window id or name>] <message…>   (message - reads stdin; vcx --sessions lists windows)\n".utf8))
             return 2
         }
         var text = words.dropFirst().joined(separator: " ")
@@ -87,10 +94,9 @@ enum AgentMessages {
             return thread.map(threads.contains) ?? false
         }
         let sender = from.flatMap { match($0, all) } ?? caller
-        let header = sender.map { "[Agent message via VCX, not from Marius. From the \($0.provider) window \"\($0.name)\" (\($0.id.prefix(8)), in \($0.cwd)). To answer it, run: vcx --send \($0.id.prefix(8)) \"<your answer>\"]" }
-            ?? "[Agent message via VCX, not from Marius. Sent by another agent, with no window to answer.]"
+        let message = "\(sender?.provider ?? "agent") from [\(sender?.name ?? "unknown")]: \"\(text)\""
         do {
-            let ticket = try RuntimeUpdate.writeTicket(["sessionId": target.id, "text": header + "\n\n" + text, "sentAt": Date().timeIntervalSince1970], suffix: suffix)
+            let ticket = try RuntimeUpdate.writeTicket(["sessionId": target.id, "text": message, "sentAt": Date().timeIntervalSince1970], suffix: suffix)
             DistributedNotificationCenter.default().postNotificationName(RuntimeUpdate.openNotification, object: nil, userInfo: nil, deliverImmediately: true)
             for _ in 0..<30 where FileManager.default.fileExists(atPath: ticket.path) { usleep(100_000) }
             print(FileManager.default.fileExists(atPath: ticket.path)
