@@ -409,6 +409,7 @@ struct Session: Identifiable {
                         outermost: Bool = false) -> String {
         if cwd.hasPrefix(projects) {
             let parts = cwd.dropFirst(projects.count).split(separator: "/").map(String.init)
+            if let card = split(parts, under: projects) { return card }
             let depths = Array(stride(from: parts.count, to: 0, by: -1))
             for depth in outermost ? depths.reversed() : depths {
                 var folder: ObjCBool = false
@@ -427,6 +428,24 @@ struct Session: Identifiable {
         }
         let n = (cwd as NSString).lastPathComponent
         return n.isEmpty ? cwd : n
+    }
+
+    /// A `.fleet` file splits a group: each line names a sub-folder of its folder that gets a
+    /// card of its own, and an empty one does it for the folder it sits in (my-apps holds ten
+    /// apps, asked 2026-11-06). The nearest one wins, over the repository rule.
+    private static func split(_ parts: [String], under projects: String) -> String? {
+        for depth in stride(from: parts.count, to: 0, by: -1) {
+            let file = projects + parts.prefix(depth).joined(separator: "/") + "/.fleet"
+            guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            let names = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if names.isEmpty { return parts[depth - 1] }
+            for name in names {
+                let sub = name.split(separator: "/").map(String.init)
+                if !sub.isEmpty, parts.dropFirst(depth).starts(with: sub) { return sub.last }
+            }
+        }
+        return nil
     }
 
     /// Whether the session is working on one of the projects under `~/self`, where the

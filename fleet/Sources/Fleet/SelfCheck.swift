@@ -383,6 +383,21 @@ enum SelfCheck {
                "projects: a plain folder around a repo gathers nothing")
         expect(Session.project(for: root + "repo/wt/src", under: root), "repo",
                "projects: a worktree stays in the group of the repo it was cut from")
+        for dir in ["mono/.git", "mono/app/src", "mono/lib/deep/x", "mono/other", "repo/own/src"] {
+            try? FileManager.default.createDirectory(atPath: root + dir, withIntermediateDirectories: true)
+        }
+        FileManager.default.createFile(atPath: root + "mono/.fleet", contents: Data("app\n lib/deep/ \n\n".utf8))
+        FileManager.default.createFile(atPath: root + "repo/own/.fleet", contents: Data())
+        expect(Session.project(for: root + "mono/app/src", under: root, outermost: true), "app",
+               "projects: a sub-folder a .fleet names is its own group")
+        expect(Session.project(for: root + "mono/lib/deep/x", under: root, outermost: true), "deep",
+               "projects: a .fleet line can be a path, named by its last folder")
+        expect(Session.project(for: root + "mono/other", under: root, outermost: true), "mono",
+               "projects: a sub-folder the .fleet does not name stays in the repo's group")
+        expect(Session.project(for: root + "mono", under: root, outermost: true), "mono",
+               "projects: the folder holding the .fleet keeps its group")
+        expect(Session.project(for: root + "repo/own/src", under: root, outermost: true), "own",
+               "projects: an empty .fleet makes its own folder a group")
     }
 
     // MARK: - Plugins
