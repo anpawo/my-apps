@@ -13,8 +13,11 @@ enum VCX {
         defer { transcripts.retain(paths: read) }
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
         let found = apps.flatMap { app -> [Session] in
-            guard app.activationPolicy != .prohibited else { return [] }
             let pid = app.processIdentifier
+            // A runtime worker holds its sessions' locks, so the legacy path below read it as a
+            // window: a duplicate card whose click raised a process with no window (06-11).
+            guard app.activationPolicy != .prohibited,
+                  !ProcessScanner.arguments(pid).contains("--runtime-worker") else { return [] }
             guard let bsd = ProcessScanner.bsdInfo(pid) else { return [] }
             let file = root + "/fleet/\(pid).json"
             if let record = object(file) {
