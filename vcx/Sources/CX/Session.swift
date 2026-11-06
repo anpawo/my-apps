@@ -198,6 +198,7 @@ final class Session: ObservableObject {
     private var autoResumes = 0
     var online: () async -> Bool = Session.reachesInternet
     var resumePoll: UInt64 = 10_000_000_000
+    var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
     private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
@@ -909,6 +910,22 @@ final class Session: ObservableObject {
     private func resumeWhenOnline(after turn: JSON) {
         resumeTask?.cancel(); resumeTask = nil
         guard needsAttention else { autoResumes = 0; return }
+        if turn["status"] as? String != "interrupted", let error = turn["error"] as? JSON,
+           error["rateLimited"] as? Bool == true || (error["message"] as? String)?.range(of: #"rate.?limit|\b429\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            // A rate limit other than the plan's usage limit passes on its own, so the same account retries instead of switching provider.
+            guard autoResumes < rateLimitRetries.count else {
+                notice(providerLabel + " is still rate limited after \(rateLimitRetries.count) retries. Send a message to try again."); return
+            }
+            let delay = rateLimitRetries[autoResumes]
+            notice(providerLabel + " is rate limited. Retry \(autoResumes + 1) of \(rateLimitRetries.count) in \(Int(delay)) s.")
+            resumeTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, !Task.isCancelled, self.ready, !self.busy else { return }
+                self.autoResumes += 1
+                await self.send(text: "Keep going: the request was rate limited. Retry the step that failed and continue.", images: [], expectedDraft: NSAttributedString(string: ""))
+            }
+            return
+        }
         guard turn["status"] as? String != "interrupted", autoResumes < 3,
               let message = (turn["error"] as? JSON)?["message"] as? String,
               message.range(of: "connection|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|fetch failed|network|timed out|reach the API|no response from API|stream disconnected|error sending request", options: [.regularExpression, .caseInsensitive]) != nil

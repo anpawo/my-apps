@@ -256,7 +256,7 @@ enum Check {
             check(answerParagraphs("✓ Done: x\n\n⟶ Next: y\n\nDetail\n⟶ Short\n") == ["⟶ Short", "Detail", "✓ Done: x", "⟶ Next: y"], "answers read short answer, details, done, next")
         }
         check(usageLimit(["error": ["codexErrorInfo": "usageLimitExceeded"]]), "Codex usage limit")
-        check(usageLimit(["error": "rate_limit"]), "Claude usage limit")
+        check(!usageLimit(["error": "rate_limit"]) && !usageLimit(["error": ["message": "Server is temporarily limiting requests (not your usage limit)"]]), "a Claude rate limit or its error text is not a usage limit")
         check(!usageLimit(["error": "Network unavailable"]), "network failure is not a usage limit")
         check(Item(["id": "tool", "exitCode": 2]).failed, "failed tool counted")
         check(!Item(["id": "tool", "exitCode": 0, "error": NSNull()]).failed, "successful tool")
@@ -644,6 +644,26 @@ enum Check {
             try? await Task.sleep(nanoseconds: 100_000_000)
             check(connection?.sent.count == 1, "other failed turns wait for the user")
             resumed.close()
+        }
+        do {
+            let throttled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("throttle-state"))
+            var fixtures: [FixtureConnection] = []
+            throttled.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.hold = true; fixtures.append(fixture); return fixture }
+            throttled.rateLimitRetries = [0.01, 0.01, 0.01]
+            await throttled.connect(resume: nil)
+            let account = throttled.account.id
+            let limited: JSON = ["status": "completed", "error": ["message": "API Error: Request rejected (429)", "rateLimited": true]]
+            for attempt in 1...3 {
+                throttled.event(["method": "turn/completed", "params": ["turn": limited]])
+                for _ in 0..<200 where fixtures.last?.sent.count != attempt { try? await Task.sleep(nanoseconds: 10_000_000) }
+            }
+            throttled.event(["method": "turn/completed", "params": ["turn": limited]])
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let notices = throttled.rows.compactMap { $0.kind == "notice" ? $0.items.first?.data["text"] as? String : nil }
+            check(fixtures.count == 1 && fixtures.last?.sent.count == 3 && throttled.account.id == account && notices.filter { $0.contains(" is rate limited. Retry ") }.count == 3
+                  && notices.last?.hasSuffix("is still rate limited after 3 retries. Send a message to try again.") == true,
+                  "a transient rate limit retries the turn 3 times on the same provider, then stops")
+            throttled.close()
         }
         do {
             let reconnecting = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("reconnect-state"))
@@ -1254,6 +1274,23 @@ enum Check {
         check(codexCommands.usagePercent.map { abs($0 - 22) < 0.001 } == true && codexCommands.usage.hasPrefix("22% wk - reset "), "Claude's stream reports plan usage without polling the usage endpoint")
         claudeContext.receive(["type": "result"])
         check(!codexCommands.busy && codexCommands.status == "Ready", "Claude's background-task turn ends on its result")
+        do {
+            let limited = ClaudeConnection(account: Account(name: "Limited", provider: "claude"), cwd: directory.path)
+            var events: [JSON] = []
+            limited.event = { events.append($0) }
+            limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "message": ["content": [["type": "text", "text": "API Error: Request rejected (429)"]]]])
+            limited.receive(["type": "result", "is_error": true, "result": "API Error: Request rejected (429)"])
+            let transient = events.compactMap { $0["method"] as? String == "turn/completed" ? (($0["params"] as? JSON)?["turn"] as? JSON)?["error"] as? JSON : nil }.first
+            let retried = transient?["rateLimited"] as? Bool == true && !events.contains { $0["method"] as? String == "cx/limit" }
+            events.removeAll()
+            limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "api_error": "usage_limit_reached",
+                             "api_error_params": ["rate_limit_info": ["status": "rejected", "resetsAt": NSNumber(value: 4_102_444_800), "rateLimitType": "five_hour"]],
+                             "message": ["content": [["type": "text", "text": "You've hit your limit"]]]])
+            limited.receive(["type": "result", "is_error": true, "result": "You've hit your limit"])
+            let plan = events.first { $0["method"] as? String == "cx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
+            check(retried && plan.map(limitReset) == 4_102_444_800 && !events.contains { $0["method"] as? String == "turn/completed" },
+                  "only Claude's usage_limit_reached moves the session; another 429 fails the turn for a retry")
+        }
         do {
             let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
             fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])

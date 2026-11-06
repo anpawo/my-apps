@@ -56,9 +56,10 @@ func claudeRateLimits(_ usage: JSON) throws -> JSON {
 }
 
 func usageLimit(_ value: JSON) -> Bool {
-    let code = (value["error"] as? JSON)?["codexErrorInfo"] ?? value["codexErrorInfo"] ?? value["error"] ?? value["subtype"] ?? ""
+    // A failed turn's error object holds the provider's own words ("not your usage limit"); only its codes are read.
+    let code = (value["error"] as? JSON)?["codexErrorInfo"] ?? value["codexErrorInfo"] ?? (value["error"] is JSON ? nil : value["error"]) ?? value["subtype"] ?? ""
     let text = String(describing: code).lowercased()
-    return ["usagelimitexceeded", "usage_limit", "rate_limit", "rate limit exceeded", "usage limit"].contains { text.contains($0) }
+    return ["usagelimitexceeded", "usage_limit", "usage limit"].contains { text.contains($0) }
 }
 
 func limitReset(_ value: JSON) -> Double {
@@ -108,6 +109,7 @@ final class ClaudeConnection: Connection {
     private var lastAnswer = ""
     private var servedModel: String?
     private var limit: JSON?
+    private var rateLimited = false
     private var stopped = false
     private var command: [String]?
     private var pendingUsers: [String] = []
@@ -228,7 +230,7 @@ final class ClaudeConnection: Connection {
             }
             if steering, params["expectedTurnId"] as? String != turn { throw CXError(message: "The Claude turn has changed. Your draft has been kept.") }
             if !steering {
-                turn = UUID().uuidString; stopped = false; lastAnswer = ""; limit = nil
+                turn = UUID().uuidString; stopped = false; lastAnswer = ""; limit = nil; rateLimited = false
                 tools.removeAll(); blocks.removeAll(); pendingUsers.removeAll()
             }
             let userID = params["clientUserMessageId"] as? String ?? UUID().uuidString
@@ -322,7 +324,12 @@ final class ClaudeConnection: Connection {
             default: break
             }
         case "assistant":
-            if message["error"] as? String == "rate_limit" { limit = ["error": "rate_limit"]; return }
+            if message["error"] as? String == "rate_limit" {
+                // Only the plan's own limit says usage_limit_reached; a server throttle or capacity 429 is retried on the same account.
+                if message["api_error"] as? String == "usage_limit_reached" { limit = (message["api_error_params"] as? JSON)?["rate_limit_info"] as? JSON ?? ["error": "usage_limit_reached"] }
+                else { rateLimited = true }
+                return
+            }
             let body = message["message"] as? JSON ?? [:], id = body["id"] as? String ?? UUID().uuidString
             if let usage = body["usage"] as? JSON {
                 let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
@@ -384,10 +391,11 @@ final class ClaudeConnection: Connection {
             if ids.isEmpty { if !pendingUsers.isEmpty { pendingUsers.removeFirst() } }
             else { pendingUsers.removeAll { ids.contains($0) } }
             let queued = message["queued_turn_count"] as? Int
-            if queued == 0 || stopped || message["is_error"] as? Bool == true { pendingUsers.removeAll() }
+            let failed = rateLimited || message["is_error"] as? Bool == true
+            if queued == 0 || stopped || failed { pendingUsers.removeAll() }
             if !pendingUsers.isEmpty || (queued ?? 0) > 0 { return }
             var result: JSON = ["id": turn, "status": stopped ? "interrupted" : "completed"]
-            if message["is_error"] as? Bool == true { result["error"] = ["message": message["result"] as? String ?? "Claude did not finish the turn."] }
+            if failed { result["error"] = ["message": message["result"] as? String ?? "Claude did not finish the turn.", "rateLimited": rateLimited] }
             emit("turn/completed", ["turn": result])
         default: break
         }
