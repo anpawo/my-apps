@@ -240,22 +240,26 @@ enum BugCheck {
                 pointer(host, at: NSPoint(x: 5, y: 60), entering: true)
                 pointer(host, at: NSPoint(x: left + 300, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 let shut = tinted()
-                // Sampled at 60 fps, the opening bubble grows through several heights and never shrinks back.
-                var heights = [shut]
+                // The opening bubble passes through a height between shut and open, takes a while to get there and never shrinks back.
+                // A render of the whole view takes 100 to 250 ms, so the samples are timed rather than counted as 60 fps frames.
+                var heights = [shut], times = [0.0]
                 let start = Date()
                 pointer(host, at: NSPoint(x: left + 10, y: 60))
-                for frame in 1...30 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); heights.append(tinted()) }
+                for frame in 1...30 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); times.append(Date().timeIntervalSince(start)); heights.append(tinted()) }
                 print("Bubble opening, tinted rows per frame: " + heights.map(String.init).joined(separator: " "))
+                print("Sampled at ms: " + times.map { String(Int($0 * 1000)) }.joined(separator: " "))
+                let opened = times[heights.firstIndex(of: heights.last!)!]
                 if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let png = halfway?.representation(using: .png, properties: [:]) {
                     try? png.write(to: URL(fileURLWithPath: destination).appendingPathComponent("bubble-opening.png"))
                 }
-                check(Set(heights).count >= 6 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
+                check(heights.contains { $0 > shut && $0 < heights.last! } && opened >= 0.15 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
                       "hovering its edge opens a pinned question in one smooth motion")
                 RunLoop.main.run(until: Date().addingTimeInterval(0.3))
                 pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 let away = tinted()
                 print("Pinned question from x \(Int(left)): \(heights[0]) tinted rows with the pointer on its text, \(heights.last!) on its edge, \(away) away")
-                check(heights[0] < 300 && away == heights[0], "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
+                // Column 922 crosses the bubble's rounded corners: the same shut bubble measures 272 or 274 rows from one render to the next.
+                check(heights[0] < 300 && abs(away - heights[0]) <= 4, "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
             }
             do {
                 // Two lines or less, a question has nothing to open: no edge, so its bubble is as wide pinned as anywhere else.
