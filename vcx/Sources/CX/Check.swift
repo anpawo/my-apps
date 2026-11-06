@@ -1569,6 +1569,8 @@ enum Check {
             }
             codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
             check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
+            codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"], ["name": "compact", "description": "Compact", "builtin": true]]])
+            check(codexCommands.skills == ["fixture-skill"] && codexCommands.providerCommands.contains { $0.name == "/compact" }, "Claude's built-in commands stay in the palette but out of the skills list")
             codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
             check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
             check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")

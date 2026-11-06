@@ -81,7 +81,7 @@ extension Session {
             let detail: String
             if title == "Skills" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
             else if title == "Hooks" { detail = summary.isEmpty ? "Provider hook" : summary }
-            else if title == "Instructions" { return CapabilityItem(name: URL(fileURLWithPath: value).lastPathComponent, detail: "Instructions for the active session.", id: String(index)) }
+            else if title == "Instructions" { return CapabilityItem(name: URL(fileURLWithPath: value).lastPathComponent, detail: value, id: String(index)) }
             else { detail = summary.isEmpty ? "Configured MCP server" : summary }
             return CapabilityItem(name: name, detail: detail, id: String(index))
         }
@@ -106,7 +106,7 @@ extension Session {
                 let names = [name] + (command["aliases"] as? [String] ?? [])
                 return names.map { ChatCommand(name: "/" + $0, detail: command["description"] as? String ?? "Claude command", source: "Claude", insert: skillInsert($0)) }
             }
-            skills = commands.compactMap { $0["name"] as? String }.sorted()
+            skills = commands.filter { $0["builtin"] as? Bool != true }.compactMap { $0["name"] as? String }.sorted()
         }
         if let catalog = catalog["models"] as? [JSON] {
             models = catalog.compactMap { $0["value"] as? String }
@@ -145,6 +145,7 @@ extension Session {
         }
         if account.provider == "claude" {
             hooks = claudeHooks(home: base, folders: folders)
+            instructions = ClaudeCompatibility(cwd: cwd, home: base).instructions().paths.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
             do {
                 let catalog = try await connection.request("cx/catalog", [:], timeout: 25)
                 guard rpc === connection else { return }
