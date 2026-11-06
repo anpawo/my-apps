@@ -352,9 +352,12 @@ enum Check {
             let presence = FleetPresence(session: fleetSession)
             let file = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
             func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! JSON }
-            fleetSession.event(["method": "item/completed", "params": ["item": ["id": "project-command", "type": "commandExecution", "command": "pwd", "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+            let startFolder = fleetSession.cwd
+            for (id, command) in [("research-pwd", "pwd"), ("research-cd", "cd '\(repoPath)' && git status")] {
+                fleetSession.event(["method": "item/completed", "params": ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+            }
             presence.publish(fleetSession)
-            check(fleetRecord()["cwd"] as? String == repoPath && fleetSession.cwd == repoPath, "successful shell work updates the session and Fleet directory")
+            check(fleetRecord()["cwd"] as? String == startFolder && fleetSession.cwd == startFolder, "research commands and their cd leave the session and Fleet directory alone")
             let target = directory.appendingPathComponent("project with spaces").path
             try! FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
             func item(_ command: String, status: String = "completed", exit: Int = 0) -> JSON {
@@ -528,6 +531,18 @@ enum Check {
             claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
             claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
             check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
+            do {
+                let relaunched = ClaudeConnection(account: Account(id: "relaunch", name: "Relaunch", provider: "claude"), cwd: directory.path)
+                relaunched.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "relaunch-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
+                relaunched.receive(["type": "user", "message": ["content": [["tool_use_id": "relaunch-cd", "content": "", "is_error": false]]]])
+                let marker = directory.appendingPathComponent("launch-folder")
+                try await relaunched.start(command: ["/bin/sh", "-c", "pwd > '\(marker.path)'; read line"])
+                _ = try await relaunched.request("turn/start", ["input": [["type": "text", "text": "Next"]]])
+                for _ in 0..<300 where (try? String(contentsOf: marker, encoding: .utf8)) == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+                let launched = (try? String(contentsOf: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                check(relaunched.cwd == repoPath && URL(fileURLWithPath: launched).lastPathComponent == directory.lastPathComponent, "Claude launches in the conversation's starting folder, not a folder it cd'd into")
+                relaunched.close()
+            }
             claudeMessageIDs.removeAll()
             claude.receive(["type": "stream_event", "event": ["type": "message_start", "message": ["id": "msg_think"]]])
             claude.receive(["type": "stream_event", "event": ["type": "content_block_start", "index": 1, "content_block": ["type": "text", "text": ""]]])
@@ -787,10 +802,13 @@ enum Check {
             check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
             moving.close()
             let resumed = Session(cwd: directory.path, stateDirectory: state)
-            resumed.connectionFactory = { account, _ in FixtureConnection(account) }
+            var launchFolder: String?
+            resumed.connectionFactory = { account, folder in launchFolder = folder; return FixtureConnection(account) }
             await resumed.connect(resume: "last")
             check(resumed.ready && resumed.cwd == repoPath && resumed.currentConversationID == conversation, "resume restores the selected working directory and same conversation")
             check((resumed.rpc as? FixtureConnection)?.opened.first?["cwd"] as? String == repoPath, "the resumed backend opens in the selected project")
+            try? await resumed.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: resumed.threadID, keepRows: true)
+            check(launchFolder == URL(fileURLWithPath: directory.path).standardized.path && resumed.cwd == repoPath, "a resumed Claude starts in the conversation's folder while VCX shows the selected project")
             resumed.close()
         }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))

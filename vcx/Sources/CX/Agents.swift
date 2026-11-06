@@ -142,7 +142,7 @@ final class ClaudeConnection: Connection {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default"] +
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
         process.environment = agentEnvironment(account)
         // Claude names a --resume ID it cannot find only on stderr. An unlinked file, unlike a pipe, still takes writes after a live swap ends this process.
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-claude-" + UUID().uuidString)

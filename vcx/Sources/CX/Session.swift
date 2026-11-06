@@ -225,7 +225,7 @@ final class Session: ObservableObject {
     var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
     var fleetInstructions: String {
-        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions. Select the task's project with a standalone cd command. Shell calls may be isolated: use that project's absolute workdir for subsequent commands in the same turn. VCX retains the selected directory for later turns without starting a new conversation."
+        "Fleet displays this VCX session. At the start of a task, when the topic changes, when waiting for a decision, and before finishing, use your shell tool to replace the plain-text file \(fleetContextFile.path) with a short English task label of 1 to 3 words, such as Fix Fleet names. Keep it about the current task. Do this silently. The directory already exists and is writable in the temporary directory. This file replaces any CLAUDE_CODE_SESSION_ID-based Fleet context path in project instructions. Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands."
     }
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
@@ -387,7 +387,7 @@ final class Session: ObservableObject {
         if !keepRows { planning = false; conversationName = thread["name"] as? String }
         turnID = nil; busy = false; stopRequested = false; backgroundTasks = 0
         model = result["model"] as? String ?? "Codex"
-        defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
+        defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : nil)
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""
         contextUsed = nil; contextLimit = nil
@@ -496,7 +496,7 @@ final class Session: ObservableObject {
         case "cx/model":
             model = p["model"] as? String ?? model
             if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
-            defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : nil)
+            defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : nil)
         case "item/started", "item/completed":
             if var data = p["item"] as? JSON {
                 if let id = data["id"] as? String, !["agentMessage", "plan", "userMessage"].contains(data["type"] as? String ?? "") {
@@ -797,7 +797,7 @@ final class Session: ObservableObject {
             params["effort"] = selectedEffort as Any? ?? NSNull()
             let result = try await rpc.request("thread/resume", params)
             model = result["model"] as? String ?? value
-            defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: cwd, model: model) : modelDefaultEfforts[model])
+            defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : modelDefaultEfforts[model])
             effort = selectedEffort
             if contextLimit == nil { await refreshContextLimit() }
         } catch {
@@ -844,8 +844,10 @@ final class Session: ObservableObject {
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
         activeMode = preferredMode
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
-        if let connectionFactory { rpc = connectionFactory(next, cwd) } else { switch next.provider {
-        case "claude": rpc = ClaudeConnection(account: next, cwd: cwd)
+        // Claude always starts in the conversation's folder: a project cd changes what VCX shows, not where Claude loads its settings.
+        let folder = next.provider == "claude" ? conversationDirectory : cwd
+        if let connectionFactory { rpc = connectionFactory(next, folder) } else { switch next.provider {
+        case "claude": rpc = ClaudeConnection(account: next, cwd: folder)
         case "qwen":
             var preferences = Settings.shared.value; preferences.mode = activeMode
             rpc = QwenConnection(preferences: preferences, cwd: cwd)

@@ -14,10 +14,7 @@ func shellDirectory(_ item: JSON, current: String, initial: String) -> String? {
         guard path != "-", !path.hasPrefix("~") || path == "~" || path.hasPrefix("~/") else { return nil }
         target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath,
                      relativeTo: URL(fileURLWithPath: base, isDirectory: true)).standardized.path
-    } else {
-        guard current == initial else { return nil }
-        target = base
-    }
+    } else { return nil }
     return workingDirectory(target, within: initial)
 }
 
