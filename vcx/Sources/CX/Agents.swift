@@ -184,6 +184,8 @@ final class ClaudeConnection: Connection {
             }
         })
         self.reader = reader; reader.start()
+        // claude -p leaves Remote Control to its host; enabling it again on an adopted process keeps the bridge it has.
+        if command == nil { Task { [weak self] in _ = try? await self?.controlResult(["subtype": "remote_control", "enabled": true], timeout: 60) } }
     }
     private var resumed = false
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
