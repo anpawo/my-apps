@@ -1125,10 +1125,16 @@ struct SessionTile: View {
                 // other over two lines, and eat the folder name.
                 HStack(alignment: .top, spacing: 5) {
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 5) { subagentPill; statePill }.fixedSize()
+                        HStack(spacing: 5) { subagentPill("SUB-AGENTS"); statePill }.fixedSize()
+                        HStack(spacing: 5) { subagentPill("AGENTS"); statePill }.fixedSize()
                         // A 16:9 card has one line of pills to give: stacked, the second sat
-                        // on the name.
-                        statePill
+                        // on the name. A group's card has no room for the count beside
+                        // "BACKGROUND-TASK", and both are purple: the count says more.
+                        if state == .delegated, !session.subagents.isEmpty, session.workflow == nil {
+                            subagentPill("SUB-AGENTS")
+                        } else {
+                            statePill
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -1194,10 +1200,10 @@ struct SessionTile: View {
 
     /// Sits next to the state pill while sub-agents are out. The pill says the session is
     /// working; this says who is actually doing the work.
-    @ViewBuilder private var subagentPill: some View {
+    @ViewBuilder private func subagentPill(_ word: String) -> some View {
         let running = session.subagents.count
         if running > 0, session.workflow == nil {
-            Text("SUB-AGENTS: \(running)")
+            Text("\(word): \(running)")
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.8)
                 .lineLimit(1)
