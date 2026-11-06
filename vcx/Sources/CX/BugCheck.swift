@@ -165,6 +165,33 @@ enum BugCheck {
             backendSession.editDraft(NSAttributedString(string: ""))
         }
         do {
+            let ordered = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unread-order"))
+            ordered.ready = true; ordered.status = "Ready"
+            func act(_ n: Int) { ordered.show(["id": "order-c\(n)", "type": "commandExecution", "command": "ls step-\(n)", "aggregatedOutput": "", "status": "completed"]) }
+            ordered.show(["id": "order-q1", "type": "userMessage", "content": [["type": "text", "text": "average internship salary"]]])
+            act(1); act(2)
+            ordered.rows.append(Row("user", [Item(["id": "order-q2", "type": "userMessage", "content": [["type": "text", "text": "and the average salary after graduating"]], "sentAt": Date().timeIntervalSince1970])]))
+            ordered.event(["method": "cx/userQueue", "params": ["id": "order-q2", "queued": true]])
+            act(3); act(4); act(5)
+            ordered.show(["id": "order-a1", "type": "agentMessage", "text": "Interns earn about this much."])
+            print("Rows while the second prompt is unread: \(ordered.rows.map { "\($0.kind)(\($0.items.count))" }.joined(separator: " "))")
+            check(ordered.rows.map(\.kind) == ["user", "activity", "assistant", "user"] && ordered.rows[1].items.count == 5,
+                  "what the agent does before reading a queued prompt goes above it, its actions in the bar it was filling")
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(ordered)
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("unread-order.png"))
+            }
+            window.close()
+            ordered.event(["method": "cx/userQueue", "params": ["id": "order-q2", "queued": false]])
+            act(6)
+            check(ordered.rows.map(\.kind) == ["user", "activity", "assistant", "user", "activity"] && ordered.rows[4].items.count == 1,
+                  "once the agent reads the prompt, its next actions go under it")
+            ordered.close()
+        }
+        do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("tall-question"))
             asking.ready = true; asking.status = "Ready"
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)

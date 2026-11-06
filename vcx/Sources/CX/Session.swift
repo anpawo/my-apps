@@ -495,16 +495,19 @@ final class Session: ObservableObject {
         guard !["hookPrompt", "contextCompaction"].contains(kind) else { return }
         let item = Item(data)
         itemMap[id] = item
+        // Prompts the agent has not read yet stay last: what it does meanwhile goes above them, into the bar it was filling.
+        let unread = (rows.lastIndex { !($0.kind == "user" && $0.items.first?.data["queued"] as? Bool == true) } ?? -1) + 1
+        if unread < rows.count { group = unread > 0 && rows[unread - 1].kind == "activity" ? rows[unread - 1] : nil }
         if ["agentMessage", "plan", "userMessage"].contains(kind) {
             group = nil
-            rows.append(Row(kind == "userMessage" ? "user" : "assistant", [item]))
+            rows.insert(Row(kind == "userMessage" ? "user" : "assistant", [item]), at: unread)
         } else if kind == "peerMessage" {
             group = nil
-            rows.append(Row("peer", [item]))
+            rows.insert(Row("peer", [item]), at: unread)
         } else {
             if group == nil {
                 let row = Row("activity", [])
-                rows.append(row); group = row
+                rows.insert(row, at: unread); group = row
             }
             group?.items.append(item)
             if busy, !item.failed { status = "Working: " + String(item.title.prefix(100)) }
@@ -551,7 +554,12 @@ final class Session: ObservableObject {
             } else if let served, let known = contextWindows[served] { contextLimit = known }
         case "cx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
         case "cx/userQueue":
-            if let id = p["id"] as? String, let item = userItem(id) { item.data["queued"] = p["queued"] as? Bool == true ? true : nil }
+            if let id = p["id"] as? String, let item = userItem(id) {
+                let queued = p["queued"] as? Bool == true
+                // Read: what the agent does next goes under it.
+                if !queued, item.data["queued"] != nil { group = nil }
+                item.data["queued"] = queued ? true : nil
+            }
         case "cx/model":
             model = p["model"] as? String ?? model
             if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
