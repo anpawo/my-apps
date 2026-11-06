@@ -412,7 +412,9 @@ struct CXView: View {
                                         let parts = sectionParts(section.rows)
                                         if !parts.trail.isEmpty { WorkBlock(rows: parts.trail, details: session.details).id("work-\(section.id)") }
                                         if let last = parts.last { ConversationRow(row: last, session: session).equatable().id(last.id) }
-                                        ForEach(parts.notices) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
+                                        let sent = parts.notices.filter { $0.kind == "peer" }
+                                        if !sent.isEmpty { WorkBlock(rows: sent, details: session.details).id("sent-\(section.id)") }
+                                        ForEach(parts.notices.filter { $0.kind == "notice" }) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
                                     .id("exchange-\(section.id)")
                                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { session.exchangeTops[section.id] = $0 }
@@ -786,7 +788,7 @@ struct ConversationRow: View, Equatable {
         if let item = row.items.first {
             if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible) }
             else if row.kind == "notice" { NoticeLine(item: item) }
-            else if row.kind == "peer" { PeerLine(item: item) }
+            else if row.kind == "peer" { PeerLine(item: item).background(Color.white) }
             else { AssistantBubble(item: item) }
         }
     }
@@ -814,7 +816,7 @@ struct PeerLine: View {
             Label(item.title + (first.isEmpty ? "" : " · " + first), systemImage: item.data["direction"] as? String == "sent" ? "arrow.up.right" : "arrow.down.left")
                 .lineLimit(1).truncationMode(.tail)
                 .font(.system(size: 12)).foregroundStyle(.black.opacity(item.failed ? 0.3 : 0.45))
-        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help(item.text).background(Color.white)
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help(item.text)
     }
 }
 
@@ -826,7 +828,7 @@ struct WorkBlock: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func animate(_ change: () -> Void) { withAnimation(reduceMotion ? nil : .smooth(duration: 0.28), change) }
     var body: some View {
-        let actions = rows.filter { $0.kind == "activity" }.flatMap(\.items).count, notes = rows.filter { $0.kind == "assistant" }.count
+        let actions = rows.filter { $0.kind == "activity" }.flatMap(\.items).count, notes = rows.filter { $0.kind == "assistant" }.count, sent = rows.filter { $0.kind == "peer" }.count
         let open = hovering || pinned || details
         VStack(alignment: .leading, spacing: 0) {
             Button { animate { if pinned { pinned = false; hovering = false } else { pinned = true } } } label: {
@@ -835,7 +837,7 @@ struct WorkBlock: View {
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
                         .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0.09))
                         .onHover { inside in if inside, !hovering { animate { hovering = true } } }
-                    Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")"].compactMap { $0 }.joined(separator: " · "))
+                    Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")", sent == 0 ? nil : "\(sent) \(sent == 1 ? "message" : "messages") sent"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
                 }.frame(height: 40).foregroundStyle(.black.opacity(0.6)).contentShape(Rectangle())
@@ -844,6 +846,7 @@ struct WorkBlock: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(rows) { row in
                         if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
+                        else if row.kind == "peer", let item = row.items.first { PeerLine(item: item) }
                         else if let item = row.items.first { WorkNote(item: item) }
                     }
                 }.padding(14).transition(.opacity)
