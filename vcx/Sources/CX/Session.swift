@@ -175,6 +175,8 @@ final class Session: ObservableObject {
     // Each drawn exchange's top in the transcript's viewport; not published, scrolling rewrites it every frame.
     var exchangeTops: [UUID: CGFloat] = [:]
     var scrollToExchange: ((UUID) -> Void)?
+    var landOnEnd: (() -> Void)?
+    var drawnRows = 0
     @Published var permissions: [Permission] = [] {
         didSet { if questionFlow?.request.id != permissions.first?.id { questionFlow = permissions.first.flatMap(QuestionFlow.init) } }
     }

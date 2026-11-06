@@ -45,6 +45,15 @@ struct RoundButton: View {
 }
 
 extension View {
+    // The lazy stack sizes rows it never placed from the ones it did: below one long exchange, the transcript ran thousands of
+    // points past its last row, and a jump there drew no row at all. Nothing drawn a moment later lands on the end.
+    func drawnRow(_ session: Session) -> some View {
+        onAppear { session.drawnRows += 1 }.onDisappear {
+            session.drawnRows -= 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { if session.drawnRows == 0, !session.rows.isEmpty { session.landOnEnd?() } }
+        }
+    }
+
     // A white base carries the shadow: under a translucent tint, a plain .shadow would be as faint as the tint.
     func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 3, y: 2)), in: shape) }
 }
@@ -408,13 +417,14 @@ struct CXView: View {
                                     .id("exchange-\(section.id)")
                                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { session.exchangeTops[section.id] = $0 }
                                     .onDisappear { session.exchangeTops[section.id] = nil }
+                                    .drawnRow(session)
                                 }
                             } header: {
                                 if let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id) }
                             }
                         }
                         // Holds the bottom padding so following lands where a manual scroll ends.
-                        Color.clear.frame(height: 29).id("bottom")
+                        Color.clear.frame(height: 29).drawnRow(session).id("bottom")
                     }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.top, 28)
                 }
                 .onScrollPhaseChange { _, phase, context in
@@ -437,6 +447,7 @@ struct CXView: View {
                 }
                 .onAppear {
                     session.scrollToExchange = { proxy.scrollTo("exchange-\($0)", anchor: .top) }
+                    session.landOnEnd = { session.follow.attached = true; land(proxy) }
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
                 if !session.follow.attached {
@@ -463,6 +474,7 @@ struct CXView: View {
     private func questionRow(_ question: Row, closesUp: Bool) -> some View {
         ConversationRow(row: question, session: session, collapsible: true).equatable()
             .padding(.bottom, closesUp ? -16 : 0)
+            .drawnRow(session)
             .id(question.id)
     }
 
@@ -929,7 +941,9 @@ struct CollapsibleText: View {
     static let size: CGFloat = 12
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Text(text).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
+            // ponytail: width from the first 10,000 characters; measured whole, a 520,000-character paste held the window 45 s.
+            // A wider line past them widens the bubble only once opened.
+            Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             Text(collapsed && width > 0 ? twoLines(text, width: width) : text).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)

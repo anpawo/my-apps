@@ -337,6 +337,62 @@ enum BugCheck {
             print("Window scrolled to \(Int(before)) pt before an update, \(Int(after)) pt after; the exchange at the top edge sat at \(saved.map { String(format: "%.2f", $0) } ?? "none") pt, now \(shown.map { String(format: "%.2f", $0) } ?? "none") pt; \(total == 0 ? 100 : differing * 100 / total)% of the picture differs")
             check(before > 0 && !new.follow.attached && saved != nil && shown != nil && abs(shown! - saved!) < 1 && total > 0 && differing * 20 < total, "a window reopened by an update shows what it showed before")
         }
+        do {
+            // The window that went blank: a 7,500-line pasted question, its long answer, then a short question still unanswered.
+            let source = SessionBackend(session: Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("tail-source")))
+            defer { source.close() }
+            let question = (1...7500).map { $0 % 50 == 0 ? String(repeating: "word ", count: 200) : "Claim \($0): a line of a pasted list about as long as the real one." }.joined(separator: "\n")
+            source.session.show(["id": "tail-q1", "type": "userMessage", "content": [["type": "text", "text": question]]])
+            for n in 1...34 { source.session.show(["id": "tail-c\(n)", "type": "commandExecution", "command": "curl -s https://example.com/\(n)", "aggregatedOutput": "output \(n)", "status": "completed"]) }
+            source.session.show(["id": "tail-a1", "type": "agentMessage", "provider": "Claude", "text": (1...143).map { "- Answer line \($0) with enough words to wrap across most of the chat column on a window this wide." }.joined(separator: "\n")])
+            source.session.show(["id": "tail-q2", "type": "userMessage", "content": [["type": "text", "text": "test"]]])
+            let tailSnapshot = source.snapshot()
+            func open(_ name: String, _ state: JSON) async -> (Session, NSWindow) {
+                let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent(name))
+                session.ready = true; session.status = "Ready"
+                RuntimeUpdate.adopt(state, session: session)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                await Task { session.applyRuntimeSnapshot(tailSnapshot) }.value
+                RuntimeUpdate.restore(state, window: window, session: session)
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                return (session, window)
+            }
+            let start = Date()
+            let (old, oldWindow) = await open("tail-old", [:])
+            defer { oldWindow.close(); old.close() }
+            let opening = Date().timeIntervalSince(start)
+            print("A 7,500-line question opened its window in \(String(format: "%.1f", opening)) s")
+            // Measured whole only to keep its width, the question held the window 45 s, and the scrolling done meanwhile came in as one jump.
+            check(opening < 10, "a window opens in seconds on a question thousands of lines long")
+            if let scroll = RuntimeUpdate.scrollView(in: oldWindow.contentView) {
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.origin.y - 300)); scroll.reflectScrolledClipView(scroll.contentView)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05)); oldWindow.contentView?.layoutSubtreeIfNeeded()
+            }
+            old.follow.attached = false
+            await settle(); oldWindow.contentView?.layoutSubtreeIfNeeded()
+            let state = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: RuntimeUpdate.state(window: oldWindow, session: old))) as? JSON ?? [:]
+            let (new, newWindow) = await open("tail-new", state)
+            defer { newWindow.close(); new.close() }
+            // Reopened mid-answer, the rows under the answer are estimated from its height: the end sits thousands of points too low.
+            if let scroll = RuntimeUpdate.scrollView(in: newWindow.contentView) {
+                let estimated = scroll.documentView?.bounds.height ?? 0
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: estimated - scroll.contentView.bounds.height)); scroll.reflectScrolledClipView(scroll.contentView)
+                await settle(); newWindow.contentView?.layoutSubtreeIfNeeded()
+                var ink = 0
+                if let content = newWindow.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                    content.cacheDisplay(in: content.bounds, to: bitmap)
+                    if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("tail-jump.png")) }
+                    let scale = CGFloat(bitmap.pixelsWide) / (newWindow.contentView?.bounds.width ?? 1)
+                    for y in stride(from: 0, to: Int(560 * scale), by: 2) {
+                        for x in stride(from: Int(300 * scale), to: bitmap.pixelsWide - Int(30 * scale), by: 2) where (bitmap.colorAt(x: x, y: y).map { $0.redComponent + $0.greenComponent + $0.blueComponent < 1.6 } ?? false) { ink += 1 }
+                    }
+                }
+                print("Jumped to the estimated end at \(Int(estimated)) pt: now \(Int(scroll.contentView.bounds.origin.y)) pt of \(Int(scroll.documentView?.bounds.height ?? 0)), \(ink) ink samples in the transcript")
+                check(ink > 5000 && new.follow.attached, "a jump past the transcript's last row lands on its end, not on a blank page")
+            }
+        }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")
