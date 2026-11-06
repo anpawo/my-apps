@@ -906,7 +906,7 @@ struct UserBubble: View {
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
-    static let edge: CGFloat = 30
+    static let edge: CGFloat = 44
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering, edge = collapsible && hides
         let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
@@ -918,7 +918,7 @@ struct UserBubble: View {
                 let content = Group {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
-                }.padding(16)
+                }.padding(.horizontal, 16).padding(.vertical, edge ? 13 : 16) // with an edge, one line makes the bubble 40 pt tall, as a work block's header
                 Group {
                     // At the width it had unscrolled, the text wraps as it did and keeps the height that made it scroll.
                     if scrolls { ScrollView { content }.frame(width: size.width, height: cap) }
@@ -932,13 +932,13 @@ struct UserBubble: View {
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
                     })
                     // As on a work block, only the tinted left edge opens it: the pointer crossing the text to read the answer under it leaves it shut.
-                    // A question with nothing past its two lines has no edge.
+                    // A question with nothing past its first line has no edge.
                     .padding(.leading, edge ? Self.edge : 0)
                     .overlay(alignment: .leading) {
                         if edge {
                             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(hovering ? 90 : 0))
                                 .foregroundStyle(.black.opacity(0.6))
-                                .frame(width: Self.edge, height: 30).padding(.top, 16).frame(maxHeight: .infinity, alignment: .top)
+                                .frame(width: Self.edge, height: 40).frame(maxHeight: .infinity, alignment: .top)
                                 .background((message == nil ? accent : agentPink).opacity(hovering ? 0.16 : 0.09)).contentShape(Rectangle())
                                 .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
                         }
@@ -971,8 +971,8 @@ struct AgentMessageContent: View {
     }
 }
 
-// Collapsed, SwiftUI's own truncation fills line 2 with words of line 3, which jump back down on hover:
-// it shows the two lines as the open text wraps them, then "…", and keeps the open text's width.
+// Collapsed, SwiftUI's own truncation fills line 1 with words of line 2, which jump back down on hover:
+// it shows the first line as the open text wraps it, then "…", and keeps the open text's width.
 struct CollapsibleText: View {
     let text: String
     let collapsed: Bool
@@ -984,31 +984,31 @@ struct CollapsibleText: View {
             // A wider line past them widens the bubble only once opened.
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            let shown = collapsed && width > 0 ? twoLines(text, width: width) : text
+            let shown = collapsed && width > 0 ? firstLine(text, width: width) : text
             Text(shown).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
-                .lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                .lineLimit(collapsed ? 1 : nil).fixedSize(horizontal: false, vertical: true)
                 .preference(key: HidesText.self, value: shown != text)
                 .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
         }
     }
 }
 
-func twoLines(_ text: String, width: CGFloat) -> String {
+func firstLine(_ text: String, width: CGFloat) -> String {
     let font = NSFont.monospacedSystemFont(ofSize: CollapsibleText.size, weight: .regular)
     func lineEnds(_ s: String) -> [Int] {
         let setter = CTTypesetterCreateWithAttributedString(NSAttributedString(string: s, attributes: [.font: font]))
         var ends = [Int](), length = (s as NSString).length
-        while ends.count < 3, (ends.last ?? 0) < length { ends.append((ends.last ?? 0) + CTTypesetterSuggestLineBreak(setter, ends.last ?? 0, Double(width))) }
+        while ends.count < 2, (ends.last ?? 0) < length { ends.append((ends.last ?? 0) + CTTypesetterSuggestLineBreak(setter, ends.last ?? 0, Double(width))) }
         return ends
     }
     let ends = lineEnds(text), ns = text as NSString
-    guard ends.count > 2 else { return text }
-    var end = ends[1]
+    guard ends.count > 1 else { return text }
+    var end = ends[0]
     func trim() { while end > 0, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(ns.character(at: end - 1)) ?? "x") { end -= 1 } }
     trim()
-    // No room left for "…": line 2 ends at the break before, where the ellipsis pushed its last piece of word.
-    while end > ends[0], case let shorter = lineEnds(ns.substring(to: end) + "…"), shorter.count > 2 {
-        end = shorter[1] < end ? shorter[1] : ns.rangeOfComposedCharacterSequence(at: end - 1).location
+    // No room left for "…": the line ends at the break before, where the ellipsis pushed its last piece of word.
+    while end > 0, case let shorter = lineEnds(ns.substring(to: end) + "…"), shorter.count > 1 {
+        end = shorter[0] < end ? shorter[0] : ns.rangeOfComposedCharacterSequence(at: end - 1).location
         trim()
     }
     return ns.substring(to: end) + "…"
@@ -1024,7 +1024,7 @@ func pieceRuns(_ pieces: [JSON]) -> [[JSON]] {
 
 struct MessageContent: View {
     @ObservedObject var item: Item
-    // A pinned question keeps two lines until hovered, so it covers little of the answer under it.
+    // A pinned question keeps one line until hovered, so it covers little of the answer under it.
     var collapsed = false
     var preview: (String) -> Void = { _ in }
     var body: some View {

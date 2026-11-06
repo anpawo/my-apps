@@ -212,14 +212,14 @@ enum BugCheck {
         do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("pinned-question"))
             asking.ready = true; asking.status = "Ready"
-            let lines = (1...20).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen, and to wrap where the bubble's width ends." }.joined(separator: "\n")
+            let lines = (1...20).map { "Line \($0) of a question long enough to need more than the one line a pinned question keeps on screen, and to wrap where the bubble's width ends." }.joined(separator: "\n")
             asking.show(["id": "pinned-question", "type": "userMessage", "content": [["type": "text", "text": lines], ["type": "localImage", "path": "/fixture-one.png"], ["type": "localImage", "path": "/fixture-two.png"]]])
             asking.show(["id": "pinned-answer", "type": "agentMessage", "provider": "Claude", "text": (1...60).map { "- Answer line \($0), long enough to reach the left edge beside the pinned question." }.joined(separator: "\n")])
             if let item = asking.rows.first?.items.first {
                 func height(_ collapsible: Bool) -> CGFloat { NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900)).fittingSize.height }
                 let pinned = height(true), full = height(false)
                 print("Question with twenty lines and two pictures:\(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
-                check(pinned < 160 && full > pinned + 40, "a pinned question keeps two lines and one row of pictures until hovered")
+                check(pinned < 160 && full > pinned + 40, "a pinned question keeps one line and one row of pictures until hovered")
                 let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 1200)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -262,7 +262,7 @@ enum BugCheck {
                 check(heights[0] < 300 && abs(away - heights[0]) <= 4, "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
             }
             do {
-                // Two lines or less, a question has nothing to open: no edge, so its bubble is as wide pinned as anywhere else.
+                // On one line, a question has nothing to open: no edge, so its bubble is as wide pinned as anywhere else.
                 let short = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("short-question"))
                 short.show(["id": "short-question", "type": "userMessage", "content": [["type": "text", "text": "A question on one line"]]])
                 if let item = short.rows.first?.items.first {
@@ -274,7 +274,7 @@ enum BugCheck {
                     }
                     let pinned = left(true), plain = left(false)
                     print("One-line question's bubble starts at x \(Int(pinned)) pinned, \(Int(plain)) unpinned")
-                    check(pinned > 0 && pinned == plain, "a question with nothing past two lines has no edge to hover")
+                    check(pinned > 0 && pinned == plain, "a question with nothing past one line has no edge to hover")
                 }
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
@@ -332,10 +332,10 @@ enum BugCheck {
             }
         }
         do {
-            // A word too long for what is left of line 2 opens line 3: SwiftUI's truncation pulled part of it up, then put it back on hover.
-            // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 2.
-            for (name, text) in [("word", "Pinned questions keep the two lines the open bubble shows, then an ellipsis after 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a fourth line."),
-                                 ("path", "Pinned questions keep the two lines the open bubble shows, then an ellipsis after /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a fourth line.")] {
+            // A word too long for what is left of line 1 opens line 2: SwiftUI's truncation pulled part of it up, then put it back on hover.
+            // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 1.
+            for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line."),
+                                 ("path", "A pinned question keeps one line, then an ellipsis: /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a third line.")] {
                 let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-" + name))
                 asking.ready = true; asking.status = "Ready"
                 asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
@@ -368,13 +368,20 @@ enum BugCheck {
                 let left = tintStart(host, y: 30)
                 text = Int((left + UserBubble.edge) * CGFloat(host.bitmapImageRepForCachingDisplay(in: host.bounds)?.pixelsWide ?? 0) / host.bounds.width)
                 let collapsed = lines("collapsed-\(name).png")
+                // Right of the chevron, the edge's tint spans the shut bubble's whole height.
+                let shut = host.bitmapImageRepForCachingDisplay(in: host.bounds).map { bitmap in
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    return CGFloat((0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: Int((left + 40) * scale), y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count) / scale
+                } ?? 0
+                print("Collapsed \(name) question: \(shut) pt tall")
+                check(abs(shut - 40) <= 1, "a collapsed question (\(name)) is 40 pt tall, as a work block's header")
                 pointer(host, at: NSPoint(x: 5, y: 30), entering: true); pointer(host, at: NSPoint(x: left + 10, y: 30))
                 let open = lines("collapsed-\(name)-open.png")
                 print("Collapsed \(name) question, ink columns per line: \(collapsed), open: \(open)")
-                if name == "word" { check(open.count >= 4 && open[0].1 - open[1].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 3 and leaves line 2 short") }
-                // Line 2 gains at most the "…", and may lose its last piece of word to it, never more.
-                check(collapsed.count == 2 && open.count >= 3 && abs(collapsed[0].0 - open[0].0) <= 1 && abs(collapsed[0].1 - open[0].1) <= 1 && abs(collapsed[1].0 - open[1].0) <= 1
-                      && collapsed[1].1 - open[1].1 < Int(12 * scale) && open[1].1 - collapsed[1].1 < Int(80 * scale), "a collapsed question (\(name)) shows line 2 as it wraps open, then …: no word moves on hover")
+                if name == "word" { check(open.count >= 3 && open[1].1 - open[0].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 2 and leaves line 1 short") }
+                // Line 1 gains at most the "…", and may lose its last piece of word to it, never more.
+                check(collapsed.count == 1 && open.count >= 2 && abs(collapsed[0].0 - open[0].0) <= 1
+                      && collapsed[0].1 - open[0].1 < Int(12 * scale) && open[0].1 - collapsed[0].1 < Int(80 * scale), "a collapsed question (\(name)) shows line 1 as it wraps open, then …: no word moves on hover")
             }
         }
         do {
