@@ -62,6 +62,9 @@ enum ClaudeParityCheck {
         check(listed.filter { $0.hasPrefix("user-check.py · ") }.count == 1 && listed.contains { $0.hasPrefix("project-stop.sh · Stop") }, "user settings under the home folder are read once beside project settings")
         check(listed.contains { $0.hasPrefix("start.js · SessionStart") && $0.hasSuffix("Plugin: tool") } && listed.contains { $0.hasPrefix("tool · UserPromptSubmit") }, "enabled plugin hooks are listed from hooks.json and plugin.json")
         check(!listed.joined().contains("off.js"), "disabled plugin hooks are not listed")
+        write("user/vcx-claude.json", #"{"enabledPlugins": {"tool@market": false}}"#)
+        let trimmed = claudeHooks(home: user.appendingPathComponent(".claude").path, folders: [user, user.appendingPathComponent("work")], flags: [user.appendingPathComponent("vcx-claude.json")])
+        check(!trimmed.joined().contains("Plugin: tool") && trimmed.contains { $0.hasPrefix("user-check.py · ") }, "VCX's own Claude settings switch a plugin's hooks off in the list")
 
         let saved = Settings.shared.value
         defer { Settings.shared.value = saved; Settings.shared.save() }

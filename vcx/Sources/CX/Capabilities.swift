@@ -36,7 +36,7 @@ func hookSummary(_ hook: JSON, event: String, matcher: String? = nil, plugin: St
 }
 
 // What Claude Code loads: user settings, each ancestor's project settings, and the hooks of enabled plugins.
-func claudeHooks(home: String, folders: [URL]) -> [String] {
+func claudeHooks(home: String, folders: [URL], flags: [URL] = []) -> [String] {
     func read(_ url: URL) -> JSON? { (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON } }
     func summaries(_ config: JSON?, plugin: String? = nil) -> [String] {
         let events = config?["hooks"] as? JSON ?? [:]
@@ -47,7 +47,7 @@ func claudeHooks(home: String, folders: [URL]) -> [String] {
         }
     }
     var paths: [String] = []
-    for url in [URL(fileURLWithPath: home).appendingPathComponent("settings.json")] + folders.flatMap({ folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }) where !paths.contains(url.standardizedFileURL.path) {
+    for url in [URL(fileURLWithPath: home).appendingPathComponent("settings.json")] + folders.flatMap({ folder in [".claude/settings.json", ".claude/settings.local.json"].map { folder.appendingPathComponent($0) } }) + flags where !paths.contains(url.standardizedFileURL.path) {
         paths.append(url.standardizedFileURL.path)
     }
     let settings = paths.compactMap { read(URL(fileURLWithPath: $0)) }
@@ -144,7 +144,7 @@ extension Session {
             return
         }
         if account.provider == "claude" {
-            hooks = claudeHooks(home: base, folders: folders)
+            hooks = claudeHooks(home: base, folders: folders, flags: [claudeSettingsFile])
             instructions = ClaudeCompatibility(cwd: cwd, home: base).instructions().paths.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
             do {
                 let catalog = try await connection.request("cx/catalog", [:], timeout: 25)

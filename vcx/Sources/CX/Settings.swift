@@ -27,7 +27,7 @@ struct Preferences: Codable {
 @MainActor
 final class Settings: ObservableObject {
     static let shared = Settings()
-    static let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_CONFIG_HOME"] ?? NSHomeDirectory() + "/Library/Application Support/VCX")
+    nonisolated static let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_CONFIG_HOME"] ?? NSHomeDirectory() + "/Library/Application Support/VCX")
     @Published var value: Preferences
     @Published var error = ""
     @Published var signingIn = false
@@ -165,6 +165,9 @@ func parseLoginEnvironment(_ data: Data) -> [String: String]? {
     }
     return environment.isEmpty ? nil : environment
 }
+
+// Layered over the user's Claude settings in VCX sessions only, to leave out what is useless here (skillOverrides, enabledPlugins, claudeMdExcludes).
+let claudeSettingsFile = Settings.directory.appendingPathComponent("claude-settings.json")
 
 func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [String: String] {
     var environment = (loginEnvironment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("CLAUDE") && !["PWD", "OLDPWD", "SHLVL"].contains($0.key) }

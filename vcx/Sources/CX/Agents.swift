@@ -145,8 +145,9 @@ final class ClaudeConnection: Connection {
     private func launch(resume: Bool) throws {
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        let trim: [String] = FileManager.default.fileExists(atPath: claudeSettingsFile.path) ? ["--settings", claudeSettingsFile.path] : []
         process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default", "--allow-dangerously-skip-permissions"] +
-            [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
+            [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]) + trim)) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
         process.environment = agentEnvironment(account, fleet: fleetFile)
         // Claude names a --resume ID it cannot find only on stderr. A file, unlike a pipe, still takes writes after a live swap ends this process.
