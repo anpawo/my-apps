@@ -54,9 +54,14 @@ struct RoundButton: View {
     let label: String
     var action: () -> Void
     var body: some View {
-        Button(action: action) { Image(systemName: icon).font(.system(size: 17.5, weight: .medium)).frame(width: 34, height: 34).background(.black.opacity(0.07), in: Circle()) }
+        Button(action: action) { Image(systemName: icon).font(.system(size: 17.5, weight: .medium)).frame(width: 34, height: 34).background(.black.opacity(0.07), in: Circle()).raised(Circle()) }
             .buttonStyle(.reactive(Circle())).help(label).accessibilityLabel(label)
     }
+}
+
+extension View {
+    // A white base carries the shadow: under a translucent tint, a plain .shadow would be as faint as the tint.
+    func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.2), radius: 2.5, y: 1.5)), in: shape) }
 }
 
 // Hover tints a button inside its own shape; a press tints it darker and pulls its edges in by a few points whatever its width.
@@ -327,7 +332,7 @@ struct CXView: View {
                     Spacer()
                 }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
                     .padding(12).frame(maxWidth: .infinity)
-                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
                     .contentShape(Rectangle())
             }.buttonStyle(.reactive).keyboardShortcut(",", modifiers: .command).padding(10)
@@ -358,7 +363,7 @@ struct CXView: View {
                 Text(value).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
             }
                 .padding(.horizontal, 6).padding(.vertical, 5)
-                .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
+                .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
@@ -370,7 +375,7 @@ struct CXView: View {
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
                     .frame(maxWidth: .infinity)
-                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
                     .contentShape(Rectangle())
             }.buttonStyle(.reactive).help("Browse " + title.lowercased())
@@ -455,7 +460,7 @@ struct CXView: View {
                 }
                 if !session.follow.attached {
                     Button { session.follow.attached = true; land(proxy) } label: {
-                        Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule())
+                        Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule()).raised(Capsule())
                     }.buttonStyle(.reactive(Capsule())).padding(.bottom, 12)
                 }
             }
@@ -502,7 +507,7 @@ struct CXView: View {
                 }.frame(height: session.editorHeight)
                     .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
-                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()) }.buttonStyle(.reactive(Circle())).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
+                Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()).raised(Circle()) }.buttonStyle(.reactive(Circle())).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
                 }
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -1094,7 +1099,7 @@ struct QuestionPanel: View {
                                 if let detail = option["description"] as? String, !detail.isEmpty { Text(detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)) }
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                            .background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+                            .background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
                     }.buttonStyle(.reactive)
                 }
             }
