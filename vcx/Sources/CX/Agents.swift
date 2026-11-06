@@ -280,6 +280,8 @@ final class ClaudeConnection: Connection {
             // A safeguard stop, a model fallback or a prompt a hook dropped; Claude Code keeps "info" lines for its transcript view.
             if ["informational", "model_fallback", "model_consent_fallback", "model_refusal_fallback", "model_refusal_no_fallback"].contains(message["subtype"] as? String ?? ""),
                message["level"] as? String != "info", let content = message["content"] as? String, !content.isEmpty { emit("warning", ["message": content]) }
+            // A refusal fallback swaps the session's model unless only a subagent or side question fell back.
+            if message["subtype"] as? String == "model_refusal_fallback", message["scope"] as? String != "local", let model = message["fallback_model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
             // Idle Claude answers a finished background task with a turn of its own.
             if message["subtype"] as? String == "task_notification", pendingUsers.isEmpty {
                 turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]])

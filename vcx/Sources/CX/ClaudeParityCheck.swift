@@ -160,6 +160,9 @@ enum ClaudeParityCheck {
         refused.receive(["type": "system", "subtype": "informational", "level": "info", "content": "Transcript-only line"])
         let shown = notices.rows.filter { $0.kind == "notice" }.flatMap { $0.items.map(\.text) }
         check(shown == ["Opus 5.5's safeguards stopped the response above", "Opus 4.8 is answering instead."], "Claude's safeguard and fallback notices show in the conversation, transcript-only lines do not")
+        check(notices.modelLabel == "Opus 4.8", "a session refusal fallback moves the model chip to the model now answering")
+        refused.receive(["type": "system", "subtype": "model_refusal_fallback", "scope": "local", "content": "A subagent fell back.", "fallback_model": "claude-sonnet-5-5"])
+        check(notices.modelLabel == "Opus 4.8", "a subagent's fallback leaves the session's model chip alone")
         notices.close()
         print("\(count) Claude-to-Codex parity checks passed")
     }
