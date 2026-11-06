@@ -913,9 +913,48 @@ struct AgentMessageContent: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("from \(message.provider)-\(message.name)").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(agentPink)
                 .padding(.horizontal, 8).padding(.vertical, 4).background(agentPink.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
-            Text(message.body).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true).clipped()
+            CollapsibleText(text: message.body, collapsed: collapsed)
         }
     }
+}
+
+// Collapsed, SwiftUI's own truncation fills line 2 with words of line 3, which jump back down on hover:
+// it shows the two lines as the open text wraps them, then "…", and keeps the open text's width.
+struct CollapsibleText: View {
+    let text: String
+    let collapsed: Bool
+    @State private var width: CGFloat = 0
+    static let size: CGFloat = 12
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Text(text).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            Text(collapsed && width > 0 ? twoLines(text, width: width) : text).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
+                .lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
+        }
+    }
+}
+
+func twoLines(_ text: String, width: CGFloat) -> String {
+    let font = NSFont.monospacedSystemFont(ofSize: CollapsibleText.size, weight: .regular)
+    func lineEnds(_ s: String) -> [Int] {
+        let setter = CTTypesetterCreateWithAttributedString(NSAttributedString(string: s, attributes: [.font: font]))
+        var ends = [Int](), length = (s as NSString).length
+        while ends.count < 3, (ends.last ?? 0) < length { ends.append((ends.last ?? 0) + CTTypesetterSuggestLineBreak(setter, ends.last ?? 0, Double(width))) }
+        return ends
+    }
+    let ends = lineEnds(text), ns = text as NSString
+    guard ends.count > 2 else { return text }
+    var end = ends[1]
+    func trim() { while end > 0, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(ns.character(at: end - 1)) ?? "x") { end -= 1 } }
+    trim()
+    // No room left for "…": line 2 ends at the break before, where the ellipsis pushed its last piece of word.
+    while end > ends[0], case let shorter = lineEnds(ns.substring(to: end) + "…"), shorter.count > 2 {
+        end = shorter[1] < end ? shorter[1] : ns.rangeOfComposedCharacterSequence(at: end - 1).location
+        trim()
+    }
+    return ns.substring(to: end) + "…"
 }
 
 // Pictures pasted together share a row.
@@ -935,8 +974,7 @@ struct MessageContent: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, run in
                 if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
-                    Text(text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
-                        .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
+                    CollapsibleText(text: text, collapsed: collapsed)
                 } else { PictureRow(pieces: run, preview: preview) }
             }
         }

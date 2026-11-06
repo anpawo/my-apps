@@ -238,6 +238,50 @@ enum BugCheck {
             }
         }
         do {
+            // A word too long for what is left of line 2 opens line 3: SwiftUI's truncation pulled part of it up, then put it back on hover.
+            // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 2.
+            for (name, text) in [("word", "Pinned questions keep the two lines the open bubble shows, then an ellipsis after 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a fourth line."),
+                                 ("path", "Pinned questions keep the two lines the open bubble shows, then an ellipsis after /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a fourth line.")] {
+                let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-" + name))
+                asking.ready = true; asking.status = "Ready"
+                asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
+                guard let item = asking.rows.first?.items.first else { check(false, "collapsed \(name) fixture shows its question"); continue }
+                let hover = HoverProbe.State()
+                let host = NSHostingView(rootView: HoverProbe(state: hover, item: item, session: asking).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 400)
+                let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host
+                defer { window.close() }
+                var scale: CGFloat = 1
+                // Each text line as the first and last dark column of a band of dark rows.
+                func lines(_ file: String) -> [(Int, Int)] {
+                    host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
+                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return [] }
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    guard let data = bitmap.bitmapData else { return [] }
+                    if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent(file)) }
+                    scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+                    var bands = [(Int, Int)](), inBand = false
+                    for y in 0..<bitmap.pixelsHigh {
+                        let dark = (0..<bitmap.pixelsWide).filter { x in let p = y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel; return Int(data[p]) + Int(data[p + 1]) + Int(data[p + 2]) < 360 }
+                        if let first = dark.first, let last = dark.last {
+                            if inBand, let band = bands.popLast() { bands.append((min(band.0, first), max(band.1, last))) } else { bands.append((first, last)) }
+                            inBand = true
+                        } else { inBand = false }
+                    }
+                    return bands
+                }
+                let collapsed = lines("collapsed-\(name).png")
+                hover.open = true
+                let open = lines("collapsed-\(name)-open.png")
+                print("Collapsed \(name) question, ink columns per line: \(collapsed), open: \(open)")
+                if name == "word" { check(open.count >= 4 && open[0].1 - open[1].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 3 and leaves line 2 short") }
+                // Line 2 gains at most the "…", and may lose its last piece of word to it, never more.
+                check(collapsed.count == 2 && open.count >= 3 && abs(collapsed[0].0 - open[0].0) <= 1 && abs(collapsed[0].1 - open[0].1) <= 1 && abs(collapsed[1].0 - open[1].0) <= 1
+                      && collapsed[1].1 - open[1].1 < Int(12 * scale) && open[1].1 - collapsed[1].1 < Int(80 * scale), "a collapsed question (\(name)) shows line 2 as it wraps open, then …: no word moves on hover")
+            }
+        }
+        do {
             let source = SessionBackend(session: Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("scroll-source")))
             defer { source.close() }
             for n in 1...30 {
