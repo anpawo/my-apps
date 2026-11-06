@@ -124,6 +124,8 @@ extension Session {
     }
 
     func refreshCapabilities() async {
+        // A window mirrors the runtime's lists, so a refresh computed here would be overwritten by its next publish.
+        if runtimeClient != nil { await performRuntime("refreshCapabilities"); return }
         let connection = rpc
         await refreshRepository()
         guard rpc === connection else { return }

@@ -1456,6 +1456,8 @@ final class Session: ObservableObject {
         rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile; rpc.event = { [weak self] message in self?.event(message) }
         if !testing { Connectivity.watch(self) }
         save()
+        // The carried lists were computed by the previous build's code.
+        if !testing { Task { await refreshCapabilities() } }
     }
 
     func applyRuntimePatch(_ value: JSON) {

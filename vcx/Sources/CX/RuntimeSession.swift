@@ -246,6 +246,7 @@ final class SessionBackend: RuntimeBackend {
         case "refreshCatalog": await session.refreshCatalog()
         case "refreshUsage": await session.refreshUsage(force: params["force"] as? Bool ?? true)
         case "refreshRepository": await session.refreshRepository()
+        case "refreshCapabilities": await session.refreshCapabilities()
         case "switchThread":
             let success = await session.switchThread(params["id"] as? String, fromCommand: params["fromCommand"] as? Bool ?? false)
             publish()
