@@ -1222,8 +1222,18 @@ struct LinkText: NSViewRepresentable {
     let text: AttributedString
     let weight: Font.Weight
     let lineSpacing: CGFloat
+    static var open: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    // NSTextView's own fallback opens nothing: a click on a file link reached no LaunchServices call.
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
+            return LinkText.open(url)
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSTextView {
         let view = NSTextView(usingTextLayoutManager: false)
+        view.delegate = context.coordinator
         view.isEditable = false; view.drawsBackground = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
         view.linkTextAttributes = [.foregroundColor: NSColor(accent), .cursor: NSCursor.pointingHand]

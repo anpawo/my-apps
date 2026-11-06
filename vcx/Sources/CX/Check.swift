@@ -164,6 +164,22 @@ enum Check {
                 check(view.frame.height >= 15, "a reply link paragraph keeps its height")
             }
             check(links == ["/tmp/compare.png", "/tmp/it.png"], "reply links render in clickable text views")
+            // Borderless and never ordered in: the click goes to the text view directly.
+            let linkWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+            linkWindow.isReleasedWhenClosed = false; linkWindow.contentView = host; host.layoutSubtreeIfNeeded()
+            var opened: [String] = []
+            let open = LinkText.open; LinkText.open = { opened.append($0.path); return true }
+            if let view = textViews(host).first, let manager = view.layoutManager, let container = view.textContainer {
+                let glyphs = manager.glyphRange(forCharacterRange: (view.string as NSString).range(of: "compare.png"), actualCharacterRange: nil)
+                let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                let point = view.convert(NSPoint(x: rect.midX + view.textContainerOrigin.x, y: rect.midY + view.textContainerOrigin.y), to: nil)
+                func mouse(_ type: NSEvent.EventType) -> NSEvent { NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: linkWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)! }
+                NSApp.postEvent(mouse(.leftMouseUp), atStart: false)
+                view.mouseDown(with: mouse(.leftMouseDown))
+                _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
+            }
+            LinkText.open = open; linkWindow.close()
+            check(opened == ["/tmp/compare.png"], "a click on a reply link opens its file")
         }
         func composerLine(_ image: Bool) -> (CGFloat, CGFloat) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
