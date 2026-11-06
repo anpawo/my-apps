@@ -575,12 +575,18 @@ final class QwenConnection: Connection {
             }
             var message: JSON = ["role": "user", "content": text]
             if !images.isEmpty { message["images"] = images }
+            let project = messages.count == 1 ? qwenProject(text, cwd: cwd).flatMap { workingDirectory($0, within: initialDirectory) } : nil
             messages.append(message)
             // Bound remote context without loading a local model or asking another model to summarize.
             if messages.count > 41 { messages.removeSubrange(1..<(messages.count - 40)) }
             turn = UUID().uuidString
             let current = turn, item = UUID().uuidString
             emit("turn/started", ["turn": ["id": current]])
+            if let project {
+                // Reported as the lone cd Claude would run, so the window moves the way it does for Claude.
+                emit("item/completed", ["item": ["id": UUID().uuidString, "type": "commandExecution", "command": "cd " + project, "cwd": cwd, "aggregatedOutput": "", "exitCode": 0, "status": "completed"]])
+                cwd = project
+            }
             task = Task {
                 do {
                     for _ in 0..<12 {
@@ -629,7 +635,7 @@ final class QwenConnection: Connection {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
         var outgoing = messages
-        outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + qwenProjectRule(cwd) + "\n" + developerInstructions
+        outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
         request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
@@ -698,13 +704,25 @@ final class QwenConnection: Connection {
     }
 }
 
-// Claude picks its project from his CLAUDE.md; Qwen reads none, so it gets the same rule here. A standalone cd moves the window.
-func qwenProjectRule(_ cwd: String) -> String {
+// Claude picks its project from his CLAUDE.md; Qwen reads none, and the 8B model chains `cd x && …` into wrong folders,
+// so VCX picks the one ~/self project the first request names: a folder, a Mac app (my-apps) or Qwen's own words.
+func qwenProject(_ text: String, cwd: String) -> String? {
     let root = NSHomeDirectory() + "/self"
-    guard !cwd.hasPrefix(root + "/"), let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { return "" }
-    var directory: ObjCBool = false
-    let projects = names.filter { !$0.hasPrefix(".") && FileManager.default.fileExists(atPath: root + "/" + $0, isDirectory: &directory) && directory.boolValue }.sorted()
-    return "His projects are the folders of ~/self: " + projects.joined(separator: ", ") + ". When a request is about one of them, your first tool call is run_command with exactly `cd ~/self/<folder>` and nothing else; then do the task. Requests about Qwen itself (its models, llama.cpp, Ollama, fuse, this Qwen adapter) go to ~/self/qwen."
+    guard !cwd.hasPrefix(root + "/") else { return nil }
+    let lower = text.lowercased()
+    func named(_ word: String) -> Bool { lower.range(of: "(?<![a-z0-9_-])" + NSRegularExpression.escapedPattern(for: word.lowercased()) + "(?![a-z0-9_-])", options: .regularExpression) != nil }
+    func folders(_ path: String) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).filter { name in
+            var directory: ObjCBool = false
+            return !name.hasPrefix(".") && (try? FileManager.default.destinationOfSymbolicLink(atPath: path + "/" + name)) == nil
+                && FileManager.default.fileExists(atPath: path + "/" + name, isDirectory: &directory) && directory.boolValue
+        }
+    }
+    // ponytail: word match only; "temp" and "archive" are left out as everyday words, not projects to work in.
+    var hits = Set(folders(root).filter { !["temp", "archive"].contains($0) && named($0) })
+    if folders(root + "/my-apps").contains(where: named) { hits.insert("my-apps") }
+    if ["qwen", "llama.cpp", "llama", "ollama", "fuse", "gguf"].contains(where: named) { hits.insert("qwen") }
+    return hits.count == 1 ? root + "/" + hits.first! : nil
 }
 
 func validQwenProxy(_ text: String) -> Bool {

@@ -572,7 +572,12 @@ enum Check {
             _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "CONTEXT"]]])
             for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
             check(qwenDone && qwenText.hasSuffix("Fleet fixture instruction"), "Qwen receives Fleet instructions in its outbound system message and retains them on resume")
-            check(qwenProjectRule("/").contains("exactly `cd ~/self/<folder>`") && qwenProjectRule(NSHomeDirectory() + "/self/qwen").isEmpty, "Qwen outside a project is told to cd into the one its request names, and inside one it is not")
+            let projects = NSHomeDirectory() + "/self/"
+            if FileManager.default.fileExists(atPath: projects + "my-apps"), FileManager.default.fileExists(atPath: projects + "qwen") {
+                check(qwenProject("fix the composer padding in vcx", cwd: "/") == projects + "my-apps" && qwenProject("reverse-engineer the fuse mod", cwd: NSHomeDirectory()) == projects + "qwen"
+                      && qwenProject("what is 2+2", cwd: "/") == nil && qwenProject("fix vcx and the qwen models", cwd: "/") == nil && qwenProject("fix vcx", cwd: projects + "qwen") == nil,
+                      "a first Qwen request outside a project picks the one ~/self project it names, and none when it names zero or two")
+            }
             let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
             check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
             qwen.close()
