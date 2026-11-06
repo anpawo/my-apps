@@ -323,6 +323,7 @@ enum Check {
         check(nested.count == 2 && nested[0].markdown && nested[0].text.hasSuffix("after") && !nested[1].code, "a ```` block holds ``` fences and renders as Markdown")
         check(!markdownBlocks("```\n# comment\n```")[0].markdown && markdownBlocks("```md\n# T\n```")[0].markdown, "only md or ```` blocks render as Markdown")
         check(answerParagraphs("\n## Next\n\nText") == ["## Next", "Text"], "a heading after a fence stays a heading")
+        check(answerParagraphs("**Closed**\n| A | B |\n|---|---|\n| 1 | 2 |") == ["**Closed**", "| A | B |\n|---|---|\n| 1 | 2 |"], "a table right under a text line is its own block")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         func gitCheck(_ args: [String], at path: String) {
@@ -1821,6 +1822,8 @@ enum Render {
         for width: CGFloat in [420, 760, 1120] {
             write(MarkdownBody(text: table).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
         }
+        let titled = "**Closed**\n| Fleet name | What it did | What it wondered |\n|---|---|---|\n| Review checker hits | Checked the resolved waits | A reply draft waits for your go |\n| Epitech registrations | Compared the hackathons | Nothing |\n\nTo reopen one, run vcx --resume."
+        write(MarkdownBody(text: titled).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 1120, height: 360), path: directory + "/table-under-title.png")
         let nested = "Plan to paste:\n\n````\n### Storage\n\nThe engine **only loads**; the service keeps the `per-entity` lock.\n\n```python\nclass Ledger:\n    def load(self, entity: str) -> dict: ...\n```\n\n- one point\n- another point\n````\n\n## After the block\n\nPlain text again."
         write(MarkdownBody(text: nested).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 560), path: directory + "/nested-markdown.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]

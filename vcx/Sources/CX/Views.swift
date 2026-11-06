@@ -1237,8 +1237,14 @@ func answerParagraphs(_ text: String) -> [String] {
             if !plain.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(plain.joined(separator: "\n").trimmingCharacters(in: .newlines)) }
             plain = []
         }
-        for line in paragraph.components(separatedBy: "\n") {
-            if line.hasPrefix("⟶ ") || line.hasPrefix("✓ Done:") { close(); parts.append(line) } else { plain.append(line) }
+        let lines = paragraph.components(separatedBy: "\n")
+        for (n, line) in lines.enumerated() {
+            if line.hasPrefix("⟶ ") || line.hasPrefix("✓ Done:") { close(); parts.append(line) }
+            else {
+                // A table right under a line of text, with no blank line between, is still its own block.
+                if n + 1 < lines.count, line.contains("|"), tableRule(lines[n + 1]) { close() }
+                plain.append(line)
+            }
         }
         close()
     }
@@ -1260,7 +1266,7 @@ struct ProseView: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
                 let lines = paragraph.components(separatedBy: "\n")
-                if lines.count >= 2, lines[1].contains("|"), lines[1].replacingOccurrences(of: #"[\s:|\-]"#, with: "", options: .regularExpression).isEmpty {
+                if lines.count >= 2, tableRule(lines[1]) {
                     ScrollView(.horizontal) {
                         Grid(alignment: .topLeading, horizontalSpacing: 18, verticalSpacing: 10) {
                             ForEach(Array(lines.enumerated()), id: \.offset) { n, line in
@@ -1333,6 +1339,8 @@ struct LinkText: NSViewRepresentable {
         return CGSize(width: width ?? ceil(used.width), height: ceil(used.height))
     }
 }
+
+func tableRule(_ line: String) -> Bool { line.contains("|") && line.replacingOccurrences(of: #"[\s:|\-]"#, with: "", options: .regularExpression).isEmpty }
 
 func tableCells(_ line: String) -> [String] {
     var text = line.trimmingCharacters(in: .whitespaces)
