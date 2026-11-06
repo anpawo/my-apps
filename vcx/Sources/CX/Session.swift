@@ -214,6 +214,8 @@ final class Session: ObservableObject {
     private var deltas: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
     private var lastUsageRefresh = Date.distantPast
+    private weak var usageConnection: AnyObject?
+    private var lastRate: JSON = [:]
 
     init(cwd: String, stateDirectory: URL? = nil) {
         let directory = URL(fileURLWithPath: cwd).standardized.path
@@ -321,7 +323,7 @@ final class Session: ObservableObject {
             }, uniquingKeysWith: { first, _ in first })
             if defaultEffort == nil { defaultEffort = modelDefaultEfforts[model] }
             if contextLimit == nil { await refreshContextLimit() }
-            await refreshUsage()
+            if account.provider != "claude" || usageConnection !== connection { usageConnection = connection; await refreshUsage() }
             await refreshCapabilities()
         } catch { if rpc === connection { usageLoading = false; notice("Could not refresh conversations or account details: " + error.localizedDescription) } }
     }
@@ -338,6 +340,9 @@ final class Session: ObservableObject {
 
     func refreshUsage(force: Bool = true) async {
         if runtimeClient != nil { await performRuntime("refreshUsage", ["force": force]); return }
+        // Claude's usage endpoint answers HTTP 429 when polled: it is read once per connection and on /usage, then each turn's
+        // rate_limit_event keeps usage current, so a periodic refresh only redraws the reset countdown.
+        if account.provider == "claude", !force { if !lastRate.isEmpty { updateUsage(lastRate) }; return }
         guard ready, !changing, force || Date().timeIntervalSince(lastUsageRefresh) >= 60 else { return }
         lastUsageRefresh = Date()
         usageLoading = true
@@ -479,8 +484,6 @@ final class Session: ObservableObject {
         case "cx/resumeFailed":
             Task { await resumeFailed() }
             return
-        case "cx/claudeLimit":
-            Task { await refreshUsage(force: false) }
         case "cx/catalog": applyClaudeCatalog(p)
         case "cx/tokens":
             if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
@@ -596,7 +599,7 @@ final class Session: ObservableObject {
     }
 
     func updateUsage(_ rate: JSON) {
-        usageLoading = false
+        usageLoading = false; lastRate = rate
         if account.provider == "codex", ["primary", "secondary"].contains(where: { ((rate[$0] as? JSON)?["usedPercent"] as? Double ?? 0) >= 100 }) {
             let reset = ["primary", "secondary"].compactMap { rate[$0] as? JSON }.filter { ($0["usedPercent"] as? Double ?? 0) >= 100 }.map(limitReset).max() ?? Date().timeIntervalSince1970 + 300
             Settings.shared.updateLimit(account: account.id, reset: reset)

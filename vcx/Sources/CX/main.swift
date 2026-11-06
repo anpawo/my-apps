@@ -227,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func refreshVisibleSessions() async -> Int {
         var refreshed = 0
         for entry in windows where entry.window.isVisible && entry.window.occlusionState.contains(.visible) {
-            await entry.session.refreshUsage()
+            await entry.session.refreshUsage(force: false)
             await entry.session.refreshRepository()
             refreshed += 1
         }

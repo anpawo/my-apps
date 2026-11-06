@@ -375,7 +375,7 @@ final class ClaudeConnection: Connection {
                 rate["resetsAt"] = (window["resetsAt"] as? NSNumber)?.doubleValue
                 limits[target] = rate
             }
-            if limits.isEmpty { emit("cx/claudeLimit", info) } else { emit("account/rateLimits/updated", ["rateLimits": limits]) }
+            if !limits.isEmpty { emit("account/rateLimits/updated", ["rateLimits": limits]) }
             if info["status"] as? String == "rejected" { limit = info }
         case "result":
             // `model` can be "Claude" or an alias; modelUsage is keyed by the model that served the turn.

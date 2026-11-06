@@ -1256,6 +1256,10 @@ enum Check {
             await usageDisplay.refreshUsage()
             check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk" && usageDisplay.usagePercent == 32, "a failed usage refresh keeps the last reported quota")
             check(!usageDisplay.usageLoading, "a failed usage refresh stops the loading indicator")
+            claudeContext.usageReader = { _ in throw CXError(message: "Usage unavailable: Claude returned HTTP 429.") }
+            let limitsBefore = Settings.shared.value.limits, rowsBefore = usageDisplay.rows.count
+            await usageDisplay.refreshUsage()
+            check(usageDisplay.account.provider == "claude" && Settings.shared.value.limits == limitsBefore && usageDisplay.rows.count == rowsBefore, "an HTTP 429 from the usage endpoint changes neither the provider nor the limits")
         } catch { check(false, "Claude usage: " + error.localizedDescription) }
         claudeContext.event = { message in
             var message = message, params = message["params"] as? JSON ?? [:]
@@ -1290,6 +1294,21 @@ enum Check {
             let plan = events.first { $0["method"] as? String == "cx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
             check(retried && plan.map(limitReset) == 4_102_444_800 && !events.contains { $0["method"] as? String == "turn/completed" },
                   "only Claude's usage_limit_reached moves the session; another 429 fails the turn for a retry")
+        }
+        do {
+            let polled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-state"))
+            var fixture: FixtureConnection?
+            polled.connectionFactory = { account, _ in let connection = FixtureConnection(account); fixture = connection; return connection }
+            try? await polled.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: nil, keepRows: false)
+            await polled.refreshCatalog()
+            let connected = fixture?.usageReads
+            await polled.refreshCatalog()
+            await polled.command("/rename Polled")
+            await polled.refreshUsage(force: false)
+            let idle = fixture?.usageReads
+            await polled.command("/usage")
+            check(connected == 1 && idle == 1 && fixture?.usageReads == 2, "Claude reads the usage endpoint once per connection and on /usage, never on a refresh or a timer")
+            polled.close()
         }
         do {
             let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
@@ -1826,6 +1845,7 @@ final class FixtureConnection: Connection {
     var startDelay: UInt64 = 0
     var catalogDelay: UInt64 = 0
     var catalogRequests = 0
+    var usageReads = 0
     var contextDuringConfig: Int?
     var contextDuringResume: Int?
     var failResume = false
@@ -1873,6 +1893,7 @@ final class FixtureConnection: Connection {
             return ["turn": ["id": pendingTurn]]
         case "turn/interrupt": event(["method": "turn/completed", "params": ["turn": ["id": pendingTurn, "status": "interrupted"]]]); return [:]
         case "cx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
+        case "account/rateLimits/read": usageReads += 1; return [:]
         default: return [:]
         }
     }
