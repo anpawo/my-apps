@@ -671,6 +671,9 @@ enum Check {
                           && qwenProject("what is 2+2", cwd: "/") == nil && qwenProject("fix vcx and the qwen models", cwd: "/") == nil && qwenProject("fix vcx", cwd: projects + "qwen") == nil,
                           "a first Qwen request outside a project picks the one ~/self project it names, and none when it names zero or two")
                 }
+                let longOutput = String(repeating: "a", count: 5000) + "END"
+                check(qwenToolOutput("short") == "short" && qwenToolOutput(longOutput).count < 2100 && qwenToolOutput(longOutput).hasPrefix("aaa") && qwenToolOutput(longOutput).hasSuffix("END"),
+                      "Qwen gets a long command output as its head and tail, small enough for its 2048-token window")
                 let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
                 check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
                 check(AgentMessages.match("B", messageWindows)?.provider == "claude" && AgentMessages.parse("qwen from [b c]: \"say \"hi\"\"")?.body == "say \"hi\"" && AgentMessages.parse("qwen from [b c]: \"hi\"")?.name == "b c" && AgentMessages.parse("from [b]: \"hi\"") == nil && AgentMessages.parse("qwen from [b]: \"") == nil, "an agent answers a window by its name, and its message reads as one")

@@ -713,7 +713,7 @@ final class QwenConnection: Connection {
         let item: JSON = ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "aggregatedOutput": result.0, "exitCode": result.1, "status": result.1 == 0 ? "completed" : "failed"]
         if let directory = shellDirectory(item, current: cwd, initial: initialDirectory) { cwd = directory }
         emit("item/completed", ["item": item])
-        return "Exit: \(result.1)\n" + result.0
+        return "Exit: \(result.1)\n" + qwenToolOutput(result.0)
     }
     func respond(_ id: Any, _ result: JSON) throws { permissions.removeValue(forKey: String(describing: id))?.resume(returning: result["decision"] as? String == "accept") }
     func reject(_ id: Any, method: String) throws { permissions.removeValue(forKey: String(describing: id))?.resume(returning: false) }
@@ -722,6 +722,12 @@ final class QwenConnection: Connection {
         for continuation in permissions.values { continuation.resume(returning: false) }
         permissions.removeAll(); task = nil; network?.invalidateAndCancel()
     }
+}
+
+// The PC's 6 GB GPU holds a 2048-token window; a 16 KB output (about 4k tokens) pushed the task out and Qwen looped.
+func qwenToolOutput(_ text: String, limit: Int = 2000) -> String {
+    guard text.count > limit else { return text }
+    return String(text.prefix(limit / 2)) + "\n[… \(text.count - limit) characters cut …]\n" + String(text.suffix(limit / 2))
 }
 
 // Claude picks its project from his CLAUDE.md; Qwen reads none, and the 8B model chains `cd x && …` into wrong folders,
