@@ -134,6 +134,15 @@ enum SelfCheck {
         press(kVK_Return)
         expect(inbox.items.map(\.id) == ["a"] && kept("b"), true, "inbox: only ↵ says yes")
         expect(inbox.key(UInt16(kVK_ANSI_A)), false, "inbox: a letter is left to go on")
+        var popped = 0
+        inbox.popUp = { _ in popped += 1 }
+        try? Data(#"{"id":"g","at":5,"kind":"guard","subject":"mac-guard","line":"stopped x","dir":"/","options":[]}"#.utf8)
+            .write(to: folder.appending(path: "g.json"))
+        inbox.refresh(force: true)
+        inbox.refresh(force: true)
+        expect(popped == 1 && inbox.current?.id == "g", true, "inbox: a new mac-guard line brings the panel up on it, once")
+        press(kVK_Return)
+        expect(inbox.items.map(\.id) == ["a"] && kept("g") && opened.count == 3, true, "inbox: ↵ on a mac-guard line sets it aside, opening nothing")
         let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }

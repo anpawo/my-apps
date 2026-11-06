@@ -33,8 +33,11 @@ final class Inbox: NSObject, ObservableObject {
     var launch: (InboxItem) -> Bool = Inbox.resume
     /// What opening a session still running does. A stand-in in the selftest, which must not raise one.
     var focus: (pid_t) -> Void = Inbox.raise
+    /// What a new mac-guard line does: the panel comes up on it. A stand-in in the selftest, which must not show one.
+    var popUp: (Inbox) -> Void = { $0.show() }
     private let folder: URL
     private var seen: Date?
+    private var loaded = false
     private var status: NSStatusItem?
     private var panel: InboxPanel?
 
@@ -66,9 +69,16 @@ final class Inbox: NSObject, ObservableObject {
         guard force || date != seen else { return }
         seen = date
         let was = current?.id
+        let known = Set(items.map(\.id))
         items = Store.lines(in: folder)
         index = items.firstIndex { $0.id == was } ?? min(index, max(items.count - 1, 0))
         status?.button?.image = Self.badge(items.count)
+        // A process mac-guard stopped does not wait for ⌘⌥K. Not on the first read: those were there before Watcher.
+        if loaded, let i = items.lastIndex(where: { $0.kind == "guard" && !known.contains($0.id) }) {
+            (index, settings, asking) = (i, false, nil)
+            popUp(self)
+        }
+        loaded = true
     }
 
     /// The count in a rounded square: drawn hollow at 0, filled with the figure cut out of it once something waits.
@@ -213,6 +223,8 @@ final class Inbox: NSObject, ObservableObject {
     /// Opened is handled: the line is set aside as done once its terminal has started.
     private func openCurrent() {
         guard let item = current else { return }
+        // mac-guard's lines have nothing to open: ↵ is "seen".
+        if !item.opens { return take(item) }
         hide()
         if launch(item) { take(item) }
     }
@@ -259,9 +271,13 @@ final class Inbox: NSObject, ObservableObject {
         if panel?.isVisible == true { return hide() }
         refresh(force: true)
         if items.isEmpty { showSettings(true) }
+        show()
+    }
+
+    func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        Self.present(panel, at: Self.activeScreen().frame)
+        if !panel.isVisible { Self.present(panel, at: Self.activeScreen().frame) }
         panel.makeKey()
     }
 
@@ -460,7 +476,7 @@ struct InboxView: View {
                 let colour = ask.map { _ in Self.yes }
                 let needs = ask == nil && inbox.current?.kind == "needs"
                 let done = ask == nil && inbox.current?.kind == "done"
-                key("return", ask == nil ? "open" : "yes", kVK_Return, tint: colour, icon: needs ? Self.open : nil)
+                key("return", ask != nil ? "yes" : inbox.current?.opens == false ? "ok" : "open", kVK_Return, tint: colour, icon: needs ? Self.open : nil)
                 key("checkmark", ask == nil ? "done" : "sure?", kVK_DownArrow,
                     tint: ask == nil ? nil : Self.yes, icon: done ? Self.done : nil)
                 key("gearshape", "settings", kVK_ANSI_S)
