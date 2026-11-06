@@ -22,6 +22,10 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 [![⌘⌥J over a terminal where a Python script failed: the panel opens at the top right, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](glance/docs/demo.gif)](glance)
 
+### [mac-guard](mac-guard)
+
+[![mac-guard's icon: a white shield standing in front of a grey Apple logo, on Fleet's dark tile](mac-guard/docs/icon.png)](mac-guard)
+
 ### [opener](opener)
 
 [![⌘Space over a desktop: the panel opens empty, typing "saf" narrows the list to Safari and ↵ opens it; ⌘Space again over Safari, "te" lists Terminal then TextEdit, ↓ moves to TextEdit and ↵ opens it](opener/docs/demo.gif)](opener)

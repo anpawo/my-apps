@@ -1,9 +1,9 @@
 // Draws each app's icon in Fleet's style, white on a dark tile, into <app>/Resources/AppIcon.icns, which its
-// build copies into the bundle. Run from the repo root: swift make-icons.swift
+// build copies into the bundle. Run from the repo root: swift make-icons.swift [app…]
 import AppKit
 
 func glyph(_ name: String, box: CGFloat, weight: NSFont.Weight = .medium,
-           at c: NSPoint = NSPoint(x: 512, y: 512), angle: CGFloat = 0) {
+           at c: NSPoint = NSPoint(x: 512, y: 512), angle: CGFloat = 0, op: NSCompositingOperation = .sourceOver) {
     let config = NSImage.SymbolConfiguration(pointSize: 400, weight: weight).applying(.init(paletteColors: [.white]))
     let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)!.withSymbolConfiguration(config)!
     // Symbols differ in shape: each is fitted to a square box rather than drawn at one point size.
@@ -11,8 +11,20 @@ func glyph(_ name: String, box: CGFloat, weight: NSFont.Weight = .medium,
     let w = image.size.width * k, h = image.size.height * k
     NSGraphicsContext.saveGraphicsState()
     let t = NSAffineTransform(); t.translateX(by: c.x, yBy: c.y); t.rotate(byDegrees: angle); t.concat()
-    image.draw(in: NSRect(x: -w / 2, y: -h / 2, width: w, height: h))
+    image.draw(in: NSRect(x: -w / 2, y: -h / 2, width: w, height: h), from: .zero, operation: op, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
+}
+
+// mac-guard's: a shield standing in front of the Apple logo, a gap of tile between them.
+func guardedApple() {
+    let shield = NSPoint(x: 610, y: 400)
+    let apple = NSImage(size: NSSize(width: 1024, height: 1024), flipped: false) { _ in
+        glyph("apple.logo", box: 560, at: NSPoint(x: 440, y: 580))
+        glyph("shield.fill", box: 500, at: shield, op: .destinationOut)
+        return true
+    }
+    apple.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), from: .zero, operation: .sourceOver, fraction: 0.6)
+    glyph("shield.fill", box: 420, at: shield)
 }
 
 // Watcher's: the line left for you, a note pinned to the tile.
@@ -38,6 +50,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("screenshot", { glyph("camera.viewfinder", box: 500) }),
     ("watcher", pinnedNote),
     ("paperclip", { glyph("paperclip", box: 500) }),
+    ("mac-guard", guardedApple),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {
@@ -56,7 +69,9 @@ func png(_ px: Int, _ draw: () -> Void) -> Data {
     return rep.representation(using: .png, properties: [:])!
 }
 
-for app in apps {
+// Names given (swift make-icons.swift mac-guard): only those, so the others' .icns stay as committed.
+let only = Set(CommandLine.arguments.dropFirst())
+for app in apps where only.isEmpty || only.contains(app.dir) {
     let set = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(app.dir).iconset")
     try? FileManager.default.removeItem(at: set)
     try! FileManager.default.createDirectory(at: set, withIntermediateDirectories: true)
