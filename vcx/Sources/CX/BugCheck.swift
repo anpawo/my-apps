@@ -385,6 +385,33 @@ enum BugCheck {
             }
         }
         do {
+            // An agent message's chevron sat beside its "from …" tag, on a darker band as tall as tag and text together.
+            let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-agent"))
+            asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it.\""]]])
+            if let item = asking.rows.first?.items.first {
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 200)
+                host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
+                let left = tintStart(host, y: 30)
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("collapsed-agent.png")) }
+                    let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+                    func column(_ x: CGFloat) -> Int { Int((left + x) * scale) }
+                    func dark(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { $0.redComponent + $0.greenComponent + $0.blueComponent < 1.4 } ?? false }
+                    // Middle of a run of rows, in points.
+                    func middle(_ rows: [Int]) -> CGFloat { rows.isEmpty ? -100 : CGFloat(rows.first! + rows.last!) / 2 / scale }
+                    let chevron = (0..<bitmap.pixelsHigh).filter { y in (column(10)..<column(34)).contains { dark($0, y) } }
+                    let text = (0..<bitmap.pixelsHigh).filter { y in (column(UserBubble.edge)..<bitmap.pixelsWide).contains { dark($0, y) } }
+                    // The band is a darker pink than the bubble around it, read right of the chevron and clear of the band's rounded corners.
+                    let band = (0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: column(30), y: y).map { $0.greenComponent > 0.7 && $0.greenComponent < 0.815 } ?? false }
+                    print("Collapsed agent message: chevron at y \(middle(chevron)), text at \(middle(text)) (\(text.count) rows), band at \(middle(band)), \(CGFloat(band.count) / scale) pt tall")
+                    check(abs(middle(chevron) - middle(text)) <= 2 && abs(middle(band) - middle(chevron)) <= 1 && abs(CGFloat(band.count) / scale - 40) <= 1,
+                          "an agent message's edge is a 40 pt band centred on its text, under its tag")
+                } else { check(false, "the collapsed agent message renders") }
+            } else { check(false, "the agent message fixture shows its message") }
+        }
+        do {
             let source = SessionBackend(session: Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("scroll-source")))
             defer { source.close() }
             for n in 1...30 {

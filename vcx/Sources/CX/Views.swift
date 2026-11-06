@@ -903,6 +903,7 @@ struct UserBubble: View {
     @State private var hides = false
     @State private var size = CGSize.zero
     @State private var room = CGFloat.infinity
+    @State private var bodyTop: CGFloat = 0
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
@@ -916,7 +917,7 @@ struct UserBubble: View {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
                 let content = Group {
-                    if let message { AgentMessageContent(message: message, collapsed: collapsed) }
+                    if let message { AgentMessageContent(message: message, collapsed: collapsed) { bodyTop = $0 } }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
                 }.padding(.horizontal, 16).padding(.vertical, edge ? 13 : 16) // with an edge, one line makes the bubble 40 pt tall, as a work block's header
                 Group {
@@ -938,9 +939,11 @@ struct UserBubble: View {
                         if edge {
                             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(hovering ? 90 : 0))
                                 .foregroundStyle(.black.opacity(0.6))
-                                .frame(width: Self.edge, height: 40).frame(maxHeight: .infinity, alignment: .top)
+                                .frame(width: Self.edge, height: 40)
                                 .background((message == nil ? accent : agentPink).opacity(hovering ? 0.16 : 0.09)).contentShape(Rectangle())
                                 .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
+                                // Beside the body's first line, below an agent message's tag.
+                                .padding(.top, message == nil ? 0 : bodyTop).frame(maxHeight: .infinity, alignment: .top)
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 17))
@@ -962,10 +965,12 @@ struct UserBubble: View {
 struct AgentMessageContent: View {
     let message: AgentMessages.Message
     var collapsed = false
+    var bodyTop: (CGFloat) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("from \(message.provider)-\(message.name)").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(agentPink)
                 .padding(.horizontal, 8).padding(.vertical, 4).background(agentPink.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+                .onGeometryChange(for: CGFloat.self) { $0.size.height + 10 } action: { bodyTop($0) }
             CollapsibleText(text: message.body, collapsed: collapsed)
         }
     }
