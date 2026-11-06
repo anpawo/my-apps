@@ -292,8 +292,8 @@ enum BugCheck {
                 check(tinted > 10, "a question taller than half the transcript stays pinned above its answer")
                 // In the transcript too, the pinned question's edge opens it: the open question's tint runs past the top 120 pt.
                 let edge = tintStart(content, y: 20, from: 200)
-                func rows() -> Int {
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.5)); content.layoutSubtreeIfNeeded()
+                func rows(after wait: Double = 0.5) -> Int {
+                    RunLoop.main.run(until: Date().addingTimeInterval(wait)); content.layoutSubtreeIfNeeded()
                     guard let shot = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return 0 }
                     content.cacheDisplay(in: content.bounds, to: shot)
                     return (0..<shot.pixelsHigh).filter { y in shot.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
@@ -301,9 +301,34 @@ enum BugCheck {
                 pointer(content, at: NSPoint(x: 1100, y: 20), entering: true)
                 let shut = rows()
                 pointer(content, at: NSPoint(x: edge + 10, y: 20))
+                // Taller than the transcript, it opens into a scroll view of its own: the switch happens mid-opening and must not jump.
+                var opening = [shut]
+                let start = Date()
+                for frame in 1...20 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); opening.append(rows(after: 0)) }
                 let open = rows()
                 print("Pinned question in the transcript from x \(Int(edge)): \(shut) tinted rows over its text, \(open) over its edge")
+                print("Opening in the transcript, tinted rows per sample: " + opening.map(String.init).joined(separator: " "))
                 check(open > shut + 100, "in the transcript, hovering a pinned question's edge opens it")
+                check(opening.contains { $0 > shut + 20 && $0 < open - 20 } && zip(opening, opening.dropFirst()).allSatisfy { $0 <= $1 + 4 } && abs(opening.last! - open) <= 4,
+                      "in the transcript, a question opening into its own scroll view grows in one smooth motion")
+                // Open and taller than the transcript, the pinned question had its end below the window: the wheel scrolled only the answer under it.
+                func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
+                if let inner = scrollViews(content).first(where: { $0.enclosingScrollView != nil }), let outer = inner.enclosingScrollView, let document = inner.documentView {
+                    let box = inner.convert(inner.bounds, to: nil), visible = outer.convert(outer.bounds, to: nil)
+                    let middle = NSPoint(x: box.midX, y: box.midY)
+                    var hit = content.hitTest(content.superview?.convert(middle, from: nil) ?? middle)
+                    while let view = hit, !(view is NSScrollView) { hit = view.superview }
+                    document.scroll(NSPoint(x: 0, y: document.isFlipped ? document.frame.height : 0))
+                    content.layoutSubtreeIfNeeded()
+                    let seen = inner.documentVisibleRect, end = document.isFlipped ? seen.maxY >= document.frame.height - 1 : seen.minY <= 1
+                    print("Open pinned question: \(Int(box.height)) pt box in a \(Int(visible.height)) pt transcript, \(Int(document.frame.height)) pt of text")
+                    if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let shot = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                        content.cacheDisplay(in: content.bounds, to: shot)
+                        try? shot.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("pinned-question-end.png"))
+                    }
+                    check(visible.contains(box) && document.frame.height > box.height + 40 && hit === inner && end,
+                          "an open pinned question taller than the transcript fits in it and the wheel over it scrolls it to its end")
+                } else { check(false, "an open pinned question taller than the transcript scrolls on its own") }
             }
         }
         do {

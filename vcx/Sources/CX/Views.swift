@@ -901,6 +901,8 @@ struct UserBubble: View {
     @State private var hovering = false
     @State private var stuck = false
     @State private var hides = false
+    @State private var size = CGSize.zero
+    @State private var room = CGFloat.infinity
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
@@ -908,16 +910,22 @@ struct UserBubble: View {
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering, edge = collapsible && hides
         let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
+        // Pinned, the question never scrolls with the transcript: open and taller than most of it, it scrolls on its own or its end stays out of reach.
+        let cap = room * 0.6, scrolls = collapsible && hovering && size.height > cap
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
-                Group {
+                let content = Group {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                }.padding(16)
+                Group {
+                    // At the width it had unscrolled, the text wraps as it did and keeps the height that made it scroll.
+                    if scrolls { ScrollView { content }.frame(width: size.width, height: cap) }
+                    else { content.onGeometryChange(for: CGSize.self) { $0.size } action: { new in withAnimation(Self.opening(reduceMotion: reduceMotion)) { size = new } } }
                 }
                     // Open, the text shows whole and reports nothing hidden: the edge stays until the pointer leaves.
                     .onPreferenceChange(HidesText.self) { if !hovering { hides = $0 } }
-                    .padding(16)
                     // A send flight lands on this frame, which leaves the edge out.
                     .background(GeometryReader { geometry in
                         let frame = geometry.frame(in: .named("conversation"))
@@ -940,6 +948,7 @@ struct UserBubble: View {
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
                     .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
                     .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { stuck = $0 }
+                    .onGeometryChange(for: CGFloat.self) { collapsible ? $0.bounds(of: .scrollView)?.height ?? .infinity : .infinity } action: { room = $0 }
                     .animation(.easeOut(duration: 0.2), value: stuck)
                     .onHover { inside in if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
