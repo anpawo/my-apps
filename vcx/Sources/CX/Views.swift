@@ -909,7 +909,17 @@ struct UserBubble: View {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
                 }
-                    .padding(16).background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
+                    .padding(16)
+                    // As on a work block, only the tinted left edge opens it: the pointer crossing the text to read the answer under it leaves it shut.
+                    // The edge sits in the padding, so the bubble keeps the size a send flight lands on.
+                    .overlay(alignment: .leading) {
+                        if collapsible {
+                            Rectangle().fill((message == nil ? accent : agentPink).opacity(hovering ? 0.16 : 0.09)).frame(width: 16)
+                                .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 17))
+                    .background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
                     .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
                     .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { stuck = $0 }
@@ -918,7 +928,7 @@ struct UserBubble: View {
                         let frame = geometry.frame(in: .named("conversation"))
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
                     })
-                    .onHover { inside in withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = inside } }
+                    .onHover { inside in if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
