@@ -1595,6 +1595,7 @@ enum Check {
             check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
             codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"], ["name": "compact", "description": "Compact", "builtin": true]]])
             check(codexCommands.skills == ["fixture-skill"] && codexCommands.providerCommands.contains { $0.name == "/compact" }, "Claude's built-in commands stay in the palette but out of the skills list")
+            check(codexCommands.capabilityItems("Commands").map(\.name) == ["compact"] && codexCommands.capabilityItems("Commands").first?.detail == "Compact", "Claude's built-in commands get their own list with descriptions")
             codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
             check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
             check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")
@@ -1616,6 +1617,8 @@ enum Check {
                 check(!usageState.usageLoading && usageState.usage.isEmpty, "an empty usage response stops loading and remains not reported")
                 mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
                 check(!mirror.usageLoading, "runtime metadata clears the frontend loading indicator")
+                usageState.builtinCommands = ["compact"]; mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
+                check(mirror.builtinCommands == ["compact"], "runtime metadata carries the built-in commands to the frontend")
             }
             do {
                 let animation = SendAnimation()

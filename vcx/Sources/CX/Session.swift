@@ -199,6 +199,7 @@ final class Session: ObservableObject {
     @Published var repositoryDirectory: String?
     @Published var hooks: [String] = []
     @Published var skills: [String] = []
+    @Published var builtinCommands: [String] = []
     @Published var mcp: [String] = []
     @Published var instructions: [String] = []
     @Published var activeMode = Settings.shared.value.mode
@@ -914,7 +915,7 @@ final class Session: ObservableObject {
         injectedContext = keepRows && (resume == nil || next.provider == "qwen") ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll()
-        providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
+        providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; builtinCommands = []; mcp = []; instructions = []
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
@@ -1321,7 +1322,7 @@ final class Session: ObservableObject {
             "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
             "needsAttention": needsAttention, "backgroundTasks": backgroundTasks, "changing": changing, "activeActions": Array(activeActions), "context": context,
             "usage": usage, "usageLoading": usageLoading, "tokens": tokens, "repository": repository, "branch": branch,
-            "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "mcp": mcp,
+            "repositoryStatus": repositoryStatus, "hooks": hooks, "skills": skills, "builtinCommands": builtinCommands, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
             "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts, "modelAliases": modelAliases,
             "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
@@ -1367,6 +1368,7 @@ final class Session: ObservableObject {
         repositoryStatus = value["repositoryStatus"] as? String ?? repositoryStatus
         repositoryDirectory = value["repositoryDirectory"] as? String
         hooks = value["hooks"] as? [String] ?? []; skills = value["skills"] as? [String] ?? []
+        builtinCommands = value["builtinCommands"] as? [String] ?? []
         mcp = value["mcp"] as? [String] ?? []; instructions = value["instructions"] as? [String] ?? []
         activeMode = value["activeMode"] as? String ?? activeMode
         providerLabel = value["providerLabel"] as? String ?? providerLabel

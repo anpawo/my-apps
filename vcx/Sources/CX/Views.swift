@@ -337,6 +337,7 @@ struct CXView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     capability("Hooks")
                     capability("Skills")
+                    if !session.builtinCommands.isEmpty { capability("Commands") }
                     capability("MCP")
                     capability("Instructions")
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)

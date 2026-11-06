@@ -73,13 +73,13 @@ func claudeHooks(home: String, folders: [URL], flags: [URL] = []) -> [String] {
 @MainActor
 extension Session {
     func capabilityItems(_ title: String) -> [CapabilityItem] {
-        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
         let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
             let name = parts[0]
             let summary = parts.dropFirst().filter { title != "Hooks" || $0 != "trusted" }.joined(separator: " · ")
             let detail: String
-            if title == "Skills" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
+            if title == "Skills" || title == "Commands" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
             else if title == "Hooks" { detail = summary.isEmpty ? "Provider hook" : summary }
             else if title == "Instructions" { return CapabilityItem(name: URL(fileURLWithPath: value).lastPathComponent, detail: value, id: String(index)) }
             else { detail = summary.isEmpty ? "Configured MCP server" : summary }
@@ -107,6 +107,7 @@ extension Session {
                 return names.map { ChatCommand(name: "/" + $0, detail: command["description"] as? String ?? "Claude command", source: "Claude", insert: skillInsert($0)) }
             }
             skills = commands.filter { $0["builtin"] as? Bool != true }.compactMap { $0["name"] as? String }.sorted()
+            builtinCommands = commands.filter { $0["builtin"] as? Bool == true }.compactMap { $0["name"] as? String }.filter { !$0.hasPrefix("_") }.sorted()
         }
         if let catalog = catalog["models"] as? [JSON] {
             models = catalog.compactMap { $0["value"] as? String }
