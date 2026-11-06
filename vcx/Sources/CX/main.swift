@@ -478,7 +478,10 @@ if let index = args.firstIndex(of: "--runtime-worker") {
         command = value
     }
     // A session adopted by a live update has no factory of its own: one that restarts a crashed agent starts the fake again.
-    if args.contains("--runtime-swap-test"), let command { Session.testConnectionFactory = { account, cwd in RuntimeSwapCheck.connection(command: command, account: account, cwd: cwd) } }
+    if args.contains("--runtime-swap-test"), let command {
+        Session.testConnectionFactory = { account, cwd in RuntimeSwapCheck.connection(command: command, account: account, cwd: cwd) }
+        Connectivity.online = { true }
+    }
     var manifest: JSON?
     if let adopt = args.firstIndex(of: "--adopt"), adopt + 1 < args.count {
         do { manifest = try RuntimeSwap.manifest(args[adopt + 1]) }

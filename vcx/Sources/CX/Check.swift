@@ -55,6 +55,7 @@ enum Check {
         catch { fputs(error.localizedDescription + "\n", stderr); return false }
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
+        Connectivity.online = { true }; Connectivity.poll = 10_000_000
         do {
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-peers-" + UUID().uuidString)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -659,7 +660,6 @@ enum Check {
             let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
             var connection: FixtureConnection?
             resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }
-            resumed.online = { true }; resumed.resumePoll = 10_000_000
             await resumed.connect(resume: nil)
             resumed.draft = NSAttributedString(string: "Half typed")
             resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "API Error: Connection dropped (ECONNRESET)."]]]])
@@ -744,6 +744,40 @@ enum Check {
             crashing.event(["method": "cx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
             check(fixtures.count == 2 && crashing.rows.last?.items.first?.text == "Claude session ended.", "a TERM or HUP stop is not a crash")
             crashing.close()
+        }
+        do {
+            var up = false
+            Connectivity.online = { up }
+            defer { Connectivity.online = { true } }
+            var failed: [FixtureConnection] = [], dropped: [FixtureConnection] = []
+            let failing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-failed"))
+            failing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = failed.isEmpty; failed.append(fixture); return fixture }
+            let crashed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-dropped"))
+            crashed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); dropped.append(fixture); return fixture }
+            let fine = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-fine"))
+            fine.connectionFactory = { account, _ in FixtureConnection(account) }
+            await crashed.connect(resume: nil); await fine.connect(resume: nil); await failing.connect(resume: nil)
+            let thread = crashed.threadID, quiet = fine.rows.count
+            func text(_ session: Session) -> String? { session.rows.last?.items.first?.data["text"] as? String }
+            crashed.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9"]])
+            for _ in 0..<200 where text(crashed)?.hasSuffix("once the network is back.") != true { try? await Task.sleep(nanoseconds: 10_000_000) }
+            Connectivity.lost("the Mac woke", offline: true)
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let waited = failed.count == 1 && dropped.count == 1 && !failing.ready && !crashed.ready
+                && text(crashed) == "Claude stopped (killed by signal 9). The network is down, so VCX restarts it once the network is back."
+            up = true
+            for _ in 0..<300 where !(failing.ready && crashed.ready) { try? await Task.sleep(nanoseconds: 10_000_000) }
+            check(waited && crashed.ready && dropped.count == 2 && dropped.last?.opened.last?["threadId"] as? String == thread
+                  && text(crashed) == "Reconnected to Claude: network back after the Mac woke. Context kept."
+                  && failing.ready && failed.count == 2 && text(failing) == "Reconnected to Claude: network back after the Mac woke." && fine.ready && fine.rows.count == quiet,
+                  "once the network is back after a wake, sessions whose agent failed or dropped reconnect on their own thread and say why, and fine sessions hear nothing")
+            let broken = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("online-failed"))
+            var attempts = 0
+            broken.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = true; attempts += 1; return fixture }
+            await broken.connect(resume: nil)
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            check(attempts == 1 && !broken.ready, "a connection that fails while the internet answers is not retried in a loop")
+            for session in [failing, crashed, fine, broken] { session.close() }
         }
         do {
             let process = Process(), log = try! agentLog(directory.appendingPathComponent("logs/shell.log").path)

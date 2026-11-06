@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Darwin
+import Network
 import SwiftUI
 
 final class Item: ObservableObject, Identifiable {
@@ -92,6 +93,50 @@ struct QuestionFlow {
 struct FollowState {
     var attached = true
     mutating func userScroll(distance: CGFloat) { attached = distance < 40 }
+}
+
+// One watcher per process that runs agents (each runtime worker, or the app for a session it runs itself). A wake, a network drop,
+// a failed connection or a turn the network killed starts a probe every 10 s; once the internet answers, the turns the drop killed
+// continue, and sessions that lost their agent reconnect if the network was really down (so a broken setup is not retried in a loop).
+@MainActor
+enum Connectivity {
+    static var online: () async -> Bool = Session.reachesInternet
+    static var poll: UInt64 = 10_000_000_000
+    private static let sessions = NSHashTable<Session>.weakObjects()
+    private static var monitor: NWPathMonitor?
+    private static var probe: Task<Void, Never>?
+    private static var cause = ""
+    private static var wasOffline = false
+
+    static func watch(_ session: Session) {
+        sessions.add(session)
+        guard monitor == nil else { return }
+        let path = NWPathMonitor()
+        path.pathUpdateHandler = { if $0.status != .satisfied { Task { @MainActor in Connectivity.lost("a network drop", offline: true) } } }
+        path.start(queue: .main)
+        monitor = path
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in Connectivity.lost("the Mac woke", offline: true) }
+        }
+    }
+
+    static func unwatch(_ session: Session) { sessions.remove(session) }
+
+    static func lost(_ reason: String, offline: Bool = false) {
+        if probe == nil || reason == "the Mac woke" { cause = reason }
+        wasOffline = wasOffline || offline
+        guard probe == nil else { return }
+        probe = Task {
+            while true {
+                try? await Task.sleep(nanoseconds: poll)
+                if await online() { break }
+                wasOffline = true
+            }
+            let reason = cause, reconnecting = wasOffline
+            probe = nil; wasOffline = false
+            for session in sessions.allObjects { Task { await session.networkBack(after: reason, reconnecting: reconnecting) } }
+        }
+    }
 }
 
 @MainActor
@@ -202,8 +247,8 @@ final class Session: ObservableObject {
     private var modeOverride = false
     private var lastCrash: Date?
     var agentLogFile: String { stateDirectory.appendingPathComponent("logs").appendingPathComponent(recordID + ".log").path }
-    var online: () async -> Bool = Session.reachesInternet
-    var resumePoll: UInt64 = 10_000_000_000
+    private var lostConnection = false
+    private var resumeWhenBack = false
     var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
     static var testConnectionFactory: ((Account, String) -> any Connection)?
@@ -568,7 +613,7 @@ final class Session: ObservableObject {
             // A fixture-command session has no agent of its own to restart.
             let crashed = method == "cx/disconnected" && p["reason"] != nil && !testing
             if !crashed { notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.") }
-            if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); save() }
+            if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); lostConnection = !ended && !testing; save() }
             if crashed { Task { await restartAfterCrash(p) } }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
@@ -849,6 +894,7 @@ final class Session: ObservableObject {
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
+        Connectivity.watch(self)
         // The shared default picks a session's provider once; a later change to it (an older VCX build still writes it) must not move this session.
         if providerChoice == nil { providerChoice = preferredProvider }
         let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
@@ -882,7 +928,7 @@ final class Session: ObservableObject {
             changing = false
             try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
             if previous.0.id != next.id { effort = nil; save() }
-            pendingActivation = nil; pendingRestore = nil
+            pendingActivation = nil; pendingRestore = nil; lostConnection = false
             if let reason { reconnected(reason, resumed: resume != nil, switched: previous.0.id != next.id) }
         } catch {
             rpc.event = { _ in }; rpc.close()
@@ -893,6 +939,7 @@ final class Session: ObservableObject {
             providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
             pendingActivation = (next, resume, keepRows, recordID)
             ready = false
+            if !usageLimit(["error": error.localizedDescription]) { lostConnection = true; Connectivity.lost("a failed connection") }
             throw error
         }
     }
@@ -905,6 +952,10 @@ final class Session: ObservableObject {
     private func restartAfterCrash(_ p: JSON) async {
         let stopped = providerLabel + " stopped (" + (p["reason"] as? String ?? "") + ").", line = (p["line"] as? String).map { " Last error: " + $0 } ?? "", log = p["log"] as? String
         if let lastCrash, Date().timeIntervalSince(lastCrash) < 300 { notice(stopped + " It stopped twice in 5 minutes, so VCX did not restart it. Use /reconnect to try again." + line, link: log); return }
+        guard await Connectivity.online() else {
+            Connectivity.lost("a dropped connection", offline: true)
+            notice(stopped + " The network is down, so VCX restarts it once the network is back." + line, link: log); return
+        }
         lastCrash = Date()
         do { try await activate(account, resume: threadID, keepRows: true); await refreshCatalog(); notice(stopped + " Restarted it, context kept." + line, link: log) }
         catch { notice(stopped + " Restarting it failed: " + error.localizedDescription + line, link: log) }
@@ -937,7 +988,7 @@ final class Session: ObservableObject {
     // A turn the network killed (Wi-Fi drop, ECONNRESET) continues by itself once the connection is back;
     // three in a row without a good turn means the network is not the cause, so the user decides.
     private func resumeWhenOnline(after turn: JSON) {
-        resumeTask?.cancel(); resumeTask = nil
+        resumeTask?.cancel(); resumeTask = nil; resumeWhenBack = false
         guard needsAttention else { autoResumes = 0; return }
         if turn["status"] as? String != "interrupted", let error = turn["error"] as? JSON,
            error["rateLimited"] as? Bool == true || (error["message"] as? String)?.range(of: #"rate.?limit|\b429\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
@@ -959,18 +1010,17 @@ final class Session: ObservableObject {
               let message = (turn["error"] as? JSON)?["message"] as? String,
               message.range(of: "connection|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|fetch failed|network|timed out|reach the API|no response from API|stream disconnected|error sending request", options: [.regularExpression, .caseInsensitive]) != nil
         else { return }
-        let poll = resumePoll
-        resumeTask = Task { [weak self] in
-            while true {
-                try? await Task.sleep(nanoseconds: poll)
-                guard let self, !Task.isCancelled else { return }
-                guard await self.online() else { continue }
-                guard !Task.isCancelled, self.ready, !self.busy else { return }
-                self.autoResumes += 1
-                await self.send(text: "Keep going: the connection dropped. Retry the step that failed and continue.", images: [], expectedDraft: NSAttributedString(string: ""))
-                return
-            }
-        }
+        resumeWhenBack = true; Connectivity.lost("a dropped connection")
+    }
+
+    // Connectivity calls this on every session of the process once the internet answers again; a session that was fine does nothing.
+    func networkBack(after cause: String, reconnecting: Bool) async {
+        if lostConnection, reconnecting, !changing { await reconnect(reason: "network back after " + cause) }
+        guard resumeWhenBack else { return }
+        resumeWhenBack = false
+        guard ready, !busy else { return }
+        autoResumes += 1
+        await send(text: "Keep going: the connection dropped. Retry the step that failed and continue.", images: [], expectedDraft: NSAttributedString(string: ""))
     }
 
     nonisolated static func reachesInternet() async -> Bool {
@@ -1394,6 +1444,7 @@ final class Session: ObservableObject {
             fleetContextFile = URL(fileURLWithPath: path)
         }
         rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile; rpc.event = { [weak self] message in self?.event(message) }
+        if !testing { Connectivity.watch(self) }
         save()
     }
 
@@ -1426,5 +1477,6 @@ final class Session: ObservableObject {
             needsAttention = true; status = "Interrupted"; busy = false
             notice("Work interrupted because the session runtime closed. Send a message to continue.")
         }
+        Connectivity.unwatch(self)
         flush(); save(); releaseRecord(); flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }
