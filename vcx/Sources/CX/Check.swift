@@ -219,6 +219,31 @@ enum Check {
             check(chosen == [2, 2, 3] && typingField.string == "31", "a number with no option, and any number after text, is typed")
             inputWindow.chooseOption = { _ in false }
         }
+        do {
+            // Borderless: a click cannot make it key, so the fixture is never ordered on screen.
+            let clickWindow = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 150), styleMask: [.borderless], backing: .buffered, defer: false)
+            clickWindow.isReleasedWhenClosed = false
+            let input = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            clickWindow.contentView!.addSubview(input)
+            var clicks = 0
+            clickWindow.focusComposer = { clicks += 1 }
+            func click(_ point: NSPoint, upAt end: NSPoint? = nil, count: Int = 1) {
+                for (type, location) in [(NSEvent.EventType.leftMouseDown, point), (.leftMouseUp, end ?? point)] {
+                    clickWindow.sendEvent(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)!)
+                }
+            }
+            clickWindow.makeFirstResponder(nil)
+            click(NSPoint(x: 400, y: 100))
+            check(clicks == 1, "a click on a blank spot focuses the composer")
+            click(NSPoint(x: 400, y: 100), upAt: NSPoint(x: 460, y: 100))
+            click(NSPoint(x: 400, y: 100), count: 2)
+            check(clicks == 1, "a drag or a double click leaves focus where it is")
+            clickWindow.makeFirstResponder(input)
+            click(NSPoint(x: 400, y: 100))
+            check(clicks == 1 && clickWindow.firstResponder === input, "a click beside another text input keeps it focused")
+            check(!clickWindow.isVisible, "the click fixture stays off screen")
+            clickWindow.close()
+        }
         inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))

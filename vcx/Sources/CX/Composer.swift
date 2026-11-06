@@ -5,6 +5,7 @@ import ImageIO
 final class ComposerWindow: NSWindow {
     var focusComposer: () -> Void = {}
     var chooseOption: (Int) -> Bool = { _ in false }
+    private var clickStart: NSPoint?
     override func sendEvent(_ event: NSEvent) {
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.
         if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil,
@@ -17,7 +18,16 @@ final class ComposerWindow: NSWindow {
            attachedSheet == nil {
             focusComposer(); return
         }
+        if event.type == .leftMouseDown { clickStart = event.clickCount == 1 ? convertPoint(toScreen: event.locationInWindow) : nil }
         super.sendEvent(event)
+        // A click on a blank spot focuses the composer as Return does; a drag or a double click may be selecting text.
+        // Text views track their own clicks, so a click inside one never reaches here as a mouse up.
+        if event.type == .leftMouseUp, let start = clickStart {
+            clickStart = nil
+            let end = convertPoint(toScreen: event.locationInWindow)
+            if hypot(end.x - start.x, end.y - start.y) < 4, !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true,
+               attachedSheet == nil { focusComposer() }
+        }
     }
 }
 
