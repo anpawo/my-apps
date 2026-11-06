@@ -458,6 +458,15 @@ enum Check {
             check(disconnect != nil && (disconnect?["ended"] as? Bool == true) == ended, "Claude exit \(code) \(ended ? "ends the session" : "stays a reconnectable disconnect")")
         }
         do {
+            let missing = ClaudeConnection(account: Account(id: "missing", name: "Missing", provider: "claude"), cwd: directory.path)
+            var methods: [String] = []
+            missing.event = { methods.append($0["method"] as? String ?? "") }
+            try await missing.start(command: ["/bin/sh", "-c", "read line; echo 'No conversation found with session ID: x' >&2; exit 1"])
+            _ = try await missing.request("turn/start", ["input": [["type": "text", "text": "hi"]]])
+            for _ in 0..<300 where !methods.contains("cx/resumeFailed") { try await Task.sleep(nanoseconds: 10_000_000) }
+            check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
+        } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
+        do {
             let frontend = AppDelegate(), previous = NSApp.delegate
             let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("ended-state"))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: true)
@@ -620,6 +629,29 @@ enum Check {
             try? await Task.sleep(nanoseconds: 100_000_000)
             check(connection?.sent.count == 1, "other failed turns wait for the user")
             resumed.close()
+        }
+        do {
+            let reconnecting = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("reconnect-state"))
+            var fixtures: [FixtureConnection] = []
+            reconnecting.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
+            await reconnecting.connect(resume: nil)
+            await reconnecting.send(text: "First task", images: [])
+            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            await reconnecting.command("/perms ask")
+            let reason = reconnecting.rows.last?.items.first?.data["text"] as? String
+            await reconnecting.send(text: "Second task", images: [])
+            let resumedInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
+            check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: permission mode changed. Context kept." && resumedInput.first?["text"] as? String == "Second task",
+                  "a reconnect resumes Claude's own thread without pasting the chat, and says why")
+            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            reconnecting.event(["method": "cx/resumeFailed", "params": [:]])
+            for _ in 0..<200 where !reconnecting.rows.contains(where: { ($0.items.first?.data["text"] as? String)?.hasPrefix("Claude could not resume") == true }) { try? await Task.sleep(nanoseconds: 10_000_000) }
+            await reconnecting.send(text: "Third task", images: [])
+            let fallbackInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
+            check(fixtures.count == 3 && fixtures.last?.opened.last?["threadId"] == nil && (fallbackInput.first?["text"] as? String)?.hasPrefix("Context from this conversation") == true
+                  && reconnecting.rows.contains { $0.items.first?.data["text"] as? String == "Claude could not resume this conversation, so a new one started. Recent messages are passed to it as context." },
+                  "a failed resume falls back to the handoff and says so")
+            reconnecting.close()
         }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         session.connectionFactory = { account, _ in

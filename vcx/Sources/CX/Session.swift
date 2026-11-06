@@ -475,6 +475,9 @@ final class Session: ObservableObject {
         case "cx/limit":
             queueLimit(p["limit"] as? JSON ?? [:])
             return
+        case "cx/resumeFailed":
+            Task { await resumeFailed() }
+            return
         case "cx/claudeLimit":
             Task { await refreshUsage(force: false) }
         case "cx/catalog": applyClaudeCatalog(p)
@@ -635,13 +638,13 @@ final class Session: ObservableObject {
         if text.hasPrefix("/"), images.isEmpty || providerSkill(text) != nil, !commandHandled, !retry { await command(text, images: images); return }
         guard ready, !submitting, !changing else { if !ready { notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.") }; return }
         if !testing, !busy, !retry, activeMode != preferredMode {
-            await reconnect()
+            await reconnect(reason: "permission mode changed in Settings")
             guard ready else { return }
         }
         if !testing, !busy, !retry {
             guard let next = available.first else { notice("All enabled accounts have reached their limits. Check Settings or wait for a reset."); return }
             if next.id != account.id {
-                do { try await activate(next, resume: nil, keepRows: true); await refreshCatalog() }
+                do { try await activate(next, resume: nil, keepRows: true, reason: "switched to " + next.name); await refreshCatalog() }
                 catch { notice(error.localizedDescription); return }
             }
         }
@@ -822,7 +825,7 @@ final class Session: ObservableObject {
         return (chosen + settings.candidates(preferredProvider).filter { $0.id != accountChoice }).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
     }
 
-    func activate(_ next: Account, resume: String?, keepRows: Bool) async throws {
+    func activate(_ next: Account, resume: String?, keepRows: Bool, reason: String? = nil) async throws {
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
@@ -831,7 +834,8 @@ final class Session: ObservableObject {
         let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
         let previousUsagePercent = usagePercent
         flush()
-        injectedContext = keepRows ? handoffContext() : ""
+        // A resumed provider thread already holds the conversation; Qwen keeps none of its own.
+        injectedContext = keepRows && (resume == nil || next.provider == "qwen") ? handoffContext() : ""
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll()
         providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; mcp = []; instructions = []
@@ -856,6 +860,7 @@ final class Session: ObservableObject {
             try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
             if previous.0.id != next.id { effort = nil; save() }
             pendingActivation = nil; pendingRestore = nil
+            if let reason { reconnected(reason, resumed: resume != nil, switched: previous.0.id != next.id) }
         } catch {
             rpc.event = { _ in }; rpc.close()
             account = previous.0; threadID = previous.1; model = previous.2
@@ -867,6 +872,19 @@ final class Session: ObservableObject {
             ready = false
             throw error
         }
+    }
+
+    private func reconnected(_ reason: String, resumed: Bool, switched: Bool) {
+        notice((switched ? "Connected to " : "Reconnected to ") + providerLabel + ": " + reason + "." + (!injectedContext.isEmpty ? " Recent messages are passed to it as context." : resumed ? " Context kept." : ""))
+    }
+
+    // Claude exits when it cannot find the conversation it was asked to resume; a new one receives the recent messages instead.
+    private func resumeFailed() async {
+        let input = busy ? pendingInput : nil
+        do { try await activate(account, resume: nil, keepRows: true); await refreshCatalog() }
+        catch { notice("Claude could not resume this conversation: " + error.localizedDescription); return }
+        notice("Claude could not resume this conversation, so a new one started." + (injectedContext.isEmpty ? "" : " Recent messages are passed to it as context."))
+        if let input { await send(text: input.0, images: input.1, retry: true) }
     }
 
     private func handoffContext() -> String {
@@ -937,11 +955,11 @@ final class Session: ObservableObject {
         } catch { notice("Could not connect to the fallback: " + error.localizedDescription); status = "Fallback connection failed" }
     }
 
-    func reconnect() async {
+    func reconnect(reason: String = "reconnect requested") async {
         if runtimeClient != nil { await performRuntime("command", ["text": "/reconnect", "draft": draftContent(draft), "generation": draftGeneration]); return }
         Settings.shared.reload()
         if let pendingRestore {
-            do { try await restore(pendingRestore); await refreshCatalog() }
+            do { try await restore(pendingRestore, reason: reason); await refreshCatalog() }
             catch { notice(error.localizedDescription) }
             return
         }
@@ -960,7 +978,7 @@ final class Session: ObservableObject {
         }
         if !available.contains(where: { $0.id == target.0.id }) { target = (fallback, nil, true, recordID) }
         recordID = target.3
-        do { try await activate(target.0, resume: target.1, keepRows: target.2); await refreshCatalog() }
+        do { try await activate(target.0, resume: target.1, keepRows: target.2, reason: reason); await refreshCatalog() }
         catch { recordID = previousRecord; notice(error.localizedDescription) }
     }
 
@@ -1010,7 +1028,7 @@ final class Session: ObservableObject {
         } catch { status = "Could not save conversation: " + error.localizedDescription }
     }
 
-    private func restore(_ id: String) async throws {
+    private func restore(_ id: String, reason: String? = nil) async throws {
         guard UUID(uuidString: id) != nil else { throw CXError(message: "Invalid saved conversation ID.") }
         let claimed = recordLock?.0 == id ? nil : try claimRecord(id)
         var accepted = false
@@ -1059,6 +1077,7 @@ final class Session: ObservableObject {
         }
         restoreDraft(restoredDraft, since: generation)
         injectedContext = selected.provider == "qwen" || resumeID == nil ? handoffContext() : ""
+        if let reason { reconnected(reason, resumed: resumeID != nil, switched: selected.id != accountID) }
         suppressSave = false
         save()
     }

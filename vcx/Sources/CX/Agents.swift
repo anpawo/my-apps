@@ -144,11 +144,17 @@ final class ClaudeConnection: Connection {
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = agentEnvironment(account)
-        process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = FileHandle.nullDevice
+        // Claude names a --resume ID it cannot find only on stderr. An unlinked file, unlike a pipe, still takes writes after a live swap ends this process.
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-claude-" + UUID().uuidString)
+        FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        let errors = try FileHandle(forWritingTo: log), errorLog = try FileHandle(forReadingFrom: log)
+        try? FileManager.default.removeItem(at: log)
+        process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = errors
         try process.run()
-        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading)
+        try? errors.close()
+        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading, errorLog: errorLog)
     }
-    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data()) throws {
+    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data(), errorLog: FileHandle? = nil) throws {
         self.process = process; self.input = input
         let reader = try ProviderJSONReader(handle: output, leftover: leftover, receive: { [weak self] message in
             guard let self, !closed, self.process === process else { return }; receive(message)
@@ -160,12 +166,20 @@ final class ClaudeConnection: Connection {
             self.process = nil
             Task { [weak self] in
                 // A TERM or HUP from outside (the ck/tk skills' kill.sh) ends the session on purpose: Claude catches both and exits 143 or 129.
-                let ended = await Task.detached { () -> Bool in
+                let (ended, missing) = await Task.detached { () -> (Bool, Bool) in
                     process.waitUntilExit()
                     let status = process.terminationStatus
-                    return process.terminationReason == .exit ? [128 + SIGTERM, 128 + SIGHUP].contains(status) : [SIGTERM, SIGHUP].contains(status)
+                    let tail = errorLog.flatMap { log in
+                        defer { try? log.close() }
+                        let end = (try? log.seekToEnd()) ?? 0
+                        try? log.seek(toOffset: end > 4096 ? end - 4096 : 0)
+                        return try? log.readToEnd()
+                    } ?? Data()
+                    return (process.terminationReason == .exit ? [128 + SIGTERM, 128 + SIGHUP].contains(status) : [SIGTERM, SIGHUP].contains(status),
+                            String(decoding: tail, as: UTF8.self).contains("No conversation found"))
                 }.value
                 guard let self, !closed else { return }
+                if missing { emit("cx/resumeFailed", [:]); return }
                 emit("cx/disconnected", ended ? ["ended": true, "message": "Claude session ended."] : ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
             }
         })

@@ -347,7 +347,7 @@ extension Session {
                         throw CXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
                     }
                     if next.id != account.id || !ready {
-                        try await activate(next, resume: nil, keepRows: true)
+                        try await activate(next, resume: nil, keepRows: true, reason: "provider changed")
                         await refreshCatalog()
                     }
                     if args.count == 1 { showCommands("/model " + provider + " ", preserveDraft: false); return }
@@ -364,7 +364,7 @@ extension Session {
             case "/perms":
                 guard !argument.isEmpty else { showCommands("/perms ", preserveDraft: false); return }
                 guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /perms bypass or /perms ask.") }
-                try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await reconnect()
+                try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await reconnect(reason: "permission mode changed")
             case "/account":
                 guard !argument.isEmpty else { showCommands("/account ", preserveDraft: false); return }
                 try idle()
@@ -379,7 +379,7 @@ extension Session {
                     providerChoice = settings.value.accounts[index].provider; accountChoice = settings.value.accounts[index].id
                 } else { settings.value.accounts[index].enabled = operation == "enable" }
                 if operation != "use" { try saveSettings() }
-                await reconnect()
+                await reconnect(reason: operation == "use" ? "account changed" : "account settings changed")
             case "/dir":
                 if argument.isEmpty { notice(cwd + "\nUse /dir <folder> to change directory.") }
                 else { try await changeDirectory(unquoted(argument)) }
@@ -422,7 +422,9 @@ extension Session {
                     return
                 }
                 _ = await switchThread(verb == "/resume" ? argument : nil, fromCommand: true)
-            case "/reconnect": try idle(); await reconnect()
+            case "/reconnect":
+                let name = original.split(separator: ":").last.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) } ?? ""
+                try idle(); await reconnect(reason: name == "reload-plugins" ? "plugins reloaded" : name + " requested")
             case "/stop": await stop()
             case "/settings":
                 showingSettings = true
@@ -449,9 +451,9 @@ extension Session {
                     settings.value.qwenProxy = value
                 } else if args[0] == "model" { settings.value.qwenModel = value }
                 else { settings.value.qwenVisionModel = value }
-                try saveSettings(); if account.provider == "qwen" { if args[0] == "model" { model = value }; await reconnect() }; notice("Qwen setting saved.")
+                try saveSettings(); if account.provider == "qwen" { if args[0] == "model" { model = value }; await reconnect(reason: "Qwen settings changed") }; notice("Qwen setting saved.")
             case "/hooks", "/skills", "/mcp", "/instructions":
-                if argument == "reload" { try idle(); await reconnect() }
+                if argument == "reload" { try idle(); await reconnect(reason: String(verb.dropFirst()) + " reloaded") }
                 let values = verb == "/hooks" ? hooks : verb == "/skills" ? skills : verb == "/mcp" ? mcp : instructions
                 notice(values.isEmpty ? "No entries reported for " + String(verb.dropFirst()) + "." : values.joined(separator: "\n"))
             case "/tokens": notice(tokens + (context.isEmpty ? "" : "\n" + context))
