@@ -315,6 +315,10 @@ enum Check {
         check(killed, "stop terminates the command and its children")
         let blocks = markdownBlocks("Text\n```swift\nlet x = 1\n```\nDone")
         check(blocks.count == 3 && blocks[1].code && blocks[1].language == "swift", "code fences")
+        let nested = markdownBlocks("````\n### Plan\n```python\nx = 1\n```\nafter\n````\n\n## Next")
+        check(nested.count == 2 && nested[0].markdown && nested[0].text.hasSuffix("after") && !nested[1].code, "a ```` block holds ``` fences and renders as Markdown")
+        check(!markdownBlocks("```\n# comment\n```")[0].markdown && markdownBlocks("```md\n# T\n```")[0].markdown, "only md or ```` blocks render as Markdown")
+        check(answerParagraphs("\n## Next\n\nText") == ["## Next", "Text"], "a heading after a fence stays a heading")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         func gitCheck(_ args: [String], at path: String) {
@@ -1799,6 +1803,8 @@ enum Render {
         for width: CGFloat in [420, 760, 1120] {
             write(MarkdownBody(text: table).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: width, height: 720), path: directory + "/table-\(Int(width)).png")
         }
+        let nested = "Plan to paste:\n\n````\n### Storage\n\nThe engine **only loads**; the service keeps the `per-entity` lock.\n\n```python\nclass Ledger:\n    def load(self, entity: str) -> dict: ...\n```\n\n- one point\n- another point\n````\n\n## After the block\n\nPlain text again."
+        write(MarkdownBody(text: nested).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 560), path: directory + "/nested-markdown.png")
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000

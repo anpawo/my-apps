@@ -1045,17 +1045,23 @@ struct MarkdownBlock: Identifiable {
     let text: String
     let code: Bool
     let language: String
+    let markdown: Bool
 }
 
+// CommonMark fences: a block closes only on a bare run of its own character at least as long as its opener, so a ```` block holds ``` ones.
 func markdownBlocks(_ text: String) -> [MarkdownBlock] {
     var blocks: [MarkdownBlock] = [], lines: [String] = [], code = false, language = "", fence = ""
-    func append() { if !lines.isEmpty { blocks.append(MarkdownBlock(id: blocks.count, text: lines.joined(separator: "\n"), code: code, language: language)); lines.removeAll() } }
+    func append() {
+        // A ```` fence exists only to hold nested fences: its content is a Markdown document, shown formatted.
+        if !lines.isEmpty { blocks.append(MarkdownBlock(id: blocks.count, text: lines.joined(separator: "\n"), code: code, language: language, markdown: code && (["md", "markdown"].contains(language.lowercased()) || fence.count > 3))); lines.removeAll() }
+    }
     for line in text.components(separatedBy: "\n") {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if (!code && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~"))) || (code && trimmed.hasPrefix(fence)) {
+        let run = trimmed.prefix { $0 == trimmed.first && ($0 == "`" || $0 == "~") }
+        if code ? run.first == fence.first && run.count >= fence.count && run.count == trimmed.count : run.count >= 3 {
             append()
             if code { code = false; fence = ""; language = "" }
-            else { code = true; fence = String(trimmed.prefix(3)); language = String(trimmed.dropFirst(3)) }
+            else { code = true; fence = String(run); language = trimmed.dropFirst(run.count).trimmingCharacters(in: .whitespaces) }
         } else { lines.append(line) }
     }
     append(); return blocks
@@ -1088,11 +1094,12 @@ struct CodeBlock: View {
                 reset = Task { try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled { copied = false } }
             } label: {
                 HStack {
-                    Text(block.language.isEmpty ? "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
+                    Text(block.language.isEmpty ? block.markdown ? "Markdown" : "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
                     Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: copied ? 19 : 13, weight: copied ? .light : .regular)).frame(height: 18)
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
             }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
-            ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) }
+            if block.markdown { MarkdownBody(text: block.text).padding(14) }
+            else { ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) } }
         }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
         .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
     }
@@ -1180,7 +1187,8 @@ func answerParagraphs(_ text: String) -> [String] {
     for paragraph in text.components(separatedBy: "\n\n") {
         var plain: [String] = []
         func close() {
-            if !plain.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(plain.joined(separator: "\n")) }
+            // The blank line after a closing fence would otherwise hide the heading that follows it.
+            if !plain.joined().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(plain.joined(separator: "\n").trimmingCharacters(in: .newlines)) }
             plain = []
         }
         for line in paragraph.components(separatedBy: "\n") {
