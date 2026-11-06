@@ -658,6 +658,8 @@ struct SettingsPopup: View {
             }
         }.frame(width: 480, height: 520).background(Color(white: 0.98)).preferredColorScheme(.light)
             .onExitCommand { session.showingSettings = false }
+            // claude.ai connectors connect after the session starts, so the counts read at connection miss them.
+            .task { await session.refreshCapabilities() }
     }
 }
 
