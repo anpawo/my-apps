@@ -492,7 +492,6 @@ struct CXView: View {
                 }
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
-                .background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 18))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
             statusBar.padding(.leading, 10)
         }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
