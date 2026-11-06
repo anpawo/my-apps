@@ -360,7 +360,7 @@ struct CXView: View {
         } label: {
             HStack(spacing: 5) {
                 if loading { ProgressView().controlSize(.mini) }
-                Text(value).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
+                Text(value).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(color).lineLimit(1).fixedSize()
             }
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
@@ -553,7 +553,7 @@ struct CXView: View {
     private var repositoryStatus: some View {
         setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 0.68, green: 0.18, blue: 0.38) : session.repositoryStatus == "unpushed" ? Color(red: 0.55, green: 0.36, blue: 0.08) : session.repositoryStatus == "up to date" ? readyColor : .black.opacity(0.6))
     }
-    private var separator: some View { Text("|").font(.system(size: 10, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
+    private var separator: some View { Text("|").font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
 }
 
 extension CXView {
