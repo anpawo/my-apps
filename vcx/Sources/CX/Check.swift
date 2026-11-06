@@ -500,6 +500,19 @@ enum Check {
             let catalog = try await claude.request("cx/catalog")
             check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
             check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
+            do {
+                let crashing = ClaudeConnection(account: Account(name: "Claude", provider: "claude"), cwd: directory.path)
+                var crash: JSON?
+                crashing.logFile = directory.appendingPathComponent("logs/crash.log").path
+                crashing.event = { message in if message["method"] as? String == "cx/disconnected" { crash = message["params"] as? JSON } }
+                try await crashing.start(command: ["python3", fixture, "claude"])
+                _ = try await crashing.request("thread/start", [:])
+                _ = try await crashing.request("turn/start", ["input": [["type": "text", "text": "CRASH"]]])
+                for _ in 0..<300 where crash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+                check(crash?["reason"] as? String == "exited with code 7" && crash?["line"] as? String == "Error: fixture crash" && crash?["log"] as? String == crashing.logFile,
+                      "a Claude crash reports its exit code, last error line and session log")
+                crashing.close()
+            }
             let switched = try await claude.request("cx/mode", ["mode": "ask"]), followed = try await claude.request("cx/catalog")
             check(switched["mode"] as? String == "default" && followed["current_permission_mode"] as? String == "default", "Claude switches to ask through set_permission_mode, and its catalog follows")
             check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
@@ -708,6 +721,55 @@ enum Check {
             check(fixtures.count == 4 && reconnecting.activeMode == "bypass" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Reconnected to Claude: permission mode changed. Context kept.",
                   "a Claude that refuses the live switch is restarted in the new mode")
             reconnecting.close()
+        }
+        do {
+            let crashing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("crash-state"))
+            var fixtures: [FixtureConnection] = []
+            crashing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
+            await crashing.connect(resume: nil)
+            let thread = crashing.threadID
+            func crash() async {
+                let count = crashing.rows.count
+                crashing.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9", "line": "Error: out of memory", "log": crashing.agentLogFile]])
+                for _ in 0..<200 where crashing.rows.count == count { try? await Task.sleep(nanoseconds: 10_000_000) }
+            }
+            await crash()
+            let restarted = crashing.rows.last?.items.first?.data
+            check(fixtures.count == 2 && crashing.ready && fixtures.last?.opened.last?["threadId"] as? String == thread && fixtures.last?.logFile == crashing.agentLogFile
+                  && restarted?["text"] as? String == "Claude stopped (killed by signal 9). Restarted it, context kept. Last error: Error: out of memory" && restarted?["link"] as? String == crashing.agentLogFile,
+                  "an unexpected Claude exit restarts it once on its conversation and says why, with the log")
+            await crash()
+            check(fixtures.count == 2 && !crashing.ready && (crashing.rows.last?.items.first?.text.hasPrefix("Claude stopped (killed by signal 9). It stopped twice in 5 minutes, so VCX did not restart it.") ?? false),
+                  "a second unexpected exit within 5 minutes is not restarted")
+            crashing.event(["method": "cx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
+            check(fixtures.count == 2 && crashing.rows.last?.items.first?.text == "Claude session ended.", "a TERM or HUP stop is not a crash")
+            crashing.close()
+        }
+        do {
+            let process = Process(), log = try! agentLog(directory.appendingPathComponent("logs/shell.log").path)
+            process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", "echo 'warning: slow' >&2; echo 'fatal: disk full' >&2; echo done >&2; kill -9 $$"]
+            process.standardError = log.writer; try? process.run(); try? log.writer.close(); process.waitUntilExit()
+            let crash = agentCrash(process, log: (log.path, log.start))
+            check(crash["reason"] as? String == "killed by signal 9" && crash["line"] as? String == "fatal: disk full", "a killed agent is named by its signal and its last failure line")
+            let stopped = Process(); stopped.executableURL = URL(fileURLWithPath: "/bin/sh"); stopped.arguments = ["-c", "kill -TERM $$"]
+            try? stopped.run(); stopped.waitUntilExit()
+            check(agentCrash(stopped, log: nil).isEmpty, "a TERM stop is not reported as a crash")
+            let codex = RPC(); var codexCrash: JSON?
+            codex.logFile = directory.appendingPathComponent("logs/codex.log").path
+            codex.event = { message in if message["method"] as? String == "cx/disconnected" { codexCrash = message["params"] as? JSON } }
+            try? await codex.start(command: ["/bin/sh", "-c", "echo 'Error: codex fixture' >&2; kill -9 $$"])
+            for _ in 0..<300 where codexCrash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+            check(codexCrash?["reason"] as? String == "killed by signal 9" && codexCrash?["line"] as? String == "Error: codex fixture" && codexCrash?["log"] as? String == codex.logFile, "a Codex crash reports its signal, last error line and session log")
+            codex.close()
+            try? Data(count: 1_500_000).write(to: URL(fileURLWithPath: log.path))
+            let trimmed = try? agentLog(log.path); try? trimmed?.writer.close()
+            check(trimmed?.start == 1 << 20, "a session log keeps its last 1 MB")
+        }
+        do {
+            let host = NSHostingView(rootView: NoticeLine(item: Item(["text": "Claude stopped.", "link": "/tmp/vcx-check.log"])).frame(width: 500))
+            host.layoutSubtreeIfNeeded()
+            func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+            check(textViews(host).contains { ($0.textStorage?.attribute(.link, at: 0, effectiveRange: nil) as? URL)?.path == "/tmp/vcx-check.log" }, "a notice's log path is a clickable file link")
         }
         do {
             let codex = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-mode-state"))
@@ -1907,6 +1969,7 @@ final class FixtureConnection: Connection {
     var closed = false
     var unread: Set<String> = []
     var fleetFile: String?
+    var logFile: String?
     var modes: [String] = []
     var failMode = false
     var pendingTurn = "fixture-turn"

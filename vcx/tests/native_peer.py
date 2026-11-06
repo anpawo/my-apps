@@ -74,6 +74,8 @@ else:
                 send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': result}})
             if message.get('type') == 'user':
                 uuid, text = message.get('uuid'), ''.join(block.get('text', '') for block in message['message']['content'])
+                if text == 'CRASH':
+                    sys.stderr.write('file:///cli.js:1\nError: fixture crash\n    at main (cli.js:1:1)\n\nNode.js v22.0.0\n'); sys.stderr.flush(); os._exit(7)
                 if holding:
                     send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'queued'})
                     queue.append((uuid, text))

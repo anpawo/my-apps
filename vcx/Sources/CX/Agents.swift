@@ -94,6 +94,8 @@ final class ClaudeConnection: Connection {
     private(set) var cwd: String
     private let initialDirectory: String
     var fleetFile: String?
+    var logFile: String?
+    private var log: (path: String, start: UInt64)?
     var thread = "claude:" + UUID().uuidString.lowercased()
     var model = "Claude"
     var history = ""
@@ -147,18 +149,15 @@ final class ClaudeConnection: Connection {
             [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (model == "Claude" ? [] : ["--model", model]))) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
         process.environment = agentEnvironment(account, fleet: fleetFile)
-        // Claude names a --resume ID it cannot find only on stderr. An unlinked file, unlike a pipe, still takes writes after a live swap ends this process.
-        let log = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-claude-" + UUID().uuidString)
-        FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        let errors = try FileHandle(forWritingTo: log), errorLog = try FileHandle(forReadingFrom: log)
-        try? FileManager.default.removeItem(at: log)
-        process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = errors
+        // Claude names a --resume ID it cannot find only on stderr. A file, unlike a pipe, still takes writes after a live swap ends this process.
+        let errors = try agentLog(logFile)
+        process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = errors.writer
         try process.run()
-        try? errors.close()
-        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading, errorLog: errorLog)
+        try? errors.writer.close()
+        try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading, log: (errors.path, errors.start))
     }
-    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data(), errorLog: FileHandle? = nil) throws {
-        self.process = process; self.input = input
+    private func attach(_ process: Process, input: FileHandle, output: FileHandle, leftover: Data = Data(), log: (path: String, start: UInt64)? = nil) throws {
+        self.process = process; self.input = input; self.log = log
         let reader = try ProviderJSONReader(handle: output, leftover: leftover, receive: { [weak self] message in
             guard let self, !closed, self.process === process else { return }; receive(message)
         }, invalid: { [weak self] message in
@@ -168,22 +167,14 @@ final class ClaudeConnection: Connection {
             guard let self, !closed, self.process === process else { return }
             self.process = nil
             Task { [weak self] in
-                // A TERM or HUP from outside (the ck/tk skills' kill.sh) ends the session on purpose: Claude catches both and exits 143 or 129.
-                let (ended, missing) = await Task.detached { () -> (Bool, Bool) in
+                // A TERM or HUP from outside (the ck/tk skills' kill.sh) ends the session on purpose.
+                let (crash, missing) = await Task.detached { () -> (JSON, Bool) in
                     process.waitUntilExit()
-                    let status = process.terminationStatus
-                    let tail = errorLog.flatMap { log in
-                        defer { try? log.close() }
-                        let end = (try? log.seekToEnd()) ?? 0
-                        try? log.seek(toOffset: end > 4096 ? end - 4096 : 0)
-                        return try? log.readToEnd()
-                    } ?? Data()
-                    return (process.terminationReason == .exit ? [128 + SIGTERM, 128 + SIGHUP].contains(status) : [SIGTERM, SIGHUP].contains(status),
-                            String(decoding: tail, as: UTF8.self).contains("No conversation found"))
+                    return (agentCrash(process, log: log), agentLogTail(log).contains("No conversation found"))
                 }.value
                 guard let self, !closed else { return }
                 if missing { emit("cx/resumeFailed", [:]); return }
-                emit("cx/disconnected", ended ? ["ended": true, "message": "Claude session ended."] : ["message": "Claude disconnected. Reconnect to continue the saved conversation."])
+                emit("cx/disconnected", crash.isEmpty ? ["ended": true, "message": "Claude session ended."] : crash.merging(["message": "Claude disconnected. Reconnect to continue the saved conversation."]) { $1 })
             }
         })
         self.reader = reader; reader.start()
@@ -467,6 +458,7 @@ extension ClaudeConnection: AdoptableConnection {
         guard !closed, let process else { return state }
         guard process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
         state["agent"] = ["pid": Int(process.processIdentifier), "input": Int(input.fileDescriptor), "output": Int(reader.descriptor), "leftover": leftover.base64EncodedString()]
+        if let log { state["log"] = log.path; state["logStart"] = Int(log.start) }
         return state
     }
 
@@ -481,7 +473,7 @@ extension ClaudeConnection: AdoptableConnection {
         mode = state["mode"] as? String ?? mode; developerInstructions = state["developerInstructions"] as? String ?? ""
         resumed = state["resumed"] as? Bool ?? false; closed = state["closed"] as? Bool ?? false
         command = state["command"] as? [String]; metadata = state["metadata"] as? JSON; servedModel = state["servedModel"] as? String
-        if let agent = try adoptedAgent(state) { try attach(agent.process, input: agent.input, output: agent.output, leftover: agent.leftover) }
+        if let agent = try adoptedAgent(state) { try attach(agent.process, input: agent.input, output: agent.output, leftover: agent.leftover, log: (state["log"] as? String).map { ($0, UInt64(state["logStart"] as? Int ?? 0)) }) }
     }
 }
 

@@ -26,11 +26,13 @@ protocol Connection: AnyObject {
     func reject(_ id: Any, method: String) throws
     func close()
     var fleetFile: String? { get set }
+    var logFile: String? { get set }
 }
 
 extension Connection {
     func request(_ method: String, _ params: JSON = [:]) async throws -> JSON { try await request(method, params, timeout: 120) }
     var fleetFile: String? { get { nil } set {} }
+    var logFile: String? { get { nil } set {} }
 }
 
 @MainActor
@@ -39,6 +41,8 @@ final class RPC: Connection {
     var account: Account?
     var cwd: String?
     var fleetFile: String?
+    var logFile: String?
+    private var log: (path: String, start: UInt64)?
     private var process: Process?
     private var input: FileHandle?
     private var reader: ProviderJSONReader?
@@ -55,8 +59,10 @@ final class RPC: Connection {
         if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         process.standardInput = incoming
         process.standardOutput = outgoing
-        process.standardError = FileHandle.nullDevice
-        try process.run()
+        let errors = try agentLog(logFile)
+        process.standardError = errors.writer
+        try process.run(); try? errors.writer.close()
+        log = (errors.path, errors.start)
         try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading)
         _ = try await request("initialize", [
             "clientInfo": ["name": "vcx", "title": "Vibe Code X", "version": "0.2.0"],
@@ -131,8 +137,13 @@ final class RPC: Connection {
 
     private func disconnected() {
         guard !closed else { return }
+        let process = process, log = log
         close()
-        event(["method": "cx/disconnected", "params": ["message": "Codex disconnected. Reconnect to continue; your conversation is saved."]])
+        Task { [weak self] in
+            var params: JSON = ["message": "Codex disconnected. Reconnect to continue; your conversation is saved."]
+            if let process { params.merge(await Task.detached { process.waitUntilExit(); return agentCrash(process, log: log) }.value) { $1 } }
+            self?.event(["method": "cx/disconnected", "params": params])
+        }
     }
 
     func close() {
@@ -156,6 +167,7 @@ extension RPC: AdoptableConnection {
         guard !closed else { return state }
         guard let process, process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
         state["agent"] = ["pid": Int(process.processIdentifier), "input": Int(input.fileDescriptor), "output": Int(reader.descriptor), "leftover": leftover.base64EncodedString()]
+        if let log { state["log"] = log.path; state["logStart"] = Int(log.start) }
         return state
     }
 
@@ -163,12 +175,49 @@ extension RPC: AdoptableConnection {
 
     convenience init(adopting state: JSON) throws {
         self.init()
+        log = (state["log"] as? String).map { ($0, UInt64(state["logStart"] as? Int ?? 0)) }
         cwd = state["cwd"] as? String
         account = (state["account"] as? JSON).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { try? JSONDecoder().decode(Account.self, from: $0) }
         nextID = state["nextID"] as? Int ?? 0
         closed = state["closed"] as? Bool ?? false
         if let agent = try adoptedAgent(state) { try attach(agent.process, input: agent.input, output: agent.output, leftover: agent.leftover) }
     }
+}
+
+// An agent's stderr goes to its session's log, cut to the last 1 MB at each launch. ponytail: one long run can still grow it past 1 MB.
+func agentLog(_ path: String?) throws -> (writer: FileHandle, path: String, start: UInt64) {
+    let url = URL(fileURLWithPath: path ?? FileManager.default.temporaryDirectory.appendingPathComponent("vcx-agent-" + UUID().uuidString + ".log").path)
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    if let data = try? Data(contentsOf: url), data.count > 1 << 20 { try data.suffix(1 << 20).write(to: url) }
+    if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) }
+    let writer = try FileHandle(forWritingTo: url)
+    return (writer, url.path, try writer.seekToEnd())
+}
+
+// The last 4 KB this run wrote to its log.
+func agentLogTail(_ log: (path: String, start: UInt64)?) -> String {
+    guard let log, let handle = FileHandle(forReadingAtPath: log.path) else { return "" }
+    defer { try? handle.close() }
+    let end = (try? handle.seekToEnd()) ?? 0
+    try? handle.seek(toOffset: max(log.start, end > 4096 ? end - 4096 : 0))
+    return String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+}
+
+// Why an agent stopped, for the notice; empty for the TERM or HUP that stops it on purpose (Claude catches both and exits 143 or 129).
+func agentCrash(_ process: Process, log: (path: String, start: UInt64)?) -> JSON {
+    let status = process.terminationStatus, signaled = process.terminationReason == .uncaughtSignal
+    guard !(signaled ? [SIGTERM, SIGHUP] : [128 + SIGTERM, 128 + SIGHUP]).contains(status) else { return [:] }
+    var crash: JSON = ["reason": signaled ? "killed by signal \(status)" : "exited with code \(status)"]
+    crash["line"] = lastErrorLine(agentLogTail(log)); crash["log"] = log?.path
+    return crash
+}
+
+// Stack frames and Node's version banner name no cause; a line that says error or failed does.
+func lastErrorLine(_ text: String) -> String? {
+    let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty && !$0.hasPrefix("at ") && !$0.hasPrefix("Node.js v") && !$0.allSatisfy { "^~ ".contains($0) } }
+    let line = lines.last { $0.range(of: "error|fatal|failed|exception|panic|abort", options: [.regularExpression, .caseInsensitive]) != nil } ?? lines.last
+    return line.map { $0.count > 300 ? String($0.prefix(300)) + "…" : $0 }
 }
 
 func endProcess(_ process: Process, signal: Int32 = SIGTERM) {

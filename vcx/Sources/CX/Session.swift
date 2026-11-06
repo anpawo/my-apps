@@ -200,10 +200,13 @@ final class Session: ObservableObject {
     private var resumeTask: Task<Void, Never>?
     private var autoResumes = 0
     private var modeOverride = false
+    private var lastCrash: Date?
+    var agentLogFile: String { stateDirectory.appendingPathComponent("logs").appendingPathComponent(recordID + ".log").path }
     var online: () async -> Bool = Session.reachesInternet
     var resumePoll: UInt64 = 10_000_000_000
     var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
+    static var testConnectionFactory: ((Account, String) -> any Connection)?
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
     private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
     private var nativePointer: URL { pointer.deletingPathExtension().appendingPathExtension("native.json") }
@@ -273,7 +276,7 @@ final class Session: ObservableObject {
         do {
             testing = command != nil
             if testing {
-                let connection = RPC(); connection.cwd = cwd; connection.fleetFile = fleetContextFile.path
+                let connection = RPC(); connection.cwd = cwd; connection.fleetFile = fleetContextFile.path; connection.logFile = agentLogFile
                 rpc = connection
                 account = Account(id: "codex-default", name: "Default Codex", provider: "codex")
                 providerLabel = "Codex"
@@ -419,8 +422,9 @@ final class Session: ObservableObject {
         save()
     }
 
-    func notice(_ text: String) {
-        rows.append(Row("notice", [Item(["text": text])]))
+    func notice(_ text: String, link: String? = nil) {
+        var data: JSON = ["text": text]; data["link"] = link
+        rows.append(Row("notice", [Item(data)]))
         revision += 1
     }
 
@@ -561,8 +565,11 @@ final class Session: ObservableObject {
             }
         case "error", "cx/error", "cx/disconnected":
             if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
-            notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.")
+            // A fixture-command session has no agent of its own to restart.
+            let crashed = method == "cx/disconnected" && p["reason"] != nil && !testing
+            if !crashed { notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.") }
             if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); save() }
+            if crashed { Task { await restartAfterCrash(p) } }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
@@ -859,7 +866,7 @@ final class Session: ObservableObject {
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         // Claude always starts in the conversation's folder: a project cd changes what VCX shows, not where Claude loads its settings.
         let folder = next.provider == "claude" ? conversationDirectory : cwd
-        if let connectionFactory { rpc = connectionFactory(next, folder) } else { switch next.provider {
+        if let connectionFactory = connectionFactory ?? Session.testConnectionFactory { rpc = connectionFactory(next, folder) } else { switch next.provider {
         case "claude": rpc = ClaudeConnection(account: next, cwd: folder)
         case "qwen":
             var preferences = Settings.shared.value; preferences.mode = activeMode
@@ -868,7 +875,7 @@ final class Session: ObservableObject {
             let connection = RPC(); connection.account = next; connection.cwd = cwd; rpc = connection
         }
         }
-        rpc.fleetFile = fleetContextFile.path
+        rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile
         rpc.event = { [weak self] message in self?.event(message) }
         do {
             try await rpc.start(command: nil)
@@ -892,6 +899,15 @@ final class Session: ObservableObject {
 
     private func reconnected(_ reason: String, resumed: Bool, switched: Bool) {
         notice((switched ? "Connected to " : "Reconnected to ") + providerLabel + ": " + reason + "." + (!injectedContext.isEmpty ? " Recent messages are passed to it as context." : resumed ? " Context kept." : ""))
+    }
+
+    // An agent that stopped on its own is restarted once on its conversation; a second stop within 5 minutes is left to the user.
+    private func restartAfterCrash(_ p: JSON) async {
+        let stopped = providerLabel + " stopped (" + (p["reason"] as? String ?? "") + ").", line = (p["line"] as? String).map { " Last error: " + $0 } ?? "", log = p["log"] as? String
+        if let lastCrash, Date().timeIntervalSince(lastCrash) < 300 { notice(stopped + " It stopped twice in 5 minutes, so VCX did not restart it. Use /reconnect to try again." + line, link: log); return }
+        lastCrash = Date()
+        do { try await activate(account, resume: threadID, keepRows: true); await refreshCatalog(); notice(stopped + " Restarted it, context kept." + line, link: log) }
+        catch { notice(stopped + " Restarting it failed: " + error.localizedDescription + line, link: log) }
     }
 
     // Claude exits when it cannot find the conversation it was asked to resume; a new one receives the recent messages instead.
@@ -1377,7 +1393,7 @@ final class Session: ObservableObject {
             try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())
             fleetContextFile = URL(fileURLWithPath: path)
         }
-        rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.event = { [weak self] message in self?.event(message) }
+        rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile; rpc.event = { [weak self] message in self?.event(message) }
         save()
     }
 

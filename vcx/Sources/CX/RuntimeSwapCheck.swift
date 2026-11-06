@@ -19,10 +19,12 @@ enum RuntimeSwapCheck {
         func thawSwap() { claude.thawSwap() }
     }
 
+    static func connection(command: [String], account: Account, cwd: String) -> any Connection { Fixture(command: command, account: account, cwd: cwd) }
+
     // A session opened in a folder named codex runs the Codex app-server fake; the others run the Claude fake.
     static func start(_ backend: SessionBackend, params: JSON, command: [String]) {
         if (params["cwd"] as? String)?.hasSuffix("/codex") == true { return backend.startInBackground(params: params, command: command + ["--codex"]) }
-        backend.session.connectionFactory = { account, cwd in Fixture(command: command, account: account, cwd: cwd) }
+        backend.session.connectionFactory = { account, cwd in connection(command: command, account: account, cwd: cwd) }
         backend.startInBackground(params: params)
     }
 
@@ -210,8 +212,10 @@ enum RuntimeSwapCheck {
         try await wait("observer attach") { observer.ready }
         try check(Array(observer.rows.map(\.id).prefix(rowIDs.count)) == rowIDs && observer.draft.string == "swap draft", "rows or the draft did not survive the swap")
         for pid in starts { kill(pid, SIGKILL) }
-        try await wait("adopted agents reaped") { observer.status == "Disconnected" && codex.status == "Disconnected" && starts.allSatisfy { kill($0, 0) != 0 && errno == ESRCH } }
-        try check(true, "an adopted agent's exit is reaped and reported as a disconnect")
+        try await wait("adopted agents reaped") {
+            observer.rows.contains { $0.items.first?.text.hasPrefix("Claude stopped (killed by signal 9). Restarted it, context kept.") == true } && codex.status == "Disconnected" && starts.allSatisfy { kill($0, 0) != 0 && errno == ESRCH }
+        }
+        try check(true, "an adopted agent's exit is reaped; Claude is restarted once and the fixture Codex reported as a disconnect")
         passed = true
         return "Runtime live update: \(count) checks passed (Claude and Codex sessions; busy wait, same worker and agent pids, silent reattach, rows and draft kept, adopted agents reaped, failed preflight and rejected manifest stay on the old build)"
     }

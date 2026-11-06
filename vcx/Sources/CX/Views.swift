@@ -789,9 +789,23 @@ struct ConversationRow: View, Equatable {
     var body: some View {
         if let item = row.items.first {
             if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible) }
-            else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
+            else if row.kind == "notice" { NoticeLine(item: item) }
             else if row.kind == "peer" { PeerLine(item: item) }
             else { AssistantBubble(item: item) }
+        }
+    }
+}
+
+struct NoticeLine: View {
+    @ObservedObject var item: Item
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled)
+            // Selectable Text ignores link clicks, so the log path is its own text view.
+            if let link = item.data["link"] as? String {
+                let path = { var text = AttributedString(link.replacingOccurrences(of: NSHomeDirectory(), with: "~", options: .anchored)); text.link = URL(fileURLWithPath: link); return text }()
+                LinkText(text: path, weight: .regular, lineSpacing: 0).padding(.leading, 20)
+            }
         }
     }
 }
