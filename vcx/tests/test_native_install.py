@@ -121,6 +121,27 @@ class NativeInstallTests(unittest.TestCase):
             self.assertTrue(dependency_marker.exists())
             self.assertTrue((source / '.venv/bin/python').is_file())
 
+    def test_terminal_mode_names_the_main_checkout_not_a_worktree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            main = home / 'repo/vcx'
+            main.mkdir(parents=True)
+            (main / 'cx.py').write_text('')
+            (home / 'repo/.git/worktrees/scratch').mkdir(parents=True)
+            tree = home / 'scratch/vcx'
+            tree.mkdir(parents=True)
+            (home / 'scratch/.git').write_text(f'gitdir: {home}/repo/.git/worktrees/scratch\n')
+
+            def run(arguments, **kwargs):
+                if arguments[0] == '/usr/bin/ditto':
+                    Path(arguments[2]).mkdir(parents=True)
+
+            with patch.object(installer, '__file__', str(tree / 'install-native.py')), patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
+                installer.install()
+            launcher = (home / '.local/bin/vcx').read_text()
+            self.assertIn(shlex.quote(str((main / 'cx.py').resolve())), launcher)
+            self.assertNotIn('/scratch/', launcher)
+
     def test_unrelated_command_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

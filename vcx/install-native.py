@@ -11,6 +11,21 @@ import tempfile
 from pathlib import Path
 
 
+def checkout(root):
+    # An install from a scratch worktree must not leave the launcher on it: the worktree is deleted once its work lands.
+    for folder in (root, *root.parents):
+        git = folder / '.git'
+        if git.is_file():
+            pointer = git.read_text().strip().removeprefix('gitdir: ')
+            if '/.git/worktrees/' in pointer:
+                main = (folder / pointer.split('/.git/worktrees/')[0]).resolve() / root.relative_to(folder)
+                if (main / 'cx.py').exists():
+                    return main
+        if git.exists():
+            break
+    return root
+
+
 def install():
     root = Path(__file__).resolve().parent
     target = Path.home() / 'Applications/Vibe Code X.app'
@@ -58,7 +73,8 @@ def install():
     subprocess.run([lsregister, '-f', str(target)], check=True)
     binary = target / 'Contents/MacOS/VCX'
 
-    python = root / '.venv/bin/python'
+    terminal = checkout(root)
+    python = terminal / '.venv/bin/python'
     script = f'''#!/bin/sh
 # vcx launcher
 background=-g
@@ -72,10 +88,10 @@ case "$1" in
   --terminal)
     shift
     if [ ! -x {shlex.quote(str(python))} ]; then
-      python3 -m venv {shlex.quote(str(root / '.venv'))} || exit 1
-      {shlex.quote(str(python))} -m pip install -r {shlex.quote(str(root / 'requirements.txt'))} || exit 1
+      python3 -m venv {shlex.quote(str(terminal / '.venv'))} || exit 1
+      {shlex.quote(str(python))} -m pip install -r {shlex.quote(str(terminal / 'requirements.txt'))} || exit 1
     fi
-    exec {shlex.quote(str(python))} {shlex.quote(str(root / 'cx.py'))} "$@"
+    exec {shlex.quote(str(python))} {shlex.quote(str(terminal / 'cx.py'))} "$@"
     ;;
   --send|--sessions|--version|--help|--check|--bug-check|--runtime-check|--runtime-protocol|--frontend-check|--runtime-bounds-check|--runtime-recovery-check|--runtime-load-check|--verify-runtime|--update-now)
     exec {shlex.quote(str(binary))} "$@"
