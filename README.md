@@ -14,10 +14,6 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 [![Three lines typed into a text field, each word fixed on space: ça va très bien, I don't think the plan is ready, and tema, changed to team then put back with ⌫](autocorrect/docs/demo.gif)](autocorrect)
 
-### [firefax](firefax)
-
-[![A terminal session: firefax scan lists a page's controls as ready locators, firefax store keeps an IBAN in the keychain, firefax fill runs a 5-step spec and prints one line per step, each verified](firefax/docs/report.png)](firefax)
-
 ### [fleet](fleet)
 
 [![The panel](fleet/docs/panel.png)](fleet)
