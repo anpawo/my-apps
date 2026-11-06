@@ -93,8 +93,8 @@ struct InboxItem: Codable, Equatable {
         options.firstIndex(of: "--resume").flatMap { options.indices.contains($0 + 1) ? options[$0 + 1] : nil }
     }
 
-    /// A session to resume or a task to start again; mac-guard's lines have neither.
-    var opens: Bool { session != nil || prompt != nil }
+    /// A session to resume, a task to start again, or mac-guard's line handed to a new session.
+    var opens: Bool { session != nil || prompt != nil || kind == "guard" }
 }
 
 /// One thing the hourly checker watches or watched: still waiting (`<id>.json`), arrived (`fired/`), or dropped

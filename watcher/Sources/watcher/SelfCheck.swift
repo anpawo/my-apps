@@ -18,13 +18,14 @@ enum SelfCheck {
             let stub = folder.appending(path: "vcx")
             try "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$0.args\"\n".write(to: stub, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stub.path)
-            for (options, file, expected) in [
-                ([String](), prompt.path, ["--", text]),
-                (["--resume", "native:saved"], "", ["--resume", "native:saved"]),
-                (["--resume", "legacy"], "", ["--resume", "claude:legacy"]),
-                (["--codex", "--resume", "legacy"], "", ["--resume", "legacy"]),
+            for (kind, options, file, expected) in [
+                ("guard", [String](), "", ["--", "Check: line"]),
+                ("needs", [String](), prompt.path, ["--", text]),
+                ("needs", ["--resume", "native:saved"], "", ["--resume", "native:saved"]),
+                ("needs", ["--resume", "legacy"], "", ["--resume", "claude:legacy"]),
+                ("needs", ["--codex", "--resume", "legacy"], "", ["--resume", "legacy"]),
             ] {
-                let item = InboxItem(id: "fixture", at: 0, kind: "needs", subject: "Check", line: "Check", dir: folder.path,
+                let item = InboxItem(id: "fixture", at: 0, kind: kind, subject: "Check", line: "line", dir: folder.path,
                                      options: options, prompt: file.isEmpty ? nil : file)
                 let task = try Inbox.launchProcess(item)
                 guard task.executableURL?.path == NSHomeDirectory() + "/.local/bin/vcx" else {
@@ -47,7 +48,7 @@ enum SelfCheck {
                     return 1
                 }
             }
-            print("PASS: 4 notification paths open the VCX app with their conversation and task intact")
+            print("PASS: 5 notification paths open the VCX app with their conversation and task intact")
             return 0
         } catch { print("FAIL: launcher check: \(error)"); return 1 }
     }
@@ -141,8 +142,9 @@ enum SelfCheck {
         inbox.refresh(force: true)
         inbox.refresh(force: true)
         expect(popped == 1 && inbox.current?.id == "g", true, "inbox: a new mac-guard line brings the panel up on it, once")
+        starts = true
         press(kVK_Return)
-        expect(inbox.items.map(\.id) == ["a"] && kept("g") && opened.count == 3, true, "inbox: ↵ on a mac-guard line sets it aside, opening nothing")
+        expect(inbox.items.map(\.id) == ["a"] && kept("g") && opened.last == "g", true, "inbox: ↵ on a mac-guard line opens a session on it and sets it aside")
         let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }

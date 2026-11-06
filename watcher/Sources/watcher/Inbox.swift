@@ -223,7 +223,6 @@ final class Inbox: NSObject, ObservableObject {
     /// Opened is handled: the line is set aside as done once its terminal has started.
     private func openCurrent() {
         guard let item = current else { return }
-        // mac-guard's lines have nothing to open: ↵ is "seen".
         if !item.opens { return take(item) }
         hide()
         if launch(item) { take(item) }
@@ -245,6 +244,7 @@ final class Inbox: NSObject, ObservableObject {
             args += ["--resume", id]
         }
         if let prompt = item.prompt { args += ["--", try String(contentsOfFile: prompt, encoding: .utf8)] }
+        else if item.kind == "guard" { args += ["--", "\(item.subject): \(item.line)"] }
         task.arguments = args
         task.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE") && !$0.key.hasPrefix("CODEX") }
         task.standardOutput = FileHandle.nullDevice

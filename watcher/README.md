@@ -7,7 +7,7 @@ What the answers you are waiting for brought back, one line at a time, on ⌘⌥
 It runs the hourly checker (`checker.mjs check`, at :10) and reads its state (`~/.local/state/checker`): a
 headless follow-up that finished something, or stopped on something that needs you. The menu bar shows how
 many lines wait; ⌘⌥K opens them Spotlight-style. mac-guard leaves a line too when it stops or kills a process,
-and the panel comes up on it by itself; there ↵ (ok) only sets the line aside.
+and the panel comes up on it by itself; there ↵ starts a Vibe Code X session with the line as its first message.
 
 ![The panel: one line waiting, its subject, what the follow-up left, its age, and the buttons to move, open, set aside](docs/panel.png)
 
