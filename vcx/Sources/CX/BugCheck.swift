@@ -220,9 +220,7 @@ enum BugCheck {
                 let pinned = height(true), full = height(false)
                 print("Question with twenty lines and two pictures:\(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
                 check(pinned < 160 && full > pinned + 40, "a pinned question keeps two lines and one row of pictures until hovered")
-                // Sampled at 60 fps, the opening bubble grows through several heights and never shrinks back.
-                let hover = HoverProbe.State()
-                let host = NSHostingView(rootView: HoverProbe(state: hover, item: item, session: asking).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 1200)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host
@@ -238,16 +236,42 @@ enum BugCheck {
                     if halfway == nil, rows > 400, rows < 560 { halfway = bitmap }
                     return rows
                 }
-                var heights = [tinted()]
+                let left = tintStart(host, y: 60)
+                pointer(host, at: NSPoint(x: 5, y: 60), entering: true)
+                pointer(host, at: NSPoint(x: left + 300, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                let shut = tinted()
+                // Sampled at 60 fps, the opening bubble grows through several heights and never shrinks back.
+                var heights = [shut]
                 let start = Date()
-                withAnimation(UserBubble.opening(reduceMotion: false)) { hover.open = true }
+                pointer(host, at: NSPoint(x: left + 10, y: 60))
                 for frame in 1...30 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); heights.append(tinted()) }
                 print("Bubble opening, tinted rows per frame: " + heights.map(String.init).joined(separator: " "))
                 if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let png = halfway?.representation(using: .png, properties: [:]) {
                     try? png.write(to: URL(fileURLWithPath: destination).appendingPathComponent("bubble-opening.png"))
                 }
                 check(Set(heights).count >= 6 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
-                      "hovering opens a pinned question in one smooth motion")
+                      "hovering its edge opens a pinned question in one smooth motion")
+                RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                let away = tinted()
+                print("Pinned question from x \(Int(left)): \(heights[0]) tinted rows with the pointer on its text, \(heights.last!) on its edge, \(away) away")
+                check(heights[0] < 300 && away == heights[0], "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
+            }
+            do {
+                // Two lines or less, a question has nothing to open: no edge, so its bubble is as wide pinned as anywhere else.
+                let short = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("short-question"))
+                short.show(["id": "short-question", "type": "userMessage", "content": [["type": "text", "text": "A question on one line"]]])
+                if let item = short.rows.first?.items.first {
+                    func left(_ collapsible: Bool) -> CGFloat {
+                        let host = NSHostingView(rootView: UserBubble(item: item, session: short, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                        host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 200)
+                        host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                        return tintStart(host, y: 45)
+                    }
+                    let pinned = left(true), plain = left(false)
+                    print("One-line question's bubble starts at x \(Int(pinned)) pinned, \(Int(plain)) unpinned")
+                    check(pinned > 0 && pinned == plain, "a question with nothing past two lines has no edge to hover")
+                }
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
@@ -262,6 +286,20 @@ enum BugCheck {
                 let x = Int(1100 * CGFloat(bitmap.pixelsWide) / content.bounds.width), top = Int(120 * CGFloat(bitmap.pixelsHigh) / content.bounds.height)
                 let tinted = (0..<top).filter { y in bitmap.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
                 check(tinted > 10, "a question taller than half the transcript stays pinned above its answer")
+                // In the transcript too, the pinned question's edge opens it: the open question's tint runs past the top 120 pt.
+                let edge = tintStart(content, y: 20, from: 200)
+                func rows() -> Int {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.5)); content.layoutSubtreeIfNeeded()
+                    guard let shot = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return 0 }
+                    content.cacheDisplay(in: content.bounds, to: shot)
+                    return (0..<shot.pixelsHigh).filter { y in shot.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
+                }
+                pointer(content, at: NSPoint(x: 1100, y: 20), entering: true)
+                let shut = rows()
+                pointer(content, at: NSPoint(x: edge + 10, y: 20))
+                let open = rows()
+                print("Pinned question in the transcript from x \(Int(edge)): \(shut) tinted rows over its text, \(open) over its edge")
+                check(open > shut + 100, "in the transcript, hovering a pinned question's edge opens it")
             }
         }
         do {
@@ -273,14 +311,13 @@ enum BugCheck {
                 asking.ready = true; asking.status = "Ready"
                 asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
                 guard let item = asking.rows.first?.items.first else { check(false, "collapsed \(name) fixture shows its question"); continue }
-                let hover = HoverProbe.State()
-                let host = NSHostingView(rootView: HoverProbe(state: hover, item: item, session: asking).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 400)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host
                 defer { window.close() }
-                var scale: CGFloat = 1
-                // Each text line as the first and last dark column of a band of dark rows.
+                var scale: CGFloat = 1, text = 0
+                // Each text line as the first and last dark column of a band of dark rows, right of the edge's chevron.
                 func lines(_ file: String) -> [(Int, Int)] {
                     host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
                     guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return [] }
@@ -290,7 +327,7 @@ enum BugCheck {
                     scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
                     var bands = [(Int, Int)](), inBand = false
                     for y in 0..<bitmap.pixelsHigh {
-                        let dark = (0..<bitmap.pixelsWide).filter { x in let p = y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel; return Int(data[p]) + Int(data[p + 1]) + Int(data[p + 2]) < 360 }
+                        let dark = (text..<bitmap.pixelsWide).filter { x in let p = y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel; return Int(data[p]) + Int(data[p + 1]) + Int(data[p + 2]) < 360 }
                         if let first = dark.first, let last = dark.last {
                             if inBand, let band = bands.popLast() { bands.append((min(band.0, first), max(band.1, last))) } else { bands.append((first, last)) }
                             inBand = true
@@ -298,8 +335,11 @@ enum BugCheck {
                     }
                     return bands
                 }
+                host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                let left = tintStart(host, y: 30)
+                text = Int((left + UserBubble.edge) * CGFloat(host.bitmapImageRepForCachingDisplay(in: host.bounds)?.pixelsWide ?? 0) / host.bounds.width)
                 let collapsed = lines("collapsed-\(name).png")
-                hover.open = true
+                pointer(host, at: NSPoint(x: 5, y: 30), entering: true); pointer(host, at: NSPoint(x: left + 10, y: 30))
                 let open = lines("collapsed-\(name)-open.png")
                 print("Collapsed \(name) question, ink columns per line: \(collapsed), open: \(open)")
                 if name == "word" { check(open.count >= 4 && open[0].1 - open[1].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 3 and leaves line 2 short") }
@@ -485,11 +525,19 @@ enum BugCheck {
     }
 }
 
-// Stands in for the pointer: hovering only flips a state inside an animation.
-struct HoverProbe: View {
-    final class State: ObservableObject { @Published var open = false }
-    @ObservedObject var state: State
-    let item: Item
-    let session: Session
-    var body: some View { UserBubble(item: item, session: session, collapsible: !state.open) }
+// An offscreen window gets no pointer from the window server: the hosting view is handed the events its tracking area would get.
+// y counts from the view's top, as in its render.
+@MainActor func pointer(_ view: NSView, at point: NSPoint, entering: Bool = false) {
+    let event = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: point.x, y: view.bounds.height - point.y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+    entering ? view.mouseEntered(with: event) : view.mouseMoved(with: event)
+}
+
+// Where a bubble's tint starts on a row of the view's render, in points.
+@MainActor func tintStart(_ view: NSView, y: CGFloat, from x: CGFloat = 0) -> CGFloat {
+    view.layoutSubtreeIfNeeded()
+    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return 0 }
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+    return CGFloat((Int(x * scale)..<bitmap.pixelsWide).first { column in bitmap.colorAt(x: column, y: Int(y * scale)).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false } ?? 0) / scale
 }

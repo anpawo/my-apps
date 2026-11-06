@@ -107,6 +107,11 @@ struct ImagePreview: View {
     }
 }
 
+struct HidesText: PreferenceKey {
+    static var defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 struct MessageFrames: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, next in next }) }
@@ -670,8 +675,7 @@ struct SettingsPopup: View {
                     Text("Qwen").font(.system(size: 13, weight: .semibold))
                     setting("Endpoint", settings.value.qwenURL, "/qwen url ")
                     setting("Proxy", settings.value.qwenProxy.isEmpty ? "None" : settings.value.qwenProxy, "/qwen proxy ")
-                    setting("Text model", settings.value.qwenModel, "/qwen model ")
-                    setting("Vision model", settings.value.qwenVisionModel, "/qwen vision ")
+                    setting("Model", settings.value.qwenModel, "/qwen model ")
                 }.padding(20)
             }
         }.frame(width: 480, height: 520).background(Color(white: 0.98)).preferredColorScheme(.light)
@@ -896,11 +900,13 @@ struct UserBubble: View {
     var collapsible = false
     @State private var hovering = false
     @State private var stuck = false
+    @State private var hides = false
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
+    static let edge: CGFloat = 30
     var body: some View {
-        let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering
+        let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering, edge = collapsible && hides
         let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
         HStack {
             Spacer(minLength: 40)
@@ -909,12 +915,23 @@ struct UserBubble: View {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
                 }
+                    // Open, the text shows whole and reports nothing hidden: the edge stays until the pointer leaves.
+                    .onPreferenceChange(HidesText.self) { if !hovering { hides = $0 } }
                     .padding(16)
+                    // A send flight lands on this frame, which leaves the edge out.
+                    .background(GeometryReader { geometry in
+                        let frame = geometry.frame(in: .named("conversation"))
+                        Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
+                    })
                     // As on a work block, only the tinted left edge opens it: the pointer crossing the text to read the answer under it leaves it shut.
-                    // The edge sits in the padding, so the bubble keeps the size a send flight lands on.
+                    // A question with nothing past its two lines has no edge.
+                    .padding(.leading, edge ? Self.edge : 0)
                     .overlay(alignment: .leading) {
-                        if collapsible {
-                            Rectangle().fill((message == nil ? accent : agentPink).opacity(hovering ? 0.16 : 0.09)).frame(width: 16)
+                        if edge {
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(hovering ? 90 : 0))
+                                .foregroundStyle(.black.opacity(0.6))
+                                .frame(width: Self.edge, height: 30).padding(.top, 16).frame(maxHeight: .infinity, alignment: .top)
+                                .background((message == nil ? accent : agentPink).opacity(hovering ? 0.16 : 0.09)).contentShape(Rectangle())
                                 .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
                         }
                     }
@@ -924,10 +941,6 @@ struct UserBubble: View {
                     .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
                     .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { stuck = $0 }
                     .animation(.easeOut(duration: 0.2), value: stuck)
-                    .background(GeometryReader { geometry in
-                        let frame = geometry.frame(in: .named("conversation"))
-                        Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
-                    })
                     .onHover { inside in if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
@@ -962,8 +975,10 @@ struct CollapsibleText: View {
             // A wider line past them widens the bubble only once opened.
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            Text(collapsed && width > 0 ? twoLines(text, width: width) : text).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
+            let shown = collapsed && width > 0 ? twoLines(text, width: width) : text
+            Text(shown).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                .preference(key: HidesText.self, value: shown != text)
                 .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
         }
     }
