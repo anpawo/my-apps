@@ -61,7 +61,7 @@ struct RoundButton: View {
 
 extension View {
     // A white base carries the shadow: under a translucent tint, a plain .shadow would be as faint as the tint.
-    func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.32), radius: 4, y: 3)), in: shape) }
+    func raised(_ shape: some Shape) -> some View { background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 3, y: 2)), in: shape) }
 }
 
 // Hover tints a button inside its own shape; a press tints it darker and pulls its edges in by a few points whatever its width.
