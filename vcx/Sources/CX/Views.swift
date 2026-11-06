@@ -34,21 +34,6 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row]) {
     return (work, last, rows.filter { ["notice", "peer"].contains($0.kind) })
 }
 
-// A pinned question covers the answer under it, so one taller than half the transcript scrolls with its answer instead.
-func pinsQuestion(_ question: Row, viewport: CGSize) -> Bool {
-    let width = viewport.width * 0.85 - 32 // the bubble's share of the transcript, less its own padding
-    guard width > 0, viewport.height > 0 else { return true }
-    var height: CGFloat = 32
-    for run in pieceRuns(question.items.first?.data["content"] as? [JSON] ?? []) {
-        if let text = run[0]["text"] as? String {
-            height += NSAttributedString(string: text, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)])
-                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).height + 12
-        } else { height += 80 }
-        if height > viewport.height / 2 { return false }
-    }
-    return true
-}
-
 struct RoundButton: View {
     let icon: String
     let label: String
@@ -252,7 +237,6 @@ struct CXView: View {
     @ObservedObject var session: Session
     @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
-    @State private var viewport = CGSize.zero
     @State private var landed: UUID?
     @State private var openCapability: String?
     @StateObject var sending = SendAnimation()
@@ -412,12 +396,10 @@ struct CXView: View {
                         }
                         let sections = conversationSections(session.rows)
                         ForEach(sections) { section in
-                            let pinned = section.question.map { pinsQuestion($0, viewport: viewport) } ?? true
                             Section {
                                 // One stack child per exchange: scrolled to its end over several rows it had only estimated, the lazy stack kept the estimated height and parked past the real end, blank.
-                                if !pinned || !section.rows.isEmpty {
+                                if !section.rows.isEmpty {
                                     VStack(alignment: .leading, spacing: 24) {
-                                        if !pinned, let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id) }
                                         let parts = sectionParts(section.rows)
                                         if !parts.trail.isEmpty { WorkBlock(rows: parts.trail, details: session.details).id("work-\(section.id)") }
                                         if let last = parts.last { ConversationRow(row: last, session: session).equatable().id(last.id) }
@@ -428,7 +410,7 @@ struct CXView: View {
                                     .onDisappear { session.exchangeTops[section.id] = nil }
                                 }
                             } header: {
-                                if pinned, let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id, pinned: true) }
+                                if let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id) }
                             }
                         }
                         // Holds the bottom padding so following lands where a manual scroll ends.
@@ -442,7 +424,6 @@ struct CXView: View {
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height)
                 } action: { _, distance in if userScrolling { session.userScroll(distance: distance) } }
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { viewport = $0 }
                 .onChange(of: session.revision) { _, _ in
                     guard session.follow.attached else { return }
                     let animate = !reduceMotion && (sending.hasPending || sending.flight != nil)
@@ -479,8 +460,8 @@ struct CXView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
-    private func questionRow(_ question: Row, closesUp: Bool, pinned: Bool = false) -> some View {
-        ConversationRow(row: question, session: session, collapsible: pinned).equatable()
+    private func questionRow(_ question: Row, closesUp: Bool) -> some View {
+        ConversationRow(row: question, session: session, collapsible: true).equatable()
             .padding(.bottom, closesUp ? -16 : 0)
             .id(question.id)
     }

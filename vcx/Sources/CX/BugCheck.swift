@@ -174,13 +174,13 @@ enum BugCheck {
         do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("pinned-question"))
             asking.ready = true; asking.status = "Ready"
-            let lines = (1...6).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen, and to wrap where the bubble's width ends." }.joined(separator: "\n")
+            let lines = (1...20).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen, and to wrap where the bubble's width ends." }.joined(separator: "\n")
             asking.show(["id": "pinned-question", "type": "userMessage", "content": [["type": "text", "text": lines], ["type": "localImage", "path": "/fixture-one.png"], ["type": "localImage", "path": "/fixture-two.png"]]])
             asking.show(["id": "pinned-answer", "type": "agentMessage", "provider": "Claude", "text": (1...60).map { "- Answer line \($0), long enough to reach the left edge beside the pinned question." }.joined(separator: "\n")])
             if let item = asking.rows.first?.items.first {
                 func height(_ collapsible: Bool) -> CGFloat { NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900)).fittingSize.height }
                 let pinned = height(true), full = height(false)
-                print("Question with six lines and two pictures: \(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
+                print("Question with twenty lines and two pictures:\(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
                 check(pinned < 160 && full > pinned + 40, "a pinned question keeps two lines and one row of pictures until hovered")
                 // Sampled at 60 fps, the opening bubble grows through several heights and never shrinks back.
                 let hover = HoverProbe.State()
@@ -215,9 +215,15 @@ enum BugCheck {
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
-            if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+            if let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
                 content.cacheDisplay(in: content.bounds, to: bitmap)
-                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("pinned-question.png"))
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] {
+                    try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("pinned-question.png"))
+                }
+                // Scrolled to the answer's end, the question's tint shows in the transcript's top 120 pt only if it is pinned.
+                let x = Int(1100 * CGFloat(bitmap.pixelsWide) / content.bounds.width), top = Int(120 * CGFloat(bitmap.pixelsHigh) / content.bounds.height)
+                let tinted = (0..<top).filter { y in bitmap.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
+                check(tinted > 10, "a question taller than half the transcript stays pinned above its answer")
             }
         }
         do {
