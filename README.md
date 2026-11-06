@@ -6,6 +6,18 @@ runs on my Mac today, except glance, which is unfinished.
 Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 <!-- apps:start -->
+| | App | What it does |
+|:-:|---|---|
+| <img src="alt-tab/docs/icon.png" width="32" alt=""> | [alt-tab](alt-tab) | The ⌘Tab switcher, one tile per window with its picture. |
+| <img src="autocorrect/docs/icon.png" width="32" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
+| <img src="fleet/docs/icon.png" width="32" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
+| <img src="glance/docs/icon.png" width="32" alt=""> | [glance](glance) | Unfinished: ask Claude about what is on the screen. |
+| <img src="mac-guard/docs/icon.png" width="32" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
+| <img src="opener/docs/icon.png" width="32" alt=""> | [opener](opener) | Spotlight for apps only, on ⌘Space. |
+| <img src="screenshot/docs/icon.png" width="32" alt=""> | [screenshot](screenshot) | A ⌘⇧5 replacement whose file is on disk the moment you click. |
+| <img src="vcx/docs/icon.png" width="32" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex and Qwen. |
+| <img src="watcher/docs/icon.png" width="32" alt=""> | [watcher](watcher) | The answers you are waiting for, one at a time, on ⌘⌥K. |
+
 ### [alt-tab](alt-tab)
 
 [![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps from tile to tile with each Tab, and letting go of ⌘ brings the Mail window forward](alt-tab/docs/demo.gif)](alt-tab)

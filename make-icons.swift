@@ -51,6 +51,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("watcher", pinnedNote),
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("mac-guard", guardedApple),
+    ("glance", { glyph("eye", box: 520) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {
@@ -85,4 +86,7 @@ for app in apps where only.isEmpty || only.contains(app.dir) {
     try! p.run()
     p.waitUntilExit()
     guard p.terminationStatus == 0 else { exit(p.terminationStatus) }
+    // the picture the root README's table shows
+    try! FileManager.default.createDirectory(atPath: "\(app.dir)/docs", withIntermediateDirectories: true)
+    try! png(256, app.draw).write(to: URL(fileURLWithPath: "\(app.dir)/docs/icon.png"))
 }
