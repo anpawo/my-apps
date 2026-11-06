@@ -56,8 +56,12 @@ enum AgentMessages {
     }
 
     // What another window's agent sent, as he sees it and as the agent reads it.
-    static func isMessage(_ text: String) -> Bool {
-        ["claude", "codex", "qwen", "agent"].contains { text.hasPrefix($0 + " from [") } && text.contains("]: \"") && text.hasSuffix("\"")
+    struct Message { let provider: String, name: String, body: String }
+
+    static func parse(_ text: String) -> Message? {
+        guard text.hasSuffix("\""), let from = text.range(of: " from ["), let close = text.range(of: "]: \"", range: from.upperBound..<text.endIndex),
+              close.upperBound < text.endIndex, ["claude", "codex", "qwen", "agent"].contains(String(text[..<from.lowerBound])) else { return nil }
+        return Message(provider: String(text[..<from.lowerBound]), name: String(text[from.upperBound..<close.lowerBound]), body: String(text[close.upperBound..<text.index(before: text.endIndex)]))
     }
 
     static func list() -> Int32 {

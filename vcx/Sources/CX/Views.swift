@@ -4,6 +4,7 @@ import AppKit
 let accent = Color(red: 0.43, green: 0.23, blue: 0.75)
 let readyColor = Color(red: 0.1, green: 0.45, blue: 0.18)
 let pendingColor = Color(red: 0.87, green: 0.42, blue: 0)
+let agentPink = Color(red: 0.92, green: 0.22, blue: 0.56)
 let userGradient = LinearGradient(colors: [Color(red: 0.93, green: 0.23, blue: 0.51), Color(red: 0.55, green: 0.3, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct ConversationSection: Identifiable {
@@ -872,19 +873,25 @@ struct UserBubble: View {
     let session: Session
     var collapsible = false
     @State private var hovering = false
+    @State private var stuck = false
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering
-        let fromAgent = AgentMessages.isMessage(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
+        let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
-                MessageContent(item: item, collapsed: collapsed) { session.preview = $0 }
-                    .padding(16).background(fromAgent ? Color(red: 0.93, green: 0.3, blue: 0.6).opacity(0.15) : accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
-                    // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript.
-                    .background(.white.shadow(.drop(color: .black.opacity(0.22), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
+                Group {
+                    if let message { AgentMessageContent(message: message, collapsed: collapsed) }
+                    else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                }
+                    .padding(16).background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
+                    // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
+                    .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
+                    .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { stuck = $0 }
+                    .animation(.easeOut(duration: 0.2), value: stuck)
                     .background(GeometryReader { geometry in
                         let frame = geometry.frame(in: .named("conversation"))
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
@@ -893,6 +900,19 @@ struct UserBubble: View {
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
+        }
+    }
+}
+
+// Another window's agent wrote it: who, as a tag fitted to its name, then the text.
+struct AgentMessageContent: View {
+    let message: AgentMessages.Message
+    var collapsed = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("from \(message.provider)-\(message.name)").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(agentPink)
+                .padding(.horizontal, 8).padding(.vertical, 4).background(agentPink.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+            Text(message.body).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true).clipped()
         }
     }
 }
