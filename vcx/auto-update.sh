@@ -1,7 +1,7 @@
 #!/bin/bash
-# Run by launchd (mac.vcx-update, plist beside this file) every 10 minutes of awake time. Installs VCX from main once
-# vcx/ changed there and no commit has touched it for 5 minutes, so a burst of pushes makes one install. It builds in a
-# worktree of its own: the shared checkout holds other sessions' unpushed edits, which must not ship.
+# Run by launchd (mac.vcx-update, plist beside this file) on every push from this checkout (it rewrites
+# .git/refs/remotes/origin) and every 10 minutes of awake time. Installs VCX from main once vcx/ changed there. It builds
+# in a worktree of its own: the shared checkout holds other sessions' unpushed edits, which must not ship.
 set -uo pipefail
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 repo="$HOME/self/my-apps"
@@ -17,7 +17,6 @@ head=$(git -C "$repo" log -1 --format=%H refs/vcx-update/main -- "${paths[@]}") 
 [ "$head" = "$(cat "$state/installed" 2>/dev/null)" ] && exit 0
 # A commit that failed to install keeps the card red until a newer one replaces it.
 [ "$head" = "$(cat "$state/failed" 2>/dev/null)" ] && exit 1
-(( $(date +%s) - $(git -C "$repo" log -1 --format=%ct "$head") < 300 )) && exit 0
 
 mkdir -p "$state"
 if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
