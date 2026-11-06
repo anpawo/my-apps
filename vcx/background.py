@@ -60,8 +60,7 @@ def toml(value):
 def preferences():
     return dict(defaultProvider='auto', mode='bypass', limits={}, accounts=[
         dict(id='claude-default', provider='claude'), dict(id='codex-default', provider='codex')],
-        qwenURL='http://localhost:11434/api/chat', qwenProxy='', qwenModel='qwen3-8b-abl',
-        qwenVisionModel='qwen3-vl:4b-instruct') | read_json(CONFIG / 'settings.json')
+        qwenURL='http://localhost:11434/api/chat', qwenProxy='', qwenModel='qwen3-8b-abl') | read_json(CONFIG / 'settings.json')
 
 
 def mark_limit(account):
@@ -732,7 +731,7 @@ class Runner:
                 'parameters': {'type': 'object', 'properties': {'command': {'type': 'string'}}, 'required': ['command']}}}
         rows = self.activity
         for _ in range(args.max_turns or 30):
-            body = dict(model=self.prefs['qwenVisionModel' if images else 'qwenModel'], messages=messages, stream=False, think=False, keep_alive='5m')
+            body = dict(model=self.prefs['qwenModel'], messages=messages, stream=False, think=False, keep_alive='5m')
             if enabled:
                 body['tools'] = [tool]
             if args.json_schema:

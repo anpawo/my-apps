@@ -32,7 +32,7 @@ extension Session {
             ("settings", "Show configuration and available settings commands", false),
             ("login", "Add a Claude or Codex subscription, or cancel sign-in", true),
             ("profile", "Import an existing account: claude|codex <folder>", true),
-            ("qwen", "Configure url, proxy, text model, or vision model", true),
+            ("qwen", "Configure url, proxy, or model", true),
             ("hooks", "List provider hooks; add reload to refresh", false),
             ("skills", "List provider skills; add reload to refresh", false),
             ("mcp", "List Model Context Protocol servers; add reload to refresh", false),
@@ -140,7 +140,7 @@ extension Session {
                     return choices.filter { argument.hasSuffix(" ") || $0.name.lowercased().contains(accountParts[1]) || $0.insert.lowercased().contains(argument) }
                 }
             case "/login": choices = ["claude", "codex", "cancel"].map { option($0, $0 == "cancel" ? "Cancel sign-in" : "Sign in with subscription") }
-            case "/qwen": choices = ["url ", "proxy ", "model ", "vision "].map { option($0, "Enter the value after this setting") }
+            case "/qwen": choices = ["url ", "proxy ", "model "].map { option($0, "Enter the value after this setting") }
             case "/resume": choices = recent.map { option($0.id, "Resume conversation", label: $0.title) }
             default: return []
             }
@@ -442,17 +442,16 @@ extension Session {
             case "/qwen":
                 try idle()
                 let args = argument.split(separator: " ", maxSplits: 1).map(String.init)
-                guard args.count == 2, ["url", "proxy", "model", "vision"].contains(args[0]) else { showCommands("/qwen ", preserveDraft: false); return }
+                guard args.count == 2, ["url", "proxy", "model"].contains(args[0]) else { showCommands("/qwen ", preserveDraft: false); return }
                 let value = args[1] == "none" ? "" : args[1]
-                guard !["model", "vision"].contains(args[0]) || !value.isEmpty else { throw CXError(message: "Model names cannot be empty.") }
+                guard args[0] != "model" || !value.isEmpty else { throw CXError(message: "Model names cannot be empty.") }
                 if args[0] == "url" {
                     guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { throw CXError(message: "Enter an HTTP or HTTPS Ollama URL without credentials.") }
                     settings.value.qwenURL = value
                 } else if args[0] == "proxy" {
                     guard value.isEmpty || validQwenProxy(value) else { throw CXError(message: "Use socks5://host:port without credentials, or none.") }
                     settings.value.qwenProxy = value
-                } else if args[0] == "model" { settings.value.qwenModel = value }
-                else { settings.value.qwenVisionModel = value }
+                } else { settings.value.qwenModel = value }
                 try saveSettings(); if account.provider == "qwen" { if args[0] == "model" { model = value }; await reconnect(reason: "Qwen settings changed") }; notice("Qwen setting saved.")
             case "/hooks", "/skills", "/mcp", "/instructions":
                 if argument == "reload" { try idle(); await reconnect(reason: String(verb.dropFirst()) + " reloaded") }

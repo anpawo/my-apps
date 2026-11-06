@@ -18,10 +18,9 @@ struct Preferences: Codable {
     var qwenProxy = ""
     var qwenURL = "http://localhost:11434/api/chat"
     var qwenModel = "qwen3-8b-abl"
-    var qwenVisionModel = "qwen3-vl:4b-instruct"
     var qwenWake = false
     // Workers started before live update write each session's /model pick into "provider"; a key they never write keeps that pick out of new sessions.
-    enum CodingKeys: String, CodingKey { case provider = "defaultProvider", mode, accounts, limits, qwenProxy, qwenURL, qwenModel, qwenVisionModel, qwenWake }
+    enum CodingKeys: String, CodingKey { case provider = "defaultProvider", mode, accounts, limits, qwenProxy, qwenURL, qwenModel, qwenWake }
 }
 
 @MainActor
@@ -70,7 +69,6 @@ final class Settings: ObservableObject {
             if value.qwenURL != saved.qwenURL { latest.qwenURL = value.qwenURL }
             if value.qwenProxy != saved.qwenProxy { latest.qwenProxy = value.qwenProxy }
             if value.qwenModel != saved.qwenModel { latest.qwenModel = value.qwenModel }
-            if value.qwenVisionModel != saved.qwenVisionModel { latest.qwenVisionModel = value.qwenVisionModel }
             if value.qwenWake != saved.qwenWake { latest.qwenWake = value.qwenWake }
             update(&latest)
             try JSONEncoder().encode(latest).write(to: url, options: .atomic)

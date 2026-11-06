@@ -110,7 +110,7 @@ exec /usr/bin/open -n $background -a {shlex.quote(str(target))} --args --cwd "$P
     if not settings.exists() and jarvis.exists():
         text = jarvis.read_text()
         values = {}
-        for key, pattern in [('qwenProxy', r'env\["ALL_PROXY"\] = "([^"]+)"'), ('qwenURL', r'private let endpoint = "([^"]+)"'), ('qwenModel', r'static let model = "([^"]+)"'), ('qwenVisionModel', r'static let eyes = "([^"]+)"')]:
+        for key, pattern in [('qwenProxy', r'env\["ALL_PROXY"\] = "([^"]+)"'), ('qwenURL', r'private let endpoint = "([^"]+)"'), ('qwenModel', r'static let model = "([^"]+)"')]:
             match = re.search(pattern, text)
             if match:
                 values[key] = match[1]

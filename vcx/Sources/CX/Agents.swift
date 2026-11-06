@@ -581,7 +581,7 @@ final class QwenConnection: Connection {
         case "thread/turns/list", "thread/list": return ["data": []]
         case "account/rateLimits/read": return [:]
         case "cx/mode": preferences.mode = params["mode"] as? String == "bypass" ? "bypass" : "ask"; return [:]
-        case "model/list": return ["data": [["id": preferences.qwenModel], ["id": preferences.qwenVisionModel]]]
+        case "model/list": return ["data": [["id": preferences.qwenModel]]]
         case "turn/start":
             if let path = params["cwd"] as? String, let directory = workingDirectory(path, within: initialDirectory) { cwd = directory }
             guard let url = URL(string: preferences.qwenURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { throw CXError(message: "Set a valid Ollama URL in Settings.") }
@@ -611,7 +611,7 @@ final class QwenConnection: Connection {
                 do {
                     for _ in 0..<12 {
                         try Task.checkCancellation()
-                        let (answer, calls) = try await completion(url: url, model: images.isEmpty ? selectedModel ?? preferences.qwenModel : preferences.qwenVisionModel, item: item)
+                        let (answer, calls) = try await completion(url: url, model: selectedModel ?? preferences.qwenModel, item: item)
                         if !calls.isEmpty {
                             messages.append(["role": "assistant", "content": answer, "tool_calls": calls])
                             for call in calls {
