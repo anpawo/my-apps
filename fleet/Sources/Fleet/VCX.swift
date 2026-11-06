@@ -5,8 +5,12 @@ import NaturalLanguage
 @MainActor
 enum VCX {
     static let root = NSHomeDirectory() + "/.local/state/cx"
+    private static let transcripts = TranscriptStore()
+    private static var read: Set<String> = []
 
     static func sessions() -> [Session] {
+        read = []
+        defer { transcripts.retain(paths: read) }
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
         let found = apps.flatMap { app -> [Session] in
             guard app.activationPolicy != .prohibited else { return [] }
@@ -90,11 +94,17 @@ enum VCX {
         let started = Date(timeIntervalSince1970: TimeInterval(startedAt))
         let activity = (record["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? started
         let context = (record["context"] as? String).map { String($0.split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ").prefix(48)) }
-        let info = TranscriptInfo(path: path, title: shortTitle(prompt ?? record["title"] as? String ?? "New session"),
+        var info = TranscriptInfo(path: path, title: shortTitle(prompt ?? record["title"] as? String ?? "New session"),
                                   lastPrompt: prompt,
                                   lastPromptAt: (record["lastPromptAt"] as? Double).map(Date.init(timeIntervalSince1970:)),
                                   hasPendingTool: false, pendingToolNames: [], pendingToolLabels: [], pendingTaskIDs: [],
                                   cwd: cwd, turnOpen: state == .running, lastActivity: activity, preview: preview)
+        // VCX's record says how many tasks are out, not which are agents: the transcript does.
+        if let thread = record["threadId"] as? String, thread.hasPrefix("claude:"),
+           let transcript = Hooks.record(sessionID: String(thread.dropFirst(7)))?.transcriptPath {
+            read.insert(transcript)
+            info.subagents = transcripts.info(for: transcript)?.subagents ?? []
+        }
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
                        runtimeSessionID: runtimeID, runtimeWindowID: (record["windowId"] as? NSNumber)?.uint32Value,

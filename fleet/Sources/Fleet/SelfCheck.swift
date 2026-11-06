@@ -1069,6 +1069,17 @@ enum SelfCheck {
         expect(launched?.hasPendingTool == true ? 1 : 0, 0,
                "with nothing pending on the main thread")
 
+        // A VCX window names its Claude conversation; its hook record names the file.
+        let thread = "00000000-0000-0000-0000-00000000f1ee"
+        let hook = (Hooks.stateDirectory as NSString).appendingPathComponent(thread + ".json")
+        try? #"{"state":"ready","at":\#(Date().timeIntervalSince1970),"transcript":"\#(session)"}"#
+            .write(toFile: hook, atomically: true, encoding: .utf8)
+        let window: [String: Any] = ["pid": pid_t(42), "startedAt": UInt64(100), "cwd": "/tmp", "state": "pending",
+                                     "prompt": "audit", "threadId": "claude:" + thread]
+        expect(VCX.session(window, pid: 42, startedAt: 100, path: "/tmp/42.json")?.subagents.count ?? -1, 1,
+               "a VCX window counts the agents of its Claude conversation")
+        try? FileManager.default.removeItem(atPath: hook)
+
         append(#"{"type":"user","timestamp":"\#(stamp(5))","message":{"content":[{"type":"text","text":"<task-notification>\n<tool-use-id>\#(call)</tool-use-id>\n<status>completed</status>\n</task-notification>"}]}}"#)
 
         let done = store.info(for: session)

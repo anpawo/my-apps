@@ -50,6 +50,8 @@ final class FleetPresence {
         record["lastPromptAt"] = lastPromptAt
         if !session.fleetContext.isEmpty { record["context"] = session.fleetContext }
         record["sessionId"] = identity
+        // Fleet reads the sub-agents out of this conversation's own transcript.
+        record["threadId"] = session.threadID
         if let window = (NSApp?.delegate as? AppDelegate)?.windows.first(where: { $0.session === session })?.window {
             record["windowId"] = window.windowNumber
         }
