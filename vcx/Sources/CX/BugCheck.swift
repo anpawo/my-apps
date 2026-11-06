@@ -52,6 +52,17 @@ enum BugCheck {
             return png
         }
         check(!field.isAutomaticQuoteSubstitutionEnabled && !field.isAutomaticDashSubstitutionEnabled && !field.isAutomaticTextReplacementEnabled, "composer preserves literal punctuation")
+        do {
+            let (lone, _) = editor(frontend); lone.delegate = nil
+            lone.putImage("/fixture.png")
+            lone.layoutManager!.ensureLayout(for: lone.textContainer!)
+            let first = lone.layoutManager!.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: lone.textContainer!)
+            lone.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+            lone.layoutManager!.ensureLayout(for: lone.textContainer!)
+            let second = lone.layoutManager!.boundingRect(forGlyphRange: NSRange(location: 1, length: 1), in: lone.textContainer!)
+            print("Chip first: \(first), after text: \(second)")
+            check(abs(second.width - first.width - 6) < 0.5, "a chip that opens the message has no left margin")
+        }
         field.putImage("/fixture.png")
         field.layoutManager!.ensureLayout(for: field.textContainer!)
         let before = field.layoutManager!.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: field.textContainer!)

@@ -78,7 +78,19 @@ extension NSAttributedString {
 }
 
 private final class ChipCell: NSTextAttachmentCell {
+    var padding: CGFloat = 0
     override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
+    // A chip that opens the message starts at the text's edge, without its left margin.
+    override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect, glyphPosition position: NSPoint, characterIndex charIndex: Int) -> NSRect {
+        var frame = super.cellFrame(for: textContainer, proposedLineFragment: lineFrag, glyphPosition: position, characterIndex: charIndex)
+        if charIndex == 0 { frame.size.width -= padding }
+        return frame
+    }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?, characterIndex charIndex: Int, layoutManager: NSLayoutManager) {
+        var frame = cellFrame
+        if charIndex == 0 { frame.origin.x -= padding; frame.size.width += padding }
+        super.draw(withFrame: frame, in: controlView, characterIndex: charIndex, layoutManager: layoutManager)
+    }
 }
 
 private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachmentCell {
@@ -90,7 +102,9 @@ private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachment
         label.draw(at: NSPoint(x: padding, y: 0))
         return true
     }
-    return ChipCell(imageCell: image)
+    let cell = ChipCell(imageCell: image)
+    cell.padding = padding
+    return cell
 }
 
 private let commandWordPattern = try! NSRegularExpression(pattern: #"(?<![\w/:.\-])/([\w\-]+(?::[\w\-]+)*)(?![\w/\-]|[.:]\w)"#)
