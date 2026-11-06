@@ -347,7 +347,11 @@ final class ClaudeConnection: Connection {
                     let input = block["input"] as? JSON ?? [:], name = block["name"] as? String ?? "Tool"
                     var tool: JSON = ["id": toolID, "type": "commandExecution", "command": input["command"] as? String ?? name + "\n" + pretty(input), "cwd": cwd, "status": "inProgress"]
                     if name == "Bash", let description = input["description"] as? String { tool["description"] = description }
-                    if name == "SendMessage" { tool = peerItem(id: toolID, direction: "sent", peer: input["to"] as? String ?? "", text: input["message"] as? String ?? "") }
+                    if name == "SendMessage" {
+                        let to = input["to"] as? String ?? ""
+                        tool = peerItem(id: toolID, direction: "sent", peer: to, text: input["message"] as? String ?? "",
+                                        subagent: subagentName(to, session: String(thread.dropFirst(7)), configDirectory: account.home ?? NSHomeDirectory() + "/.claude"))
+                    }
                     tools[toolID] = tool; emit("item/started", ["item": tool])
                 }
             }
@@ -491,7 +495,7 @@ func claudeRegistry(_ pid: Int) -> JSON? {
 }
 
 // SendMessage names a peer by its ListAgents name, maybe followed by " [ref]", or by its uds:/…/<pid>.sock address.
-func peerItem(id: String, direction: String, peer: String, pid: Int? = nil, text: String) -> JSON {
+func peerItem(id: String, direction: String, peer: String, pid: Int? = nil, text: String, subagent: String? = nil) -> JSON {
     let name = peer.components(separatedBy: " [")[0]
     var pid = pid ?? Int(name.replacingOccurrences(of: #"^uds:.*/(\d+)\.sock$"#, with: "$1", options: .regularExpression))
     var entry = pid.flatMap(claudeRegistry)
@@ -501,9 +505,21 @@ func peerItem(id: String, direction: String, peer: String, pid: Int? = nil, text
             .max { ($0["startedAt"] as? Double ?? 0) < ($1["startedAt"] as? Double ?? 0) }
         pid = entry?["pid"] as? Int
     }
-    var item: JSON = ["id": id, "type": "peerMessage", "direction": direction, "name": entry?["name"] as? String ?? (name.hasPrefix("uds:") ? "another session" : name), "text": text, "status": direction == "sent" ? "inProgress" : "completed"]
+    var item: JSON = ["id": id, "type": "peerMessage", "direction": direction, "name": entry?["name"] as? String ?? subagent ?? (name.hasPrefix("uds:") ? "another session" : name), "text": text, "status": direction == "sent" ? "inProgress" : "completed"]
     if let pid, let started = entry?["startedAt"] { item["pid"] = pid; item["startedAt"] = started }
     return item
+}
+
+// A subagent is addressed by its agent ID; Fleet names it by the description its spawn gave it, as here.
+func subagentName(_ id: String, session: String, configDirectory: String) -> String? {
+    guard !id.isEmpty, !id.contains("/") else { return nil }
+    let projects = configDirectory + "/projects"
+    for project in (try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? [] {
+        guard let data = FileManager.default.contents(atPath: "\(projects)/\(project)/\(session)/subagents/agent-\(id).meta.json"),
+              let meta = (try? JSONSerialization.jsonObject(with: data)) as? JSON else { continue }
+        return (meta["description"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? meta["agentType"] as? String
+    }
+    return nil
 }
 
 // The start time tells the peer apart from a later process that reused its pid.
