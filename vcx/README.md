@@ -26,6 +26,10 @@ and instruction files apply as they do in the terminal; the sidebar lists them.
 `./install-native.py` builds the app into `~/Applications/Vibe Code X.app` and writes the `vcx` and `cx`
 commands into `~/.local/bin`.
 
+To keep it current, copy `mac.vcx-update.plist` into `~/Library/LaunchAgents`: every 10 minutes `auto-update.sh`
+installs the latest `vcx/` from `main`, once no commit has touched it for 5 minutes, from a worktree of its own.
+Open windows move to the new build on their own. Log: `~/.local/state/mac.vcx-update.log`.
+
 ## Checking it without a window
 
 `vcx --render <dir>` draws the conversation, palettes, questions and popups offscreen. `docs/make-demo.sh` draws
