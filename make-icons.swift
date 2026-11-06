@@ -51,7 +51,6 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("watcher", pinnedNote),
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("mac-guard", guardedApple),
-    ("glance", { glyph("eye", box: 520) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {

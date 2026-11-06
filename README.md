@@ -1,7 +1,7 @@
 # my-apps
 
 Little apps made for my needs. Each one is a folder at the root of this repo, and each one
-runs on my Mac today, except glance, which is unfinished.
+runs on my Mac today.
 
 Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
@@ -11,7 +11,6 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 | | App | What it does |
 |:-:|---|---|
 | <img src="alt-tab/docs/icon.png" width="40" alt=""> | [alt-tab](alt-tab) | The ⌘Tab switcher, one tile per window with its picture. |
-| <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
 | <img src="opener/docs/icon.png" width="40" alt=""> | [opener](opener) | Spotlight for apps only, on ⌘Space. |
 | <img src="screenshot/docs/icon.png" width="40" alt=""> | [screenshot](screenshot) | A ⌘⇧5 replacement whose file is on disk the moment you click. |
 
@@ -19,8 +18,8 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 | | App | What it does |
 |:-:|---|---|
+| <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
-| <img src="glance/docs/icon.png" width="40" alt=""> | [glance](glance) | Unfinished: ask Claude about what is on the screen. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex and Qwen. |
 | <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | The answers you are waiting for, one at a time, on ⌘⌥K. |
@@ -36,10 +35,6 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 ### [fleet](fleet)
 
 [![The panel](fleet/docs/panel.png)](fleet)
-
-### [glance](glance)
-
-[![⌘⌥J over a terminal where a Python script failed: the panel opens at the top right, ↵ with nothing typed, and Claude explains that the CSV is semicolon-separated and gives the fixed line; a follow-up typed in French, "et si le fichier est vide ?", gets its answer in French; ⌘C copies its code and ⎋ closes the panel](glance/docs/demo.gif)](glance)
 
 ### [mac-guard](mac-guard)
 
