@@ -168,6 +168,27 @@ enum BugCheck {
             print("Window with a \(question.count)-character question: \(Int(before)) pt tall before, \(Int(window.frame.height)) after")
             check(window.frame.height == before, "a long question keeps the window its size, composer on screen")
         }
+        do {
+            let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("pinned-question"))
+            asking.ready = true; asking.status = "Ready"
+            let lines = (1...6).map { "Line \($0) of a question long enough to need more than the two lines a pinned question keeps on screen." }.joined(separator: "\n")
+            asking.show(["id": "pinned-question", "type": "userMessage", "content": [["type": "text", "text": lines], ["type": "localImage", "path": "/fixture-one.png"], ["type": "localImage", "path": "/fixture-two.png"]]])
+            asking.show(["id": "pinned-answer", "type": "agentMessage", "provider": "Claude", "text": (1...60).map { "- Answer line \($0), long enough to reach the left edge beside the pinned question." }.joined(separator: "\n")])
+            if let item = asking.rows.first?.items.first {
+                func height(_ collapsible: Bool) -> CGFloat { NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900)).fittingSize.height }
+                let pinned = height(true), full = height(false)
+                print("Question with six lines and two pictures: \(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
+                check(pinned < 160 && full > pinned + 40, "a pinned question keeps two lines and one row of pictures until hovered")
+            }
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
+            defer { window.close() }
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("pinned-question.png"))
+            }
+        }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")

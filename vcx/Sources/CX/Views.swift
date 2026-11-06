@@ -38,8 +38,8 @@ func pinsQuestion(_ question: Row, viewport: CGSize) -> Bool {
     let width = viewport.width - 128 // transcript padding, the bubble's spacer and its own padding
     guard width > 0, viewport.height > 0 else { return true }
     var height: CGFloat = 32
-    for piece in question.items.first?.data["content"] as? [JSON] ?? [] {
-        if let text = piece["text"] as? String {
+    for run in pieceRuns(question.items.first?.data["content"] as? [JSON] ?? []) {
+        if let text = run[0]["text"] as? String {
             height += NSAttributedString(string: text, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)])
                 .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).height + 12
         } else { height += 80 }
@@ -120,6 +120,7 @@ final class SendAnimation: ObservableObject {
         var destination: CGRect
         let snapshot: ComposerSnapshot?
         var tall = false
+        var collapsed = false
     }
     @Published var flight: Flight?
     @Published var frame = CGRect.zero
@@ -193,7 +194,7 @@ final class SendAnimation: ObservableObject {
         guard !destination.isEmpty else { return }
         generation += 1; moving = false
         frame = pending.origin; blend = 0
-        flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot, tall: destination.height < measured.height)
+        flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot, tall: destination.height < measured.height, collapsed: frames["collapsed:" + item.id] != nil)
     }
 
     func launch() {
@@ -231,7 +232,7 @@ struct FlyingMessage: View {
                 Image(nsImage: snapshot.image).resizable().frame(width: snapshot.image.size.width, height: snapshot.image.size.height)
                     .animation(.linear(duration: 0.06)) { $0.opacity(1 - blend) }.offset(x: 16, y: inset)
             }
-            MessageContent(item: flight.item).frame(width: max(1, flight.destination.width - 32), alignment: .leading)
+            MessageContent(item: flight.item, collapsed: flight.collapsed).frame(width: max(1, flight.destination.width - 32), alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true).scaleEffect(fittedScale, anchor: anchor)
                 .animation(.linear(duration: 0.06)) { $0.opacity(flight.snapshot == nil ? 1 : blend) }.offset(x: 16, y: inset)
         }.frame(width: frame.width, height: frame.height, alignment: flight.tall ? .bottomLeading : .topLeading)
@@ -418,7 +419,7 @@ struct CXView: View {
                                     }
                                 }
                             } header: {
-                                if pinned, let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id) }
+                                if pinned, let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id, pinned: true) }
                             }
                         }
                         // Holds the bottom padding so following lands where a manual scroll ends.
@@ -466,9 +467,8 @@ struct CXView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
-    private func questionRow(_ question: Row, closesUp: Bool) -> some View {
-        ConversationRow(row: question, session: session).equatable()
-            .background(Color.white)
+    private func questionRow(_ question: Row, closesUp: Bool, pinned: Bool = false) -> some View {
+        ConversationRow(row: question, session: session, collapsible: pinned).equatable()
             .padding(.bottom, closesUp ? -16 : 0)
             .id(question.id)
     }
@@ -772,10 +772,11 @@ struct CommandPalette: View {
 struct ConversationRow: View, Equatable {
     @ObservedObject var row: Row
     let session: Session
+    var collapsible = false
     static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id }
     var body: some View {
         if let item = row.items.first {
-            if row.kind == "user" { UserBubble(item: item, session: session) }
+            if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible) }
             else if row.kind == "notice" { Label(item.text, systemImage: "info.circle").font(.system(size: 12)).foregroundStyle(.black.opacity(0.6)).textSelection(.enabled) }
             else if row.kind == "peer" { PeerLine(item: item) }
             else { AssistantBubble(item: item) }
@@ -791,7 +792,7 @@ struct PeerLine: View {
             Label(item.title + (first.isEmpty ? "" : " · " + first), systemImage: item.data["direction"] as? String == "sent" ? "arrow.up.right" : "arrow.down.left")
                 .lineLimit(1).truncationMode(.tail)
                 .font(.system(size: 12)).foregroundStyle(.black.opacity(item.failed ? 0.3 : 0.45))
-        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help(item.text)
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help(item.text).background(Color.white)
     }
 }
 
@@ -863,15 +864,23 @@ struct ActionView: View {
 struct UserBubble: View {
     @ObservedObject var item: Item
     let session: Session
+    var collapsible = false
+    @State private var hovering = false
     @EnvironmentObject private var sending: SendAnimation
     var body: some View {
-        let unread = item.data["queued"] as? Bool == true
+        let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
-                MessageContent(item: item) { session.preview = $0 }
+                MessageContent(item: item, collapsed: collapsed) { session.preview = $0 }
                     .padding(16).background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 17))
-                    .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: [item.id: geometry.frame(in: .named("conversation"))]) })
+                    // Pinned, only the bubble hides what scrolls under it.
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 17))
+                    .background(GeometryReader { geometry in
+                        let frame = geometry.frame(in: .named("conversation"))
+                        Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
+                    })
+                    .onHover { hovering = $0 }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }
@@ -879,16 +888,43 @@ struct UserBubble: View {
     }
 }
 
+// Pictures pasted together share a row.
+func pieceRuns(_ pieces: [JSON]) -> [[JSON]] {
+    pieces.reduce(into: [[JSON]]()) { runs, piece in
+        if piece["type"] as? String != "text", let last = runs.last?.last, last["type"] as? String != "text" { runs[runs.count - 1].append(piece) }
+        else { runs.append([piece]) }
+    }
+}
+
 struct MessageContent: View {
     @ObservedObject var item: Item
+    // A pinned question keeps two lines until hovered, so it covers little of the answer under it.
+    var collapsed = false
     var preview: (String) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array((item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, piece in
-                if piece["type"] as? String == "text", let text = piece["text"] as? String { Text(text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                else if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
-                else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
+            ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, run in
+                if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
+                    Text(text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                } else { PictureRow(pieces: run, preview: preview) }
             }
+        }
+    }
+}
+
+struct PictureRow: View {
+    let pieces: [JSON]
+    var preview: (String) -> Void
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { cards }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) { cards }
+        }
+    }
+    private var cards: some View {
+        ForEach(Array(pieces.enumerated()), id: \.offset) { n, piece in
+            if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
+            else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
         }
     }
 }
