@@ -1110,13 +1110,17 @@ enum Check {
         for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask"], "footer mode selection executes the permission command without Return")
         check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
+        var footerItems: Int { commands.rows.reduce(0) { $0 + $1.items.count } }
+        let tokenItems = footerItems
         commands.statusCommand("/tokens")
-        for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil && commands.savedCommandDraft == nil, "footer info buttons never write their command into the chat box")
+        for _ in 0..<200 where footerItems == tokenItems { try? await Task.sleep(nanoseconds: 1_000_000) }
         check(commands.draft.string == "Keep this prompt" && commands.rows.last?.items.first?.text.contains("Not reported") == true, "footer token button executes its command and preserves the draft")
         commands.draft = NSAttributedString(string: "")
+        let repoItems = footerItems
         commands.statusCommand("/repo")
-        for _ in 0..<200 where commands.savedCommandDraft != nil { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
+        for _ in 0..<200 where footerItems == repoItems { try? await Task.sleep(nanoseconds: 1_000_000) }
+        check(footerItems > repoItems && commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
         commands.draft = NSAttributedString(string: "/perms ask")
         await commands.command("/perms ask")
         check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask", "ask"], "chat mode change applies the requested policy live")

@@ -210,6 +210,8 @@ extension Session {
     }
     func statusCommand(_ source: String) {
         guard !changing else { return }
+        // These only report into the chat: written into the chat box first, they flashed over the draft until the answer came.
+        if ["/tokens", "/usage", "/repo"].contains(source) { Task { await command(source) }; return }
         if savedCommandDraft == nil { savedCommandDraft = draft }
         showCommands(source)
         if source != "/perms " && source != "/model " && source != modelCommand { Task { await command(source) } }
