@@ -79,7 +79,7 @@ extension NSAttributedString {
 
 private final class ChipCell: NSTextAttachmentCell {
     var padding: CGFloat = 0
-    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).descender) }
+    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).descender) }
     // A chip that opens the message starts at the text's edge, without its left margin.
     override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect, glyphPosition position: NSPoint, characterIndex charIndex: Int) -> NSRect {
         var frame = super.cellFrame(for: textContainer, proposedLineFragment: lineFrag, glyphPosition: position, characterIndex: charIndex)
@@ -94,7 +94,7 @@ private final class ChipCell: NSTextAttachmentCell {
 }
 
 private func chipCell(_ title: String, fill: NSColor? = nil) -> NSTextAttachmentCell {
-    let label = NSAttributedString(string: title, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black])
+    let label = NSAttributedString(string: title, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black])
     // A command chip hugs its letters like the purple tint does, so they sit where typed text would.
     let padding: CGFloat = fill == nil ? 6 : 0
     let image = NSImage(size: NSSize(width: label.size().width + 2 * padding, height: label.size().height), flipped: false) { rect in
@@ -263,12 +263,12 @@ final class ComposerText: NSTextView {
     var resized: () -> Void = {}
     override init(frame: NSRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
-        font = .monospacedSystemFont(ofSize: 13, weight: .regular); textColor = .black; insertionPointColor = .black
+        font = .monospacedSystemFont(ofSize: 12, weight: .regular); textColor = .black; insertionPointColor = .black
         drawsBackground = false; isRichText = true; importsGraphics = false; allowsUndo = true; usesFontPanel = false
         isAutomaticQuoteSubstitutionEnabled = false; isAutomaticDashSubstitutionEnabled = false
         isAutomaticTextReplacementEnabled = false; isAutomaticSpellingCorrectionEnabled = false
         textContainerInset = .zero
-        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black]
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black]
         isVerticallyResizable = true; isHorizontallyResizable = false; autoresizingMask = [.width]
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textContainer?.widthTracksTextView = true
@@ -278,9 +278,9 @@ final class ComposerText: NSTextView {
     required init?(coder: NSCoder) { nil }
     func setDraft(_ draft: NSAttributedString) {
         textStorage?.setAttributedString(draft)
-        textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 0, length: draft.length))
+        textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: draft.length))
         textColor = .black
-        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black]
+        typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black]
         draft.enumerateAttribute(.attachment, in: NSRange(location: 0, length: draft.length)) { value, range, _ in
             if let chip = value as? CommandChip { textStorage?.addAttribute(.toolTip, value: chip.value, range: range) }
         }
@@ -299,7 +299,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { highlightCommands(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {

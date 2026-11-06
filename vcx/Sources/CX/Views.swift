@@ -471,10 +471,10 @@ struct CXView: View {
             HStack(spacing: 8) {
                 let pending = !session.busy && !session.needsAttention && session.backgroundTasks > 0
                 ActivityDot(busy: session.busy, pending: pending).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : pending ? "Pending action" : "Ready")
-                Text(session.busy ? "Thinking" : session.needsAttention || session.status == "Stopped" ? session.status : pending ? "Pending action" : "Ready").font(.system(size: 11)).foregroundStyle(session.busy ? accent : pending ? pendingColor : readyColor)
+                Text(session.busy ? "Thinking" : session.needsAttention || session.status == "Stopped" ? session.status : pending ? "Pending action" : "Ready").font(.system(size: 12)).foregroundStyle(session.busy ? accent : pending ? pendingColor : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5).opacity(sending.flight == nil ? 1 : 0)
             if (!session.permissions.isEmpty && session.questionFlow == nil) || (!session.ready && !session.status.isEmpty) {
-                Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 11)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
+                Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 12)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(spacing: 0) {
@@ -913,7 +913,7 @@ struct AgentMessageContent: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("from \(message.provider)-\(message.name)").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(agentPink)
                 .padding(.horizontal, 8).padding(.vertical, 4).background(agentPink.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
-            Text(message.body).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true).clipped()
+            Text(message.body).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true).clipped()
         }
     }
 }
@@ -935,7 +935,7 @@ struct MessageContent: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { _, run in
                 if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
-                    Text(text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                    Text(text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).lineLimit(collapsed ? 2 : nil).fixedSize(horizontal: false, vertical: true)
                         .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
                 } else { PictureRow(pieces: run, preview: preview) }
             }
@@ -1038,7 +1038,7 @@ struct CodeBlock: View {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: copied ? 19 : 13, weight: copied ? .light : .regular)).frame(height: 18)
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
             }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
-            ScrollView(.horizontal) { Text(block.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled).padding(14) }
+            ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) }
         }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
         .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
     }
@@ -1052,7 +1052,7 @@ struct PermissionView: View {
                 Label("Permission requested", systemImage: "hand.raised").font(.system(size: 14, weight: .semibold))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text(request.params["reason"] as? String ?? "Review this action before allowing it.").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text(request.params["reason"] as? String ?? "Review this action before allowing it.").font(.system(size: 12)).foregroundStyle(.secondary)
                         Text(request.params["command"] as? String ?? (request.params["changes"] as? [JSON] ?? []).map { ($0["path"] as? String ?? "") + "\n" + ($0["diff"] as? String ?? "") }.joined(separator: "\n")).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1082,7 +1082,7 @@ struct QuestionPanel: View {
                 Spacer()
                 Button("Cancel") { session.answer(flow.request, result: ["answers": [:]]) }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help("Answer nothing and let the agent continue")
             }.font(.system(size: 11, weight: .semibold)).foregroundStyle(.black.opacity(0.6))
-            Text(question["question"] as? String ?? "Question").font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+            Text(question["question"] as? String ?? "Question").font(.system(size: 12, weight: .medium)).fixedSize(horizontal: false, vertical: true)
             let options = VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(flow.options.enumerated()), id: \.offset) { index, option in
                     let label = option["label"] as? String ?? "Option", selected = picked.contains(label)
@@ -1146,7 +1146,7 @@ struct ProseView: View {
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
         let value = rich(text)
         if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
-        else { Text(value).font(.system(size: 13, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+        else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1197,7 +1197,7 @@ struct LinkText: NSViewRepresentable {
         let string = NSMutableAttributedString()
         for run in text.runs {
             let intent = run.inlinePresentationIntent ?? []
-            var font = NSFont.monospacedSystemFont(ofSize: 13, weight: intent.contains(.stronglyEmphasized) ? .bold : base)
+            var font = NSFont.monospacedSystemFont(ofSize: 12, weight: intent.contains(.stronglyEmphasized) ? .bold : base)
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
             if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
