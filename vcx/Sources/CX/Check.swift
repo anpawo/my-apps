@@ -1823,6 +1823,8 @@ enum Render {
         }
         let nested = "Plan to paste:\n\n````\n### Storage\n\nThe engine **only loads**; the service keeps the `per-entity` lock.\n\n```python\nclass Ledger:\n    def load(self, entity: str) -> dict: ...\n```\n\n- one point\n- another point\n````\n\n## After the block\n\nPlain text again."
         write(MarkdownBody(text: nested).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 560), path: directory + "/nested-markdown.png")
+        let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
+        write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {
             write(WorkBlock(rows: sent, details: open).padding(24).background(Color.white), size: CGSize(width: 760, height: open ? 220 : 90), path: directory + "/sent-\(open ? "open" : "closed").png")

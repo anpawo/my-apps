@@ -1145,7 +1145,7 @@ struct CodeBlock: View {
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
             }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
             if block.markdown { MarkdownBody(text: block.text).padding(14) }
-            else { ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(14) } }
+            else { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
         }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
         .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
     }
