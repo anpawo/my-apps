@@ -121,6 +121,7 @@ final class SendAnimation: ObservableObject {
         let snapshot: ComposerSnapshot?
         var tall = false
         var collapsed = false
+        var started = Date()
     }
     @Published var flight: Flight?
     @Published var frame = CGRect.zero
@@ -174,7 +175,9 @@ final class SendAnimation: ObservableObject {
         let viewport = frames["transcript"] ?? CGRect(x: 0, y: 0, width: composer.maxX, height: composer.minY)
         func target(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: 0, dy: min(0, viewport.maxY - 28 - rect.maxY)).intersection(viewport) }
         if let flight {
-            if reduceMotion || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
+            // Retargeted on every frame, a flight never completes and republishes forever; both frontend freezes (11-05 16:03,
+            // 11-06 12:17) began at a send, and the per-turn cap above did not stop the second. Past 1.5 s it lands where it is.
+            if reduceMotion || Date().timeIntervalSince(flight.started) > 1.5 || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
                 self.flight = nil; generation += 1; moving = false
             // Sub-point remeasures are ignored, so a frame that jitters between layout passes cannot keep republishing the flight.
             } else if let measured = frames[flight.item.id], case let destination = target(measured),

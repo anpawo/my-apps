@@ -1634,6 +1634,13 @@ enum Check {
                 animation.prepare(text: "Send this", images: [], rows: [old])
                 animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: true)
                 check(animation.flight == nil, "Reduce Motion skips the send flight")
+                animation.prepare(text: "Send this", images: [], rows: [old])
+                animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: false)
+                animation.update(frames: ["composer": origin, "new": target.offsetBy(dx: 0, dy: 40)], rows: [old, new], reduceMotion: false)
+                check(animation.flight?.destination == target.offsetBy(dx: 0, dy: 40), "a young flight follows its remeasured bubble")
+                animation.flight?.started = Date(timeIntervalSinceNow: -2)
+                animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: false)
+                check(animation.flight == nil, "a flight still retargeted after 1.5 s lands instead of republishing forever")
                 let updates = NSMutableArray()
                 for _ in 0..<10 { animation.receive([:], rows: { updates.add(1); return [] }, reduceMotion: false) }
                 check(updates.count == 4, "a layout loop of frame updates stops after four in one run loop turn")
