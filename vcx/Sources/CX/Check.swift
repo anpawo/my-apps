@@ -1622,6 +1622,7 @@ enum Check {
                 check(!mirror.usageLoading, "runtime metadata clears the frontend loading indicator")
                 usageState.builtinCommands = ["compact"]; mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
                 check(mirror.builtinCommands == ["compact"], "runtime metadata carries the built-in commands to the frontend")
+                check(RuntimeClient(session: usageState, cwd: directory.path).socketPath != RuntimeClient(session: mirror, cwd: directory.path).socketPath, "two sessions in one folder get their own runtime worker, so each updates when it alone is idle")
             }
             do {
                 let animation = SendAnimation()

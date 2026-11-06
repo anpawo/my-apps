@@ -15,8 +15,9 @@ enum RuntimeIdentity {
         if let path = ProcessInfo.processInfo.environment["VCX_RUNTIME_HOME"] { return URL(fileURLWithPath: path, isDirectory: true) }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/state/cx/runtime", isDirectory: true)
     }
-    static func socket(cwd: String) -> String {
-        let group = SHA256.hash(data: Data(URL(fileURLWithPath: cwd).standardized.path.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
+    // One worker per session: a live update waits for its sessions to be idle together, which several busy sessions never were.
+    static func socket(session: String) -> String {
+        let group = SHA256.hash(data: Data(session.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
         // A worker that cannot move onto this build (older swap version, or none) keeps its sessions; new ones get a worker of this build.
         return directory.appendingPathComponent("v\(RuntimeSwap.version)-" + String(group) + ".sock").path
     }
@@ -65,7 +66,7 @@ final class RuntimeClient {
         initialCwd = cwd
         resumingRuntime = resumeRuntimeID != nil
         sessionID = resumeRuntimeID.flatMap { UUID(uuidString: $0)?.uuidString } ?? UUID().uuidString
-        self.socketPath = socketPath ?? RuntimeIdentity.socket(cwd: cwd)
+        self.socketPath = socketPath ?? RuntimeIdentity.socket(session: sessionID)
         recoveryEntry = recovery
         if let recovery {
             recoveryState = recovery.state; windowState = recovery.windowState

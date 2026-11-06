@@ -499,7 +499,8 @@ if let index = args.firstIndex(of: "--runtime-worker") {
         backend.startInBackground(params: params, command: args.contains("--runtime-recovery-test") ? nil : command)
         return backend
     }
-    server.onEmpty = { server.stop(); exit(0) }
+    // Each session has its own socket, so its lock files would otherwise pile up.
+    server.onEmpty = { server.stop(); for suffix in [".lock", ".launch.lock"] { unlink(args[index + 1] + suffix) }; exit(0) }
     do { if let manifest { try RuntimeSwap.adopt(manifest, into: server) } else { try server.start() } }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
     let swap = RuntimeSwap(server: server, testing: args.contains("--runtime-test"))
