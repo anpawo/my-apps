@@ -17,7 +17,7 @@ struct Preferences: Codable {
     var limits: [String: Double] = [:]
     var qwenProxy = ""
     var qwenURL = "http://localhost:11434/api/chat"
-    var qwenModel = "qwen3-8b-abl"
+    var qwenModel = "qwen3.5-9b-abl"
     var qwenWake = false
     // Workers started before live update write each session's /model pick into "provider"; a key they never write keeps that pick out of new sessions.
     enum CodingKeys: String, CodingKey { case provider = "defaultProvider", mode, accounts, limits, qwenProxy, qwenURL, qwenModel, qwenWake }

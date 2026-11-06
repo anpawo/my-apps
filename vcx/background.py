@@ -60,7 +60,7 @@ def toml(value):
 def preferences():
     return dict(defaultProvider='auto', mode='bypass', limits={}, accounts=[
         dict(id='claude-default', provider='claude'), dict(id='codex-default', provider='codex')],
-        qwenURL='http://localhost:11434/api/chat', qwenProxy='', qwenModel='qwen3-8b-abl') | read_json(CONFIG / 'settings.json')
+        qwenURL='http://localhost:11434/api/chat', qwenProxy='', qwenModel='qwen3.5-9b-abl') | read_json(CONFIG / 'settings.json')
 
 
 def mark_limit(account):
