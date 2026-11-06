@@ -55,6 +55,9 @@ enum Check {
         catch { fputs(error.localizedDescription + "\n", stderr); return false }
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
+        // One async function this long took 17 GB to compile (LLVM copies it at every await), so its checks run in closures of their own.
+        func part(_ body: @MainActor () async -> Void) async { await body() }
+        func step(_ body: @MainActor () async -> Bool) async -> Bool { await body() }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000
         do {
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-peers-" + UUID().uuidString)
@@ -309,111 +312,125 @@ enum Check {
         let repoPath = directory.appendingPathComponent("atlas").path
         try! FileManager.default.createDirectory(atPath: repoPath, withIntermediateDirectories: true)
         let repoSession = Session(cwd: repoPath)
-        await repoSession.refreshRepository()
-        check(repoSession.directoryLabel == repoPath && repoSession.repositoryLabel == "not a repo", "non-repository footer keeps the directory")
-        gitCheck(["init", "-b", "main"], at: repoPath)
-        await repoSession.refreshRepository()
-        check(repoSession.directoryLabel == "atlas" && repoSession.repositoryLabel == "@main - local only", "empty repositories retain their branch")
-        try! Data("fixture".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
-        gitCheck(["add", "file"], at: repoPath)
-        gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Fixture"], at: repoPath)
+        await part {
+            await repoSession.refreshRepository()
+            check(repoSession.directoryLabel == repoPath && repoSession.repositoryLabel == "not a repo", "non-repository footer keeps the directory")
+            gitCheck(["init", "-b", "main"], at: repoPath)
+            await repoSession.refreshRepository()
+            check(repoSession.directoryLabel == "atlas" && repoSession.repositoryLabel == "@main - local only", "empty repositories retain their branch")
+            try! Data("fixture".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
+            gitCheck(["add", "file"], at: repoPath)
+            gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Fixture"], at: repoPath)
+        }
         let remotePath = directory.appendingPathComponent("remote.git").path
-        gitCheck(["init", "--bare", remotePath], at: repoPath)
-        gitCheck(["remote", "add", "origin", remotePath], at: repoPath)
-        gitCheck(["push", "-u", "origin", "main"], at: repoPath)
-        await repoSession.refreshRepository()
-        check(repoSession.repositoryLabel == "@main - up to date", "pushed repositories show the green state")
-        try! Data("changed".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
-        await repoSession.refreshRepository()
-        check(repoSession.repositoryLabel == "@main - uncommitted", "uncommitted changes take priority")
-        gitCheck(["add", "file"], at: repoPath)
-        gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Change fixture"], at: repoPath)
-        await repoSession.refreshRepository()
-        check(repoSession.repositoryLabel == "@main - unpushed", "local commits show the amber state")
+        await part {
+            gitCheck(["init", "--bare", remotePath], at: repoPath)
+            gitCheck(["remote", "add", "origin", remotePath], at: repoPath)
+            gitCheck(["push", "-u", "origin", "main"], at: repoPath)
+            await repoSession.refreshRepository()
+            check(repoSession.repositoryLabel == "@main - up to date", "pushed repositories show the green state")
+            try! Data("changed".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
+            await repoSession.refreshRepository()
+            check(repoSession.repositoryLabel == "@main - uncommitted", "uncommitted changes take priority")
+            gitCheck(["add", "file"], at: repoPath)
+            gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Change fixture"], at: repoPath)
+            await repoSession.refreshRepository()
+            check(repoSession.repositoryLabel == "@main - unpushed", "local commits show the amber state")
+        }
         let worktreePath = directory.appendingPathComponent("atlas-worktree").path
         gitCheck(["worktree", "add", "--detach", worktreePath], at: repoPath)
         let worktreeSession = Session(cwd: worktreePath)
-        await worktreeSession.refreshRepository()
-        check(worktreeSession.directoryLabel == "atlas" && worktreeSession.repositoryLabel.hasPrefix("@detached ") && worktreeSession.repositoryStatus.isEmpty, "worktrees use the original repository name and detached status")
+        await part {
+            await worktreeSession.refreshRepository()
+            check(worktreeSession.directoryLabel == "atlas" && worktreeSession.repositoryLabel.hasPrefix("@detached ") && worktreeSession.repositoryStatus.isEmpty, "worktrees use the original repository name and detached status")
+        }
         let nestedPath = repoPath + "/inner"
         try! FileManager.default.createDirectory(atPath: nestedPath, withIntermediateDirectories: true)
         gitCheck(["init", "-b", "main"], at: nestedPath)
         let nestedSession = Session(cwd: nestedPath)
-        await nestedSession.refreshRepository()
-        check(nestedSession.directoryLabel == "atlas/inner", "nested repositories retain the enclosing repository name")
+        await part {
+            await nestedSession.refreshRepository()
+            check(nestedSession.directoryLabel == "atlas/inner", "nested repositories retain the enclosing repository name")
+        }
         let profile = directory.appendingPathComponent("claude-profile")
         try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         try! JSONSerialization.data(withJSONObject: ["effortLevel": "high", "modelSettings": ["claude-opus-5-5": ["effortLevel": "xhigh"]]]).write(to: profile.appendingPathComponent("settings.json"))
         let effortSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("effort-state"))
-        effortSession.connectionFactory = { account, _ in FixtureConnection(account) }
-        try! await effortSession.activate(Account(name: "Effort fixture", provider: "claude", home: profile.path), resume: nil, keepRows: false)
-        check(effortSession.effort == nil && effortSession.modelStatusLabel.hasSuffix(" - high"), "fresh Claude sessions display their configured effort without a manual selection")
-        try! FileManager.default.createDirectory(at: directory.appendingPathComponent("effort-state"), withIntermediateDirectories: true)
-        try! JSONSerialization.data(withJSONObject: ["claude-opus-5-5": 1000000]).write(to: directory.appendingPathComponent("effort-state/claude-context-windows.json"))
-        effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
-        check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
-        check(effortSession.contextLabel == "0% token - 1M", "a new Claude session shows its model's remembered window before the first reply, like Claude Code")
-        effortSession.models = ["other-model"]
-        await effortSession.changeModel("other-model")
-        check(effortSession.modelStatusLabel == "Other Model - high", "Claude model changes restore the configured default effort")
-        effortSession.contextLimit = 1000000
-        await effortSession.changeModel("other-model", effort: "high")
-        check(effortSession.contextLimit == 1000000, "Claude effort changes retain reported context capacity")
-        effortSession.close()
+        await part {
+            effortSession.connectionFactory = { account, _ in FixtureConnection(account) }
+            try! await effortSession.activate(Account(name: "Effort fixture", provider: "claude", home: profile.path), resume: nil, keepRows: false)
+            check(effortSession.effort == nil && effortSession.modelStatusLabel.hasSuffix(" - high"), "fresh Claude sessions display their configured effort without a manual selection")
+            try! FileManager.default.createDirectory(at: directory.appendingPathComponent("effort-state"), withIntermediateDirectories: true)
+            try! JSONSerialization.data(withJSONObject: ["claude-opus-5-5": 1000000]).write(to: directory.appendingPathComponent("effort-state/claude-context-windows.json"))
+            effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
+            check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
+            check(effortSession.contextLabel == "0% token - 1M", "a new Claude session shows its model's remembered window before the first reply, like Claude Code")
+            effortSession.models = ["other-model"]
+            await effortSession.changeModel("other-model")
+            check(effortSession.modelStatusLabel == "Other Model - high", "Claude model changes restore the configured default effort")
+            effortSession.contextLimit = 1000000
+            await effortSession.changeModel("other-model", effort: "high")
+            check(effortSession.contextLimit == 1000000, "Claude effort changes retain reported context capacity")
+            effortSession.close()
+        }
         let codexDefaults = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-effort-state"))
-        codexDefaults.connectionFactory = { account, _ in FixtureConnection(account) }
-        try! await codexDefaults.activate(Account(name: "Codex effort fixture", provider: "codex"), resume: nil, keepRows: false)
-        await codexDefaults.refreshCatalog()
-        check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex initialization uses its catalog default effort")
-        await codexDefaults.changeModel("fixture-model")
-        check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex model changes retain catalog effort when resume omits it")
-        codexDefaults.close()
+        await part {
+            codexDefaults.connectionFactory = { account, _ in FixtureConnection(account) }
+            try! await codexDefaults.activate(Account(name: "Codex effort fixture", provider: "codex"), resume: nil, keepRows: false)
+            await codexDefaults.refreshCatalog()
+            check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex initialization uses its catalog default effort")
+            await codexDefaults.changeModel("fixture-model")
+            check(codexDefaults.modelStatusLabel.hasSuffix(" - high"), "Codex model changes retain catalog effort when resume omits it")
+            codexDefaults.close()
+        }
         let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("fleet-state"))
         let presence = FleetPresence(session: fleetSession)
         let presenceFile = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
         func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: presenceFile)) as! JSON }
-        check(fleetRecord()["state"] as? String == "fresh", "Fleet publishes an unprompted native window")
-        do {
-            let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("directory-fleet-state"))
-            let presence = FleetPresence(session: fleetSession)
-            let file = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
-            func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! JSON }
-            let startFolder = fleetSession.cwd
-            for (id, command) in [("research-pwd", "pwd"), ("research-cd", "cd '\(repoPath)' && git status")] {
-                fleetSession.event(["method": "item/completed", "params": ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+        await part {
+            check(fleetRecord()["state"] as? String == "fresh", "Fleet publishes an unprompted native window")
+            do {
+                let fleetSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("directory-fleet-state"))
+                let presence = FleetPresence(session: fleetSession)
+                let file = fleetSession.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
+                @MainActor func fleetRecord() -> JSON { try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! JSON }
+                let startFolder = fleetSession.cwd
+                for (id, command) in [("research-pwd", "pwd"), ("research-cd", "cd '\(repoPath)' && git status")] {
+                    fleetSession.event(["method": "item/completed", "params": ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": repoPath, "exitCode": 0, "status": "completed"]]])
+                }
+                presence.publish(fleetSession)
+                check(fleetRecord()["cwd"] as? String == startFolder && fleetSession.cwd == startFolder, "research commands and their cd leave the session and Fleet directory alone")
+                let target = directory.appendingPathComponent("project with spaces").path
+                try! FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
+                @MainActor func item(_ command: String, status: String = "completed", exit: Int = 0) -> JSON {
+                    ["type": "commandExecution", "command": command, "cwd": directory.path, "status": status, "exitCode": exit]
+                }
+                for command in ["cd '\(target)'", "cd -- \"\(target)\"", "/bin/zsh -lc 'cd \"\(target)\"'", "cd 'project with spaces'"] {
+                    check(shellDirectory(item(command), current: repoPath, initial: directory.path) == target, "standalone directory changes support shell wrappers, spaces and relative paths")
+                }
+                for command in ["(cd '\(target)')", "cd '\(target)' && pwd", "echo cd '\(target)'", "cd $(pwd)", "cd '\(target)", "cd /", "cd missing-directory"] {
+                    check(shellDirectory(item(command), current: repoPath, initial: directory.path) == nil, "temporary, dynamic, invalid and out-of-scope commands do not move the session")
+                }
+                check(shellDirectory(item("cd '\(target)'", exit: 1), current: repoPath, initial: directory.path) == nil, "failed cd does not change directory")
+                check(shellDirectory(item("cd '\(target)'", status: "inProgress"), current: repoPath, initial: directory.path) == nil, "unfinished cd does not change directory")
+                check(shellDirectory(item("pwd"), current: repoPath, initial: directory.path) == nil, "default shell directories cannot undo an explicit project selection")
+                let snapshotDirectory = fleetSession.nativeDirectory
+                fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(target)'").merging(["id": "cd-project"]) { _, new in new }]])
+                presence.publish(fleetSession)
+                check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
+                check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
+                presence.close(); fleetSession.close()
             }
+            fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
+            fleetSession.busy = true
             presence.publish(fleetSession)
-            check(fleetRecord()["cwd"] as? String == startFolder && fleetSession.cwd == startFolder, "research commands and their cd leave the session and Fleet directory alone")
-            let target = directory.appendingPathComponent("project with spaces").path
-            try! FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
-            func item(_ command: String, status: String = "completed", exit: Int = 0) -> JSON {
-                ["type": "commandExecution", "command": command, "cwd": directory.path, "status": status, "exitCode": exit]
-            }
-            for command in ["cd '\(target)'", "cd -- \"\(target)\"", "/bin/zsh -lc 'cd \"\(target)\"'", "cd 'project with spaces'"] {
-                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == target, "standalone directory changes support shell wrappers, spaces and relative paths")
-            }
-            for command in ["(cd '\(target)')", "cd '\(target)' && pwd", "echo cd '\(target)'", "cd $(pwd)", "cd '\(target)", "cd /", "cd missing-directory"] {
-                check(shellDirectory(item(command), current: repoPath, initial: directory.path) == nil, "temporary, dynamic, invalid and out-of-scope commands do not move the session")
-            }
-            check(shellDirectory(item("cd '\(target)'", exit: 1), current: repoPath, initial: directory.path) == nil, "failed cd does not change directory")
-            check(shellDirectory(item("cd '\(target)'", status: "inProgress"), current: repoPath, initial: directory.path) == nil, "unfinished cd does not change directory")
-            check(shellDirectory(item("pwd"), current: repoPath, initial: directory.path) == nil, "default shell directories cannot undo an explicit project selection")
-            let snapshotDirectory = fleetSession.nativeDirectory
-            fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(target)'").merging(["id": "cd-project"]) { _, new in new }]])
-            presence.publish(fleetSession)
-            check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
-            check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
-            presence.close(); fleetSession.close()
+            check(fleetRecord()["state"] as? String == "working" && fleetRecord()["prompt"] as? String == "Fix the layout", "Fleet receives the prompt and live working state")
+            try! "Fix Fleet names\n".write(to: fleetSession.fleetContextFile, atomically: true, encoding: .utf8)
+            fleetSession.busy = false
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            check(fleetRecord()["context"] as? String == "Fix Fleet names", "Fleet receives the session-written task context automatically")
+            fleetSession.busy = true
         }
-        fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
-        fleetSession.busy = true
-        presence.publish(fleetSession)
-        check(fleetRecord()["state"] as? String == "working" && fleetRecord()["prompt"] as? String == "Fix the layout", "Fleet receives the prompt and live working state")
-        try! "Fix Fleet names\n".write(to: fleetSession.fleetContextFile, atomically: true, encoding: .utf8)
-        fleetSession.busy = false
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        check(fleetRecord()["context"] as? String == "Fix Fleet names", "Fleet receives the session-written task context automatically")
-        fleetSession.busy = true
         let promptTime = fleetRecord()["lastPromptAt"] as? Double
         fleetSession.permissions = [Permission(rpcID: 1, method: "item/tool/requestUserInput", params: [:])]
         presence.publish(fleetSession)
@@ -432,20 +449,24 @@ enum Check {
         presence.publish(fleetSession)
         check(fleetRecord()["lastPromptAt"] as? Double == 123, "backend echoes preserve the original prompt timestamp")
         let restoredItem = Item(fleetSession.rows[0].items[0].data)
-        fleetSession.rows = [Row("user", [restoredItem])]
-        presence.publish(fleetSession)
-        check(fleetRecord()["lastPromptAt"] as? Double == 123, "restoring saved rows does not invent a new Fleet prompt time")
-        fleetSession.busy = true
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        check(fleetRecord()["state"] as? String == "working", "Fleet observes state changes after published values settle")
+        await part {
+            fleetSession.rows = [Row("user", [restoredItem])]
+            presence.publish(fleetSession)
+            check(fleetRecord()["lastPromptAt"] as? Double == 123, "restoring saved rows does not invent a new Fleet prompt time")
+            fleetSession.busy = true
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            check(fleetRecord()["state"] as? String == "working", "Fleet observes state changes after published values settle")
+        }
         let mode = (try! FileManager.default.attributesOfItem(atPath: presenceFile.path))[.posixPermissions] as? Int
-        check(mode == 0o600, "Fleet state is private")
-        presence.close()
-        fleetSession.close()
-        check(!FileManager.default.fileExists(atPath: fleetSession.fleetContextFile.deletingLastPathComponent().path), "closing a session removes its private context directory")
-        fleetSession.busy = false
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        check(!FileManager.default.fileExists(atPath: presenceFile.path), "closing a window removes Fleet presence and cancels updates")
+        await part {
+            check(mode == 0o600, "Fleet state is private")
+            presence.close()
+            fleetSession.close()
+            check(!FileManager.default.fileExists(atPath: fleetSession.fleetContextFile.deletingLastPathComponent().path), "closing a session removes its private context directory")
+            fleetSession.busy = false
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            check(!FileManager.default.fileExists(atPath: presenceFile.path), "closing a window removes Fleet presence and cancels updates")
+        }
         let sourceFixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/native_peer.py").path
         let imagePath = directory.appendingPathComponent("screen shot.png").path
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -466,486 +487,498 @@ enum Check {
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path ?? sourceFixture
         let rpc = RPC()
         var notified = false
-        rpc.event = { if $0["method"] as? String == "test/event" { notified = true } }
-        do {
-            try await rpc.start(command: ["python3", fixture, "codex"])
-            let result = try await rpc.request("echo", ["hello": "world"])
-            check(result["hello"] as? String == "world" && notified, "RPC replies and notifications")
-            do { _ = try await rpc.request("fail"); check(false, "RPC error must throw") } catch { check(true, "RPC error") }
-            do { _ = try await rpc.request("timeout", [:], timeout: 0.03); check(false, "timeout must throw") } catch { check(true, "RPC timeout") }
-        } catch { check(false, "RPC integration: " + error.localizedDescription) }
-        rpc.close()
-        for (code, ended) in [(143, true), (129, true), (1, false)] {
-            let exiting = ClaudeConnection(account: Account(id: "exit", name: "Exit", provider: "claude"), cwd: directory.path)
-            var disconnect: JSON?
-            exiting.event = { if $0["method"] as? String == "cx/disconnected" { disconnect = $0["params"] as? JSON } }
+        await part {
+            rpc.event = { if $0["method"] as? String == "test/event" { notified = true } }
             do {
-                try await exiting.start(command: ["/bin/sh", "-c", "read line; exit \(code)"])
-                _ = try await exiting.request("turn/start", ["input": [["type": "text", "text": "bye"]]])
-                for _ in 0..<300 where disconnect == nil { try await Task.sleep(nanoseconds: 10_000_000) }
-            } catch { check(false, "exiting Claude fixture: " + error.localizedDescription) }
-            check(disconnect != nil && (disconnect?["ended"] as? Bool == true) == ended, "Claude exit \(code) \(ended ? "ends the session" : "stays a reconnectable disconnect")")
-        }
-        do {
-            let missing = ClaudeConnection(account: Account(id: "missing", name: "Missing", provider: "claude"), cwd: directory.path)
-            var methods: [String] = []
-            missing.event = { methods.append($0["method"] as? String ?? "") }
-            try await missing.start(command: ["/bin/sh", "-c", "read line; echo 'No conversation found with session ID: x' >&2; exit 1"])
-            _ = try await missing.request("turn/start", ["input": [["type": "text", "text": "hi"]]])
-            for _ in 0..<300 where !methods.contains("cx/resumeFailed") { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
-        } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
-        do {
-            let frontend = AppDelegate(), previous = NSApp.delegate
-            let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("ended-state"))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: true)
-            window.isReleasedWhenClosed = false; window.delegate = frontend
-            NSApp.delegate = frontend
-            frontend.windows.append(AppDelegate.FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
-            session.applyRuntimeMetadata(["status": "Disconnected"])
-            check(frontend.windows.count == 1, "a disconnected session keeps its window")
-            session.applyRuntimeMetadata(["status": "Ended"])
-            for _ in 0..<100 where !frontend.windows.isEmpty { try? await Task.sleep(nanoseconds: 10_000_000) }
-            NSApp.delegate = previous
-            check(frontend.windows.isEmpty, "a session whose agent ended closes its window")
+                try await rpc.start(command: ["python3", fixture, "codex"])
+                let result = try await rpc.request("echo", ["hello": "world"])
+                check(result["hello"] as? String == "world" && notified, "RPC replies and notifications")
+                do { _ = try await rpc.request("fail"); check(false, "RPC error must throw") } catch { check(true, "RPC error") }
+                do { _ = try await rpc.request("timeout", [:], timeout: 0.03); check(false, "timeout must throw") } catch { check(true, "RPC timeout") }
+            } catch { check(false, "RPC integration: " + error.localizedDescription) }
+            rpc.close()
+            for (code, ended) in [(143, true), (129, true), (1, false)] {
+                let exiting = ClaudeConnection(account: Account(id: "exit", name: "Exit", provider: "claude"), cwd: directory.path)
+                var disconnect: JSON?
+                exiting.event = { if $0["method"] as? String == "cx/disconnected" { disconnect = $0["params"] as? JSON } }
+                do {
+                    try await exiting.start(command: ["/bin/sh", "-c", "read line; exit \(code)"])
+                    _ = try await exiting.request("turn/start", ["input": [["type": "text", "text": "bye"]]])
+                    for _ in 0..<300 where disconnect == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+                } catch { check(false, "exiting Claude fixture: " + error.localizedDescription) }
+                check(disconnect != nil && (disconnect?["ended"] as? Bool == true) == ended, "Claude exit \(code) \(ended ? "ends the session" : "stays a reconnectable disconnect")")
+            }
+            do {
+                let missing = ClaudeConnection(account: Account(id: "missing", name: "Missing", provider: "claude"), cwd: directory.path)
+                var methods: [String] = []
+                missing.event = { methods.append($0["method"] as? String ?? "") }
+                try await missing.start(command: ["/bin/sh", "-c", "read line; echo 'No conversation found with session ID: x' >&2; exit 1"])
+                _ = try await missing.request("turn/start", ["input": [["type": "text", "text": "hi"]]])
+                for _ in 0..<300 where !methods.contains("cx/resumeFailed") { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
+            } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
+            do {
+                let frontend = AppDelegate(), previous = NSApp.delegate
+                let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("ended-state"))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: true)
+                window.isReleasedWhenClosed = false; window.delegate = frontend
+                NSApp.delegate = frontend
+                frontend.windows.append(AppDelegate.FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
+                session.applyRuntimeMetadata(["status": "Disconnected"])
+                check(frontend.windows.count == 1, "a disconnected session keeps its window")
+                session.applyRuntimeMetadata(["status": "Ended"])
+                for _ in 0..<100 where !frontend.windows.isEmpty { try? await Task.sleep(nanoseconds: 10_000_000) }
+                NSApp.delegate = previous
+                check(frontend.windows.isEmpty, "a session whose agent ended closes its window")
+            }
         }
         let account = Account(id: "test", name: "Test", provider: "claude")
         let claude = ClaudeConnection(account: account, cwd: directory.path)
         var claudeText = "", claudeDone = false, claudeCompletions = 0, claudeStarts = 0, claudeMessageIDs: [String] = []
-        claude.event = { message in
-            let p = message["params"] as? JSON ?? [:]
-            if ["item/started", "item/completed"].contains(message["method"] as? String), let item = p["item"] as? JSON, item["type"] as? String == "agentMessage" { claudeMessageIDs.append(item["id"] as? String ?? "") }
-            if message["method"] as? String == "item/agentMessage/delta" { claudeText += p["delta"] as? String ?? "" }
-            if message["method"] as? String == "turn/completed" { claudeDone = true; claudeCompletions += 1 }
-            if message["method"] as? String == "turn/started" { claudeStarts += 1 }
-        }
-        do {
-            claude.fleetFile = "/tmp/vcx-fixture-fleet"
-            try await claude.start(command: ["python3", fixture, "claude"])
-            _ = try await claude.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
-            let catalog = try await claude.request("cx/catalog")
-            check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
-            check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
+        await part {
+            claude.event = { message in
+                let p = message["params"] as? JSON ?? [:]
+                if ["item/started", "item/completed"].contains(message["method"] as? String), let item = p["item"] as? JSON, item["type"] as? String == "agentMessage" { claudeMessageIDs.append(item["id"] as? String ?? "") }
+                if message["method"] as? String == "item/agentMessage/delta" { claudeText += p["delta"] as? String ?? "" }
+                if message["method"] as? String == "turn/completed" { claudeDone = true; claudeCompletions += 1 }
+                if message["method"] as? String == "turn/started" { claudeStarts += 1 }
+            }
             do {
-                let crashing = ClaudeConnection(account: Account(name: "Claude", provider: "claude"), cwd: directory.path)
-                var crash: JSON?
-                crashing.logFile = directory.appendingPathComponent("logs/crash.log").path
-                crashing.event = { message in if message["method"] as? String == "cx/disconnected" { crash = message["params"] as? JSON } }
-                try await crashing.start(command: ["python3", fixture, "claude"])
-                _ = try await crashing.request("thread/start", [:])
-                _ = try await crashing.request("turn/start", ["input": [["type": "text", "text": "CRASH"]]])
-                for _ in 0..<300 where crash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
-                check(crash?["reason"] as? String == "exited with code 7" && crash?["line"] as? String == "Error: fixture crash" && crash?["log"] as? String == crashing.logFile,
-                      "a Claude crash reports its exit code, last error line and session log")
+                claude.fleetFile = "/tmp/vcx-fixture-fleet"
+                try await claude.start(command: ["python3", fixture, "claude"])
+                _ = try await claude.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
+                let catalog = try await claude.request("cx/catalog")
+                check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
+                check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
+                do {
+                    let crashing = ClaudeConnection(account: Account(name: "Claude", provider: "claude"), cwd: directory.path)
+                    var crash: JSON?
+                    crashing.logFile = directory.appendingPathComponent("logs/crash.log").path
+                    crashing.event = { message in if message["method"] as? String == "cx/disconnected" { crash = message["params"] as? JSON } }
+                    try await crashing.start(command: ["python3", fixture, "claude"])
+                    _ = try await crashing.request("thread/start", [:])
+                    _ = try await crashing.request("turn/start", ["input": [["type": "text", "text": "CRASH"]]])
+                    for _ in 0..<300 where crash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+                    check(crash?["reason"] as? String == "exited with code 7" && crash?["line"] as? String == "Error: fixture crash" && crash?["log"] as? String == crashing.logFile,
+                          "a Claude crash reports its exit code, last error line and session log")
+                    crashing.close()
+                }
+                let switched = try await claude.request("cx/mode", ["mode": "ask"]), followed = try await claude.request("cx/catalog")
+                check(switched["mode"] as? String == "default" && followed["current_permission_mode"] as? String == "default", "Claude switches to ask through set_permission_mode, and its catalog follows")
+                check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
+                check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
+                check((catalog["models"] as? [JSON])?.compactMap { $0["value"] as? String } == ["fixture-claude"] && claude.model == "fixture-claude-1", "Claude resolves the default model and hides the default entry")
+                do {
+                    let aliases = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("alias-state"))
+                    aliases.applyClaudeCatalog(catalog)
+                    aliases.model = claude.model
+                    aliases.showCommands("/model " + aliases.account.provider + " ", preserveDraft: false)
+                    check(aliases.commandOptions.map(\.name) == ["fixture-claude"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
+                }
+                let previousModel = claude.model
+                do {
+                    _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me"])
+                    check(false, "Claude model rejection must surface")
+                } catch { check(claude.model == previousModel && error.localizedDescription.contains("rejected"), "Claude model changes require acknowledgement") }
+                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "accepted-model"])
+                check(claude.model == "accepted-model", "acknowledged Claude model changes apply")
+                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "effort-model", "effort": "high"])
+                check(claude.model == "effort-model", "Claude changes model and effort through acknowledged live settings")
+                do {
+                    _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me", "effort": "high"])
+                    check(false, "Claude must reject invalid live settings")
+                } catch { check(claude.model == "effort-model", "rejected Claude settings preserve the model") }
+                let started = try await claude.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
+                let turn = (started["turn"] as? JSON)?["id"] as? String ?? ""
+                let steered = try await claude.request("turn/steer", ["expectedTurnId": turn, "input": [["type": "text", "text": "Guidance"]]])
+                check((steered["turn"] as? JSON)?["id"] as? String == turn, "Claude steering preserves turn ownership")
+                for _ in 0..<100 where !claudeDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(claudeDone && claudeText == "Hello from ClaudeHello from Claude", "Claude streaming protocol")
+                check(claudeStarts == 1 && claudeCompletions == 1, "Claude stays busy until queued guidance is answered")
+                claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
+                claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
+                check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
+                do {
+                    let relaunched = ClaudeConnection(account: Account(id: "relaunch", name: "Relaunch", provider: "claude"), cwd: directory.path)
+                    relaunched.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "relaunch-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
+                    relaunched.receive(["type": "user", "message": ["content": [["tool_use_id": "relaunch-cd", "content": "", "is_error": false]]]])
+                    let marker = directory.appendingPathComponent("launch-folder")
+                    try await relaunched.start(command: ["/bin/sh", "-c", "pwd > '\(marker.path)'; read line"])
+                    _ = try await relaunched.request("turn/start", ["input": [["type": "text", "text": "Next"]]])
+                    for _ in 0..<300 where (try? String(contentsOf: marker, encoding: .utf8)) == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+                    let launched = (try? String(contentsOf: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    check(relaunched.cwd == repoPath && URL(fileURLWithPath: launched).lastPathComponent == directory.lastPathComponent, "Claude launches in the conversation's starting folder, not a folder it cd'd into")
+                    relaunched.close()
+                }
+                claudeMessageIDs.removeAll()
+                claude.receive(["type": "stream_event", "event": ["type": "message_start", "message": ["id": "msg_think"]]])
+                claude.receive(["type": "stream_event", "event": ["type": "content_block_start", "index": 1, "content_block": ["type": "text", "text": ""]]])
+                claude.receive(["type": "assistant", "message": ["id": "msg_think", "content": [["type": "text", "text": "Hi"]]]])
+                check(claudeMessageIDs == ["msg_think-1", "msg_think-1"], "Claude completes a text that follows a thinking block in its streamed row")
+            } catch { check(false, "Claude integration: " + error.localizedDescription) }
+            claude.close()
+        }
+        let server = Process(), output = Pipe()
+        await part {
+            server.executableURL = URL(fileURLWithPath: "/usr/bin/env"); server.arguments = ["python3", fixture, "http"]; server.standardOutput = output; server.standardError = FileHandle.nullDevice
+            do {
+                try server.run()
+                let port = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                var preferences = Preferences(); preferences.mode = "ask"; preferences.qwenURL = "http://127.0.0.1:" + port + "/api/chat"
+                let qwen = QwenConnection(preferences: preferences)
+                var qwenText = "", qwenDone = false
+                qwen.event = { message in
+                    let p = message["params"] as? JSON ?? [:]
+                    if message["method"] as? String == "item/agentMessage/delta" { qwenText += p["delta"] as? String ?? "" }
+                    if message["method"] as? String == "turn/completed" { qwenDone = true }
+                }
+                _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
+                for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(qwenDone && qwenText == "Hello from Qwen", "Qwen HTTP streaming")
+                _ = try await qwen.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
+                _ = try await qwen.request("thread/resume", ["threadId": qwen.thread])
+                qwenText = ""; qwenDone = false
+                _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "CONTEXT"]]])
+                for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(qwenDone && qwenText.hasSuffix("Fleet fixture instruction"), "Qwen receives Fleet instructions in its outbound system message and retains them on resume")
+                let projects = NSHomeDirectory() + "/self/"
+                if FileManager.default.fileExists(atPath: projects + "my-apps"), FileManager.default.fileExists(atPath: projects + "qwen") {
+                    check(qwenProject("fix the composer padding in vcx", cwd: "/") == projects + "my-apps" && qwenProject("reverse-engineer the fuse mod", cwd: NSHomeDirectory()) == projects + "qwen"
+                          && qwenProject("what is 2+2", cwd: "/") == nil && qwenProject("fix vcx and the qwen models", cwd: "/") == nil && qwenProject("fix vcx", cwd: projects + "qwen") == nil,
+                          "a first Qwen request outside a project picks the one ~/self project it names, and none when it names zero or two")
+                }
+                let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
+                check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
+                check(AgentMessages.match("B", messageWindows)?.provider == "claude" && AgentMessages.parse("qwen from [b c]: \"say \"hi\"\"")?.body == "say \"hi\"" && AgentMessages.parse("qwen from [b c]: \"hi\"")?.name == "b c" && AgentMessages.parse("from [b]: \"hi\"") == nil && AgentMessages.parse("qwen from [b]: \"") == nil, "an agent answers a window by its name, and its message reads as one")
+                qwen.close()
+                let tools = QwenConnection(preferences: preferences, cwd: directory.path)
+                var approved = false, toolDone = false, toolOutput = ""
+                tools.event = { message in
+                    let p = message["params"] as? JSON ?? [:]
+                    if let id = message["id"] { approved = true; try? tools.respond(id, ["decision": "accept"]) }
+                    if let item = p["item"] as? JSON, item["type"] as? String == "commandExecution" { toolOutput = item["aggregatedOutput"] as? String ?? "" }
+                    if message["method"] as? String == "turn/completed" { toolDone = true }
+                }
+                _ = try await tools.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
+                for _ in 0..<200 where !toolDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(approved && toolDone && toolOutput == "native-tool-check", "Qwen commands require approval and return their output")
+                tools.close()
+                preferences.mode = "bypass"
+                let bypass = QwenConnection(preferences: preferences, cwd: directory.path)
+                var bypassAsked = false, bypassDone = false, bypassOutput = ""
+                bypass.event = { message in
+                    if message["id"] != nil { bypassAsked = true }
+                    let params = message["params"] as? JSON ?? [:]
+                    if let item = params["item"] as? JSON { bypassOutput = item["aggregatedOutput"] as? String ?? bypassOutput }
+                    if message["method"] as? String == "turn/completed" { bypassDone = true }
+                }
+                _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
+                for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(bypassDone && !bypassAsked && bypassOutput == "native-tool-check", "Qwen bypass executes without approval")
+                bypassDone = false; bypassOutput = ""
+                _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "DIRECTORY_TOOLS " + repoPath]]])
+                for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
+                let reportedDirectory = URL(fileURLWithPath: bypassOutput.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+                check(bypassDone && bypass.cwd == repoPath && reportedDirectory == URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().path, "Qwen runs the next shell command in the selected directory")
+                bypass.close()
+                Settings.shared.value = preferences; Settings.shared.value.provider = "qwen"; Settings.shared.save()
+                let configured = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-config"))
+                await configured.connect(resume: nil)
+                await configured.command("/qwen model fixture-new-model")
+                await configured.send(text: "MODEL", images: [])
+                for _ in 0..<200 where configured.busy { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(configured.model == "fixture-new-model" && configured.rows.last?.items.first?.text == "fixture-new-model", "Qwen configuration changes the outbound HTTP model")
+                configured.close()
+                Settings.shared.value = Preferences(); Settings.shared.save()
+            } catch { check(false, "Qwen integration: " + error.localizedDescription) }
+            if server.isRunning { server.terminate() }
+            Settings.shared.value = Preferences()
+        }
+        var connections: [String: FixtureConnection] = [:]
+        await part {
+            do {
+                for (resume, provider) in [("claude:legacy-watcher", "claude"), ("legacy-watcher", "codex")] {
+                    let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("legacy-" + provider))
+                    var connection: FixtureConnection?
+                    restored.connectionFactory = { account, _ in
+                        let fixture = FixtureConnection(account); connection = fixture; return fixture
+                    }
+                    await restored.connect(resume: resume)
+                    check(restored.ready && restored.account.provider == provider && connection?.opened.first?["threadId"] as? String == resume,
+                          "Watcher legacy resume keeps its original provider and conversation")
+                    restored.close()
+                }
+            }
+            do {
+                let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
+                var connection: FixtureConnection?
+                resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }
+                await resumed.connect(resume: nil)
+                resumed.draft = NSAttributedString(string: "Half typed")
+                resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "API Error: Connection dropped (ECONNRESET)."]]]])
+                for _ in 0..<200 where connection?.sent.isEmpty != false || resumed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+                let input = connection?.sent.first?["input"] as? [JSON] ?? []
+                check(input.contains { ($0["text"] as? String)?.hasPrefix("Keep going") == true } && resumed.draft.string == "Half typed", "a turn the network killed continues once the connection is back and keeps the draft")
+                resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "Prompt is too long"]]]])
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                check(connection?.sent.count == 1, "other failed turns wait for the user")
+                resumed.close()
+            }
+            do {
+                let throttled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("throttle-state"))
+                var fixtures: [FixtureConnection] = []
+                throttled.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.hold = true; fixtures.append(fixture); return fixture }
+                throttled.rateLimitRetries = [0.01, 0.01, 0.01]
+                await throttled.connect(resume: nil)
+                let account = throttled.account.id
+                let limited: JSON = ["status": "completed", "error": ["message": "API Error: Request rejected (429)", "rateLimited": true]]
+                for attempt in 1...3 {
+                    throttled.event(["method": "turn/completed", "params": ["turn": limited]])
+                    for _ in 0..<200 where fixtures.last?.sent.count != attempt { try? await Task.sleep(nanoseconds: 10_000_000) }
+                }
+                throttled.event(["method": "turn/completed", "params": ["turn": limited]])
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                let notices = throttled.rows.compactMap { $0.kind == "notice" ? $0.items.first?.data["text"] as? String : nil }
+                check(fixtures.count == 1 && fixtures.last?.sent.count == 3 && throttled.account.id == account && notices.filter { $0.contains(" is rate limited. Retry ") }.count == 3
+                      && notices.last?.hasSuffix("is still rate limited after 3 retries. Send a message to try again.") == true,
+                      "a transient rate limit retries the turn 3 times on the same provider, then stops")
+                throttled.close()
+            }
+            do {
+                let reconnecting = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("reconnect-state"))
+                var fixtures: [FixtureConnection] = []
+                reconnecting.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
+                await reconnecting.connect(resume: nil)
+                await reconnecting.send(text: "First task", images: [])
+                for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+                await reconnecting.command("/perms ask")
+                check(fixtures.count == 1 && fixtures.last?.modes == ["ask"] && reconnecting.activeMode == "ask" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Permission mode changed to Ask for approval.",
+                      "/perms switches Claude's permission mode live, without a restart")
+                await reconnecting.command("/reconnect")
+                let reason = reconnecting.rows.last?.items.first?.data["text"] as? String
+                await reconnecting.send(text: "Second task", images: [])
+                let resumedInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
+                check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: reconnect requested. Context kept." && resumedInput.first?["text"] as? String == "Second task",
+                      "a reconnect resumes Claude's own thread without pasting the chat, and says why")
+                for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+                reconnecting.event(["method": "cx/resumeFailed", "params": [:]])
+                for _ in 0..<200 where !reconnecting.rows.contains(where: { ($0.items.first?.data["text"] as? String)?.hasPrefix("Claude could not resume") == true }) { try? await Task.sleep(nanoseconds: 10_000_000) }
+                await reconnecting.send(text: "Third task", images: [])
+                let fallbackInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
+                check(fixtures.count == 3 && fixtures.last?.opened.last?["threadId"] == nil && (fallbackInput.first?["text"] as? String)?.hasPrefix("Context from this conversation") == true
+                      && reconnecting.rows.contains { $0.items.first?.data["text"] as? String == "Claude could not resume this conversation, so a new one started. Recent messages are passed to it as context." },
+                      "a failed resume falls back to the handoff and says so")
+                for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+                fixtures.last?.failMode = true
+                await reconnecting.command("/perms bypass")
+                check(fixtures.count == 4 && reconnecting.activeMode == "bypass" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Reconnected to Claude: permission mode changed. Context kept.",
+                      "a Claude that refuses the live switch is restarted in the new mode")
+                reconnecting.close()
+            }
+            do {
+                let crashing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("crash-state"))
+                var fixtures: [FixtureConnection] = []
+                crashing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
+                await crashing.connect(resume: nil)
+                let thread = crashing.threadID
+                @MainActor func crash() async {
+                    let count = crashing.rows.count
+                    crashing.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9", "line": "Error: out of memory", "log": crashing.agentLogFile]])
+                    for _ in 0..<200 where crashing.rows.count == count { try? await Task.sleep(nanoseconds: 10_000_000) }
+                }
+                await crash()
+                let restarted = crashing.rows.last?.items.first?.data
+                check(fixtures.count == 2 && crashing.ready && fixtures.last?.opened.last?["threadId"] as? String == thread && fixtures.last?.logFile == crashing.agentLogFile
+                      && restarted?["text"] as? String == "Claude stopped (killed by signal 9). Restarted it, context kept. Last error: Error: out of memory" && restarted?["link"] as? String == crashing.agentLogFile,
+                      "an unexpected Claude exit restarts it once on its conversation and says why, with the log")
+                await crash()
+                check(fixtures.count == 2 && !crashing.ready && (crashing.rows.last?.items.first?.text.hasPrefix("Claude stopped (killed by signal 9). It stopped twice in 5 minutes, so VCX did not restart it.") ?? false),
+                      "a second unexpected exit within 5 minutes is not restarted")
+                crashing.event(["method": "cx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
+                check(fixtures.count == 2 && crashing.rows.last?.items.first?.text == "Claude session ended.", "a TERM or HUP stop is not a crash")
                 crashing.close()
             }
-            let switched = try await claude.request("cx/mode", ["mode": "ask"]), followed = try await claude.request("cx/catalog")
-            check(switched["mode"] as? String == "default" && followed["current_permission_mode"] as? String == "default", "Claude switches to ask through set_permission_mode, and its catalog follows")
-            check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
-            check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
-            check((catalog["models"] as? [JSON])?.compactMap { $0["value"] as? String } == ["fixture-claude"] && claude.model == "fixture-claude-1", "Claude resolves the default model and hides the default entry")
             do {
-                let aliases = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("alias-state"))
-                aliases.applyClaudeCatalog(catalog)
-                aliases.model = claude.model
-                aliases.showCommands("/model " + aliases.account.provider + " ", preserveDraft: false)
-                check(aliases.commandOptions.map(\.name) == ["fixture-claude"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
+                var up = false
+                Connectivity.online = { up }
+                defer { Connectivity.online = { true } }
+                var failed: [FixtureConnection] = [], dropped: [FixtureConnection] = []
+                let failing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-failed"))
+                failing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = failed.isEmpty; failed.append(fixture); return fixture }
+                let crashed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-dropped"))
+                crashed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); dropped.append(fixture); return fixture }
+                let fine = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-fine"))
+                fine.connectionFactory = { account, _ in FixtureConnection(account) }
+                await crashed.connect(resume: nil); await fine.connect(resume: nil); await failing.connect(resume: nil)
+                let thread = crashed.threadID, quiet = fine.rows.count
+                @MainActor func text(_ session: Session) -> String? { session.rows.last?.items.first?.data["text"] as? String }
+                crashed.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9"]])
+                for _ in 0..<200 where text(crashed)?.hasSuffix("once the network is back.") != true { try? await Task.sleep(nanoseconds: 10_000_000) }
+                Connectivity.lost("the Mac woke", offline: true)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                let waited = failed.count == 1 && dropped.count == 1 && !failing.ready && !crashed.ready
+                    && text(crashed) == "Claude stopped (killed by signal 9). The network is down, so VCX restarts it once the network is back."
+                up = true
+                for _ in 0..<300 where !(failing.ready && crashed.ready) { try? await Task.sleep(nanoseconds: 10_000_000) }
+                check(waited && crashed.ready && dropped.count == 2 && dropped.last?.opened.last?["threadId"] as? String == thread
+                      && text(crashed) == "Reconnected to Claude: network back after the Mac woke. Context kept."
+                      && failing.ready && failed.count == 2 && text(failing) == "Reconnected to Claude: network back after the Mac woke." && fine.ready && fine.rows.count == quiet,
+                      "once the network is back after a wake, sessions whose agent failed or dropped reconnect on their own thread and say why, and fine sessions hear nothing")
+                let broken = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("online-failed"))
+                var attempts = 0
+                broken.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = true; attempts += 1; return fixture }
+                await broken.connect(resume: nil)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                check(attempts == 1 && !broken.ready, "a connection that fails while the internet answers is not retried in a loop")
+                for session in [failing, crashed, fine, broken] { session.close() }
             }
-            let previousModel = claude.model
             do {
-                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me"])
-                check(false, "Claude model rejection must surface")
-            } catch { check(claude.model == previousModel && error.localizedDescription.contains("rejected"), "Claude model changes require acknowledgement") }
-            _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "accepted-model"])
-            check(claude.model == "accepted-model", "acknowledged Claude model changes apply")
-            _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "effort-model", "effort": "high"])
-            check(claude.model == "effort-model", "Claude changes model and effort through acknowledged live settings")
+                let process = Process(), log = try! agentLog(directory.appendingPathComponent("logs/shell.log").path)
+                process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", "echo 'warning: slow' >&2; echo 'fatal: disk full' >&2; echo done >&2; kill -9 $$"]
+                process.standardError = log.writer; try? process.run(); try? log.writer.close(); process.waitUntilExit()
+                let crash = agentCrash(process, log: (log.path, log.start))
+                check(crash["reason"] as? String == "killed by signal 9" && crash["line"] as? String == "fatal: disk full", "a killed agent is named by its signal and its last failure line")
+                let stopped = Process(); stopped.executableURL = URL(fileURLWithPath: "/bin/sh"); stopped.arguments = ["-c", "kill -TERM $$"]
+                try? stopped.run(); stopped.waitUntilExit()
+                check(agentCrash(stopped, log: nil).isEmpty, "a TERM stop is not reported as a crash")
+                let codex = RPC(); var codexCrash: JSON?
+                codex.logFile = directory.appendingPathComponent("logs/codex.log").path
+                codex.event = { message in if message["method"] as? String == "cx/disconnected" { codexCrash = message["params"] as? JSON } }
+                try? await codex.start(command: ["/bin/sh", "-c", "echo 'Error: codex fixture' >&2; kill -9 $$"])
+                for _ in 0..<300 where codexCrash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+                check(codexCrash?["reason"] as? String == "killed by signal 9" && codexCrash?["line"] as? String == "Error: codex fixture" && codexCrash?["log"] as? String == codex.logFile, "a Codex crash reports its signal, last error line and session log")
+                codex.close()
+                try? Data(count: 1_500_000).write(to: URL(fileURLWithPath: log.path))
+                let trimmed = try? agentLog(log.path); try? trimmed?.writer.close()
+                check(trimmed?.start == 1 << 20, "a session log keeps its last 1 MB")
+            }
             do {
-                _ = try await claude.request("thread/resume", ["threadId": claude.thread, "model": "reject-me", "effort": "high"])
-                check(false, "Claude must reject invalid live settings")
-            } catch { check(claude.model == "effort-model", "rejected Claude settings preserve the model") }
-            let started = try await claude.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
-            let turn = (started["turn"] as? JSON)?["id"] as? String ?? ""
-            let steered = try await claude.request("turn/steer", ["expectedTurnId": turn, "input": [["type": "text", "text": "Guidance"]]])
-            check((steered["turn"] as? JSON)?["id"] as? String == turn, "Claude steering preserves turn ownership")
-            for _ in 0..<100 where !claudeDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(claudeDone && claudeText == "Hello from ClaudeHello from Claude", "Claude streaming protocol")
-            check(claudeStarts == 1 && claudeCompletions == 1, "Claude stays busy until queued guidance is answered")
-            claude.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "claude-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
-            claude.receive(["type": "user", "message": ["content": [["tool_use_id": "claude-cd", "content": "", "is_error": false]]]])
-            check(claude.cwd == repoPath, "Claude tracks a successful Bash directory change")
+                let host = NSHostingView(rootView: NoticeLine(item: Item(["text": "Claude stopped.", "link": "/tmp/vcx-check.log"])).frame(width: 500))
+                host.layoutSubtreeIfNeeded()
+                @MainActor func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+                check(textViews(host).contains { ($0.textStorage?.attribute(.link, at: 0, effectiveRange: nil) as? URL)?.path == "/tmp/vcx-check.log" }, "a notice's log path is a clickable file link")
+            }
             do {
-                let relaunched = ClaudeConnection(account: Account(id: "relaunch", name: "Relaunch", provider: "claude"), cwd: directory.path)
-                relaunched.receive(["type": "assistant", "message": ["content": [["type": "tool_use", "id": "relaunch-cd", "name": "Bash", "input": ["command": "cd '\(repoPath)'"]]]]])
-                relaunched.receive(["type": "user", "message": ["content": [["tool_use_id": "relaunch-cd", "content": "", "is_error": false]]]])
-                let marker = directory.appendingPathComponent("launch-folder")
-                try await relaunched.start(command: ["/bin/sh", "-c", "pwd > '\(marker.path)'; read line"])
-                _ = try await relaunched.request("turn/start", ["input": [["type": "text", "text": "Next"]]])
-                for _ in 0..<300 where (try? String(contentsOf: marker, encoding: .utf8)) == nil { try await Task.sleep(nanoseconds: 10_000_000) }
-                let launched = (try? String(contentsOf: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                check(relaunched.cwd == repoPath && URL(fileURLWithPath: launched).lastPathComponent == directory.lastPathComponent, "Claude launches in the conversation's starting folder, not a folder it cd'd into")
-                relaunched.close()
+                let codex = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-mode-state"))
+                let fixture = FixtureConnection(Account(id: "codex-default", name: "Default Codex", provider: "codex"))
+                codex.providerChoice = "codex"; codex.connectionFactory = { _, _ in fixture }
+                try? await codex.activate(fixture.account, resume: nil, keepRows: false)
+                await codex.command("/perms ask")
+                await codex.send(text: "Codex task", images: [])
+                check(fixture.opened.count == 1 && codex.activeMode == "ask" && fixture.sent.last?["approvalPolicy"] as? String == "on-request" && (fixture.sent.last?["sandboxPolicy"] as? JSON)?["type"] as? String == "workspaceWrite",
+                      "Codex takes a new permission mode with its next turn, without a restart")
+                codex.close()
             }
-            claudeMessageIDs.removeAll()
-            claude.receive(["type": "stream_event", "event": ["type": "message_start", "message": ["id": "msg_think"]]])
-            claude.receive(["type": "stream_event", "event": ["type": "content_block_start", "index": 1, "content_block": ["type": "text", "text": ""]]])
-            claude.receive(["type": "assistant", "message": ["id": "msg_think", "content": [["type": "text", "text": "Hi"]]]])
-            check(claudeMessageIDs == ["msg_think-1", "msg_think-1"], "Claude completes a text that follows a thinking block in its streamed row")
-        } catch { check(false, "Claude integration: " + error.localizedDescription) }
-        claude.close()
-        let server = Process(), output = Pipe()
-        server.executableURL = URL(fileURLWithPath: "/usr/bin/env"); server.arguments = ["python3", fixture, "http"]; server.standardOutput = output; server.standardError = FileHandle.nullDevice
-        do {
-            try server.run()
-            let port = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            var preferences = Preferences(); preferences.mode = "ask"; preferences.qwenURL = "http://127.0.0.1:" + port + "/api/chat"
-            let qwen = QwenConnection(preferences: preferences)
-            var qwenText = "", qwenDone = false
-            qwen.event = { message in
-                let p = message["params"] as? JSON ?? [:]
-                if message["method"] as? String == "item/agentMessage/delta" { qwenText += p["delta"] as? String ?? "" }
-                if message["method"] as? String == "turn/completed" { qwenDone = true }
-            }
-            _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "Hello"]]])
-            for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(qwenDone && qwenText == "Hello from Qwen", "Qwen HTTP streaming")
-            _ = try await qwen.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
-            _ = try await qwen.request("thread/resume", ["threadId": qwen.thread])
-            qwenText = ""; qwenDone = false
-            _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": "CONTEXT"]]])
-            for _ in 0..<100 where !qwenDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(qwenDone && qwenText.hasSuffix("Fleet fixture instruction"), "Qwen receives Fleet instructions in its outbound system message and retains them on resume")
-            let projects = NSHomeDirectory() + "/self/"
-            if FileManager.default.fileExists(atPath: projects + "my-apps"), FileManager.default.fileExists(atPath: projects + "qwen") {
-                check(qwenProject("fix the composer padding in vcx", cwd: "/") == projects + "my-apps" && qwenProject("reverse-engineer the fuse mod", cwd: NSHomeDirectory()) == projects + "qwen"
-                      && qwenProject("what is 2+2", cwd: "/") == nil && qwenProject("fix vcx and the qwen models", cwd: "/") == nil && qwenProject("fix vcx", cwd: projects + "qwen") == nil,
-                      "a first Qwen request outside a project picks the one ~/self project it names, and none when it names zero or two")
-            }
-            let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
-            check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
-            check(AgentMessages.match("B", messageWindows)?.provider == "claude" && AgentMessages.parse("qwen from [b c]: \"say \"hi\"\"")?.body == "say \"hi\"" && AgentMessages.parse("qwen from [b c]: \"hi\"")?.name == "b c" && AgentMessages.parse("from [b]: \"hi\"") == nil && AgentMessages.parse("qwen from [b]: \"") == nil, "an agent answers a window by its name, and its message reads as one")
-            qwen.close()
-            let tools = QwenConnection(preferences: preferences, cwd: directory.path)
-            var approved = false, toolDone = false, toolOutput = ""
-            tools.event = { message in
-                let p = message["params"] as? JSON ?? [:]
-                if let id = message["id"] { approved = true; try? tools.respond(id, ["decision": "accept"]) }
-                if let item = p["item"] as? JSON, item["type"] as? String == "commandExecution" { toolOutput = item["aggregatedOutput"] as? String ?? "" }
-                if message["method"] as? String == "turn/completed" { toolDone = true }
-            }
-            _ = try await tools.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
-            for _ in 0..<200 where !toolDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(approved && toolDone && toolOutput == "native-tool-check", "Qwen commands require approval and return their output")
-            tools.close()
-            preferences.mode = "bypass"
-            let bypass = QwenConnection(preferences: preferences, cwd: directory.path)
-            var bypassAsked = false, bypassDone = false, bypassOutput = ""
-            bypass.event = { message in
-                if message["id"] != nil { bypassAsked = true }
-                let params = message["params"] as? JSON ?? [:]
-                if let item = params["item"] as? JSON { bypassOutput = item["aggregatedOutput"] as? String ?? bypassOutput }
-                if message["method"] as? String == "turn/completed" { bypassDone = true }
-            }
-            _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "TOOLS"]]])
-            for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(bypassDone && !bypassAsked && bypassOutput == "native-tool-check", "Qwen bypass executes without approval")
-            bypassDone = false; bypassOutput = ""
-            _ = try await bypass.request("turn/start", ["input": [["type": "text", "text": "DIRECTORY_TOOLS " + repoPath]]])
-            for _ in 0..<200 where !bypassDone { try await Task.sleep(nanoseconds: 10_000_000) }
-            let reportedDirectory = URL(fileURLWithPath: bypassOutput.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
-            check(bypassDone && bypass.cwd == repoPath && reportedDirectory == URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().path, "Qwen runs the next shell command in the selected directory")
-            bypass.close()
-            Settings.shared.value = preferences; Settings.shared.value.provider = "qwen"; Settings.shared.save()
-            let configured = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-config"))
-            await configured.connect(resume: nil)
-            await configured.command("/qwen model fixture-new-model")
-            await configured.send(text: "MODEL", images: [])
-            for _ in 0..<200 where configured.busy { try await Task.sleep(nanoseconds: 10_000_000) }
-            check(configured.model == "fixture-new-model" && configured.rows.last?.items.first?.text == "fixture-new-model", "Qwen configuration changes the outbound HTTP model")
-            configured.close()
-            Settings.shared.value = Preferences(); Settings.shared.save()
-        } catch { check(false, "Qwen integration: " + error.localizedDescription) }
-        if server.isRunning { server.terminate() }
-        Settings.shared.value = Preferences()
-        var connections: [String: FixtureConnection] = [:]
-        do {
-            for (resume, provider) in [("claude:legacy-watcher", "claude"), ("legacy-watcher", "codex")] {
-                let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("legacy-" + provider))
-                var connection: FixtureConnection?
-                restored.connectionFactory = { account, _ in
-                    let fixture = FixtureConnection(account); connection = fixture; return fixture
-                }
-                await restored.connect(resume: resume)
-                check(restored.ready && restored.account.provider == provider && connection?.opened.first?["threadId"] as? String == resume,
-                      "Watcher legacy resume keeps its original provider and conversation")
-                restored.close()
-            }
-        }
-        do {
-            let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
-            var connection: FixtureConnection?
-            resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }
-            await resumed.connect(resume: nil)
-            resumed.draft = NSAttributedString(string: "Half typed")
-            resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "API Error: Connection dropped (ECONNRESET)."]]]])
-            for _ in 0..<200 where connection?.sent.isEmpty != false || resumed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-            let input = connection?.sent.first?["input"] as? [JSON] ?? []
-            check(input.contains { ($0["text"] as? String)?.hasPrefix("Keep going") == true } && resumed.draft.string == "Half typed", "a turn the network killed continues once the connection is back and keeps the draft")
-            resumed.event(["method": "turn/completed", "params": ["turn": ["status": "completed", "error": ["message": "Prompt is too long"]]]])
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            check(connection?.sent.count == 1, "other failed turns wait for the user")
-            resumed.close()
-        }
-        do {
-            let throttled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("throttle-state"))
-            var fixtures: [FixtureConnection] = []
-            throttled.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.hold = true; fixtures.append(fixture); return fixture }
-            throttled.rateLimitRetries = [0.01, 0.01, 0.01]
-            await throttled.connect(resume: nil)
-            let account = throttled.account.id
-            let limited: JSON = ["status": "completed", "error": ["message": "API Error: Request rejected (429)", "rateLimited": true]]
-            for attempt in 1...3 {
-                throttled.event(["method": "turn/completed", "params": ["turn": limited]])
-                for _ in 0..<200 where fixtures.last?.sent.count != attempt { try? await Task.sleep(nanoseconds: 10_000_000) }
-            }
-            throttled.event(["method": "turn/completed", "params": ["turn": limited]])
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            let notices = throttled.rows.compactMap { $0.kind == "notice" ? $0.items.first?.data["text"] as? String : nil }
-            check(fixtures.count == 1 && fixtures.last?.sent.count == 3 && throttled.account.id == account && notices.filter { $0.contains(" is rate limited. Retry ") }.count == 3
-                  && notices.last?.hasSuffix("is still rate limited after 3 retries. Send a message to try again.") == true,
-                  "a transient rate limit retries the turn 3 times on the same provider, then stops")
-            throttled.close()
-        }
-        do {
-            let reconnecting = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("reconnect-state"))
-            var fixtures: [FixtureConnection] = []
-            reconnecting.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
-            await reconnecting.connect(resume: nil)
-            await reconnecting.send(text: "First task", images: [])
-            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-            await reconnecting.command("/perms ask")
-            check(fixtures.count == 1 && fixtures.last?.modes == ["ask"] && reconnecting.activeMode == "ask" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Permission mode changed to Ask for approval.",
-                  "/perms switches Claude's permission mode live, without a restart")
-            await reconnecting.command("/reconnect")
-            let reason = reconnecting.rows.last?.items.first?.data["text"] as? String
-            await reconnecting.send(text: "Second task", images: [])
-            let resumedInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
-            check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: reconnect requested. Context kept." && resumedInput.first?["text"] as? String == "Second task",
-                  "a reconnect resumes Claude's own thread without pasting the chat, and says why")
-            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-            reconnecting.event(["method": "cx/resumeFailed", "params": [:]])
-            for _ in 0..<200 where !reconnecting.rows.contains(where: { ($0.items.first?.data["text"] as? String)?.hasPrefix("Claude could not resume") == true }) { try? await Task.sleep(nanoseconds: 10_000_000) }
-            await reconnecting.send(text: "Third task", images: [])
-            let fallbackInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
-            check(fixtures.count == 3 && fixtures.last?.opened.last?["threadId"] == nil && (fallbackInput.first?["text"] as? String)?.hasPrefix("Context from this conversation") == true
-                  && reconnecting.rows.contains { $0.items.first?.data["text"] as? String == "Claude could not resume this conversation, so a new one started. Recent messages are passed to it as context." },
-                  "a failed resume falls back to the handoff and says so")
-            for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-            fixtures.last?.failMode = true
-            await reconnecting.command("/perms bypass")
-            check(fixtures.count == 4 && reconnecting.activeMode == "bypass" && reconnecting.rows.last?.items.first?.data["text"] as? String == "Reconnected to Claude: permission mode changed. Context kept.",
-                  "a Claude that refuses the live switch is restarted in the new mode")
-            reconnecting.close()
-        }
-        do {
-            let crashing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("crash-state"))
-            var fixtures: [FixtureConnection] = []
-            crashing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixtures.append(fixture); return fixture }
-            await crashing.connect(resume: nil)
-            let thread = crashing.threadID
-            func crash() async {
-                let count = crashing.rows.count
-                crashing.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9", "line": "Error: out of memory", "log": crashing.agentLogFile]])
-                for _ in 0..<200 where crashing.rows.count == count { try? await Task.sleep(nanoseconds: 10_000_000) }
-            }
-            await crash()
-            let restarted = crashing.rows.last?.items.first?.data
-            check(fixtures.count == 2 && crashing.ready && fixtures.last?.opened.last?["threadId"] as? String == thread && fixtures.last?.logFile == crashing.agentLogFile
-                  && restarted?["text"] as? String == "Claude stopped (killed by signal 9). Restarted it, context kept. Last error: Error: out of memory" && restarted?["link"] as? String == crashing.agentLogFile,
-                  "an unexpected Claude exit restarts it once on its conversation and says why, with the log")
-            await crash()
-            check(fixtures.count == 2 && !crashing.ready && (crashing.rows.last?.items.first?.text.hasPrefix("Claude stopped (killed by signal 9). It stopped twice in 5 minutes, so VCX did not restart it.") ?? false),
-                  "a second unexpected exit within 5 minutes is not restarted")
-            crashing.event(["method": "cx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
-            check(fixtures.count == 2 && crashing.rows.last?.items.first?.text == "Claude session ended.", "a TERM or HUP stop is not a crash")
-            crashing.close()
-        }
-        do {
-            var up = false
-            Connectivity.online = { up }
-            defer { Connectivity.online = { true } }
-            var failed: [FixtureConnection] = [], dropped: [FixtureConnection] = []
-            let failing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-failed"))
-            failing.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = failed.isEmpty; failed.append(fixture); return fixture }
-            let crashed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-dropped"))
-            crashed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); dropped.append(fixture); return fixture }
-            let fine = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("offline-fine"))
-            fine.connectionFactory = { account, _ in FixtureConnection(account) }
-            await crashed.connect(resume: nil); await fine.connect(resume: nil); await failing.connect(resume: nil)
-            let thread = crashed.threadID, quiet = fine.rows.count
-            func text(_ session: Session) -> String? { session.rows.last?.items.first?.data["text"] as? String }
-            crashed.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9"]])
-            for _ in 0..<200 where text(crashed)?.hasSuffix("once the network is back.") != true { try? await Task.sleep(nanoseconds: 10_000_000) }
-            Connectivity.lost("the Mac woke", offline: true)
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            let waited = failed.count == 1 && dropped.count == 1 && !failing.ready && !crashed.ready
-                && text(crashed) == "Claude stopped (killed by signal 9). The network is down, so VCX restarts it once the network is back."
-            up = true
-            for _ in 0..<300 where !(failing.ready && crashed.ready) { try? await Task.sleep(nanoseconds: 10_000_000) }
-            check(waited && crashed.ready && dropped.count == 2 && dropped.last?.opened.last?["threadId"] as? String == thread
-                  && text(crashed) == "Reconnected to Claude: network back after the Mac woke. Context kept."
-                  && failing.ready && failed.count == 2 && text(failing) == "Reconnected to Claude: network back after the Mac woke." && fine.ready && fine.rows.count == quiet,
-                  "once the network is back after a wake, sessions whose agent failed or dropped reconnect on their own thread and say why, and fine sessions hear nothing")
-            let broken = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("online-failed"))
-            var attempts = 0
-            broken.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.failStart = true; attempts += 1; return fixture }
-            await broken.connect(resume: nil)
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            check(attempts == 1 && !broken.ready, "a connection that fails while the internet answers is not retried in a loop")
-            for session in [failing, crashed, fine, broken] { session.close() }
-        }
-        do {
-            let process = Process(), log = try! agentLog(directory.appendingPathComponent("logs/shell.log").path)
-            process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", "echo 'warning: slow' >&2; echo 'fatal: disk full' >&2; echo done >&2; kill -9 $$"]
-            process.standardError = log.writer; try? process.run(); try? log.writer.close(); process.waitUntilExit()
-            let crash = agentCrash(process, log: (log.path, log.start))
-            check(crash["reason"] as? String == "killed by signal 9" && crash["line"] as? String == "fatal: disk full", "a killed agent is named by its signal and its last failure line")
-            let stopped = Process(); stopped.executableURL = URL(fileURLWithPath: "/bin/sh"); stopped.arguments = ["-c", "kill -TERM $$"]
-            try? stopped.run(); stopped.waitUntilExit()
-            check(agentCrash(stopped, log: nil).isEmpty, "a TERM stop is not reported as a crash")
-            let codex = RPC(); var codexCrash: JSON?
-            codex.logFile = directory.appendingPathComponent("logs/codex.log").path
-            codex.event = { message in if message["method"] as? String == "cx/disconnected" { codexCrash = message["params"] as? JSON } }
-            try? await codex.start(command: ["/bin/sh", "-c", "echo 'Error: codex fixture' >&2; kill -9 $$"])
-            for _ in 0..<300 where codexCrash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
-            check(codexCrash?["reason"] as? String == "killed by signal 9" && codexCrash?["line"] as? String == "Error: codex fixture" && codexCrash?["log"] as? String == codex.logFile, "a Codex crash reports its signal, last error line and session log")
-            codex.close()
-            try? Data(count: 1_500_000).write(to: URL(fileURLWithPath: log.path))
-            let trimmed = try? agentLog(log.path); try? trimmed?.writer.close()
-            check(trimmed?.start == 1 << 20, "a session log keeps its last 1 MB")
-        }
-        do {
-            let host = NSHostingView(rootView: NoticeLine(item: Item(["text": "Claude stopped.", "link": "/tmp/vcx-check.log"])).frame(width: 500))
-            host.layoutSubtreeIfNeeded()
-            func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
-            check(textViews(host).contains { ($0.textStorage?.attribute(.link, at: 0, effectiveRange: nil) as? URL)?.path == "/tmp/vcx-check.log" }, "a notice's log path is a clickable file link")
-        }
-        do {
-            let codex = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-mode-state"))
-            let fixture = FixtureConnection(Account(id: "codex-default", name: "Default Codex", provider: "codex"))
-            codex.providerChoice = "codex"; codex.connectionFactory = { _, _ in fixture }
-            try? await codex.activate(fixture.account, resume: nil, keepRows: false)
-            await codex.command("/perms ask")
-            await codex.send(text: "Codex task", images: [])
-            check(fixture.opened.count == 1 && codex.activeMode == "ask" && fixture.sent.last?["approvalPolicy"] as? String == "on-request" && (fixture.sent.last?["sandboxPolicy"] as? JSON)?["type"] as? String == "workspaceWrite",
-                  "Codex takes a new permission mode with its next turn, without a restart")
-            codex.close()
         }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
-        session.connectionFactory = { account, _ in
-            let connection = FixtureConnection(account)
-            connection.limit = account.provider == "claude"
-            connections[account.id] = connection
-            return connection
+        await part {
+            session.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account)
+                connection.limit = account.provider == "claude"
+                connections[account.id] = connection
+                return connection
+            }
+            await session.connect(resume: nil)
+            check(session.ready && session.account.provider == "claude", "Claude is the default")
+            check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == Session.agentInstructions && connections["claude-default"]?.fleetFile == session.fleetContextFile.path,
+                  "Claude gets the session's Fleet file through FLEET_CONTEXT_FILE, not a label or cd rule in its prompt")
+            check(agentEnvironment(fleet: "/tmp/fleet-a")["FLEET_CONTEXT_FILE"] == "/tmp/fleet-a" && agentEnvironment()["FLEET_CONTEXT_FILE"] == nil, "an agent's FLEET_CONTEXT_FILE is its own session's, never an inherited one")
+            do {
+                let home = directory.appendingPathComponent("fleet-home")
+                try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+                try? "## Style\nShort.\n\n## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".\n\n## Next\nOther.\n".write(to: home.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+                check(ClaudeCompatibility(cwd: home.path, home: home.path).fleetSection == "## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".", "Qwen's Fleet rule is the CLAUDE.md section that names FLEET_CONTEXT_FILE")
+                let qwen = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-state")), fixture = FixtureConnection(Account(id: "qwen", name: "Qwen", provider: "qwen"))
+                qwen.connectionFactory = { _, _ in fixture }
+                try? await qwen.activate(fixture.account, resume: nil, keepRows: false)
+                let text = fixture.opened.first?["developerInstructions"] as? String ?? ""
+                check(fixture.fleetFile == qwen.fleetContextFile.path && text.hasSuffix(Session.projectAdvice + "\n\n" + Session.agentInstructions) && !text.contains(qwen.fleetContextFile.path), "Qwen, which reads no CLAUDE.md, gets its Fleet file and the project advice")
+                qwen.close()
+            }
+            try! "Build feature".write(to: session.fleetContextFile, atomically: true, encoding: .utf8)
+            Settings.shared.value.provider = "claude"; Settings.shared.save()
+            session.draft = NSAttributedString(string: "Build the feature")
+            await session.send(text: "Build the feature", images: [])
+            check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
+            for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
+            check(session.account.provider == "codex", "explicit limit falls back to Codex")
+            check(session.fleetContext == "Build feature" && (connections["codex-default"]?.opened.first?["developerInstructions"] as? String)?.hasSuffix(Session.agentInstructions) == true, "provider fallback retains context and supplies it to Codex")
+            check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
+            check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
+            check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
+            check((connections["codex-default"]?.sent.first?["input"] as? [JSON])?.first?["text"] as? String != "Build the feature", "handoff includes recent context")
+            check(connections["claude-default"]?.closed == true, "only one backend remains active")
+            connections["codex-default"]?.failSend = true
+            session.draft = NSAttributedString(string: "Keep this draft")
+            await session.send(text: "Keep this draft", images: [directory.appendingPathComponent("image.png").path])
+            check(session.draft.string == "Keep this draft", "failed sends restore the draft")
+            check(!session.busy, "failed sends leave the session usable")
+            connections["codex-default"]?.failSend = false
+            connections["codex-default"]?.hold = true
+            session.draft = NSAttributedString(string: "Wait")
+            await session.send(text: "Wait", images: [])
+            check(session.busy, "in-progress turn")
+            await session.stop()
+            check(!session.busy && session.status == "Stopped", "interrupt reaches the backend")
+            session.models = ["other-model", "fixture-model"]
+            session.modelEfforts = ["other-model": ["low", "high"], "fixture-model": ["low", "high"]]
+            session.effort = "high"
         }
-        await session.connect(resume: nil)
-        check(session.ready && session.account.provider == "claude", "Claude is the default")
-        check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == Session.agentInstructions && connections["claude-default"]?.fleetFile == session.fleetContextFile.path,
-              "Claude gets the session's Fleet file through FLEET_CONTEXT_FILE, not a label or cd rule in its prompt")
-        check(agentEnvironment(fleet: "/tmp/fleet-a")["FLEET_CONTEXT_FILE"] == "/tmp/fleet-a" && agentEnvironment()["FLEET_CONTEXT_FILE"] == nil, "an agent's FLEET_CONTEXT_FILE is its own session's, never an inherited one")
-        do {
-            let home = directory.appendingPathComponent("fleet-home")
-            try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-            try? "## Style\nShort.\n\n## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".\n\n## Next\nOther.\n".write(to: home.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
-            check(ClaudeCompatibility(cwd: home.path, home: home.path).fleetSection == "## Tell Fleet\nWrite to \"$FLEET_CONTEXT_FILE\".", "Qwen's Fleet rule is the CLAUDE.md section that names FLEET_CONTEXT_FILE")
-            let qwen = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("qwen-state")), fixture = FixtureConnection(Account(id: "qwen", name: "Qwen", provider: "qwen"))
-            qwen.connectionFactory = { _, _ in fixture }
-            try? await qwen.activate(fixture.account, resume: nil, keepRows: false)
-            let text = fixture.opened.first?["developerInstructions"] as? String ?? ""
-            check(fixture.fleetFile == qwen.fleetContextFile.path && text.hasSuffix(Session.projectAdvice + "\n\n" + Session.agentInstructions) && !text.contains(qwen.fleetContextFile.path), "Qwen, which reads no CLAUDE.md, gets its Fleet file and the project advice")
-            qwen.close()
-        }
-        try! "Build feature".write(to: session.fleetContextFile, atomically: true, encoding: .utf8)
-        Settings.shared.value.provider = "claude"; Settings.shared.save()
-        session.draft = NSAttributedString(string: "Build the feature")
-        await session.send(text: "Build the feature", images: [])
-        check(session.rows.first { $0.kind == "user" }?.items.first?.data["sentAt"] as? Double != nil, "new prompts carry a timestamp into saved conversation history")
-        for _ in 0..<200 where session.busy || session.account.provider != "codex" || connections["codex-default"]?.sent.count != 1 { try? await Task.sleep(nanoseconds: 10_000_000) }
-        check(session.account.provider == "codex", "explicit limit falls back to Codex")
-        check(session.fleetContext == "Build feature" && (connections["codex-default"]?.opened.first?["developerInstructions"] as? String)?.hasSuffix(Session.agentInstructions) == true, "provider fallback retains context and supplies it to Codex")
-        check(!session.rows.contains { $0.kind == "notice" }, "successful fallback stays silent")
-        check(session.rows.filter { $0.kind == "user" }.count == 1, "fallback does not duplicate the user message")
-        check(connections["codex-default"]?.sent.count == 1, "fallback retries once")
-        check((connections["codex-default"]?.sent.first?["input"] as? [JSON])?.first?["text"] as? String != "Build the feature", "handoff includes recent context")
-        check(connections["claude-default"]?.closed == true, "only one backend remains active")
-        connections["codex-default"]?.failSend = true
-        session.draft = NSAttributedString(string: "Keep this draft")
-        await session.send(text: "Keep this draft", images: [directory.appendingPathComponent("image.png").path])
-        check(session.draft.string == "Keep this draft", "failed sends restore the draft")
-        check(!session.busy, "failed sends leave the session usable")
-        connections["codex-default"]?.failSend = false
-        connections["codex-default"]?.hold = true
-        session.draft = NSAttributedString(string: "Wait")
-        await session.send(text: "Wait", images: [])
-        check(session.busy, "in-progress turn")
-        await session.stop()
-        check(!session.busy && session.status == "Stopped", "interrupt reaches the backend")
-        session.models = ["other-model", "fixture-model"]
-        session.modelEfforts = ["other-model": ["low", "high"], "fixture-model": ["low", "high"]]
-        session.effort = "high"
         let pickerProvider = Settings.shared.value.provider
-        session.statusCommand(session.modelCommand)
-        await Task.yield()
-        check(session.commandOptions.map(\.name) == session.models, "clicking Model opens the active provider's models")
-        check(session.commandOptions[session.commandSelection].name == "fixture-model", "clicking Model highlights the current model")
-        check(Settings.shared.value.provider == pickerProvider, "opening the model picker preserves the provider preference")
-        session.dismissCommands()
-        session.showCommands("/model ")
-        check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen"], "model selection lists providers without Auto")
-        check(session.commandOptions[session.commandSelection].name == "Codex", "opening model selection highlights the active provider after fallback")
-        session.updateCommands("/model c", caret: 8)
-        check(session.commandOptions[session.commandSelection].name == "Codex", "typing the model command highlights the active provider")
-        session.showCommands("/model codex ", preserveDraft: false)
-        check(session.commandOptions.map(\.name) == ["other-model", "fixture-model"], "provider selection leads to models")
-        check(session.commandOptions[session.commandSelection].name == "fixture-model", "the current model is highlighted even when it is not first")
-        session.updateCommands("/model codex other", caret: 18)
-        check(session.commandSelection == 0 && session.commandOptions.first?.name == "other-model", "filtering out the current model selects the first match")
-        session.showCommands("/model codex fixture-model ", preserveDraft: false)
-        check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
-        check(session.commandOptions[session.commandSelection].name == "high", "keeping the current model highlights its current effort")
-        session.modelDefaultEfforts["other-model"] = "high"
-        session.showCommands("/model codex other-model ", preserveDraft: false)
-        check(session.commandOptions[session.commandSelection].name == "high", "a different model highlights its catalog default effort")
-        session.effort = nil
-        session.defaultEffort = "high"
-        session.showCommands("/model codex fixture-model ", preserveDraft: false)
-        check(session.commandOptions.map(\.name) == ["low", "high"], "inherited effort menus contain only concrete levels")
-        check(session.commandOptions[session.commandSelection].name == "high", "an inherited effort highlights the provider's configured level")
-        session.dismissCommands()
-        await session.command("/model codex fixture-model high")
-        check(session.effort == "high" && connections["codex-default"]?.opened.last?["effort"] as? String == "high", "confirming an inherited level applies the displayed effort")
-        session.dismissCommands()
-        await session.command("/model codex fixture-model high")
-        check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
-        check(session.account.provider == "codex" && Settings.shared.value.provider == pickerProvider && Settings.shared.candidates.first?.provider != "codex", "a session's provider switch leaves the shared default for new sessions")
-        session.draft = NSAttributedString(string: "Another turn")
-        await session.send(text: "Another turn", images: [])
-        check(connections["codex-default"]?.sent.last?["effort"] as? String == "high", "Codex receives selected effort on the next turn")
-        check(session.busy && !session.performingAction, "busy generation starts in thinking state")
-        session.event(["method": "item/started", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "inProgress"]]])
-        check(session.performingAction, "activity dot detects a running action")
-        session.event(["method": "item/completed", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "completed"]]])
-        check(!session.performingAction, "completed actions return the dot to thinking")
-        await session.command("/model codex fixture-model low")
-        check(session.busy && session.effort == "high" && session.pendingModelCommand != nil, "model changes during generation wait without interrupting")
-        await session.stop()
-        for _ in 0..<100 where session.pendingModelCommand != nil || session.effort != "low" { try? await Task.sleep(nanoseconds: 10_000_000) }
-        check(session.effort == "low" && session.pendingModelCommand == nil, "queued model changes apply when the active turn ends")
-        await session.command("/settings")
-        check(session.showingSettings, "settings opens a dedicated settings view")
-        Settings.shared.value.provider = "auto"; Settings.shared.save()
-        session.draft = NSAttributedString(string: "Unsent draft")
-        session.save()
+        await part {
+            session.statusCommand(session.modelCommand)
+            await Task.yield()
+            check(session.commandOptions.map(\.name) == session.models, "clicking Model opens the active provider's models")
+            check(session.commandOptions[session.commandSelection].name == "fixture-model", "clicking Model highlights the current model")
+            check(Settings.shared.value.provider == pickerProvider, "opening the model picker preserves the provider preference")
+            session.dismissCommands()
+            session.showCommands("/model ")
+            check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen"], "model selection lists providers without Auto")
+            check(session.commandOptions[session.commandSelection].name == "Codex", "opening model selection highlights the active provider after fallback")
+            session.updateCommands("/model c", caret: 8)
+            check(session.commandOptions[session.commandSelection].name == "Codex", "typing the model command highlights the active provider")
+            session.showCommands("/model codex ", preserveDraft: false)
+            check(session.commandOptions.map(\.name) == ["other-model", "fixture-model"], "provider selection leads to models")
+            check(session.commandOptions[session.commandSelection].name == "fixture-model", "the current model is highlighted even when it is not first")
+            session.updateCommands("/model codex other", caret: 18)
+            check(session.commandSelection == 0 && session.commandOptions.first?.name == "other-model", "filtering out the current model selects the first match")
+            session.showCommands("/model codex fixture-model ", preserveDraft: false)
+            check(session.commandOptions.map(\.name) == ["low", "high"], "model selection leads to supported effort levels")
+            check(session.commandOptions[session.commandSelection].name == "high", "keeping the current model highlights its current effort")
+            session.modelDefaultEfforts["other-model"] = "high"
+            session.showCommands("/model codex other-model ", preserveDraft: false)
+            check(session.commandOptions[session.commandSelection].name == "high", "a different model highlights its catalog default effort")
+            session.effort = nil
+            session.defaultEffort = "high"
+            session.showCommands("/model codex fixture-model ", preserveDraft: false)
+            check(session.commandOptions.map(\.name) == ["low", "high"], "inherited effort menus contain only concrete levels")
+            check(session.commandOptions[session.commandSelection].name == "high", "an inherited effort highlights the provider's configured level")
+            session.dismissCommands()
+            await session.command("/model codex fixture-model high")
+            check(session.effort == "high" && connections["codex-default"]?.opened.last?["effort"] as? String == "high", "confirming an inherited level applies the displayed effort")
+            session.dismissCommands()
+            await session.command("/model codex fixture-model high")
+            check(session.model == "fixture-model" && session.effort == "high", "combined model command applies effort")
+            check(session.account.provider == "codex" && Settings.shared.value.provider == pickerProvider && Settings.shared.candidates.first?.provider != "codex", "a session's provider switch leaves the shared default for new sessions")
+            session.draft = NSAttributedString(string: "Another turn")
+            await session.send(text: "Another turn", images: [])
+            check(connections["codex-default"]?.sent.last?["effort"] as? String == "high", "Codex receives selected effort on the next turn")
+            check(session.busy && !session.performingAction, "busy generation starts in thinking state")
+            session.event(["method": "item/started", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "inProgress"]]])
+            check(session.performingAction, "activity dot detects a running action")
+            session.event(["method": "item/completed", "params": ["item": ["id": "activity-dot", "type": "commandExecution", "status": "completed"]]])
+            check(!session.performingAction, "completed actions return the dot to thinking")
+            await session.command("/model codex fixture-model low")
+            check(session.busy && session.effort == "high" && session.pendingModelCommand != nil, "model changes during generation wait without interrupting")
+            await session.stop()
+            for _ in 0..<100 where session.pendingModelCommand != nil || session.effort != "low" { try? await Task.sleep(nanoseconds: 10_000_000) }
+            check(session.effort == "low" && session.pendingModelCommand == nil, "queued model changes apply when the active turn ends")
+            await session.command("/settings")
+            check(session.showingSettings, "settings opens a dedicated settings view")
+            Settings.shared.value.provider = "auto"; Settings.shared.save()
+            session.draft = NSAttributedString(string: "Unsent draft")
+            session.save()
+        }
         let files = try! FileManager.default.contentsOfDirectory(at: session.nativeDirectory, includingPropertiesForKeys: nil)
         check(files.count == 1, "one private conversation snapshot")
         let permissions = try! FileManager.default.attributesOfItem(atPath: files[0].path)[.posixPermissions] as? Int
@@ -956,47 +989,53 @@ enum Check {
         let promptTimes = session.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double }
         session.close()
         let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
-        restored.connectionFactory = { account, _ in FixtureConnection(account) }
-        await restored.connect(resume: "last")
-        check(restored.ready && restored.draft.string == "Unsent draft", "saved native conversation restores its draft")
-        check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
-        check(!promptTimes.isEmpty && restored.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double } == promptTimes, "saved conversation restores its original prompt times")
-        check(restored.effort == "low", "saved conversation restores the selected effort")
-        check(restored.fleetContext == "Build feature", "saved conversations restore their session-written Fleet context")
+        await part {
+            restored.connectionFactory = { account, _ in FixtureConnection(account) }
+            await restored.connect(resume: "last")
+            check(restored.ready && restored.draft.string == "Unsent draft", "saved native conversation restores its draft")
+            check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
+            check(!promptTimes.isEmpty && restored.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double } == promptTimes, "saved conversation restores its original prompt times")
+            check(restored.effort == "low", "saved conversation restores the selected effort")
+            check(restored.fleetContext == "Build feature", "saved conversations restore their session-written Fleet context")
+        }
         let secondWindow = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
-        secondWindow.connectionFactory = { account, _ in FixtureConnection(account) }
-        await secondWindow.connect(resume: "last")
-        check(!secondWindow.ready && secondWindow.rows.contains { $0.items.contains { $0.text.contains("already open") } }, "a second window cannot edit the same conversation snapshot")
-        restored.draft = NSAttributedString(string: "Newer draft from first window"); restored.save()
-        secondWindow.close()
+        await part {
+            secondWindow.connectionFactory = { account, _ in FixtureConnection(account) }
+            await secondWindow.connect(resume: "last")
+            check(!secondWindow.ready && secondWindow.rows.contains { $0.items.contains { $0.text.contains("already open") } }, "a second window cannot edit the same conversation snapshot")
+            restored.draft = NSAttributedString(string: "Newer draft from first window"); restored.save()
+            secondWindow.close()
+        }
         let latest = try! JSONSerialization.jsonObject(with: Data(contentsOf: files[0])) as! JSON
         check((latest["draft"] as? [JSON])?.first?["text"] as? String == "Newer draft from first window", "a rejected second window cannot overwrite the first window’s draft")
         restored.close()
         let reopened = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
-        reopened.connectionFactory = { account, _ in FixtureConnection(account) }
-        await reopened.connect(resume: "last")
-        check(reopened.ready && reopened.draft.string == "Newer draft from first window", "closing a window releases conversation ownership")
-        reopened.close()
-        do {
-            let state = directory.appendingPathComponent("directory-resume")
-            let moving = Session(cwd: directory.path, stateDirectory: state)
-            moving.connectionFactory = { account, _ in FixtureConnection(account) }
-            await moving.connect(resume: nil)
-            let conversation = moving.currentConversationID
-            moving.event(["method": "item/completed", "params": ["item": ["id": "cd-resume", "type": "commandExecution", "command": "cd '\(repoPath)'", "cwd": directory.path, "exitCode": 0, "status": "completed"]]])
-            await moving.send(text: "Keep working", images: [])
-            check((moving.rpc as? FixtureConnection)?.sent.last?["cwd"] as? String == repoPath, "the next turn uses the selected project directory")
-            check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
-            moving.close()
-            let resumed = Session(cwd: directory.path, stateDirectory: state)
-            var launchFolder: String?
-            resumed.connectionFactory = { account, folder in launchFolder = folder; return FixtureConnection(account) }
-            await resumed.connect(resume: "last")
-            check(resumed.ready && resumed.cwd == repoPath && resumed.currentConversationID == conversation, "resume restores the selected working directory and same conversation")
-            check((resumed.rpc as? FixtureConnection)?.opened.first?["cwd"] as? String == repoPath, "the resumed backend opens in the selected project")
-            try? await resumed.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: resumed.threadID, keepRows: true)
-            check(launchFolder == URL(fileURLWithPath: directory.path).standardized.path && resumed.cwd == repoPath, "a resumed Claude starts in the conversation's folder while VCX shows the selected project")
-            resumed.close()
+        await part {
+            reopened.connectionFactory = { account, _ in FixtureConnection(account) }
+            await reopened.connect(resume: "last")
+            check(reopened.ready && reopened.draft.string == "Newer draft from first window", "closing a window releases conversation ownership")
+            reopened.close()
+            do {
+                let state = directory.appendingPathComponent("directory-resume")
+                let moving = Session(cwd: directory.path, stateDirectory: state)
+                moving.connectionFactory = { account, _ in FixtureConnection(account) }
+                await moving.connect(resume: nil)
+                let conversation = moving.currentConversationID
+                moving.event(["method": "item/completed", "params": ["item": ["id": "cd-resume", "type": "commandExecution", "command": "cd '\(repoPath)'", "cwd": directory.path, "exitCode": 0, "status": "completed"]]])
+                await moving.send(text: "Keep working", images: [])
+                check((moving.rpc as? FixtureConnection)?.sent.last?["cwd"] as? String == repoPath, "the next turn uses the selected project directory")
+                check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
+                moving.close()
+                let resumed = Session(cwd: directory.path, stateDirectory: state)
+                var launchFolder: String?
+                resumed.connectionFactory = { account, folder in launchFolder = folder; return FixtureConnection(account) }
+                await resumed.connect(resume: "last")
+                check(resumed.ready && resumed.cwd == repoPath && resumed.currentConversationID == conversation, "resume restores the selected working directory and same conversation")
+                check((resumed.rpc as? FixtureConnection)?.opened.first?["cwd"] as? String == repoPath, "the resumed backend opens in the selected project")
+                try? await resumed.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: resumed.threadID, keepRows: true)
+                check(launchFolder == URL(fileURLWithPath: directory.path).standardized.path && resumed.cwd == repoPath, "a resumed Claude starts in the conversation's folder while VCX shows the selected project")
+                resumed.close()
+            }
         }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))
         let envB = agentEnvironment(Account(name: "B", provider: "codex", home: "/tmp/account-b"))
@@ -1031,310 +1070,344 @@ enum Check {
         Settings.shared.reload(); Settings.shared.value.provider = "auto"; Settings.shared.save()
         var failDestination = true
         let transactional = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("transaction"))
-        transactional.connectionFactory = { account, _ in
-            let connection = FixtureConnection(account)
-            connection.failStart = account.provider == "codex" && failDestination
-            return connection
+        await part {
+            transactional.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account)
+                connection.failStart = account.provider == "codex" && failDestination
+                return connection
+            }
+            await transactional.connect(resume: nil)
+            try! "Keep task".write(to: transactional.fleetContextFile, atomically: true, encoding: .utf8)
         }
-        await transactional.connect(resume: nil)
-        try! "Keep task".write(to: transactional.fleetContextFile, atomically: true, encoding: .utf8)
         let originalID = transactional.threadID
         let originalConversation = transactional.currentConversationID
-        Settings.shared.value.provider = "codex"; Settings.shared.save(); transactional.providerChoice = "codex"
-        Settings.shared.updateLimit(account: "codex-default", reset: 0)
-        transactional.draft = NSAttributedString(string: "Keep my work")
-        await transactional.send(text: "Keep my work", images: [])
-        check(!transactional.ready && transactional.account.provider == "claude" && transactional.threadID == originalID, "failed activation preserves account and thread ownership")
-        check(transactional.fleetContext == "Keep task", "failed activation preserves the session's Fleet context")
-        transactional.save()
+        await part {
+            Settings.shared.value.provider = "codex"; Settings.shared.save(); transactional.providerChoice = "codex"
+            Settings.shared.updateLimit(account: "codex-default", reset: 0)
+            transactional.draft = NSAttributedString(string: "Keep my work")
+            await transactional.send(text: "Keep my work", images: [])
+            check(!transactional.ready && transactional.account.provider == "claude" && transactional.threadID == originalID, "failed activation preserves account and thread ownership")
+            check(transactional.fleetContext == "Keep task", "failed activation preserves the session's Fleet context")
+            transactional.save()
+        }
         let transactionFiles = try! FileManager.default.contentsOfDirectory(at: transactional.nativeDirectory, includingPropertiesForKeys: nil)
         let savedTransaction = try! JSONSerialization.jsonObject(with: Data(contentsOf: transactionFiles[0])) as! JSON
-        check(savedTransaction["accountId"] as? String == "claude-default" && savedTransaction["threadId"] as? String == originalID, "failed activation cannot corrupt the saved conversation")
-        failDestination = false
-        await transactional.reconnect()
-        check(transactional.ready && transactional.account.provider == "codex" && transactional.threadID == "codex:fixture", "reconnect retries the correct destination without reusing a foreign thread ID")
-        check(transactional.currentConversationID == originalConversation && transactional.draft.string == "Keep my work", "recovery keeps the conversation and unsent draft")
-        transactional.event(["id": "approval", "method": "item/commandExecution/requestApproval", "params": ["command": "echo example"]])
-        transactional.event(["method": "turn/completed", "params": ["turn": ["id": "finished", "status": "interrupted"]]])
-        check(transactional.permissions.isEmpty, "interrupted turns clear stale permission requests")
-        transactional.close()
+        await part {
+            check(savedTransaction["accountId"] as? String == "claude-default" && savedTransaction["threadId"] as? String == originalID, "failed activation cannot corrupt the saved conversation")
+            failDestination = false
+            await transactional.reconnect()
+            check(transactional.ready && transactional.account.provider == "codex" && transactional.threadID == "codex:fixture", "reconnect retries the correct destination without reusing a foreign thread ID")
+            check(transactional.currentConversationID == originalConversation && transactional.draft.string == "Keep my work", "recovery keeps the conversation and unsent draft")
+            transactional.event(["id": "approval", "method": "item/commandExecution/requestApproval", "params": ["command": "echo example"]])
+            transactional.event(["method": "turn/completed", "params": ["turn": ["id": "finished", "status": "interrupted"]]])
+            check(transactional.permissions.isEmpty, "interrupted turns clear stale permission requests")
+            transactional.close()
+        }
         let staleRestore = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("state"))
         var failRestore = true
-        staleRestore.connectionFactory = { account, _ in
-            let connection = FixtureConnection(account); connection.failStart = failRestore; return connection
+        await part {
+            staleRestore.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account); connection.failStart = failRestore; return connection
+            }
+            await staleRestore.connect(resume: "last")
+            check(!staleRestore.ready, "failed restore remains recoverable")
+            failRestore = false
+            try! "Previous task".write(to: staleRestore.fleetContextFile, atomically: true, encoding: .utf8)
+            await staleRestore.switchThread(nil)
+            check(staleRestore.fleetContext.isEmpty, "new conversations clear the previous Fleet task context")
         }
-        await staleRestore.connect(resume: "last")
-        check(!staleRestore.ready, "failed restore remains recoverable")
-        failRestore = false
-        try! "Previous task".write(to: staleRestore.fleetContextFile, atomically: true, encoding: .utf8)
-        await staleRestore.switchThread(nil)
-        check(staleRestore.fleetContext.isEmpty, "new conversations clear the previous Fleet task context")
         let newRecord = staleRestore.currentConversationID
-        staleRestore.draft = NSAttributedString(string: "Draft in the new conversation")
-        staleRestore.event(["method": "cx/disconnected", "params": ["message": "Fixture disconnect"]])
-        await staleRestore.reconnect()
-        check(staleRestore.ready && staleRestore.currentConversationID == newRecord && staleRestore.draft.string == "Draft in the new conversation", "new conversation clears a failed restore target before reconnect")
-        staleRestore.close()
+        await part {
+            staleRestore.draft = NSAttributedString(string: "Draft in the new conversation")
+            staleRestore.event(["method": "cx/disconnected", "params": ["message": "Fixture disconnect"]])
+            await staleRestore.reconnect()
+            check(staleRestore.ready && staleRestore.currentConversationID == newRecord && staleRestore.draft.string == "Draft in the new conversation", "new conversation clears a failed restore target before reconnect")
+            staleRestore.close()
 
-        Settings.shared.value = Preferences(); Settings.shared.save()
-        let commands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("commands"))
-        commands.connectionFactory = { account, _ in FixtureConnection(account) }
-        check(commands.activeMode == "bypass", "permission mode defaults to bypass")
-        await commands.send(text: "/help", images: [])
-        check(!commands.ready && commands.rows.last?.items.first?.text.contains("/model") == true, "commands work before a provider is connected")
-        commands.updateCommands("/", caret: 1)
-        check(commands.commandOptions.contains { $0.name == "/perms" }, "slash opens application command catalog")
-        commands.updateCommands("/perms ", caret: 7)
-        check(commands.commandOptions.map(\.name) == ["bypass", "ask"], "permission choices autocomplete")
-        for typed in ["/mod", "/mode"] {
-            commands.updateCommands(typed, caret: typed.count)
-            check(commands.commandOptions.first?.name == "/model" && !commands.commandOptions.contains { $0.name == "/perms" }, "typing toward /model offers /model first, never /perms")
+            Settings.shared.value = Preferences(); Settings.shared.save()
         }
-        commands.updateCommands("/answer yes", caret: 11)
-        check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
-        commands.updateCommands("/qwen ", caret: 6)
-        commands.chooseCommand(commands.commandOptions[0])
-        check(commands.draft.string == "/qwen url " && commands.commandQuery != nil, "freeform settings wait for their value")
-        commands.draft = NSAttributedString(string: "Keep this prompt")
-        commands.showCommands("/provider ")
-        commands.dismissCommands()
-        check(commands.draft.string == "Keep this prompt", "sidebar shortcuts preserve existing drafts")
-        commands.showCommands("/status")
-        await commands.command("/status")
-        check(commands.draft.string == "Keep this prompt", "settings commands restore an existing draft")
-        await commands.connect(resume: nil)
-        check(commands.ready && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never" && (commands.rpc as? FixtureConnection)?.opened.first?["sandbox"] as? String == "danger-full-access", "Codex-compatible threads apply bypass, not only the label")
-        commands.draft = NSAttributedString(string: "Keep this prompt")
-        commands.statusCommand("/perms ")
-        commands.chooseCommand(commands.commandOptions[1])
-        for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask"], "footer mode selection executes the permission command without Return")
-        check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
+        let commands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("commands"))
+        await part {
+            commands.connectionFactory = { account, _ in FixtureConnection(account) }
+            check(commands.activeMode == "bypass", "permission mode defaults to bypass")
+            await commands.send(text: "/help", images: [])
+            check(!commands.ready && commands.rows.last?.items.first?.text.contains("/model") == true, "commands work before a provider is connected")
+            commands.updateCommands("/", caret: 1)
+            check(commands.commandOptions.contains { $0.name == "/perms" }, "slash opens application command catalog")
+            commands.updateCommands("/perms ", caret: 7)
+            check(commands.commandOptions.map(\.name) == ["bypass", "ask"], "permission choices autocomplete")
+            for typed in ["/mod", "/mode"] {
+                commands.updateCommands(typed, caret: typed.count)
+                check(commands.commandOptions.first?.name == "/model" && !commands.commandOptions.contains { $0.name == "/perms" }, "typing toward /model offers /model first, never /perms")
+            }
+            commands.updateCommands("/answer yes", caret: 11)
+            check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
+            commands.updateCommands("/qwen ", caret: 6)
+            commands.chooseCommand(commands.commandOptions[0])
+            check(commands.draft.string == "/qwen url " && commands.commandQuery != nil, "freeform settings wait for their value")
+            commands.draft = NSAttributedString(string: "Keep this prompt")
+            commands.showCommands("/provider ")
+            commands.dismissCommands()
+            check(commands.draft.string == "Keep this prompt", "sidebar shortcuts preserve existing drafts")
+            commands.showCommands("/status")
+            await commands.command("/status")
+            check(commands.draft.string == "Keep this prompt", "settings commands restore an existing draft")
+            await commands.connect(resume: nil)
+            check(commands.ready && (commands.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never" && (commands.rpc as? FixtureConnection)?.opened.first?["sandbox"] as? String == "danger-full-access", "Codex-compatible threads apply bypass, not only the label")
+            commands.draft = NSAttributedString(string: "Keep this prompt")
+            commands.statusCommand("/perms ")
+            commands.chooseCommand(commands.commandOptions[1])
+            for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask"], "footer mode selection executes the permission command without Return")
+            check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
+        }
         var footerItems: Int { commands.rows.reduce(0) { $0 + $1.items.count } }
         let tokenItems = footerItems
-        commands.statusCommand("/tokens")
-        check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil && commands.savedCommandDraft == nil, "footer info buttons never write their command into the chat box")
-        for _ in 0..<200 where footerItems == tokenItems { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(commands.draft.string == "Keep this prompt" && commands.rows.last?.items.first?.text.contains("Not reported") == true, "footer token button executes its command and preserves the draft")
-        commands.draft = NSAttributedString(string: "")
+        await part {
+            commands.statusCommand("/tokens")
+            check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil && commands.savedCommandDraft == nil, "footer info buttons never write their command into the chat box")
+            for _ in 0..<200 where footerItems == tokenItems { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(commands.draft.string == "Keep this prompt" && commands.rows.last?.items.first?.text.contains("Not reported") == true, "footer token button executes its command and preserves the draft")
+            commands.draft = NSAttributedString(string: "")
+        }
         let repoItems = footerItems
-        commands.statusCommand("/repo")
-        for _ in 0..<200 where footerItems == repoItems { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(footerItems > repoItems && commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
-        commands.draft = NSAttributedString(string: "/perms ask")
-        await commands.command("/perms ask")
-        check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask", "ask"], "chat mode change applies the requested policy live")
-        commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
-        commands.updateCommands("/fixture", caret: 8)
-        check(commands.commandOptions.count == 2, "provider commands and aliases appear in slash search")
-        check(commands.providerCommands.map(\.insert) == ["/fixture-skill ", "/fixture-alias "], "skills insert their bare name, one spelling on every provider")
-        do {
-            let collision = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-collision"))
-            collision.applyClaudeCatalog(["commands": [["name": "model"]]])
-            check(collision.providerCommands.first?.insert == "/claude:skill:model ", "a skill named like a vcx command keeps its namespace")
-            collision.close()
+        await part {
+            commands.statusCommand("/repo")
+            for _ in 0..<200 where footerItems == repoItems { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(footerItems > repoItems && commands.draft.length == 0 && commands.commandQuery == nil, "footer commands leave an empty composer empty")
+            commands.draft = NSAttributedString(string: "/perms ask")
+            await commands.command("/perms ask")
+            check(commands.ready && commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask", "ask"], "chat mode change applies the requested policy live")
+            commands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture", "aliases": ["fixture-alias"]]], "models": [["value": "fixture-claude"]]])
+            commands.updateCommands("/fixture", caret: 8)
+            check(commands.commandOptions.count == 2, "provider commands and aliases appear in slash search")
+            check(commands.providerCommands.map(\.insert) == ["/fixture-skill ", "/fixture-alias "], "skills insert their bare name, one spelling on every provider")
+            do {
+                let collision = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-collision"))
+                collision.applyClaudeCatalog(["commands": [["name": "model"]]])
+                check(collision.providerCommands.first?.insert == "/claude:skill:model ", "a skill named like a vcx command keeps its namespace")
+                collision.close()
+            }
+            commands.draft = NSAttributedString(string: "/claude:fixture-skill check")
+            await commands.command("/claude:fixture-skill check")
+            check(((commands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == "/fixture-skill check", "provider slash commands are forwarded without a vcx formatting prompt")
+            for _ in 0..<100 where commands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
         }
-        commands.draft = NSAttributedString(string: "/claude:fixture-skill check")
-        await commands.command("/claude:fixture-skill check")
-        check(((commands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == "/fixture-skill check", "provider slash commands are forwarded without a vcx formatting prompt")
-        for _ in 0..<100 where commands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
         let nextDirectory = directory.appendingPathComponent("next")
-        try! FileManager.default.createDirectory(at: nextDirectory, withIntermediateDirectories: true)
-        commands.draft = NSAttributedString(string: "/dir " + nextDirectory.path)
-        await commands.command("/dir " + nextDirectory.path)
-        check(commands.cwd == nextDirectory.path && commands.ready, "chat changes directory and starts a session there")
-        commands.close()
-        Settings.shared.value = Preferences(); Settings.shared.save()
-        do {
-            Settings.shared.value.accounts.append(Account(id: "claude-second", name: "Second Claude", provider: "claude")); Settings.shared.save()
-            let isolation = directory.appendingPathComponent("choice-isolation")
-            let chooser = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("chooser")), bystander = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("bystander"))
-            for session in [chooser, bystander] { session.connectionFactory = { account, _ in FixtureConnection(account) }; await session.connect(resume: nil) }
-            await chooser.command("/perms ask")
-            await chooser.command("/account claude-second")
-            check(chooser.activeMode == "ask" && chooser.account.id == "claude-second", "mode and account choices apply to their session")
-            check(bystander.activeMode == "bypass" && bystander.available.first?.id == "claude-default" && (bystander.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never", "a session's mode and account choices leave other running sessions alone")
-            check(Settings.shared.value.mode == "bypass" && Settings.shared.value.accounts.allSatisfy(\.enabled), "a session's mode and account choices leave the shared defaults")
-            chooser.close(); bystander.close()
+        await part {
+            try! FileManager.default.createDirectory(at: nextDirectory, withIntermediateDirectories: true)
+            commands.draft = NSAttributedString(string: "/dir " + nextDirectory.path)
+            await commands.command("/dir " + nextDirectory.path)
+            check(commands.cwd == nextDirectory.path && commands.ready, "chat changes directory and starts a session there")
+            commands.close()
             Settings.shared.value = Preferences(); Settings.shared.save()
-        }
-        do {
-            let running = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("default-change"))
-            running.connectionFactory = { account, _ in FixtureConnection(account) }
-            await running.connect(resume: nil)
-            Settings.shared.value.provider = "qwen"; Settings.shared.save()
-            await running.reconnect()
-            check(running.account.provider == "claude", "a changed shared default leaves running sessions on their provider")
-            running.close()
-            Settings.shared.value = Preferences(); Settings.shared.save()
+            do {
+                Settings.shared.value.accounts.append(Account(id: "claude-second", name: "Second Claude", provider: "claude")); Settings.shared.save()
+                let isolation = directory.appendingPathComponent("choice-isolation")
+                let chooser = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("chooser")), bystander = Session(cwd: directory.path, stateDirectory: isolation.appendingPathComponent("bystander"))
+                for session in [chooser, bystander] { session.connectionFactory = { account, _ in FixtureConnection(account) }; await session.connect(resume: nil) }
+                await chooser.command("/perms ask")
+                await chooser.command("/account claude-second")
+                check(chooser.activeMode == "ask" && chooser.account.id == "claude-second", "mode and account choices apply to their session")
+                check(bystander.activeMode == "bypass" && bystander.available.first?.id == "claude-default" && (bystander.rpc as? FixtureConnection)?.opened.first?["approvalPolicy"] as? String == "never", "a session's mode and account choices leave other running sessions alone")
+                check(Settings.shared.value.mode == "bypass" && Settings.shared.value.accounts.allSatisfy(\.enabled), "a session's mode and account choices leave the shared defaults")
+                chooser.close(); bystander.close()
+                Settings.shared.value = Preferences(); Settings.shared.save()
+            }
+            do {
+                let running = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("default-change"))
+                running.connectionFactory = { account, _ in FixtureConnection(account) }
+                await running.connect(resume: nil)
+                Settings.shared.value.provider = "qwen"; Settings.shared.save()
+                await running.reconnect()
+                check(running.account.provider == "claude", "a changed shared default leaves running sessions on their provider")
+                running.close()
+                Settings.shared.value = Preferences(); Settings.shared.save()
+            }
         }
         let draftsDirectory = directory.appendingPathComponent("draft-switches")
         let first = Session(cwd: directory.path, stateDirectory: draftsDirectory)
-        first.connectionFactory = { account, _ in FixtureConnection(account) }
-        await first.connect(resume: nil)
+        await part {
+            first.connectionFactory = { account, _ in FixtureConnection(account) }
+            await first.connect(resume: nil)
+        }
         let draftA = NSMutableAttributedString(string: "Draft A ")
         draftA.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         first.draft = draftA; first.save()
         let firstID = first.currentConversationID
         let second = Session(cwd: directory.path, stateDirectory: draftsDirectory)
-        second.connectionFactory = { account, _ in FixtureConnection(account) }
-        await second.connect(resume: nil)
+        await part {
+            second.connectionFactory = { account, _ in FixtureConnection(account) }
+            await second.connect(resume: nil)
+        }
         let draftB = NSMutableAttributedString(string: "Draft B ")
         draftB.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         second.draft = draftB; second.save()
         let secondID = second.currentConversationID
-        second.close()
-        first.showCommands("/")
-        first.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: "/resume " + secondID))
-        await first.command("/resume " + secondID)
-        check(first.savedCommandDraft == nil && first.draft.string == draftB.string && draftContent(first.draft).last?["path"] as? String == imagePath, "resume preserves the destination draft and its image")
+        await part {
+            second.close()
+            first.showCommands("/")
+            first.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: "/resume " + secondID))
+            await first.command("/resume " + secondID)
+            check(first.savedCommandDraft == nil && first.draft.string == draftB.string && draftContent(first.draft).last?["path"] as? String == imagePath, "resume preserves the destination draft and its image")
+        }
         func storedDraft(_ id: String) -> [JSON] {
             let file = first.nativeDirectory.appendingPathComponent(String(id.dropFirst(7)) + ".json")
             return ((try! JSONSerialization.jsonObject(with: Data(contentsOf: file))) as! JSON)["draft"] as! [JSON]
         }
-        check(storedDraft(firstID).first?["text"] as? String == "Draft A " && storedDraft(secondID).first?["text"] as? String == "Draft B ", "command resume saves each draft only into its own record")
-        first.draft = draftA; first.showCommands("/")
-        first.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
-        first.chooseCommand(first.providerCommands[0])
-        await first.command("/claude:fixture-skill ")
-        check(first.savedCommandDraft == nil && draftContent(first.draft).last?["path"] as? String == imagePath && first.draft.string == draftA.string, "native commands restore a previous text and image draft")
-        for _ in 0..<100 where first.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-        first.draft = NSAttributedString(string: "New visible draft"); first.save()
-        check(storedDraft(secondID).first?["text"] as? String == "New visible draft", "later saves cannot persist a stale command buffer")
-        first.draft = NSAttributedString(string: "/review unfinished")
-        first.showCommands("/perms "); first.dismissCommands()
-        check(first.draft.string == "/review unfinished", "shortcuts preserve slash-prefixed drafts too")
-        first.showCommands("/profile broken"); await first.command("/profile broken")
-        check(first.draft.string == "/review unfinished" && first.savedCommandDraft == nil, "failed configuration restores the original draft")
-        Settings.shared.value.accounts[1].enabled = false; Settings.shared.save()
-        await first.command("/provider codex")
-        check(Settings.shared.value.provider == "auto" && first.account.provider == "claude", "an unavailable provider is rejected instead of reconnecting the wrong provider")
-        await first.command("/qwen proxy socks5://localhost")
-        check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
-        check(validQwenProxy("socks5h://localhost:1055"), "Jarvis SOCKS5 hostname-proxy URLs remain compatible")
+        await part {
+            check(storedDraft(firstID).first?["text"] as? String == "Draft A " && storedDraft(secondID).first?["text"] as? String == "Draft B ", "command resume saves each draft only into its own record")
+            first.draft = draftA; first.showCommands("/")
+            first.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
+            first.chooseCommand(first.providerCommands[0])
+            await first.command("/claude:fixture-skill ")
+            check(first.savedCommandDraft == nil && draftContent(first.draft).last?["path"] as? String == imagePath && first.draft.string == draftA.string, "native commands restore a previous text and image draft")
+            for _ in 0..<100 where first.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            first.draft = NSAttributedString(string: "New visible draft"); first.save()
+            check(storedDraft(secondID).first?["text"] as? String == "New visible draft", "later saves cannot persist a stale command buffer")
+            first.draft = NSAttributedString(string: "/review unfinished")
+            first.showCommands("/perms "); first.dismissCommands()
+            check(first.draft.string == "/review unfinished", "shortcuts preserve slash-prefixed drafts too")
+            first.showCommands("/profile broken"); await first.command("/profile broken")
+            check(first.draft.string == "/review unfinished" && first.savedCommandDraft == nil, "failed configuration restores the original draft")
+            Settings.shared.value.accounts[1].enabled = false; Settings.shared.save()
+            await first.command("/provider codex")
+            check(Settings.shared.value.provider == "auto" && first.account.provider == "claude", "an unavailable provider is rejected instead of reconnecting the wrong provider")
+            await first.command("/qwen proxy socks5://localhost")
+            check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
+            check(validQwenProxy("socks5h://localhost:1055"), "Jarvis SOCKS5 hostname-proxy URLs remain compatible")
+        }
         let question = Permission(rpcID: "fixture-question", method: "item/tool/requestUserInput", params: ["questions": [["id": "question", "question": "Choose"]]])
-        first.permissions.append(question); await first.command("/decline")
-        check(first.permissions.isEmpty, "questions can be cancelled through chat")
-        first.close()
-        Settings.shared.value = Preferences(); Settings.shared.value.provider = "codex"; Settings.shared.save()
+        await part {
+            first.permissions.append(question); await first.command("/decline")
+            check(first.permissions.isEmpty, "questions can be cancelled through chat")
+            first.close()
+            Settings.shared.value = Preferences(); Settings.shared.value.provider = "codex"; Settings.shared.save()
+        }
         let codexCommands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
-        codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
-        await codexCommands.connect(resume: nil)
-        do {
-            let claudePalette = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unique-commands"))
-            for palette in [codexCommands, claudePalette] {
-                palette.providerCommands = [ChatCommand(name: "/MODEL", detail: "Model skill collision", source: "Fixture skill", insert: "/" + palette.account.provider + ":skill:model ")]
-                for query in ["/", "/model", "/compact", "/status"] {
-                    palette.commandQuery = query
-                    let names = palette.commandOptions.map { $0.name.lowercased() }
-                    check(Set(names).count == names.count, "command names are unique for \(palette.account.provider) query \(query)")
+        await part {
+            codexCommands.connectionFactory = { account, _ in FixtureConnection(account) }
+            await codexCommands.connect(resume: nil)
+            do {
+                let claudePalette = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unique-commands"))
+                for palette in [codexCommands, claudePalette] {
+                    palette.providerCommands = [ChatCommand(name: "/MODEL", detail: "Model skill collision", source: "Fixture skill", insert: "/" + palette.account.provider + ":skill:model ")]
+                    for query in ["/", "/model", "/compact", "/status"] {
+                        palette.commandQuery = query
+                        let names = palette.commandOptions.map { $0.name.lowercased() }
+                        check(Set(names).count == names.count, "command names are unique for \(palette.account.provider) query \(query)")
+                    }
+                    palette.commandQuery = "/model"
+                    check(palette.commandOptions.filter { $0.name.lowercased() == "/model" }.map(\.source) == ["vcx"], "application commands win name collisions")
+                    palette.commandQuery = "/" + palette.account.provider + ":model"
+                    check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == palette.account.provider.capitalized, "explicit provider aliases remain accessible")
+                    palette.commandQuery = "/" + palette.account.provider + ":skill:model"
+                    check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == "Fixture skill", "namespaced skills remain accessible despite name collisions")
+                    palette.providerCommands = []; palette.commandQuery = nil
                 }
-                palette.commandQuery = "/model"
-                check(palette.commandOptions.filter { $0.name.lowercased() == "/model" }.map(\.source) == ["vcx"], "application commands win name collisions")
-                palette.commandQuery = "/" + palette.account.provider + ":model"
-                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == palette.account.provider.capitalized, "explicit provider aliases remain accessible")
-                palette.commandQuery = "/" + palette.account.provider + ":skill:model"
-                check(palette.commandOptions.count == 1 && palette.commandOptions[0].source == "Fixture skill", "namespaced skills remain accessible despite name collisions")
-                palette.providerCommands = []; palette.commandQuery = nil
+                claudePalette.close()
             }
-            claudePalette.close()
-        }
-        do {
-            let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
-            ranking.providerCommands = [
-                ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/beeper "),
-                ChatCommand(name: "/smoke", detail: "Run checks", source: "Codex skill", insert: "/smoke "),
-                ChatCommand(name: "/sm", detail: "Summarize", source: "Codex skill", insert: "/sm "),
-                ChatCommand(name: "/xlsx", detail: "Read .xlsm files", source: "Codex skill", insert: "/xlsx ")
-            ]
-            for query in ["/sm", "/SM"] {
-                ranking.updateCommands(query, caret: query.count)
-                check(ranking.commandOptions.first?.name == "/sm" && ranking.commandSelection == 0, "exact command names rank before prefixes and description matches: \(query)")
+            do {
+                let ranking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("command-ranking"))
+                ranking.providerCommands = [
+                    ChatCommand(name: "/beeper", detail: "Read SMS", source: "Codex skill", insert: "/beeper "),
+                    ChatCommand(name: "/smoke", detail: "Run checks", source: "Codex skill", insert: "/smoke "),
+                    ChatCommand(name: "/sm", detail: "Summarize", source: "Codex skill", insert: "/sm "),
+                    ChatCommand(name: "/xlsx", detail: "Read .xlsm files", source: "Codex skill", insert: "/xlsx ")
+                ]
+                for query in ["/sm", "/SM"] {
+                    ranking.updateCommands(query, caret: query.count)
+                    check(ranking.commandOptions.first?.name == "/sm" && ranking.commandSelection == 0, "exact command names rank before prefixes and description matches: \(query)")
+                }
+                ranking.updateCommands("/sm", caret: 3)
+                check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
+                check(ranking.completeCommand() && ranking.draft.commandText == "/sm ", "completion inserts the exact skill instead of a description match")
+                check((ranking.draft.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.label == "/sm", "a chosen command locks in as a chip named as typed")
+                let typedWidth = NSAttributedString(string: "/sm", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]).size().width
+                check(abs((CommandChip(label: "/sm", value: "/sm").attachmentCell?.cellSize().width ?? 0) - typedWidth) < 0.5, "a command chip is as wide as its letters typed, like the purple tint")
+                let restoredChip = runtimeDraft(draftContent(ranking.draft))
+                check((restoredChip.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.value == "/sm" && NSArray(array: plainDraftContent(draftContent(ranking.draft))).isEqual(to: [["type": "text", "text": "/sm "]]), "a command chip survives the worker and reads as plain text to an older one")
+                ranking.editDraft(NSAttributedString(string: "please a/sm"))
+                ranking.updateCommands(ranking.draft.string, caret: 11)
+                check(ranking.commandQuery == nil, "a slash inside a word opens no popup")
+                ranking.editDraft(NSAttributedString(string: "please /s"))
+                ranking.updateCommands(ranking.draft.string, caret: 9)
+                check(ranking.commandQuery == "/s" && ranking.commandToken == NSRange(location: 7, length: 2), "a slash after a space opens the popup mid-sentence")
+                ranking.editDraft(NSAttributedString(string: "please "))
+                ranking.updateCommands(ranking.draft.string, caret: 7)
+                check(ranking.commandQuery == nil && ranking.commandToken == nil, "deleting the slash closes the popup and chooses nothing")
+                ranking.editDraft(NSAttributedString(string: "please /s"))
+                ranking.updateCommands(ranking.draft.string, caret: 9)
+                ranking.commandSelection = ranking.commandOptions.firstIndex { $0.name == "/sm" } ?? 0
+                check(ranking.completeCommand() && ranking.draft.commandText == "please /sm " && ranking.commandQuery == nil, "a mid-sentence command locks in without opening its arguments")
+                ranking.lockCommand("/skills", "/codex:skill:skills", space: true, in: NSRange(location: 0, length: 0))
+                check(ranking.draft.commandText.hasPrefix("/codex:skill:skills please /sm"), "a leading chip runs its real value, a later one sends the name typed")
+                check(ranking.commandWords.contains("sm") && ranking.commandWords.contains("model") && !ranking.commandWords.contains("theme"), "command words cover what runs here, not terminal-only commands")
+                let tintStorage = NSTextStorage(), tintManager = NSLayoutManager(), tintContainer = NSTextContainer(size: NSSize(width: 600, height: 150))
+                tintStorage.addLayoutManager(tintManager); tintManager.addTextContainer(tintContainer)
+                let tinted = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 24), textContainer: tintContainer)
+                tinted.heldStorage = tintStorage
+                tinted.session = ranking; tinted.setDraft(NSAttributedString(string: "plan /model"))
+                let tint = { (at: Int) -> Bool in tintManager.temporaryAttribute(NSAttributedString.Key.backgroundColor, atCharacterIndex: at, effectiveRange: nil) != nil }
+                check(!tint(0) && tint(5) && tint(6), "a slash command lights up, a bare command word does not")
+                ranking.updateCommands("/", caret: 1)
+                check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
+                ranking.close()
             }
-            ranking.updateCommands("/sm", caret: 3)
-            check(ranking.commandOptions.map(\.name) == ["/sm", "/smoke", "/beeper", "/xlsx"], "command prefixes rank before description matches without hiding results")
-            check(ranking.completeCommand() && ranking.draft.commandText == "/sm ", "completion inserts the exact skill instead of a description match")
-            check((ranking.draft.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.label == "/sm", "a chosen command locks in as a chip named as typed")
-            let typedWidth = NSAttributedString(string: "/sm", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]).size().width
-            check(abs((CommandChip(label: "/sm", value: "/sm").attachmentCell?.cellSize().width ?? 0) - typedWidth) < 0.5, "a command chip is as wide as its letters typed, like the purple tint")
-            let restoredChip = runtimeDraft(draftContent(ranking.draft))
-            check((restoredChip.attribute(.attachment, at: 0, effectiveRange: nil) as? CommandChip)?.value == "/sm" && NSArray(array: plainDraftContent(draftContent(ranking.draft))).isEqual(to: [["type": "text", "text": "/sm "]]), "a command chip survives the worker and reads as plain text to an older one")
-            ranking.editDraft(NSAttributedString(string: "please a/sm"))
-            ranking.updateCommands(ranking.draft.string, caret: 11)
-            check(ranking.commandQuery == nil, "a slash inside a word opens no popup")
-            ranking.editDraft(NSAttributedString(string: "please /s"))
-            ranking.updateCommands(ranking.draft.string, caret: 9)
-            check(ranking.commandQuery == "/s" && ranking.commandToken == NSRange(location: 7, length: 2), "a slash after a space opens the popup mid-sentence")
-            ranking.editDraft(NSAttributedString(string: "please "))
-            ranking.updateCommands(ranking.draft.string, caret: 7)
-            check(ranking.commandQuery == nil && ranking.commandToken == nil, "deleting the slash closes the popup and chooses nothing")
-            ranking.editDraft(NSAttributedString(string: "please /s"))
-            ranking.updateCommands(ranking.draft.string, caret: 9)
-            ranking.commandSelection = ranking.commandOptions.firstIndex { $0.name == "/sm" } ?? 0
-            check(ranking.completeCommand() && ranking.draft.commandText == "please /sm " && ranking.commandQuery == nil, "a mid-sentence command locks in without opening its arguments")
-            ranking.lockCommand("/skills", "/codex:skill:skills", space: true, in: NSRange(location: 0, length: 0))
-            check(ranking.draft.commandText.hasPrefix("/codex:skill:skills please /sm"), "a leading chip runs its real value, a later one sends the name typed")
-            check(ranking.commandWords.contains("sm") && ranking.commandWords.contains("model") && !ranking.commandWords.contains("theme"), "command words cover what runs here, not terminal-only commands")
-            let tintStorage = NSTextStorage(), tintManager = NSLayoutManager(), tintContainer = NSTextContainer(size: NSSize(width: 600, height: 150))
-            tintStorage.addLayoutManager(tintManager); tintManager.addTextContainer(tintContainer)
-            let tinted = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 24), textContainer: tintContainer)
-            tinted.heldStorage = tintStorage
-            tinted.session = ranking; tinted.setDraft(NSAttributedString(string: "plan /model"))
-            let tint = { (at: Int) -> Bool in tintManager.temporaryAttribute(NSAttributedString.Key.backgroundColor, atCharacterIndex: at, effectiveRange: nil) != nil }
-            check(!tint(0) && tint(5) && tint(6), "a slash command lights up, a bare command word does not")
-            ranking.updateCommands("/", caret: 1)
-            check(Array(ranking.commandOptions.prefix(ranking.appCommands.count)) == ranking.appCommands, "an empty command search preserves catalog order")
-            ranking.close()
+            codexCommands.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: "Codex skill", insert: "/codex:skill:fixture ")]
+            codexCommands.skillPaths = ["fixture": "/fixture/SKILL.md"]
+            codexCommands.draft = NSAttributedString(string: "/codex:skill:fixture check")
+            await codexCommands.command("/codex:skill:fixture check")
         }
-        codexCommands.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: "Codex skill", insert: "/codex:skill:fixture ")]
-        codexCommands.skillPaths = ["fixture": "/fixture/SKILL.md"]
-        codexCommands.draft = NSAttributedString(string: "/codex:skill:fixture check")
-        await codexCommands.command("/codex:skill:fixture check")
         let skillInput = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
-        check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
-        check((codexCommands.rows.last { $0.kind == "user" }?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture check", "the chat shows a namespaced skill as typed")
-        for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-        await codexCommands.send(text: "/fixture look", images: [imagePath])
-        let imageSkill = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
-        check(imageSkill.contains { $0["text"] as? String == "$fixture look" } && imageSkill.contains { $0["type"] as? String == "localImage" } && imageSkill.last?["type"] as? String == "skill", "a slash skill sent with an image still runs the skill")
-        for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-        codexCommands.show(["id": "resumed-skill", "type": "userMessage", "content": [["type": "text", "text": "$fixture look"], ["type": "skill", "name": "fixture", "path": "/fixture/SKILL.md"]]])
-        check((codexCommands.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture look", "a resumed Codex skill prompt shows the slash name it was typed with")
-        do {
-            for provider in ["claude", "codex"] {
-                Settings.shared.value.provider = provider; Settings.shared.save()
-                let selection = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-enter-" + provider))
-                selection.connectionFactory = { account, _ in FixtureConnection(account) }
-                await selection.connect(resume: nil)
-                check(selection.ready && selection.account.provider == provider, "skill selection fixture connects to \(provider)")
-                selection.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: provider, insert: "/" + provider + ":skill:fixture ")]
-                selection.skillPaths = ["fixture": "/fixture/SKILL.md"]
-                let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
-                storage.addLayoutManager(manager); manager.addTextContainer(container)
-                let field = ComposerText(frame: .zero, textContainer: container)
-                field.heldStorage = storage; field.session = selection
-                let input = Composer.Coordinator(selection)
-                selection.showCommands("/fixt"); field.setDraft(selection.draft)
-                check(input.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && (selection.rpc as? FixtureConnection)?.sent.isEmpty == true, "Tab completes a \(provider) skill without sending")
-                for query in ["/fixt", "/fixture", "/" + provider + ":skill:fixture"] {
-                    selection.showCommands(query, preserveDraft: false); field.setDraft(selection.draft)
-                    let before = (selection.rpc as! FixtureConnection).sent.count
-                    check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return handles the highlighted \(provider) skill")
-                    for _ in 0..<200 where (selection.rpc as! FixtureConnection).sent.count == before || selection.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
-                    let sent = (selection.rpc as! FixtureConnection).sent
-                    check(sent.count == before + 1, "one Return sends the \(provider) skill: \(query), sent \(sent.count - before)")
-                    check(selection.draft.length == 0, "Return clears the \(provider) skill draft: \(query)")
-                    check(selection.commandQuery == nil, "Return closes the \(provider) skill popup: \(query)")
-                    let content = sent.last?["input"] as? [JSON] ?? []
-                    check(content.first?["text"] as? String == (provider == "codex" ? "$fixture" : "/fixture"), "Return forwards the canonical \(provider) skill")
-                    if provider == "codex" { check(content.last?["type"] as? String == "skill" && content.last?["path"] as? String == "/fixture/SKILL.md", "Return includes the native Codex skill payload") }
-                }
-                selection.close()
-            }
-            Settings.shared.value.provider = "codex"; Settings.shared.save()
+        await part {
+            check(skillInput.last?["type"] as? String == "skill" && skillInput.last?["path"] as? String == "/fixture/SKILL.md", "Codex slash skills include a native skill payload")
+            check((codexCommands.rows.last { $0.kind == "user" }?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture check", "the chat shows a namespaced skill as typed")
+            for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            await codexCommands.send(text: "/fixture look", images: [imagePath])
         }
-        codexCommands.updateCommands("/", caret: 1)
-        check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source != "Codex terminal" }, "the native Codex catalog exposes implemented fork support")
+        let imageSkill = (codexCommands.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON] ?? []
+        await part {
+            check(imageSkill.contains { $0["text"] as? String == "$fixture look" } && imageSkill.contains { $0["type"] as? String == "localImage" } && imageSkill.last?["type"] as? String == "skill", "a slash skill sent with an image still runs the skill")
+            for _ in 0..<100 where codexCommands.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            codexCommands.show(["id": "resumed-skill", "type": "userMessage", "content": [["type": "text", "text": "$fixture look"], ["type": "skill", "name": "fixture", "path": "/fixture/SKILL.md"]]])
+            check((codexCommands.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "/fixture look", "a resumed Codex skill prompt shows the slash name it was typed with")
+            do {
+                for provider in ["claude", "codex"] {
+                    Settings.shared.value.provider = provider; Settings.shared.save()
+                    let selection = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("skill-enter-" + provider))
+                    selection.connectionFactory = { account, _ in FixtureConnection(account) }
+                    await selection.connect(resume: nil)
+                    check(selection.ready && selection.account.provider == provider, "skill selection fixture connects to \(provider)")
+                    selection.providerCommands = [ChatCommand(name: "/fixture", detail: "Fixture skill", source: provider, insert: "/" + provider + ":skill:fixture ")]
+                    selection.skillPaths = ["fixture": "/fixture/SKILL.md"]
+                    let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+                    storage.addLayoutManager(manager); manager.addTextContainer(container)
+                    let field = ComposerText(frame: .zero, textContainer: container)
+                    field.heldStorage = storage; field.session = selection
+                    let input = Composer.Coordinator(selection)
+                    selection.showCommands("/fixt"); field.setDraft(selection.draft)
+                    check(input.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && (selection.rpc as? FixtureConnection)?.sent.isEmpty == true, "Tab completes a \(provider) skill without sending")
+                    for query in ["/fixt", "/fixture", "/" + provider + ":skill:fixture"] {
+                        selection.showCommands(query, preserveDraft: false); field.setDraft(selection.draft)
+                        let before = (selection.rpc as! FixtureConnection).sent.count
+                        check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return handles the highlighted \(provider) skill")
+                        for _ in 0..<200 where (selection.rpc as! FixtureConnection).sent.count == before || selection.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
+                        let sent = (selection.rpc as! FixtureConnection).sent
+                        check(sent.count == before + 1, "one Return sends the \(provider) skill: \(query), sent \(sent.count - before)")
+                        check(selection.draft.length == 0, "Return clears the \(provider) skill draft: \(query)")
+                        check(selection.commandQuery == nil, "Return closes the \(provider) skill popup: \(query)")
+                        let content = sent.last?["input"] as? [JSON] ?? []
+                        check(content.first?["text"] as? String == (provider == "codex" ? "$fixture" : "/fixture"), "Return forwards the canonical \(provider) skill")
+                        if provider == "codex" { check(content.last?["type"] as? String == "skill" && content.last?["path"] as? String == "/fixture/SKILL.md", "Return includes the native Codex skill payload") }
+                    }
+                    selection.close()
+                }
+                Settings.shared.value.provider = "codex"; Settings.shared.save()
+            }
+            codexCommands.updateCommands("/", caret: 1)
+            check(codexCommands.commandOptions.contains { $0.name == "/fork" && $0.source != "Codex terminal" }, "the native Codex catalog exposes implemented fork support")
+        }
         let editor = ComposerText(frame: .zero, textContainer: nil)
         editor.session = codexCommands; editor.string = "/"
         let coordinator = Composer.Coordinator(codexCommands)
@@ -1355,316 +1428,338 @@ enum Check {
         codexCommands.editDraft(NSAttributedString(string: "Edited recall"))
         check(!codexCommands.movePromptHistory(1), "editing a recalled prompt restores native arrow behavior")
         let entries = [CapabilityItem(name: "zeta", detail: "Inspect UI layout"), CapabilityItem(name: "ui-tweak", detail: "Adjust the interface"), CapabilityItem(name: "build", detail: "Compile")]
-        check(capabilityMatches(entries, query: "UI").map(\.name) == ["ui-tweak", "build", "zeta"], "capability search ranks name prefixes before substring matches")
-        check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
-        check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
-        codexCommands.model = "claude-opus-5-5"
-        check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")
-        codexCommands.defaultEffort = "medium"
-        check(codexCommands.modelStatusLabel == "Opus 5.5 - medium", "footer displays reported default effort")
-        codexCommands.effort = "high"
-        check(codexCommands.modelStatusLabel == "Opus 5.5 - high", "selected effort appears beside the model")
-        codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
-        check(codexCommands.contextLabel == "24% token - 1M", "context matches the Claude Code status line")
-        codexCommands.contextLimit = nil
-        check(codexCommands.contextLabel == "240,000 tokens", "unreported capacity retains the known token count without a placeholder")
-        codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
-        check(codexCommands.contextLabel == "0% token - 1M", "unreported token usage defaults to zero")
-        do {
-            let home = directory.appendingPathComponent("codex-context")
-            try! FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-            let cache: JSON = ["models": [["slug": "fixture-model", "context_window": 500000, "effective_context_window_percent": 95] as JSON, ["slug": "other-model", "context_window": 1000000, "effective_context_window_percent": 95] as JSON]]
-            try! JSONSerialization.data(withJSONObject: cache).write(to: home.appendingPathComponent("models_cache.json"))
-            check(codexContextWindow(model: "fixture-model", home: home.path) == 475000, "Codex capacity uses the catalog and its effective context percentage")
-            check(codexContextWindow(model: "fixture-model", home: home.path, configured: 1000000) == 950000, "configured Codex capacity overrides the catalog size")
-            check(codexContextWindow(model: "unknown", home: home.path) == nil, "unknown models do not borrow another capacity")
-            check(codexContextWindow(model: "fixture-model", home: directory.path) == nil, "missing catalogs do not invent capacity")
-            let contextSession = Session(cwd: directory.path, stateDirectory: home.appendingPathComponent("state"))
-            contextSession.connectionFactory = { account, _ in FixtureConnection(account) }
-            let savedAccounts = Settings.shared.value.accounts
-            Settings.shared.value.accounts = [Account(id: "codex-context", name: "Fixture", provider: "codex", home: home.path)]
-            await contextSession.connect(resume: nil)
-            check(contextSession.contextLabel == "0% token - 475K", "Codex capacity is available before the first turn")
-            contextSession.models.append("other-model")
-            (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = 900000
-            await contextSession.changeModel("other-model")
-            check(contextSession.contextLimit == 900000, "live capacity arriving during config lookup takes precedence over cached metadata")
-            (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = nil
-            (contextSession.rpc as? FixtureConnection)?.contextDuringResume = 800000
-            await contextSession.changeModel("fixture-model")
-            check(contextSession.contextLimit == 800000, "live capacity arriving during model resume takes precedence over cached metadata")
-            (contextSession.rpc as? FixtureConnection)?.contextDuringResume = nil
-            await contextSession.changeModel("fixture-model", effort: "high")
-            check(contextSession.contextLimit == 800000, "Codex effort-only changes preserve live capacity")
-            (contextSession.rpc as? FixtureConnection)?.failResume = true
-            await contextSession.changeModel("other-model")
-            check(contextSession.model == "fixture-model" && contextSession.contextLimit == 800000, "failed model switches restore the previous capacity")
-            contextSession.close()
-            Settings.shared.value.accounts = savedAccounts
+        await part {
+            check(capabilityMatches(entries, query: "UI").map(\.name) == ["ui-tweak", "build", "zeta"], "capability search ranks name prefixes before substring matches")
+            check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
+            check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
+            codexCommands.model = "claude-opus-5-5"
+            check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")
+            codexCommands.defaultEffort = "medium"
+            check(codexCommands.modelStatusLabel == "Opus 5.5 - medium", "footer displays reported default effort")
+            codexCommands.effort = "high"
+            check(codexCommands.modelStatusLabel == "Opus 5.5 - high", "selected effort appears beside the model")
+            codexCommands.event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["last": ["totalTokens": 240000], "modelContextWindow": 1000000]]])
+            check(codexCommands.contextLabel == "24% token - 1M", "context matches the Claude Code status line")
+            codexCommands.contextLimit = nil
+            check(codexCommands.contextLabel == "240,000 tokens", "unreported capacity retains the known token count without a placeholder")
+            codexCommands.contextUsed = nil; codexCommands.contextLimit = 1000000
+            check(codexCommands.contextLabel == "0% token - 1M", "unreported token usage defaults to zero")
+            do {
+                let home = directory.appendingPathComponent("codex-context")
+                try! FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+                let cache: JSON = ["models": [["slug": "fixture-model", "context_window": 500000, "effective_context_window_percent": 95] as JSON, ["slug": "other-model", "context_window": 1000000, "effective_context_window_percent": 95] as JSON]]
+                try! JSONSerialization.data(withJSONObject: cache).write(to: home.appendingPathComponent("models_cache.json"))
+                check(codexContextWindow(model: "fixture-model", home: home.path) == 475000, "Codex capacity uses the catalog and its effective context percentage")
+                check(codexContextWindow(model: "fixture-model", home: home.path, configured: 1000000) == 950000, "configured Codex capacity overrides the catalog size")
+                check(codexContextWindow(model: "unknown", home: home.path) == nil, "unknown models do not borrow another capacity")
+                check(codexContextWindow(model: "fixture-model", home: directory.path) == nil, "missing catalogs do not invent capacity")
+                let contextSession = Session(cwd: directory.path, stateDirectory: home.appendingPathComponent("state"))
+                contextSession.connectionFactory = { account, _ in FixtureConnection(account) }
+                let savedAccounts = Settings.shared.value.accounts
+                Settings.shared.value.accounts = [Account(id: "codex-context", name: "Fixture", provider: "codex", home: home.path)]
+                await contextSession.connect(resume: nil)
+                check(contextSession.contextLabel == "0% token - 475K", "Codex capacity is available before the first turn")
+                contextSession.models.append("other-model")
+                (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = 900000
+                await contextSession.changeModel("other-model")
+                check(contextSession.contextLimit == 900000, "live capacity arriving during config lookup takes precedence over cached metadata")
+                (contextSession.rpc as? FixtureConnection)?.contextDuringConfig = nil
+                (contextSession.rpc as? FixtureConnection)?.contextDuringResume = 800000
+                await contextSession.changeModel("fixture-model")
+                check(contextSession.contextLimit == 800000, "live capacity arriving during model resume takes precedence over cached metadata")
+                (contextSession.rpc as? FixtureConnection)?.contextDuringResume = nil
+                await contextSession.changeModel("fixture-model", effort: "high")
+                check(contextSession.contextLimit == 800000, "Codex effort-only changes preserve live capacity")
+                (contextSession.rpc as? FixtureConnection)?.failResume = true
+                await contextSession.changeModel("other-model")
+                check(contextSession.model == "fixture-model" && contextSession.contextLimit == 800000, "failed model switches restore the previous capacity")
+                contextSession.close()
+                Settings.shared.value.accounts = savedAccounts
+            }
         }
         let claudeContext = ClaudeConnection(account: Account(name: "Fixture", provider: "claude"), cwd: directory.path)
         let usageDisplay = Session(cwd: directory.path)
-        claudeContext.usageReader = { account in
-            guard account.name == "Fixture" else { throw CXError(message: "Incorrect usage profile") }
-            return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T00:59:59.934184+00:00"]]
+        await part {
+            claudeContext.usageReader = { account in
+                guard account.name == "Fixture" else { throw CXError(message: "Incorrect usage profile") }
+                return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T00:59:59.934184+00:00"]]
+            }
+            do {
+                let result = try await claudeContext.request("account/rateLimits/read")
+                let rate = result["rateLimits"] as? JSON ?? [:]
+                usageDisplay.updateUsage(rate)
+                check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
+                check(usageDisplay.usage == "100% wk - reset Wed 1h59", "weekly reset shows Paris time without a leading hour zero")
+                check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
+                usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
+                check(usageDisplay.usage == "10% wk - reset Sat 18h59", "weekly reset follows Paris daylight saving time")
+                usageDisplay.updateUsage(["primary": ["usedPercent": 20.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-11-04T17:00:00Z")!.timeIntervalSince1970] as JSON])
+                check(usageDisplay.usage == "20% wk - reset Wed 18h00", "evening weekly reset retains both hour digits")
+                usageDisplay.rpc = claudeContext; usageDisplay.ready = true
+                await usageDisplay.refreshUsage()
+                check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
+                usageDisplay.updateUsage(["primary": ["usedPercent": 25.0, "windowDurationMins": 1440] as JSON, "secondary": ["usedPercent": 40.0, "windowDurationMins": 10080] as JSON])
+                check(usageDisplay.usagePercent == 40, "footer color follows the most depleted quota")
+                check(usageDisplay.usage == "25% 1d - 40% wk", "reported daily and weekly windows retain their units")
+                usageDisplay.updateUsage(["primary": ["usedPercent": 18.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 10230] as JSON, "secondary": ["usedPercent": 32.0, "windowDurationMins": 10080] as JSON])
+                check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk", "active usage matches Claude Code wording and compact countdown")
+                claudeContext.usageReader = { _ in [:] }
+                do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
+                await usageDisplay.refreshUsage()
+                check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk" && usageDisplay.usagePercent == 32, "a failed usage refresh keeps the last reported quota")
+                check(!usageDisplay.usageLoading, "a failed usage refresh stops the loading indicator")
+                claudeContext.usageReader = { _ in throw CXError(message: "Usage unavailable: Claude returned HTTP 429.") }
+                let limitsBefore = Settings.shared.value.limits, rowsBefore = usageDisplay.rows.count
+                await usageDisplay.refreshUsage()
+                check(usageDisplay.account.provider == "claude" && Settings.shared.value.limits == limitsBefore && usageDisplay.rows.count == rowsBefore, "an HTTP 429 from the usage endpoint changes neither the provider nor the limits")
+            } catch { check(false, "Claude usage: " + error.localizedDescription) }
+            claudeContext.event = { message in
+                var message = message, params = message["params"] as? JSON ?? [:]
+                params.removeValue(forKey: "threadId"); message["params"] = params
+                codexCommands.event(message)
+            }
+            claudeContext.receive(["type": "assistant", "message": ["model": "fixture-served", "usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
+            claudeContext.receive(["type": "result", "modelUsage": ["fixture-served": ["contextWindow": 1000000]]])
+            check(codexCommands.contextUsed == 203100 && codexCommands.contextLabel == "20% token - 1M", "Claude context counts the last message's input and cached tokens like Claude Code, under the model that served it")
+            claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": [["task_id": "fixture-task", "task_type": "local_bash"]]])
+            check(codexCommands.backgroundTasks == 1 && !codexCommands.busy, "a Claude background task leaves the idle session pending")
+            claudeContext.receive(["type": "system", "subtype": "task_notification", "task_id": "fixture-task", "status": "completed"])
+            claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": []])
+            check(codexCommands.backgroundTasks == 0 && codexCommands.busy, "a finished background task starts Claude's own turn")
+            claudeContext.receive(["type": "rate_limit_event", "rate_limit_info": ["status": "allowed", "unifiedWindows": ["seven_day": ["utilization": 0.22, "resetsAt": 4_097_000_000, "status": "allowed"]]]])
+            check(codexCommands.usagePercent.map { abs($0 - 22) < 0.001 } == true && codexCommands.usage.hasPrefix("22% wk - reset "), "Claude's stream reports plan usage without polling the usage endpoint")
+            claudeContext.receive(["type": "result"])
+            check(!codexCommands.busy && codexCommands.status == "Ready", "Claude's background-task turn ends on its result")
+            do {
+                let limited = ClaudeConnection(account: Account(name: "Limited", provider: "claude"), cwd: directory.path)
+                var events: [JSON] = []
+                limited.event = { events.append($0) }
+                limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "message": ["content": [["type": "text", "text": "API Error: Request rejected (429)"]]]])
+                limited.receive(["type": "result", "is_error": true, "result": "API Error: Request rejected (429)"])
+                let transient = events.compactMap { $0["method"] as? String == "turn/completed" ? (($0["params"] as? JSON)?["turn"] as? JSON)?["error"] as? JSON : nil }.first
+                let retried = transient?["rateLimited"] as? Bool == true && !events.contains { $0["method"] as? String == "cx/limit" }
+                events.removeAll()
+                limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "api_error": "usage_limit_reached",
+                                 "api_error_params": ["rate_limit_info": ["status": "rejected", "resetsAt": NSNumber(value: 4_102_444_800), "rateLimitType": "five_hour"]],
+                                 "message": ["content": [["type": "text", "text": "You've hit your limit"]]]])
+                limited.receive(["type": "result", "is_error": true, "result": "You've hit your limit"])
+                let plan = events.first { $0["method"] as? String == "cx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
+                check(retried && plan.map(limitReset) == 4_102_444_800 && !events.contains { $0["method"] as? String == "turn/completed" },
+                      "only Claude's usage_limit_reached moves the session; another 429 fails the turn for a retry")
+            }
+            do {
+                let polled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-state"))
+                var fixture: FixtureConnection?
+                polled.connectionFactory = { account, _ in let connection = FixtureConnection(account); fixture = connection; return connection }
+                try? await polled.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: nil, keepRows: false)
+                await polled.refreshCatalog()
+                let connected = fixture?.usageReads
+                await polled.refreshCatalog()
+                await polled.command("/rename Polled")
+                await polled.refreshUsage(force: false)
+                let idle = fixture?.usageReads
+                await polled.command("/usage")
+                check(connected == 1 && idle == 1 && fixture?.usageReads == 2, "Claude reads the usage endpoint once per connection and on /usage, never on a refresh or a timer")
+                polled.close()
+            }
+            do {
+                let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
+                fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])
+                check(fresh.contextLabel == "5% token - 1M", "a new Claude session shows the remembered window before its first turn ends")
+            }
+            codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
+            check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
+            codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
+            check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
+            check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")
+            check(hookSummary(["handlerType": "prompt", "statusMessage": "Check formatting"], event: "Stop", matcher: "Bash").contains("Check formatting · Matches: Bash"), "hook summaries preserve provider descriptions and matchers")
+            codexCommands.hooks.append(hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PostToolUse"))
         }
-        do {
-            let result = try await claudeContext.request("account/rateLimits/read")
-            let rate = result["rateLimits"] as? JSON ?? [:]
-            usageDisplay.updateUsage(rate)
-            check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-            check(usageDisplay.usage == "100% wk - reset Wed 1h59", "weekly reset shows Paris time without a leading hour zero")
-            check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
-            usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "10% wk - reset Sat 18h59", "weekly reset follows Paris daylight saving time")
-            usageDisplay.updateUsage(["primary": ["usedPercent": 20.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-11-04T17:00:00Z")!.timeIntervalSince1970] as JSON])
-            check(usageDisplay.usage == "20% wk - reset Wed 18h00", "evening weekly reset retains both hour digits")
-            usageDisplay.rpc = claudeContext; usageDisplay.ready = true
-            await usageDisplay.refreshUsage()
-            check(usageDisplay.usage.hasPrefix("100% wk - reset "), "session refresh reads Claude usage before a turn")
-            usageDisplay.updateUsage(["primary": ["usedPercent": 25.0, "windowDurationMins": 1440] as JSON, "secondary": ["usedPercent": 40.0, "windowDurationMins": 10080] as JSON])
-            check(usageDisplay.usagePercent == 40, "footer color follows the most depleted quota")
-            check(usageDisplay.usage == "25% 1d - 40% wk", "reported daily and weekly windows retain their units")
-            usageDisplay.updateUsage(["primary": ["usedPercent": 18.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 10230] as JSON, "secondary": ["usedPercent": 32.0, "windowDurationMins": 10080] as JSON])
-            check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk", "active usage matches Claude Code wording and compact countdown")
-            claudeContext.usageReader = { _ in [:] }
-            do { _ = try await claudeContext.request("account/rateLimits/read"); check(false, "missing Claude usage must fail explicitly") } catch { check(true, "missing Claude usage is not silently empty") }
-            await usageDisplay.refreshUsage()
-            check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk" && usageDisplay.usagePercent == 32, "a failed usage refresh keeps the last reported quota")
-            check(!usageDisplay.usageLoading, "a failed usage refresh stops the loading indicator")
-            claudeContext.usageReader = { _ in throw CXError(message: "Usage unavailable: Claude returned HTTP 429.") }
-            let limitsBefore = Settings.shared.value.limits, rowsBefore = usageDisplay.rows.count
-            await usageDisplay.refreshUsage()
-            check(usageDisplay.account.provider == "claude" && Settings.shared.value.limits == limitsBefore && usageDisplay.rows.count == rowsBefore, "an HTTP 429 from the usage endpoint changes neither the provider nor the limits")
-        } catch { check(false, "Claude usage: " + error.localizedDescription) }
-        claudeContext.event = { message in
-            var message = message, params = message["params"] as? JSON ?? [:]
-            params.removeValue(forKey: "threadId"); message["params"] = params
-            codexCommands.event(message)
-        }
-        claudeContext.receive(["type": "assistant", "message": ["model": "fixture-served", "usage": ["input_tokens": 100, "cache_read_input_tokens": 200000, "cache_creation_input_tokens": 3000, "output_tokens": 500]]])
-        claudeContext.receive(["type": "result", "modelUsage": ["fixture-served": ["contextWindow": 1000000]]])
-        check(codexCommands.contextUsed == 203100 && codexCommands.contextLabel == "20% token - 1M", "Claude context counts the last message's input and cached tokens like Claude Code, under the model that served it")
-        claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": [["task_id": "fixture-task", "task_type": "local_bash"]]])
-        check(codexCommands.backgroundTasks == 1 && !codexCommands.busy, "a Claude background task leaves the idle session pending")
-        claudeContext.receive(["type": "system", "subtype": "task_notification", "task_id": "fixture-task", "status": "completed"])
-        claudeContext.receive(["type": "system", "subtype": "background_tasks_changed", "tasks": []])
-        check(codexCommands.backgroundTasks == 0 && codexCommands.busy, "a finished background task starts Claude's own turn")
-        claudeContext.receive(["type": "rate_limit_event", "rate_limit_info": ["status": "allowed", "unifiedWindows": ["seven_day": ["utilization": 0.22, "resetsAt": 4_097_000_000, "status": "allowed"]]]])
-        check(codexCommands.usagePercent.map { abs($0 - 22) < 0.001 } == true && codexCommands.usage.hasPrefix("22% wk - reset "), "Claude's stream reports plan usage without polling the usage endpoint")
-        claudeContext.receive(["type": "result"])
-        check(!codexCommands.busy && codexCommands.status == "Ready", "Claude's background-task turn ends on its result")
-        do {
-            let limited = ClaudeConnection(account: Account(name: "Limited", provider: "claude"), cwd: directory.path)
-            var events: [JSON] = []
-            limited.event = { events.append($0) }
-            limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "message": ["content": [["type": "text", "text": "API Error: Request rejected (429)"]]]])
-            limited.receive(["type": "result", "is_error": true, "result": "API Error: Request rejected (429)"])
-            let transient = events.compactMap { $0["method"] as? String == "turn/completed" ? (($0["params"] as? JSON)?["turn"] as? JSON)?["error"] as? JSON : nil }.first
-            let retried = transient?["rateLimited"] as? Bool == true && !events.contains { $0["method"] as? String == "cx/limit" }
-            events.removeAll()
-            limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "api_error": "usage_limit_reached",
-                             "api_error_params": ["rate_limit_info": ["status": "rejected", "resetsAt": NSNumber(value: 4_102_444_800), "rateLimitType": "five_hour"]],
-                             "message": ["content": [["type": "text", "text": "You've hit your limit"]]]])
-            limited.receive(["type": "result", "is_error": true, "result": "You've hit your limit"])
-            let plan = events.first { $0["method"] as? String == "cx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
-            check(retried && plan.map(limitReset) == 4_102_444_800 && !events.contains { $0["method"] as? String == "turn/completed" },
-                  "only Claude's usage_limit_reached moves the session; another 429 fails the turn for a retry")
-        }
-        do {
-            let polled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-state"))
-            var fixture: FixtureConnection?
-            polled.connectionFactory = { account, _ in let connection = FixtureConnection(account); fixture = connection; return connection }
-            try? await polled.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: nil, keepRows: false)
-            await polled.refreshCatalog()
-            let connected = fixture?.usageReads
-            await polled.refreshCatalog()
-            await polled.command("/rename Polled")
-            await polled.refreshUsage(force: false)
-            let idle = fixture?.usageReads
-            await polled.command("/usage")
-            check(connected == 1 && idle == 1 && fixture?.usageReads == 2, "Claude reads the usage endpoint once per connection and on /usage, never on a refresh or a timer")
-            polled.close()
-        }
-        do {
-            let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
-            fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])
-            check(fresh.contextLabel == "5% token - 1M", "a new Claude session shows the remembered window before its first turn ends")
-        }
-        codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
-        check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
-        codexCommands.hooks = [hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PreToolUse"), hookSummary(["command": "bash /private/hooks/verify.sh", "enabled": false], event: "PreToolUse")]
-        check(codexCommands.capabilityItems("Hooks").count == 2 && codexCommands.capabilityItems("Hooks")[0].detail.contains("before") && Set(codexCommands.capabilityItems("Hooks").map(\.id)).count == 2, "hook popups retain separate registrations with descriptions")
-        check(codexCommands.capabilityItems("Hooks").map(\.name) == ["check.py", "verify.sh"] && codexCommands.hooks[0].contains("trusted") && codexCommands.hooks[1].contains("disabled") && !codexCommands.hooks.joined().contains("/private"), "hook summaries show script names and states without command paths")
-        check(hookSummary(["handlerType": "prompt", "statusMessage": "Check formatting"], event: "Stop", matcher: "Bash").contains("Check formatting · Matches: Bash"), "hook summaries preserve provider descriptions and matchers")
-        codexCommands.hooks.append(hookSummary(["command": "python3 /private/hooks/check.py", "trustStatus": "trusted"], event: "PostToolUse"))
         let groupedHooks = codexCommands.capabilityItems("Hooks")
-        check(groupedHooks.count == 2 && groupedHooks[0].detail.contains("PreToolUse") && groupedHooks[0].detail.contains("PostToolUse"), "repeated hooks share one card while retaining each registration")
-        check(capabilityMatches(groupedHooks, query: "PostToolUse").map(\.name) == ["check.py"], "grouped hook search includes every registration")
-        check(!groupedHooks[0].detail.contains("trusted") && groupedHooks[1].detail.contains("disabled"), "hook cards omit trusted while preserving disabled status and descriptions")
-        do {
-            let usageState = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-loading"))
-            check(usageState.usageLoading, "usage starts with a loading indicator")
-            let mirror = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-mirror"))
-            mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
-            check(mirror.usageLoading, "runtime metadata carries pending usage to the frontend")
-            usageState.updateUsage([:])
-            check(!usageState.usageLoading && usageState.usage.isEmpty, "an empty usage response stops loading and remains not reported")
-            mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
-            check(!mirror.usageLoading, "runtime metadata clears the frontend loading indicator")
+        await part {
+            check(groupedHooks.count == 2 && groupedHooks[0].detail.contains("PreToolUse") && groupedHooks[0].detail.contains("PostToolUse"), "repeated hooks share one card while retaining each registration")
+            check(capabilityMatches(groupedHooks, query: "PostToolUse").map(\.name) == ["check.py"], "grouped hook search includes every registration")
+            check(!groupedHooks[0].detail.contains("trusted") && groupedHooks[1].detail.contains("disabled"), "hook cards omit trusted while preserving disabled status and descriptions")
+            do {
+                let usageState = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-loading"))
+                check(usageState.usageLoading, "usage starts with a loading indicator")
+                let mirror = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("usage-mirror"))
+                mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
+                check(mirror.usageLoading, "runtime metadata carries pending usage to the frontend")
+                usageState.updateUsage([:])
+                check(!usageState.usageLoading && usageState.usage.isEmpty, "an empty usage response stops loading and remains not reported")
+                mirror.applyRuntimeMetadata(usageState.runtimeMetadata())
+                check(!mirror.usageLoading, "runtime metadata clears the frontend loading indicator")
+            }
+            do {
+                let animation = SendAnimation()
+                let origin = CGRect(x: 170, y: 700, width: 900, height: 54)
+                let target = CGRect(x: 700, y: 500, width: 370, height: 48)
+                let old = Row("user", [Item(["id": "old", "content": [["type": "text", "text": "Send this"]]])])
+                let new = Row("user", [Item(["id": "new", "content": [["type": "text", "text": "Send this"]]])])
+                animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
+                animation.prepare(text: "Send this", images: [], rows: [old])
+                animation.update(frames: ["composer": origin, "old": target], rows: [old], reduceMotion: false)
+                check(animation.flight == nil, "existing identical messages do not animate on submission")
+                animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: false)
+                check(animation.flight?.item.id == "new" && animation.flight?.origin == origin && animation.flight?.destination == target, "accepted messages animate from the composer to their measured bubble")
+                animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
+                check(animation.flight == nil, "failed sends remove the moving bubble")
+                animation.prepare(text: "Send this", images: [], rows: [old])
+                animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: true)
+                check(animation.flight == nil, "Reduce Motion skips the send flight")
+                let updates = NSMutableArray()
+                for _ in 0..<10 { animation.receive([:], rows: { updates.add(1); return [] }, reduceMotion: false) }
+                check(updates.count == 4, "a layout loop of frame updates stops after four in one run loop turn")
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                check(updates.count == 5, "the latest frames of a cut burst apply on the next turn")
+            }
+            do {
+                let submission = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("send-animation"))
+                submission.connectionFactory = { account, _ in FixtureConnection(account) }
+                await submission.connect(resume: nil)
+                let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+                storage.addLayoutManager(manager); manager.addTextContainer(container)
+                let field = ComposerText(frame: .zero, textContainer: container)
+                field.heldStorage = storage; field.session = submission
+                var prepared = false
+                field.willSubmit = { text, images, _ in prepared = text == "Animate this message" && images.isEmpty }
+                submission.editDraft(NSAttributedString(string: "Animate this message")); field.setDraft(submission.draft)
+                let input = Composer.Coordinator(submission)
+                check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && prepared, "Return prepares the composer morph before sending")
+                for _ in 0..<200 where submission.rows.allSatisfy({ $0.kind != "user" }) { try? await Task.sleep(nanoseconds: 1_000_000) }
+                check(submission.rows.contains { $0.kind == "user" } && submission.draft.length == 0, "the animated Return path still sends and clears the accepted draft")
+                submission.close()
+            }
+            codexCommands.close()
+            Settings.shared.value = Preferences(); Settings.shared.save()
         }
-        do {
-            let animation = SendAnimation()
-            let origin = CGRect(x: 170, y: 700, width: 900, height: 54)
-            let target = CGRect(x: 700, y: 500, width: 370, height: 48)
-            let old = Row("user", [Item(["id": "old", "content": [["type": "text", "text": "Send this"]]])])
-            let new = Row("user", [Item(["id": "new", "content": [["type": "text", "text": "Send this"]]])])
-            animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
-            animation.prepare(text: "Send this", images: [], rows: [old])
-            animation.update(frames: ["composer": origin, "old": target], rows: [old], reduceMotion: false)
-            check(animation.flight == nil, "existing identical messages do not animate on submission")
-            animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: false)
-            check(animation.flight?.item.id == "new" && animation.flight?.origin == origin && animation.flight?.destination == target, "accepted messages animate from the composer to their measured bubble")
-            animation.update(frames: ["composer": origin], rows: [old], reduceMotion: false)
-            check(animation.flight == nil, "failed sends remove the moving bubble")
-            animation.prepare(text: "Send this", images: [], rows: [old])
-            animation.update(frames: ["composer": origin, "new": target], rows: [old, new], reduceMotion: true)
-            check(animation.flight == nil, "Reduce Motion skips the send flight")
-            let updates = NSMutableArray()
-            for _ in 0..<10 { animation.receive([:], rows: { updates.add(1); return [] }, reduceMotion: false) }
-            check(updates.count == 4, "a layout loop of frame updates stops after four in one run loop turn")
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            check(updates.count == 5, "the latest frames of a cut burst apply on the next turn")
-        }
-        do {
-            let submission = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("send-animation"))
-            submission.connectionFactory = { account, _ in FixtureConnection(account) }
-            await submission.connect(resume: nil)
-            let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
-            storage.addLayoutManager(manager); manager.addTextContainer(container)
-            let field = ComposerText(frame: .zero, textContainer: container)
-            field.heldStorage = storage; field.session = submission
-            var prepared = false
-            field.willSubmit = { text, images, _ in prepared = text == "Animate this message" && images.isEmpty }
-            submission.editDraft(NSAttributedString(string: "Animate this message")); field.setDraft(submission.draft)
-            let input = Composer.Coordinator(submission)
-            check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && prepared, "Return prepares the composer morph before sending")
-            for _ in 0..<200 where submission.rows.allSatisfy({ $0.kind != "user" }) { try? await Task.sleep(nanoseconds: 1_000_000) }
-            check(submission.rows.contains { $0.kind == "user" } && submission.draft.length == 0, "the animated Return path still sends and clears the accepted draft")
-            submission.close()
-        }
-        codexCommands.close()
-        Settings.shared.value = Preferences(); Settings.shared.save()
         let delayed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-commands"))
-        delayed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.sendDelay = 100_000_000; return fixture }
-        await delayed.connect(resume: nil)
-        delayed.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
-        delayed.draft = draftA; delayed.showCommands("/"); delayed.chooseCommand(delayed.providerCommands[0])
-        let pendingCommand = Task { await delayed.command("/claude:skill:fixture-skill ") }
-        for _ in 0..<100 where (delayed.rpc as? FixtureConnection)?.sent.isEmpty != false { try? await Task.sleep(nanoseconds: 1_000_000) }
-        delayed.editDraft(NSAttributedString(string: "/review new pending draft"))
-        delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
-        await pendingCommand.value
-        check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Draft A") && delayed.draft.string.contains("/review new pending draft") && draftContent(delayed.draft).contains { $0["path"] as? String == imagePath }, "new slash input during native dispatch preserves both drafts and attachments")
-        for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-        delayed.draft = draftA; delayed.showCommands("/")
-        delayed.editDraft(NSAttributedString(string: "Normal replacement"))
-        delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
-        check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Normal replacement") && delayed.draft.string.contains("Draft A"), "abandoning command mode restores the buffer visibly and clears it")
-        for source in ["/claude:compact", "/vcx:compact", "/claude:review pending changes"] {
-            delayed.draft = NSAttributedString(string: source)
-            await delayed.command(source)
-            let canonical = source.replacingOccurrences(of: "/claude:", with: "/").replacingOccurrences(of: "/vcx:", with: "/")
-            check(((delayed.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == canonical, "scoped Claude commands forward the canonical verb")
-            for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+        await part {
+            delayed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.sendDelay = 100_000_000; return fixture }
+            await delayed.connect(resume: nil)
+            delayed.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture"]]])
+            delayed.draft = draftA; delayed.showCommands("/"); delayed.chooseCommand(delayed.providerCommands[0])
         }
-        delayed.close()
+        let pendingCommand = Task { await delayed.command("/claude:skill:fixture-skill ") }
+        await part {
+            for _ in 0..<100 where (delayed.rpc as? FixtureConnection)?.sent.isEmpty != false { try? await Task.sleep(nanoseconds: 1_000_000) }
+            delayed.editDraft(NSAttributedString(string: "/review new pending draft"))
+            delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
+            await pendingCommand.value
+            check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Draft A") && delayed.draft.string.contains("/review new pending draft") && draftContent(delayed.draft).contains { $0["path"] as? String == imagePath }, "new slash input during native dispatch preserves both drafts and attachments")
+            for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            delayed.draft = draftA; delayed.showCommands("/")
+            delayed.editDraft(NSAttributedString(string: "Normal replacement"))
+            delayed.updateCommands(delayed.draft.string, caret: delayed.draft.length)
+            check(delayed.savedCommandDraft == nil && delayed.draft.string.contains("Normal replacement") && delayed.draft.string.contains("Draft A"), "abandoning command mode restores the buffer visibly and clears it")
+            for source in ["/claude:compact", "/vcx:compact", "/claude:review pending changes"] {
+                delayed.draft = NSAttributedString(string: source)
+                await delayed.command(source)
+                let canonical = source.replacingOccurrences(of: "/claude:", with: "/").replacingOccurrences(of: "/vcx:", with: "/")
+                check(((delayed.rpc as? FixtureConnection)?.sent.last?["input"] as? [JSON])?.last?["text"] as? String == canonical, "scoped Claude commands forward the canonical verb")
+                for _ in 0..<100 where delayed.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
+            }
+            delayed.close()
+        }
         let destinationText = storedDraft(secondID).compactMap { $0["text"] as? String }.joined()
         let transitions = Session(cwd: directory.path, stateDirectory: draftsDirectory)
         var transitionDelay: UInt64 = 0, transitionFail = false
-        transitions.connectionFactory = { account, _ in
-            let fixture = FixtureConnection(account); fixture.startDelay = transitionDelay; fixture.failStart = transitionFail; return fixture
+        await part {
+            transitions.connectionFactory = { account, _ in
+                let fixture = FixtureConnection(account); fixture.startDelay = transitionDelay; fixture.failStart = transitionFail; return fixture
+            }
+            await transitions.connect(resume: nil)
+            transitions.draft = draftA
+            transitionDelay = 100_000_000
         }
-        await transitions.connect(resume: nil)
-        transitions.draft = draftA
-        transitionDelay = 100_000_000
         let typedWhileConnecting = NSMutableAttributedString(string: "Typed while connecting ")
         typedWhileConnecting.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         let pendingImagePath = directory.appendingPathComponent("attached during resume.png").path
-        try! FileManager.default.copyItem(atPath: imagePath, toPath: pendingImagePath)
-        for operation in ["resume", "failed-resume", "failed-directory"] {
-            transitionFail = operation != "resume"
-            transitions.draft = draftA; transitions.showCommands("/")
-            let previousConversation = transitions.currentConversationID
-            let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
-            transitions.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: source))
-            let pendingTransition = Task { await transitions.command(source) }
-            for _ in 0..<100 where (transitions.rpc as? FixtureConnection)?.startDelay != transitionDelay { try? await Task.sleep(nanoseconds: 1_000_000) }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            check(transitions.changing, "connection startup keeps transitions serialized")
-            let connection = transitions.rpc
-            await transitions.command("/provider qwen")
-            check(transitions.rpc === connection && Settings.shared.value.provider == "auto", "a second provider transition cannot replace a starting connection")
-            if operation == "resume" { await transitions.command("/attach " + pendingImagePath) }
-            else { transitions.editDraft(typedWhileConnecting) }
-            await pendingTransition.value
-            let expectedImagePath = operation == "resume" ? pendingImagePath : imagePath
-            check((operation == "resume" || transitions.draft.string.contains("Typed while connecting")) && draftContent(transitions.draft).contains { $0["path"] as? String == expectedImagePath }, "\(operation) preserves text and images entered during connection")
-            if operation == "resume" { check(!destinationText.isEmpty && transitions.draft.string.hasPrefix(destinationText), "successful resume merges the destination draft with pending edits") }
-            else { check(transitions.draft.string.contains("Draft A"), "\(operation) retains the original draft when rolling back") }
-            transitionFail = false
-            await transitions.reconnect()
-            if operation == "failed-directory" { check(transitions.currentConversationID == previousConversation && transitions.cwd == directory.path, "failed directory changes reconnect to the original record and directory") }
+        await part {
+            try! FileManager.default.copyItem(atPath: imagePath, toPath: pendingImagePath)
+            for operation in ["resume", "failed-resume", "failed-directory"] {
+                transitionFail = operation != "resume"
+                transitions.draft = draftA; transitions.showCommands("/")
+                let previousConversation = transitions.currentConversationID
+                let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
+                transitions.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: source))
+                let pendingTransition = Task { await transitions.command(source) }
+                for _ in 0..<100 where (transitions.rpc as? FixtureConnection)?.startDelay != transitionDelay { try? await Task.sleep(nanoseconds: 1_000_000) }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                check(transitions.changing, "connection startup keeps transitions serialized")
+                let connection = transitions.rpc
+                await transitions.command("/provider qwen")
+                check(transitions.rpc === connection && Settings.shared.value.provider == "auto", "a second provider transition cannot replace a starting connection")
+                if operation == "resume" { await transitions.command("/attach " + pendingImagePath) }
+                else { transitions.editDraft(typedWhileConnecting) }
+                await pendingTransition.value
+                let expectedImagePath = operation == "resume" ? pendingImagePath : imagePath
+                check((operation == "resume" || transitions.draft.string.contains("Typed while connecting")) && draftContent(transitions.draft).contains { $0["path"] as? String == expectedImagePath }, "\(operation) preserves text and images entered during connection")
+                if operation == "resume" { check(!destinationText.isEmpty && transitions.draft.string.hasPrefix(destinationText), "successful resume merges the destination draft with pending edits") }
+                else { check(transitions.draft.string.contains("Draft A"), "\(operation) retains the original draft when rolling back") }
+                transitionFail = false
+                await transitions.reconnect()
+                if operation == "failed-directory" { check(transitions.currentConversationID == previousConversation && transitions.cwd == directory.path, "failed directory changes reconnect to the original record and directory") }
+            }
+            transitions.close()
         }
-        transitions.close()
         let listing = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("delayed-list"))
-        listing.connectionFactory = { account, _ in FixtureConnection(account) }
-        await listing.connect(resume: nil)
+        await part {
+            listing.connectionFactory = { account, _ in FixtureConnection(account) }
+            await listing.connect(resume: nil)
+        }
         let listingConnection = listing.rpc as! FixtureConnection
         listingConnection.catalogDelay = 100_000_000
         let previousCatalogRequests = listingConnection.catalogRequests
         listing.draft = draftA; listing.showCommands("/resume")
         let pendingListing = Task { await listing.command("/resume") }
-        for _ in 0..<100 where listingConnection.catalogRequests == previousCatalogRequests { try? await Task.sleep(nanoseconds: 1_000_000) }
-        listing.editDraft(typedWhileConnecting)
-        listing.updateCommands(listing.draft.string, caret: listing.draft.length)
-        await pendingListing.value
-        check(listing.savedCommandDraft == nil && listing.draft.string.contains("Typed while connecting") && draftContent(listing.draft).contains { $0["path"] as? String == imagePath }, "resume listing keeps text and images entered while catalog refreshes")
-        listing.close()
-        Settings.shared.value = Preferences(); Settings.shared.save()
+        await part {
+            for _ in 0..<100 where listingConnection.catalogRequests == previousCatalogRequests { try? await Task.sleep(nanoseconds: 1_000_000) }
+            listing.editDraft(typedWhileConnecting)
+            listing.updateCommands(listing.draft.string, caret: listing.draft.length)
+            await pendingListing.value
+            check(listing.savedCommandDraft == nil && listing.draft.string.contains("Typed while connecting") && draftContent(listing.draft).contains { $0["path"] as? String == imagePath }, "resume listing keeps text and images entered while catalog refreshes")
+            listing.close()
+            Settings.shared.value = Preferences(); Settings.shared.save()
+        }
         let claudeLimit = Settings.shared.value.limits["claude-default"]
         let claudeDown = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("claude-down"))
-        claudeDown.connectionFactory = { account, _ in
-            let connection = FixtureConnection(account)
-            connection.failStart = account.provider == "claude"
-            return connection
+        await part {
+            claudeDown.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account)
+                connection.failStart = account.provider == "claude"
+                return connection
+            }
+            await claudeDown.connect(resume: nil)
+            check(!claudeDown.ready && claudeDown.account.provider == "claude" && claudeDown.status == "Connection failed" && Settings.shared.value.limits["claude-default"] == claudeLimit, "a Claude start failure shows its error instead of switching provider")
+            claudeDown.close()
+            Settings.shared.value.provider = "codex"; Settings.shared.save()
         }
-        await claudeDown.connect(resume: nil)
-        check(!claudeDown.ready && claudeDown.account.provider == "claude" && claudeDown.status == "Connection failed" && Settings.shared.value.limits["claude-default"] == claudeLimit, "a Claude start failure shows its error instead of switching provider")
-        claudeDown.close()
-        Settings.shared.value.provider = "codex"; Settings.shared.save()
         let unavailable = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unavailable"))
-        unavailable.connectionFactory = { account, _ in
-            let connection = FixtureConnection(account)
-            connection.failStart = account.provider == "claude"
-            return connection
+        await part {
+            unavailable.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account)
+                connection.failStart = account.provider == "claude"
+                return connection
+            }
+            await unavailable.connect(resume: nil)
+            check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "a session started on Codex never reaches the failing Claude")
+            unavailable.draft = draftA
+            unavailable.effort = "high"
+            unavailable.showCommands("/model ")
+            check(unavailable.completeCommand(), "Return accepts the highlighted current provider")
+            for _ in 0..<100 where unavailable.commandQuery != "/model codex " { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(unavailable.commandOptions.map(\.name) == ["fixture-model"], "choosing a provider opens its model menu immediately")
+            check(unavailable.completeCommand(), "Return accepts the highlighted current model")
+            for _ in 0..<100 where unavailable.commandQuery != "/model codex fixture-model " { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(unavailable.commandOptions.map(\.name) == ["low", "high"], "choosing a model opens its effort menu immediately")
+            check(unavailable.commandOptions[unavailable.commandSelection].name == "high", "provider and model navigation retains the selected effort")
+            check(unavailable.completeCommand(), "Return accepts the highlighted current effort")
+            for _ in 0..<100 where unavailable.savedCommandDraft != nil || unavailable.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+            check(unavailable.effort == "high" && unavailable.draft.isEqual(to: draftA) && unavailable.savedCommandDraft == nil, "finishing model selection restores the original prompt and attachments")
+            unavailable.close()
         }
-        await unavailable.connect(resume: nil)
-        check(unavailable.ready && unavailable.account.provider == "codex" && unavailable.rows.isEmpty, "a session started on Codex never reaches the failing Claude")
-        unavailable.draft = draftA
-        unavailable.effort = "high"
-        unavailable.showCommands("/model ")
-        check(unavailable.completeCommand(), "Return accepts the highlighted current provider")
-        for _ in 0..<100 where unavailable.commandQuery != "/model codex " { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(unavailable.commandOptions.map(\.name) == ["fixture-model"], "choosing a provider opens its model menu immediately")
-        check(unavailable.completeCommand(), "Return accepts the highlighted current model")
-        for _ in 0..<100 where unavailable.commandQuery != "/model codex fixture-model " { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(unavailable.commandOptions.map(\.name) == ["low", "high"], "choosing a model opens its effort menu immediately")
-        check(unavailable.commandOptions[unavailable.commandSelection].name == "high", "provider and model navigation retains the selected effort")
-        check(unavailable.completeCommand(), "Return accepts the highlighted current effort")
-        for _ in 0..<100 where unavailable.savedCommandDraft != nil || unavailable.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
-        check(unavailable.effort == "high" && unavailable.draft.isEqual(to: draftA) && unavailable.savedCommandDraft == nil, "finishing model selection restores the original prompt and attachments")
-        unavailable.close()
         print("\(count) native checks passed")
         return true
     }
