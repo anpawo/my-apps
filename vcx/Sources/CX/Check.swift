@@ -843,6 +843,11 @@ enum Check {
         let envB = agentEnvironment(Account(name: "B", provider: "codex", home: "/tmp/account-b"))
         check(envA["CODEX_HOME"] == "/tmp/account-a" && envB["CODEX_HOME"] == "/tmp/account-b", "account homes stay isolated")
         check(envA["OPENAI_API_KEY"] == nil && envA["ANTHROPIC_API_KEY"] == nil, "subscription mode strips inherited API keys")
+        check(parseLoginEnvironment(Data("motd\0vcx-environment\0noise\0vcx-environment\0A=1\0B=two\nlines\0=bad\0".utf8)) == ["A": "1", "B": "two\nlines"], "the login environment is read after its last marker, multi-line values kept")
+        let plain = agentEnvironment(), login = loginEnvironment ?? [:], paths = plain["PATH"]?.split(separator: ":").map(String.init) ?? []
+        let stripped = ["PATH", "PWD", "OLDPWD", "SHLVL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"]
+        check(!login.isEmpty && login.allSatisfy { $0.key.hasPrefix("CLAUDE") || stripped.contains($0.key) || plain[$0.key] == $0.value } && !plain.keys.contains { $0.hasPrefix("CLAUDE") || stripped.dropFirst().contains($0) }, "agents get the login shell's environment without CLAUDE variables or API keys")
+        check(Set(paths).isSuperset(of: (login["PATH"] ?? "").split(separator: ":").map(String.init) + [NSHomeDirectory() + "/.local/bin", "/opt/homebrew/bin", "/usr/bin", "/sbin"]) && (!FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.local/lib/build-stack/bin") || paths.first == NSHomeDirectory() + "/.local/lib/build-stack/bin"), "agent PATH keeps the login entries and VCX's own, the build queue first")
         check(Settings.shared.candidates.map(\.provider) == ["claude", "codex", "qwen"], "default provider priority")
         do {
             let file = Settings.directory.appendingPathComponent("settings.json"), original = try? Data(contentsOf: file)

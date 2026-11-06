@@ -466,6 +466,7 @@ if let index = args.firstIndex(of: "--runtime-worker") {
     app.setActivationPolicy(.prohibited)
     _ = setsid()
     guard index + 1 < args.count else { fputs("Missing runtime socket.\n", stderr); exit(2) }
+    DispatchQueue.global().async { _ = loginEnvironment }
     var command: [String]?
     if let fixture = args.firstIndex(of: "--runtime-fixture-command") {
         guard args.contains("--runtime-test"), fixture + 1 < args.count,

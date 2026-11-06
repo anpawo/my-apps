@@ -137,9 +137,43 @@ final class Settings: ObservableObject {
     func cancelSignIn() { login?.terminate() }
 }
 
+// A Finder launch lacks what his login shell sets (PATH entries, tool roots): read it once, from a file so a daemon the profile starts cannot hold the read open.
+let loginEnvironment: [String: String]? = {
+    guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell.map({ String(cString: $0) }), !shell.isEmpty else { return nil }
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-environment-" + UUID().uuidString)
+    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+          let writer = try? FileHandle(forWritingTo: file), let reader = try? FileHandle(forReadingFrom: file) else { return nil }
+    try? FileManager.default.removeItem(at: file)
+    defer { try? writer.close(); try? reader.close() }
+    let process = Process(), done = DispatchSemaphore(value: 0)
+    process.executableURL = URL(fileURLWithPath: shell)
+    process.arguments = ["-l", "-c", "printf '\\0vcx-environment\\0'; exec /usr/bin/env -0"]
+    process.standardInput = FileHandle.nullDevice; process.standardOutput = writer; process.standardError = FileHandle.nullDevice
+    process.terminationHandler = { _ in done.signal() }
+    guard (try? process.run()) != nil else { return nil }
+    if done.wait(timeout: .now() + 3) == .timedOut { kill(process.processIdentifier, SIGKILL); return nil }
+    return parseLoginEnvironment(reader.readDataToEndOfFile())
+}()
+
+func parseLoginEnvironment(_ data: Data) -> [String: String]? {
+    guard let marker = data.range(of: Data("\0vcx-environment\0".utf8), options: .backwards) else { return nil }
+    var environment: [String: String] = [:]
+    for entry in data[marker.upperBound...].split(separator: 0) {
+        let text = String(decoding: entry, as: UTF8.self)
+        guard let equals = text.firstIndex(of: "="), equals != text.startIndex else { continue }
+        environment[String(text[..<equals])] = String(text[text.index(after: equals)...])
+    }
+    return environment.isEmpty ? nil : environment
+}
+
 func agentEnvironment(_ account: Account? = nil) -> [String: String] {
-    var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE") }
-    environment["PATH"] = NSHomeDirectory() + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    var environment = (loginEnvironment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("CLAUDE") && !["PWD", "OLDPWD", "SHLVL"].contains($0.key) }
+    // Claude's Bash hook puts the build queue's swift first; Codex and Qwen shells get it here.
+    let queue = NSHomeDirectory() + "/.local/lib/build-stack/bin"
+    let login = loginEnvironment?["PATH"]?.split(separator: ":").map(String.init) ?? []
+    let fixed = (NSHomeDirectory() + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+    let paths = (FileManager.default.fileExists(atPath: queue) ? [queue] : []) + login + fixed
+    environment["PATH"] = paths.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: ":")
     // Subscription selection must not silently use an inherited, metered API key.
     for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"] { environment.removeValue(forKey: key) }
     if let home = account?.home { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
