@@ -155,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let session = Session(cwd: options.cwd, stateDirectory: headless ? RuntimeIdentity.directory.appendingPathComponent("frontend-state") : nil)
         let restoring = restoreFile
         session.frontendReplacing = restoring != nil
+        RuntimeUpdate.adopt(state, session: session)
         let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath, recovery: options.recoveryEntry)
         session.runtimeClient = client
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

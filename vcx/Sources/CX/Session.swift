@@ -127,6 +127,9 @@ final class Session: ObservableObject {
         var next = follow; next.userScroll(distance: distance)
         if next.attached != follow.attached { follow = next }
     }
+    // Each drawn exchange's top in the transcript's viewport; not published, scrolling rewrites it every frame.
+    var exchangeTops: [UUID: CGFloat] = [:]
+    var scrollToExchange: ((UUID) -> Void)?
     @Published var permissions: [Permission] = [] {
         didSet { if questionFlow?.request.id != permissions.first?.id { questionFlow = permissions.first.flatMap(QuestionFlow.init) } }
     }

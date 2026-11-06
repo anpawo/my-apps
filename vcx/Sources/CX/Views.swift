@@ -417,6 +417,9 @@ struct CXView: View {
                                         if let last = parts.last { ConversationRow(row: last, session: session).equatable().id(last.id) }
                                         ForEach(parts.notices) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
+                                    .id("exchange-\(section.id)")
+                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { session.exchangeTops[section.id] = $0 }
+                                    .onDisappear { session.exchangeTops[section.id] = nil }
                                 }
                             } header: {
                                 if pinned, let question = section.question { questionRow(question, closesUp: section.rows.isEmpty && section.id != sections.last?.id, pinned: true) }
@@ -445,7 +448,10 @@ struct CXView: View {
                         else { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
-                .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onAppear {
+                    session.scrollToExchange = { proxy.scrollTo("exchange-\($0)", anchor: .top) }
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
                 if !session.follow.attached {
                     Button { session.follow.attached = true; land(proxy) } label: {
                         Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule())

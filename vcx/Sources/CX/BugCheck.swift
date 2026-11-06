@@ -217,6 +217,62 @@ enum BugCheck {
                 try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("pinned-question.png"))
             }
         }
+        do {
+            let source = SessionBackend(session: Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("scroll-source")))
+            defer { source.close() }
+            for n in 1...30 {
+                source.session.show(["id": "scroll-q\(n)", "type": "userMessage", "content": [["type": "text", "text": "Question \(n)"]]])
+                source.session.show(["id": "scroll-a\(n)", "type": "agentMessage", "provider": "Claude", "text": (1...6).map { "Answer \(n), paragraph \($0), long enough to wrap where the chat column ends on a window this wide." }.joined(separator: "\n\n")])
+            }
+            let snapshot = source.snapshot()
+            // The order createWindow follows when an update or a recovery reopens a window.
+            func reopen(_ name: String, _ state: JSON) async -> (Session, NSWindow) {
+                let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent(name))
+                session.ready = true; session.status = "Ready"
+                RuntimeUpdate.adopt(state, session: session)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                // connect applies the snapshot in a task of its own and restores once it resumes.
+                await Task { session.applyRuntimeSnapshot(snapshot) }.value
+                RuntimeUpdate.restore(state, window: window, session: session)
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                return (session, window)
+            }
+            func image(_ window: NSWindow, _ name: String) -> NSBitmapImageRep? {
+                guard let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return nil }
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent(name + ".png")) }
+                return bitmap
+            }
+            let (old, oldWindow) = await reopen("scroll-old", [:])
+            defer { oldWindow.close(); old.close() }
+            if let scroll = RuntimeUpdate.scrollView(in: oldWindow.contentView) {
+                // Up from the end a screen at a time, as a hand scrolls, so the rows passed are measured.
+                var y = scroll.contentView.bounds.origin.y
+                while y > 1500 {
+                    y = max(1500, y - 300)
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: y)); scroll.reflectScrolledClipView(scroll.contentView)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.05)); oldWindow.contentView?.layoutSubtreeIfNeeded()
+                }
+            }
+            old.follow.attached = false
+            await settle(); oldWindow.contentView?.layoutSubtreeIfNeeded()
+            // Through JSON as the handoff ticket carries it: a raw CGFloat does not cast to Double.
+            let state = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: RuntimeUpdate.state(window: oldWindow, session: old))) as? JSON ?? [:]
+            let (new, newWindow) = await reopen("scroll-new", state)
+            defer { newWindow.close(); new.close() }
+            let before = state["scrollY"] as? Double ?? 0, after = Double(RuntimeUpdate.scrollView(in: newWindow.contentView)?.contentView.bounds.origin.y ?? 0)
+            var differing = 0, total = 0
+            if let a = image(oldWindow, "scroll-before-update"), let b = image(newWindow, "scroll-after-update"), let pa = a.bitmapData, let pb = b.bitmapData, a.bytesPerRow * a.pixelsHigh == b.bytesPerRow * b.pixelsHigh {
+                total = a.bytesPerRow * a.pixelsHigh
+                for index in 0..<total where pa[index] != pb[index] { differing += 1 }
+            }
+            let saved = state["anchorTop"] as? Double, shown = (state["anchor"] as? String).flatMap { UUID(uuidString: $0) }.flatMap { new.exchangeTops[$0] }.map(Double.init)
+            print("Window scrolled to \(Int(before)) pt before an update, \(Int(after)) pt after; the exchange at the top edge sat at \(saved.map { String(format: "%.2f", $0) } ?? "none") pt, now \(shown.map { String(format: "%.2f", $0) } ?? "none") pt; \(total == 0 ? 100 : differing * 100 / total)% of the picture differs")
+            check(before > 0 && !new.follow.attached && saved != nil && shown != nil && abs(shown! - saved!) < 1 && total > 0 && differing * 20 < total, "a window reopened by an update shows what it showed before")
+        }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")

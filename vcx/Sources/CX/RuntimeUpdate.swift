@@ -117,7 +117,8 @@ enum RuntimeUpdate {
         guard let view else { return nil }
         let children = view.subviews.compactMap { scrollView(in: $0) }
         let own = (view as? NSScrollView).flatMap { $0.documentView is ComposerText ? nil : $0 }
-        return (children + [own].compactMap { $0 }).max { $0.bounds.height < $1.bounds.height }
+        // The widest: the sidebar's scroll view is taller than the transcript's.
+        return (children + [own].compactMap { $0 }).max { $0.bounds.width < $1.bounds.width }
     }
 
     static func composer(in view: NSView?) -> ComposerText? {
@@ -127,13 +128,23 @@ enum RuntimeUpdate {
 
     static func state(window: NSWindow, session: Session) -> JSON {
         let selection = composer(in: window.contentView)?.selectedRange() ?? NSRange(location: 0, length: 0)
-        return ["frame": NSStringFromRect(window.frame), "scrollY": scrollView(in: window.contentView)?.contentView.bounds.origin.y ?? 0,
-                "follow": session.follow.attached, "details": session.details, "selection": [selection.location, selection.length]]
+        var state: JSON = ["frame": NSStringFromRect(window.frame), "scrollY": scrollView(in: window.contentView)?.contentView.bounds.origin.y ?? 0,
+                           "follow": session.follow.attached, "details": session.details, "selection": [selection.location, selection.length]]
+        // The exchange crossing the top edge: the same offset shows other rows once a new window estimates the rows above.
+        if let top = session.exchangeTops.filter({ $0.value <= 0 }).max(by: { $0.value < $1.value }) {
+            state["anchor"] = top.key.uuidString; state["anchorTop"] = Double(top.value)
+        }
+        return state
+    }
+
+    // Before the conversation arrives too: a window still following sends its first rows to the end after the restored scroll.
+    static func adopt(_ state: JSON, session: Session) {
+        if let follow = state["follow"] as? Bool { session.follow.attached = follow }
+        if let details = state["details"] as? Bool { session.details = details }
     }
 
     static func restore(_ state: JSON, window: NSWindow, session: Session) {
-        if let follow = state["follow"] as? Bool { session.follow.attached = follow }
-        if let details = state["details"] as? Bool { session.details = details }
+        adopt(state, session: session)
         DispatchQueue.main.async {
             window.contentView?.layoutSubtreeIfNeeded()
             if let selection = state["selection"] as? [Int], selection.count == 2,
@@ -143,6 +154,16 @@ enum RuntimeUpdate {
             if !session.follow.attached, let y = state["scrollY"] as? Double, let scroll = scrollView(in: window.contentView) {
                 scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, min(y, (scroll.documentView?.bounds.height ?? 0) - scroll.contentView.bounds.height))))
                 scroll.reflectScrolledClipView(scroll.contentView)
+                if let anchor = (state["anchor"] as? String).flatMap({ UUID(uuidString: $0) }), let top = state["anchorTop"] as? Double, let jump = session.scrollToExchange {
+                    jump(anchor)
+                    // A timer, as in land(): SwiftUI has not applied the jump by the next main-queue block.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        window.contentView?.layoutSubtreeIfNeeded()
+                        guard let now = session.exchangeTops[anchor] else { return }
+                        scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.origin.y + now - top))
+                        scroll.reflectScrolledClipView(scroll.contentView)
+                    }
+                }
             }
         }
     }
