@@ -262,19 +262,25 @@ enum BugCheck {
                 check(heights[0] < 300 && abs(away - heights[0]) <= 4, "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
             }
             do {
-                // On one line, a question has nothing to open: no edge, so its bubble is as wide pinned as anywhere else.
-                let short = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("short-question"))
-                short.show(["id": "short-question", "type": "userMessage", "content": [["type": "text", "text": "A question on one line"]]])
+                // Up to three lines, a question shows whole pinned: no edge, so its bubble is as wide pinned as anywhere else.
+                for (name, text) in [("one", "A question on one line"), ("three", "A question on three lines, " + String(repeating: "long enough to wrap in a bubble 765 pt wide ", count: 4) + "but no further.")] {
+                let short = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("short-question-" + name))
+                short.show(["id": "short-question-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
                 if let item = short.rows.first?.items.first {
                     func left(_ collapsible: Bool) -> CGFloat {
                         let host = NSHostingView(rootView: UserBubble(item: item, session: short, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                         host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 200)
                         host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                        if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                            host.cacheDisplay(in: host.bounds, to: bitmap)
+                            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("short-\(name)-\(collapsible ? "pinned" : "plain").png"))
+                        }
                         return tintStart(host, y: 45)
                     }
                     let pinned = left(true), plain = left(false)
-                    print("One-line question's bubble starts at x \(Int(pinned)) pinned, \(Int(plain)) unpinned")
-                    check(pinned > 0 && pinned == plain, "a question with nothing past one line has no edge to hover")
+                    print("\(name.capitalized)-line question's bubble starts at x \(Int(pinned)) pinned, \(Int(plain)) unpinned")
+                    check(pinned > 0 && pinned == plain, "a question on \(name) line(s) shows whole pinned, with no edge to hover")
+                }
                 }
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
@@ -334,8 +340,8 @@ enum BugCheck {
         do {
             // A word too long for what is left of line 1 opens line 2: SwiftUI's truncation pulled part of it up, then put it back on hover.
             // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 1.
-            for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line."),
-                                 ("path", "A pinned question keeps one line, then an ellipsis: /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a third line.")] {
+            for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line, then a fourth and a fifth: past three lines, a pinned question shuts to its first."),
+                                 ("path", "A pinned question keeps one line, then an ellipsis: /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a third line, then a fourth and a fifth: past three lines, a pinned question shuts to its first.")] {
                 let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-" + name))
                 asking.ready = true; asking.status = "Ready"
                 asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
@@ -387,7 +393,7 @@ enum BugCheck {
         do {
             // An agent message's chevron sat beside its "from …" tag, on a darker band as tall as tag and text together.
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-agent"))
-            asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it.\""]]])
+            asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it. Three lines would stay whole, so this one goes on to a fourth and a fifth line.\""]]])
             if let item = asking.rows.first?.items.first {
                 let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 200)

@@ -981,17 +981,20 @@ struct AgentMessageContent: View {
 struct CollapsibleText: View {
     let text: String
     let collapsed: Bool
-    @State private var width: CGFloat = 0
+    @State private var open = CGSize.zero
     static let size: CGFloat = 12
+    static let line = NSLayoutManager().defaultLineHeight(for: .monospacedSystemFont(ofSize: size, weight: .regular))
     var body: some View {
         ZStack(alignment: .topLeading) {
             // ponytail: width from the first 10,000 characters; measured whole, a 520,000-character paste held the window 45 s.
             // A wider line past them widens the bubble only once opened.
-            Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true).hidden().frame(height: 0, alignment: .top)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            let shown = collapsed && width > 0 ? firstLine(text, width: width) : text
+            Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { open = $0 }
+                .hidden().frame(height: 0, alignment: .top)
+            // Up to three lines, it covers little of the answer even open: it stays whole.
+            let shown = collapsed && open.width > 0 && open.height > Self.line * 3.5 ? firstLine(text, width: open.width) : text
             Text(shown).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
-                .lineLimit(collapsed ? 1 : nil).fixedSize(horizontal: false, vertical: true)
+                .lineLimit(collapsed && (open.width == 0 || shown != text) ? 1 : nil).fixedSize(horizontal: false, vertical: true)
                 .preference(key: HidesText.self, value: shown != text)
                 .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
         }
