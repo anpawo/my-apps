@@ -63,7 +63,13 @@ enum Trigger {
             case 124: emit?(.next)
             case 125: emit?(.jump(Panel.perRow))
             case 126: emit?(.jump(-Panel.perRow))
-            default: return event
+            // Only on the panel: the settings window is the same app and takes typing of its own.
+            case 51 where Panel.owns(event.window): emit?(.erase)
+            default:
+                guard Panel.owns(event.window),
+                      let typed = event.charactersIgnoringModifiers?.lowercased(), typed.count == 1,
+                      let letter = typed.first, letter.isLetter || letter.isNumber else { return event }
+                emit?(.type(letter))
             }
             return nil
         }

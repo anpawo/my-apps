@@ -284,5 +284,63 @@ scenario("a list changing while nothing is open does nothing") {
     expect(state.refresh(windows(3)) == nil, "refresh acted while closed")
 }
 
+private func named(_ apps: [String]) -> [WindowInfo] {
+    apps.enumerated().map { i, app in
+        WindowInfo(id: CGWindowID(i + 1), pid: 100, appName: app, title: "Window \(i)",
+                   element: nil, size: CGSize(width: 800, height: 500))
+    }
+}
+
+scenario("a typed letter selects the first window it names and Tab stays among those") {
+    let list = named(["Ghostty", "Firefox", "Finder", "Mail", "Firefox"])
+    var state = SwitcherState()
+    _ = state.handle(.next, windows: list)
+    guard case let .filter(query, dimmed, index)? = state.handle(.type("f"), windows: list) else {
+        return expect(false, "a letter filtered nothing")
+    }
+    expect(query == "f" && list[index].appName == "Firefox", "did not select the first match")
+    expect(dimmed == [list[0].id, list[3].id], "dimmed the wrong windows")
+    guard case let .move(a)? = state.handle(.next, windows: list),
+          case let .move(b)? = state.handle(.next, windows: list),
+          case let .move(c)? = state.handle(.next, windows: list) else {
+        return expect(false, "no movement")
+    }
+    expect([a, b, c] == [2, 4, 1], "Tab landed on a dimmed window")
+    guard case let .move(back)? = state.handle(.previous, windows: list) else {
+        return expect(false, "no movement back")
+    }
+    expect(back == 4, "stepping back landed on a dimmed window")
+    expect(state.handle(.pick(list[3].id), windows: list) == nil, "a dimmed tile was clickable")
+    guard case let .filter(_, _, narrowed)? = state.handle(.type("I"), windows: list) else {
+        return expect(false, "a second letter filtered nothing")
+    }
+    expect(state.query == "fi" && list[narrowed].appName == "Firefox", "the query is not case-blind")
+}
+
+scenario("a letter that fits nothing is refused and not kept") {
+    let list = named(["Ghostty", "Firefox"])
+    var state = SwitcherState()
+    _ = state.handle(.next, windows: list)
+    _ = state.handle(.type("f"), windows: list)
+    expect(state.handle(.type("z"), windows: list) == .reject("z"), "an unmatched letter was not refused")
+    expect(state.query == "f", "the refused letter was kept")
+    guard case let .filter(query, dimmed, _)? = state.handle(.erase, windows: list) else {
+        return expect(false, "erase did nothing")
+    }
+    expect(query.isEmpty && dimmed.isEmpty, "erasing the last letter left windows dimmed")
+    var closed = SwitcherState()
+    expect(closed.handle(.type("f"), windows: list) == nil, "a letter acted while closed")
+}
+
+scenario("a new session starts unfiltered") {
+    let list = named(["Ghostty", "Firefox"])
+    var state = SwitcherState()
+    _ = state.handle(.next, windows: list)
+    _ = state.handle(.type("f"), windows: list)
+    _ = state.handle(.commit, windows: list)
+    _ = state.handle(.next, windows: list)
+    expect(state.query.isEmpty, "the last session's letters carried over")
+}
+
 print("\n\(checks) checks, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

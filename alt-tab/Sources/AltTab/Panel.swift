@@ -90,6 +90,14 @@ enum Panel {
     private static var panel: NSPanel?
     private static var tiles: [TileView] = []
     private static var noteField: NSTextField?
+    private static var queryField: NSTextField?
+    private static var rejectField: NSTextField?
+    private static var query = ""
+    private static var dimmed: Set<CGWindowID> = []
+    /// The strip the typed letters take above the tiles, opened only while there are some.
+    private static let queryHeight: CGFloat = 30
+    private static let queryFont = NSFont.systemFont(ofSize: 17, weight: .semibold)
+    private static let dimmedAlpha: CGFloat = 0.3
     private static var icons: [pid_t: NSImage] = [:]
     private static var previousApp: NSRunningApplication?
     private static var shown: [WindowInfo] = []
@@ -116,8 +124,11 @@ enum Panel {
     /// The pane behind the tiles is painted here rather than grabbed. Its glass is a
     /// behind-window blur, composited by the WindowServer against the desktop, and a window
     /// that was never ordered in has no desktop behind it to blur.
-    static func png(_ windows: [WindowInfo], selected: Int, settle: TimeInterval) -> Data? {
+    static func png(_ windows: [WindowInfo], selected: Int, settle: TimeInterval,
+                    query: String = "", dimmed: Set<CGWindowID> = []) -> Data? {
         let panel = built()
+        self.query = query
+        self.dimmed = dimmed
         shown = windows
         layout(windows, selected: selected)
         requestPictures(for: windows)
@@ -144,8 +155,11 @@ enum Panel {
         Thumbnails.warm()
     }
 
-    static func show(_ windows: [WindowInfo], selected: Int) {
+    static func show(_ windows: [WindowInfo], selected: Int,
+                     query: String = "", dimmed: Set<CGWindowID> = []) {
         let panel = built()
+        self.query = query
+        self.dimmed = dimmed
         shown = windows
         layout(windows, selected: selected)
         requestPictures(for: windows)
@@ -181,6 +195,76 @@ enum Panel {
         }
     }
 
+    static func owns(_ window: NSWindow?) -> Bool { window != nil && window === panel }
+
+    /// The letters typed so far, the windows they leave out greyed, and the strip above the
+    /// tiles opened or shut with the panel's own edge, so the tiles never move under the eye.
+    static func filter(_ query: String, dimmed: Set<CGWindowID>, selected: Int) {
+        let opens = self.query.isEmpty != query.isEmpty
+        self.query = query
+        self.dimmed = dimmed
+        // Kept while the strip shuts, so it closes over the last letter rather than over nothing.
+        if !query.isEmpty { queryField?.stringValue = query }
+        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for (i, tile) in tiles.enumerated() where !tile.isHidden && i < shown.count {
+            tile.setDimmed(dimmed.contains(shown[i].id), animated: true)
+        }
+        move(to: selected)
+        guard opens, let panel, let field = queryField else { return }
+        let grow = query.isEmpty ? -queryHeight : queryHeight
+        var frame = panel.frame
+        frame.size.height += grow
+        frame.origin.y -= (grow / 2).rounded()
+        if !query.isEmpty { field.alphaValue = reduce ? 0 : 1; field.isHidden = false }
+        if reduce { panel.setFrame(frame, display: true) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reduce ? 0.15 : 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            if reduce {
+                field.animator().alphaValue = query.isEmpty ? 0 : 1
+            } else {
+                panel.animator().setFrame(frame, display: true)
+            }
+        } completionHandler: {
+            MainActor.assumeIsolated {
+                if self.query.isEmpty { field.isHidden = true }
+            }
+        }
+    }
+
+    /// A letter that fits no window: drawn in red after the ones kept, shaken, and faded away.
+    static func reject(_ letter: Character) {
+        guard let field = rejectField, let layer = field.layer else { return }
+        field.stringValue = String(letter)
+        let kept = (query as NSString).size(withAttributes: [.font: queryFont]).width
+        let own = (field.stringValue as NSString).size(withAttributes: [.font: queryFont]).width
+        let width = panel?.contentView?.bounds.width ?? 0
+        let x = query.isEmpty ? (width - own) / 2 : (width + kept) / 2 + 1
+        field.frame = NSRect(x: x.rounded(), y: queryField?.frame.minY ?? 0,
+                             width: own + 6, height: field.frame.height)
+        field.isHidden = false
+        layer.removeAllAnimations()
+        var parts: [CAAnimation] = []
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            shake.values = [0, -5, 5, -3, 3, 0]
+            shake.duration = 0.28
+            parts.append(shake)
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.beginTime = 0.22
+        fade.duration = 0.2
+        fade.fillMode = .backwards
+        parts.append(fade)
+        let group = CAAnimationGroup()
+        group.animations = parts
+        group.duration = 0.42
+        field.alphaValue = 0
+        layer.add(group, forKey: "reject")
+    }
+
     /// Layer changes are animated unless something says otherwise, and every change this panel
     /// makes is meant to be already true by the time it is looked at.
     fileprivate static func withoutAnimation(_ body: () -> Void) {
@@ -214,6 +298,10 @@ enum Panel {
         // is still painted after the switch reads as the switch not having happened.
         panel?.alphaValue = 0
         panel?.orderOut(nil)
+        query = ""
+        dimmed = []
+        queryField?.isHidden = true
+        rejectField?.isHidden = true
         // Ordering out from under the pointer delivers no exit event, and the tile would come
         // back tinted on the next open.
         for tile in tiles { tile.setHovered(false) }
@@ -294,6 +382,22 @@ enum Panel {
         background.addSubview(note)
         noteField = note
 
+        let queryLabel = NSTextField(labelWithString: "")
+        queryLabel.font = queryFont
+        queryLabel.textColor = .labelColor
+        queryLabel.alignment = .center
+        queryLabel.isHidden = true
+        background.addSubview(queryLabel)
+        queryField = queryLabel
+
+        let refused = NSTextField(labelWithString: "")
+        refused.font = queryFont
+        refused.textColor = .systemRed
+        refused.wantsLayer = true
+        refused.isHidden = true
+        background.addSubview(refused)
+        rejectField = refused
+
         panel = p
         return p
     }
@@ -366,7 +470,7 @@ enum Panel {
 
         // Enough rows and the stack is taller than the screen; then, and only then, the tiles
         // give back some height — and the same fraction of width, so they keep their shape.
-        let tallest = screen.visibleFrame.height - padding * 2 - noteHeight
+        let tallest = screen.visibleFrame.height - padding * 2 - noteHeight - queryHeight
             - gap * CGFloat(max(rows.count - 1, 0))
         let roomPerTile = tallest / CGFloat(rows.count) - headerHeight - tileInset
         if pictureArea > roomPerTile, pictureArea > 0 {
@@ -381,8 +485,9 @@ enum Panel {
         // of a short row — 41 points against the 28 above and below it.
         let width = longest + padding * 2
         let fullTile = headerHeight + pictureArea + tileInset
-        let panelHeight = padding * 2 + fullTile * CGFloat(rows.count)
+        let tilesTop = padding + fullTile * CGFloat(rows.count)
             + gap * CGFloat(max(rows.count - 1, 0)) + noteHeight
+        let panelHeight = tilesTop + padding + (query.isEmpty ? 0 : queryHeight)
 
         // Where each tile lands, so the loop below stays about what a tile shows.
         var origins: [CGPoint] = []
@@ -432,7 +537,18 @@ enum Panel {
             }
             tile.setPicture(picture ?? standIn, faded: offscreen && picture != nil)
             tile.setSelected(i == selected)
+            tile.setDimmed(dimmed.contains(windows[i].id), animated: false)
         }
+
+        // Pinned to the tiles, not to the top edge: while the strip is shut it sits past the edge
+        // and is clipped, so opening the strip uncovers it rather than drawing it over the tiles.
+        let textHeight = ceil(queryFont.ascender - queryFont.descender) + 4
+        queryField?.frame = NSRect(x: padding, y: (tilesTop + (queryHeight - textHeight) / 2).rounded(),
+                                   width: max(width - padding * 2, 10), height: textHeight)
+        queryField?.stringValue = query
+        queryField?.alphaValue = 1
+        queryField?.isHidden = query.isEmpty
+        rejectField?.frame.size.height = textHeight
 
         noteField?.frame = NSRect(x: padding, y: padding - 2, width: max(width - padding * 2, 10), height: 16)
 
@@ -619,6 +735,21 @@ enum Panel {
             pictureLayer.contents = image
             pictureLayer.opacity = faded ? 0.45 : 1
             needsLayout = true
+        }
+
+        func setDimmed(_ dim: Bool, animated: Bool) {
+            let target = dim ? Panel.dimmedAlpha : 1
+            guard let layer else { return }
+            layer.removeAnimation(forKey: "dim")
+            if animated, alphaValue != target {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = layer.presentation()?.opacity ?? Float(alphaValue)
+                fade.toValue = Float(target)
+                fade.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.1 : 0.2
+                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(fade, forKey: "dim")
+            }
+            alphaValue = target
         }
 
         func setSelected(_ selected: Bool) {

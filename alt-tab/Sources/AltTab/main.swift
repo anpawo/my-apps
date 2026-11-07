@@ -219,7 +219,11 @@ if arguments.contains("--render") {
         // pictures, and still nothing on the screen.
         if let shot = arguments.first(where: { $0.hasPrefix("--shot=") }).map({ String($0.dropFirst("--shot=".count)) }) {
             NSApplication.shared.setActivationPolicy(.accessory)
-            guard var data = Panel.png(list, selected: 1, settle: 2.5) else {
+            // `--query=<letters>` draws the panel filtered by them, as typed with ⌘ held.
+            let query = arguments.first(where: { $0.hasPrefix("--query=") }).map { String($0.dropFirst("--query=".count)) } ?? ""
+            let dimmed = Set(list.filter { !SwitcherState.matches($0, query) }.map(\.id))
+            let selected = query.isEmpty ? 1 : list.firstIndex(where: { SwitcherState.matches($0, query) }) ?? 0
+            guard var data = Panel.png(list, selected: selected, settle: 2.5, query: query, dimmed: dimmed) else {
                 print("could not draw the panel")
                 exit(1)
             }
@@ -338,10 +342,14 @@ func dispatch(_ command: SwitchCommand) {
 func apply(_ effect: Effect) {
     switch effect {
     case let .show(list, index):
-        Panel.show(list, selected: index)
+        Panel.show(list, selected: index, query: state.query, dimmed: state.dimmed(in: list))
         Trigger.watchForRelease()
     case let .move(index):
         Panel.move(to: index)
+    case let .filter(query, dimmed, index):
+        Panel.filter(query, dimmed: dimmed, selected: index)
+    case let .reject(letter):
+        Panel.reject(letter)
     case .hide:
         Trigger.stopWatchingForRelease()
         Panel.hide()

@@ -16,6 +16,10 @@ public enum SwitchCommand: Equatable {
     /// in the same breath, because a click is the whole gesture and there is no modifier left
     /// to release afterwards.
     case pick(CGWindowID)
+    /// A letter typed with the modifier still held: narrows the list to the windows it names.
+    case type(Character)
+    /// The last typed letter taken back.
+    case erase
     case commit
     case cancel
     case abort
@@ -29,6 +33,10 @@ public enum Effect: Equatable {
     case move(Int)
     case hide
     case raise(WindowInfo)
+    /// The typed letters, the windows they leave out, and the selection among those left.
+    case filter(String, Set<CGWindowID>, Int)
+    /// A letter that would have left no window: shown as refused, and not kept.
+    case reject(Character)
 }
 
 public struct SwitcherState {
@@ -40,10 +48,29 @@ public struct SwitcherState {
     /// Where the selection sat before the list changed, so a closed window hands its place to
     /// the one that takes it rather than sending the selection back to the start.
     private var previousIndex = 0
+    public private(set) var query = ""
 
     public init() {}
 
     public var isOpen: Bool { selected != nil }
+
+    /// A window fits when one word of its application name or title starts with the letters.
+    public static func matches(_ window: WindowInfo, _ query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        let needle = query.lowercased()
+        return (window.appName + " " + window.title)
+            .split { !$0.isLetter && !$0.isNumber }
+            .contains { $0.lowercased().hasPrefix(needle) }
+    }
+
+    public func dimmed(in windows: [WindowInfo]) -> Set<CGWindowID> {
+        Set(windows.filter { !Self.matches($0, query) }.map(\.id))
+    }
+
+    /// The indices Tab can land on.
+    private func allowed(_ windows: [WindowInfo]) -> [Int] {
+        windows.indices.filter { Self.matches(windows[$0], query) }
+    }
 
     /// Re-states the panel over a list that has changed underneath it — a window closed, or
     /// simply gone.
@@ -60,7 +87,10 @@ public struct SwitcherState {
         if let index = windows.firstIndex(where: { $0.id == current }) {
             return .show(windows, index)
         }
-        let index = min(previousIndex, windows.count - 1)
+        if allowed(windows).isEmpty { query = "" }
+        let open = allowed(windows)
+        let start = min(previousIndex, windows.count - 1)
+        let index = open.first(where: { $0 >= start }) ?? open.last!
         selected = windows[index].id
         return .show(windows, index)
     }
@@ -73,20 +103,23 @@ public struct SwitcherState {
                 // Opening. Landing on index 1 is the product: one ⌘Tab goes to the window you
                 // were on before this one, and a second brings you back.
                 let start = min(1, windows.count - 1)
+                query = ""
                 selected = windows[start].id
                 previousIndex = start
                 return .show(windows, start)
             }
-            let i = windows.firstIndex(where: { $0.id == current }) ?? 0
-            let next = (i + 1) % windows.count
+            let open = allowed(windows)
+            let at = open.firstIndex(of: windows.firstIndex(where: { $0.id == current }) ?? 0) ?? 0
+            let next = open[(at + 1) % open.count]
             selected = windows[next].id
             previousIndex = next
             return .move(next)
 
         case .previous:
             guard let current = selected, !windows.isEmpty else { return nil }
-            let i = windows.firstIndex(where: { $0.id == current }) ?? 0
-            let prev = (i - 1 + windows.count) % windows.count
+            let open = allowed(windows)
+            let at = open.firstIndex(of: windows.firstIndex(where: { $0.id == current }) ?? 0) ?? 0
+            let prev = open[(at - 1 + open.count) % open.count]
             selected = windows[prev].id
             previousIndex = prev
             return .move(prev)
@@ -98,7 +131,8 @@ public struct SwitcherState {
             // row's last tile instead of on nothing. Guarded on the row actually changing: from
             // the top row up, or the bottom row down, the clamp would slide sideways.
             let target = min(max(i + stride, 0), windows.count - 1)
-            guard i / abs(stride) != target / abs(stride) else { return nil }
+            guard i / abs(stride) != target / abs(stride),
+                  Self.matches(windows[target], query) else { return nil }
             selected = windows[target].id
             previousIndex = target
             return .move(target)
@@ -106,9 +140,27 @@ public struct SwitcherState {
         case let .pick(id):
             // Unguarded by `isOpen`: a tile can only be clicked while the panel is up, and the
             // click is answered by the window it named, not by whatever the keyboard had.
-            guard let window = windows.first(where: { $0.id == id }) else { return nil }
+            guard let window = windows.first(where: { $0.id == id }),
+                  Self.matches(window, query) else { return nil }
             selected = nil
             return .raise(window)
+
+        case let .type(letter):
+            guard isOpen else { return nil }
+            let candidate = query + String(letter).lowercased()
+            guard let first = windows.firstIndex(where: { Self.matches($0, candidate) }) else {
+                return .reject(letter)
+            }
+            query = candidate
+            selected = windows[first].id
+            previousIndex = first
+            return .filter(query, dimmed(in: windows), first)
+
+        case .erase:
+            guard let current = selected, !query.isEmpty else { return nil }
+            query.removeLast()
+            return .filter(query, dimmed(in: windows),
+                           windows.firstIndex(where: { $0.id == current }) ?? 0)
 
         case .commit:
             // A modifier released while nothing is open is the common case, not an error:
