@@ -110,6 +110,7 @@ if CommandLine.arguments.contains("--memory") {
         print("kernel:   \(MemoryPressure.leakZone) \(d.kernelZone) bytes")
         print("wired:    \(byteLabel(d.wired))")
         print("gpu:      \(d.gpuBusy)% busy, \(byteLabel(d.gpuMemory)) in use")
+        print("disk:     \(byteLabel(d.diskFree)) free of \(byteLabel(d.diskTotal))")
         for (title, rows) in [("top ram", d.ram), ("top cpu", d.cpu), ("top gpu", d.gpu)] {
             print("\(title):  " + rows.map { "\($0.name) \($0.value)" }.joined(separator: " | "))
         }

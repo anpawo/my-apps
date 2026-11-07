@@ -209,6 +209,7 @@ struct MemoryDetails {
     var wired: UInt64 = 0
     var gpuBusy = 0
     var gpuMemory: UInt64 = 0
+    var diskFree: UInt64 = 0, diskTotal: UInt64 = 0
     var ram: [Row] = [], cpu: [Row] = [], gpu: [Row] = []
 }
 
@@ -786,6 +787,11 @@ final class Reaper: ObservableObject {
         }
         var out = MemoryDetails(kernelZone: MemoryPressure.kernelZone(), wired: footprint.wired,
                                 gpuBusy: gpu.busy, gpuMemory: gpu.inUse)
+        // The figure Finder shows: purgeable space counts as free.
+        if let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]) {
+            out.diskFree = UInt64(max(v.volumeAvailableCapacityForImportantUsage ?? 0, 0))
+            out.diskTotal = UInt64(max(v.volumeTotalCapacity ?? 0, 0))
+        }
         out.ram = top(ram, floor: 0) { byteLabel(UInt64($0)) }
         // No share before the second sample: the last ones stay rather than blank lines.
         out.cpu = since > 0 ? top(cpuShare, floor: 1) { "\(Int($0.rounded()))%" } : details.cpu

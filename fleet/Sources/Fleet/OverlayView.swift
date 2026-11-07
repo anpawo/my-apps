@@ -1561,6 +1561,9 @@ private struct MemoryDetailsPane: View {
                 tint: details.kernelZone >= 1 << 30 ? amber : .white.opacity(0.95))
             row("Wired", byteLabel(details.wired))
             row("GPU", "\(details.gpuBusy)% \u{00B7} \(byteLabel(details.gpuMemory))")
+            // Under 20 GB free, swap has no room to grow.
+            row("Disk", "\(byteLabel(details.diskTotal - min(details.diskFree, details.diskTotal))) used \u{00B7} \(byteLabel(details.diskFree)) free",
+                tint: details.diskTotal > 0 && details.diskFree < 20 << 30 ? amber : .white.opacity(0.95))
             section("TOP RAM", details.ram)
             section("TOP CPU", details.cpu)
             section("TOP GPU", details.gpu)
