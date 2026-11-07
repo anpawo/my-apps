@@ -1001,6 +1001,7 @@ struct GroupTile: View {
         var body: some View {
             let parts = GroupTile.parts(sessions)
             let card = GroupTile.card(holding: parts.map(\.count), across: across, in: width, spacing: spacing)
+            let oneRow = parts.count == 1 && sessions.count <= across
             VStack(alignment: .leading, spacing: GroupTile.inset) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { p, part in
                     if p > 0, let first = part.first {
@@ -1023,7 +1024,7 @@ struct GroupTile: View {
                                 // what these sessions have in common, and a row of cards all
                                 // saying "portfolio" is a row you cannot choose from.
                                 SessionTile(session: session, heading: session.label ?? session.topic,
-                                            grouped: true) {
+                                            grouped: true, underPill: oneRow) {
                                     onActivate(session)
                                 }
                                 .frame(width: card.width, height: card.height)
@@ -1053,6 +1054,9 @@ struct SessionTile: View {
     /// Inside a group, whose heading already names the directory: no folder in the
     /// corner, unless the session's repo is one inside it.
     var grouped = false
+    /// In a group one card tall, the name is centred under the pill line rather than on the
+    /// whole card (asked 2026-11-08).
+    var underPill = false
     let onSelect: () -> Void
 
     /// Sub-agent work gets its own colour rather than the state tint, and it is the same purple
@@ -1095,6 +1099,8 @@ struct SessionTile: View {
                 // the border and the pill say its state.
                 name
                     .padding(.horizontal, 12)
+                    // 11 pt inset plus a 9 pt pill's height.
+                    .padding(.top, underPill ? 28 : 0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Jarvis's mark in its icon's colours (asked 2026-11-01).
