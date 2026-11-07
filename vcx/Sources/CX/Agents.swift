@@ -656,7 +656,7 @@ final class QwenConnection: Connection {
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
         var outgoing = qwenHistory(messages)
         outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "options": ["num_ctx": 32768], "think": false, "tools": [tool]])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "options": ["num_ctx": 65536], "think": false, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
         var answer = "", calls: [JSON] = []
@@ -732,10 +732,10 @@ func qwenToolOutput(_ text: String, limit: Int = 2000) -> String {
 }
 
 // Qwen's window holds prompt and answer together: at 8192 tokens, 41 messages of tool output took 8106 of them and it
-// answered nothing (07/11). VCX asks for 32768 (the PC's 6 GB GPU spills to RAM: 13 tokens/s instead of 38, he chose it).
-// About 2.8 bytes of JSON per token, so 72 KB leaves room for the system prompt and an answer.
-// Oldest messages go first; the request in progress stays.
-func qwenHistory(_ messages: [JSON], limit: Int = 72000) -> [JSON] {
+// answered nothing (07/11). He prefers memory to speed: 65536 spills 2.7 GB to the PC's RAM (8 tokens/s instead of 38);
+// 131072 left 0.19 GB of its 8 GB free. About 2.8 bytes of JSON per token, so 160 KB leaves room for the system prompt
+// and an answer. Oldest messages go first; the request in progress stays.
+func qwenHistory(_ messages: [JSON], limit: Int = 160000) -> [JSON] {
     guard messages.count > 2 else { return messages }
     let task = max(1, messages.lastIndex { $0["role"] as? String == "user" } ?? 1)
     var before = Array(messages[1..<task]), after = Array(messages[task...])
