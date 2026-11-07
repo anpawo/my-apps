@@ -456,7 +456,8 @@ enum Check {
             check(fleetRecord()["state"] as? String == "working" && fleetRecord()["prompt"] as? String == "Fix the layout", "Fleet receives the prompt and live working state")
             try! "Fix Fleet names\n".write(to: fleetSession.fleetContextFile, atomically: true, encoding: .utf8)
             fleetSession.busy = false
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            // Polled: a fixed 350 ms failed three installs in a row on a loaded Mac (2026-11-08).
+            for _ in 0 ..< 60 where fleetRecord()["context"] as? String != "Fix Fleet names" { try? await Task.sleep(nanoseconds: 50_000_000) }
             check(fleetRecord()["context"] as? String == "Fix Fleet names", "Fleet receives the session-written task context automatically")
             fleetSession.busy = true
         }
@@ -483,7 +484,7 @@ enum Check {
             presence.publish(fleetSession)
             check(fleetRecord()["lastPromptAt"] as? Double == 123, "restoring saved rows does not invent a new Fleet prompt time")
             fleetSession.busy = true
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            for _ in 0 ..< 60 where fleetRecord()["state"] as? String != "working" { try? await Task.sleep(nanoseconds: 50_000_000) }
             check(fleetRecord()["state"] as? String == "working", "Fleet observes state changes after published values settle")
         }
         let mode = (try! FileManager.default.attributesOfItem(atPath: presenceFile.path))[.posixPermissions] as? Int
