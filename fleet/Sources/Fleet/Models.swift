@@ -459,10 +459,9 @@ struct Session: Identifiable {
     /// parameter on all of them for a string only the tile reads.
     @MainActor static var labels: [String: String] = [:]
 
-    /// What puts two sessions on the same card. Outside `~/self` the directory is not a
-    /// project and two sessions sharing one have nothing in common — "mr" held a bank API and
-    /// a question about models — so each keeps a group of its own.
-    var groupKey: String { isSelf ? Session.project(for: cwd, outermost: true) : id.description }
+    /// What puts two sessions on the same card, and the name over it: the directory, outside
+    /// `~/self` too (asked 2026-11-07).
+    var groupKey: String { isSelf ? Session.project(for: cwd, outermost: true) : dirName }
 
     /// Qwen's title for the chat of each session fused with it, by session id, "" until it has
     /// given one: see `AppController.nameFused`.

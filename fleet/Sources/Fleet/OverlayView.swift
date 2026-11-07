@@ -487,15 +487,9 @@ struct OverlayView: View {
         return order.map { ($0, byDir[$0] ?? []) }
     }
 
-    /// Every directory, and every session that has one to itself.
+    /// Every directory, its name over its cards even when it holds one (asked 2026-11-07).
     private func cells(_ sessions: [Session]) -> [FleetCell] {
-        groups(of: sessions).compactMap { group -> FleetCell? in
-            // A directory holding one session has nothing to gather: its card is the session.
-            if group.sessions.count == 1, let only = group.sessions.first {
-                return .session(only, heading: only.label ?? only.topic)
-            }
-            return .group(group.name, group.sessions)
-        }
+        groups(of: sessions).map { .group($0.name, $0.sessions) }
     }
 
 
@@ -544,10 +538,6 @@ struct OverlayView: View {
                                       across: layout.wide[i].map { layout.taken($0.width) } ?? 1,
                                       spacing: tileSpacing, width: centerWidth,
                                       onActivate: { controller.activate($0) })
-                        case let .session(session, heading):
-                            SessionTile(session: session, heading: heading) {
-                                controller.activate(session)
-                            }
                         case let .jarvis(state):
                             JarvisTile(state: state) { controller.openJarvis() }
                         }
@@ -752,7 +742,7 @@ struct FleetLayout: Layout {
         var frames = Array(repeating: CGRect.zero, count: count)
         var queue = (0 ..< count).filter { $0 >= wide.count || wide[$0] == nil }[...]
         let step = CGSize(width: tile.width + spacing, height: tile.height + spacing)
-        let cells = { (height: CGFloat) in max(1, Int((height + spacing) / step.height)) }
+        let cells = { (height: CGFloat) in max(1, Int(((height + spacing) / step.height - 0.01).rounded(.up))) }
         let unfolded = (0 ..< min(count, wide.count)).filter { wide[$0] != nil }
         // The one with the most rows on the left (asked 2026-10-22); two of a height keep the
         // order they come in, or they would trade places once a second.
@@ -819,7 +809,7 @@ struct FleetLayout: Layout {
             sections.indices.map { s in
                 var layout = self
                 layout.wide = sections[s].indices.map { i in
-                    counts[starts[s] + i] > 1
+                    counts[starts[s] + i] > 0
                         ? size(sections[s][i], order.prefix(k).contains(starts[s] + i) ? 2 : 1) : nil
                 }
                 return layout
@@ -861,7 +851,6 @@ struct FleetLayout: Layout {
 /// What the grid holds: a directory, or one of its sessions.
 enum FleetCell: Identifiable {
     case group(String, [Session])
-    case session(Session, heading: String?)
     /// The Jarvis app, on its Qwen chat, by its chat's state.
     case jarvis(SessionState)
 
@@ -879,7 +868,6 @@ enum FleetCell: Identifiable {
     var id: String {
         switch self {
         case let .group(name, _): return "dir:" + name
-        case let .session(session, _): return "pid:\(session.id)"
         case .jarvis: return "jarvis"
         }
     }
@@ -904,12 +892,13 @@ struct GroupTile: View {
     /// and a card that borrowed one of those would read as a session in that state.
     static let tint = Color(red: 0.16, green: 0.82, blue: 0.80)
 
-    /// What the card takes: `across` of the grid's cells, and a row of them down for each
-    /// `across` sessions of each of its parts.
+    /// What the card takes: `across` of the grid's cells, a row of them down for each
+    /// `across` sessions of each of its parts, and its name's band on top: a group of one
+    /// had its card squeezed to half a session's height under it (2026-11-07).
     static func size(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
         let cell = cell(width, spacing: spacing)
         return CGSize(width: CGFloat(across) * (cell.width + spacing) - spacing,
-                      height: CGFloat(rows(parts, across)) * (cell.height + spacing) - spacing)
+                      height: CGFloat(rows(parts, across)) * (cell.height + spacing) - spacing + nameBand)
     }
     private static func rows(_ parts: [Int], _ across: Int) -> Int {
         parts.reduce(0) { $0 + ($1 + across - 1) / across }

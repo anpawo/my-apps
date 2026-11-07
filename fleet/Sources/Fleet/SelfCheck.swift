@@ -287,8 +287,10 @@ enum SelfCheck {
         let cell = GroupTile.cell(688, spacing: 26)
         expect(cell == CGSize(width: 212, height: SessionTile.height)
                && size(2).width == 212 && size(5).width == 212
-               && near(size(3).height, 3 * cell.height + 2 * 26), true,
-               "grid: a directory stands in one of the grid's columns, a cell down for each session")
+               && near(size(3).height, 3 * cell.height + 2 * 26 + GroupTile.nameBand), true,
+               "grid: a directory stands in one of the grid's columns, a cell down for each session, its name's band on top")
+        expect(GroupTile.card(holding: [1], in: 688, spacing: 26).height >= 0.75 * SessionTile.height, true,
+               "grid: a directory of one keeps its card most of a session's height (2026-11-07: 59 of 97)")
         let card = GroupTile.card(holding: [3], in: 688, spacing: 26)
         expect(near(card.width + 2 * GroupTile.inset, 212)
                && near(3 * card.height + 4 * GroupTile.inset + GroupTile.nameBand, size(3).height), true,
@@ -307,7 +309,7 @@ enum SelfCheck {
         // Four, two and three: every column holds one, the session under the shortest.
         grid.wide = [size(4), size(2), size(3), nil]
         let under = grid.rest(4)
-        expect(near(under.frames[3].minX, 476) && near(under.frames[3].minY, 2 * (cell.height + 26))
+        expect(near(under.frames[3].minX, 476) && near(under.frames[3].minY, 3 * (cell.height + 26))
                && near(under.height, size(4).height), true,
                "grid: with a directory in every column, a session takes the cell under the shortest")
         expect(under.frames[0...2].map(\.minX).map { ($0 / 238).rounded() } == [0, 2, 1], true,
@@ -323,16 +325,16 @@ enum SelfCheck {
             }[0]
             return laid.wide.map { $0.map { laid.taken($0.width) } ?? 0 }
         }
-        expect(standing([5, 1], room: size(5).height) == [1, 0], true,
+        expect(standing([5, 1], room: size(5).height) == [1, 1], true,
                "grid: a directory that fits in one column stays in one")
-        expect(standing([5, 1], room: size(5).height - 1) == [2, 0], true,
+        expect(standing([5, 1], room: size(5).height - 1) == [2, 1], true,
                "grid: one that does not stands two across, the session beside it")
-        expect(standing([5, 2, 1, 1, 1], room: size(3, across: 2).height) == [1, 1, 0, 0, 0], true,
+        expect(standing([5, 2, 1, 1, 1], room: size(3, across: 2).height) == [1, 1, 1, 1, 1], true,
                "grid: not when two across pushes another card past the room")
-        expect(standing([8, 1, 1], room: size(8, across: 2).height - 1) == [2, 0, 0], true,
+        expect(standing([8, 1], room: size(8, across: 2).height - 1) == [2, 1], true,
                "grid: past the room either way, two across when that pushes no other card out")
-        expect(standing([2, 1], room: 10) == [1, 0], true, "grid: never a directory of two")
-        expect(standing([3, 6, 1], room: size(6).height - 1) == [1, 2, 0], true,
+        expect(standing([2, 1], room: 10) == [1, 1], true, "grid: never a directory of two")
+        expect(standing([3, 6, 1], room: size(6).height - 1) == [1, 2, 1], true,
                "grid: the one with the most sessions stands two across first")
         // One grid a desktop (asked 2026-10-31): the room is theirs together.
         let desks = FleetLayout(tile: grid.tile, spacing: 26, columns: 3)
