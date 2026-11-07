@@ -70,12 +70,12 @@ func routeProject(_ prompt: String, account: Account?) async -> String? {
         }
         return name + ": " + value.prefix(160)
     }.joined(separator: "\n")
-    // Measured on 42 of his first prompts that later cd'd: 26 right, 2 wrong folder, the rest none (median 3.4 s).
+    // Measured on 42 of his first prompts that later cd'd: 22 to 26 right, 1 to 2 wrong folder, the rest none (median 3 s).
     let question = """
     Pick the project folder under ~/self that this request is about. It is the first message of a new chat window, so it rarely names its folder: judge from what it talks about.
     Reply with the folder's path relative to ~/self and nothing else (e.g. s14, my-apps/vcx, epitech), or none.
     Reply none when the request is general (a question, an errand, mail, money, papers, the Mac itself), spans several folders, or when you are unsure: a wrong folder is worse than none.
-    The chat window is VCX (my-apps/vcx); Fleet (my-apps/fleet) is the board of session cards beside it.
+    The chat window is VCX (my-apps/vcx). Fleet (my-apps/fleet) is the separate board that shows every session as a card, in groups, beside his mail, todos and crons: a request about those cards, groups or that board is my-apps/fleet.
     Folders, one per row:
     \(rows)
     Apps inside my-apps, each its own folder: \(apps)
