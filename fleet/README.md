@@ -147,8 +147,7 @@ display held awake by "video-playing" — the idle trigger is deferred
 ## Install
 
 ```bash
-git clone https://github.com/anpawo/fleet.git
-cd fleet
+git clone https://github.com/anpawo/my-apps.git && cd my-apps/fleet
 ./install.sh
 ```
 
