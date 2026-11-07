@@ -106,7 +106,10 @@ enum VCX {
         if let thread = record["threadId"] as? String, thread.hasPrefix("claude:"),
            let transcript = Hooks.record(sessionID: String(thread.dropFirst(7)))?.transcriptPath {
             read.insert(transcript)
-            info.subagents = transcripts.info(for: transcript)?.subagents ?? []
+            let live = transcripts.info(for: transcript)
+            info.subagents = live?.subagents ?? []
+            // VCX's cwd is where the window launched; a `cd` in the session moves only the transcript's.
+            if let moved = live?.cwd { info.cwd = moved }
         }
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
