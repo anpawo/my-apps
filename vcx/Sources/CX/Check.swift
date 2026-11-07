@@ -675,6 +675,12 @@ enum Check {
                 let longOutput = String(repeating: "a", count: 5000) + "END"
                 check(qwenToolOutput("short") == "short" && qwenToolOutput(longOutput).count < 2100 && qwenToolOutput(longOutput).hasPrefix("aaa") && qwenToolOutput(longOutput).hasSuffix("END"),
                       "Qwen gets a long command output as its head and tail, small enough for its 2048-token window")
+                let bulk = String(repeating: "x", count: 2000)
+                let history: [JSON] = [["role": "system", "content": "s"], ["role": "user", "content": "old"]] + (0..<20).flatMap { _ in [["role": "assistant", "content": "", "tool_calls": [["function": ["name": "run_command"]]]], ["role": "tool", "content": bulk]] as [JSON] } + [["role": "user", "content": "now"]] + (0..<12).flatMap { _ in [["role": "assistant", "content": "", "tool_calls": [["function": ["name": "run_command"]]]], ["role": "tool", "content": bulk]] as [JSON] }
+                let trimmed = qwenHistory(history)
+                check(trimmed.first?["content"] as? String == "s" && trimmed.contains { $0["content"] as? String == "now" } && !trimmed.contains { $0["content"] as? String == "old" }
+                      && (try! JSONSerialization.data(withJSONObject: trimmed)).count <= 16000 && trimmed.last?["role"] as? String == "tool" && trimmed[1]["role"] as? String != "tool",
+                      "Qwen's history fits its 8192-token window, keeps the request in progress and starts on no orphan tool result")
                 let messageWindows = [AgentMessages.Window(id: "0B6C3AD5-0000", provider: "qwen", state: "ready", cwd: "/", name: "a"), AgentMessages.Window(id: "0B7C0000-0000", provider: "claude", state: "ready", cwd: "/", name: "b")]
                 check(AgentMessages.match("0b6c", messageWindows)?.provider == "qwen" && AgentMessages.match("0b", messageWindows) == nil, "agent messages find a window by a unique id prefix of four characters or more")
                 check(AgentMessages.match("B", messageWindows)?.provider == "claude" && AgentMessages.parse("qwen from [b c]: \"say \"hi\"\"")?.body == "say \"hi\"" && AgentMessages.parse("qwen from [b c]: \"hi\"")?.name == "b c" && AgentMessages.parse("from [b]: \"hi\"") == nil && AgentMessages.parse("qwen from [b]: \"") == nil, "an agent answers a window by its name, and its message reads as one")

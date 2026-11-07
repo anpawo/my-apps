@@ -654,7 +654,7 @@ final class QwenConnection: Connection {
         var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
-        var outgoing = messages
+        var outgoing = qwenHistory(messages)
         outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
         request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "think": false, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
@@ -673,6 +673,7 @@ final class QwenConnection: Connection {
             emit("item/agentMessage/delta", ["itemId": id, "delta": delta])
         }
         if !answer.isEmpty { emit("item/completed", ["item": ["id": id, "type": "agentMessage", "text": answer, "provider": "Qwen"]]) }
+        if answer.isEmpty && calls.isEmpty { throw CXError(message: "Qwen returned an empty answer. Send your message again.") }
         return (answer, calls)
     }
 
@@ -728,6 +729,23 @@ final class QwenConnection: Connection {
 func qwenToolOutput(_ text: String, limit: Int = 2000) -> String {
     guard text.count > limit else { return text }
     return String(text.prefix(limit / 2)) + "\n[… \(text.count - limit) characters cut …]\n" + String(text.suffix(limit / 2))
+}
+
+// The PC's model holds 8192 tokens, prompt and answer together: 41 messages of tool output took 8106 of them and Qwen
+// answered nothing (07/11). About 2.8 bytes of JSON per token, so 16 KB leaves room for the system prompt and an answer.
+// Oldest messages go first; the request in progress stays.
+func qwenHistory(_ messages: [JSON], limit: Int = 16000) -> [JSON] {
+    guard messages.count > 2 else { return messages }
+    let task = max(1, messages.lastIndex { $0["role"] as? String == "user" } ?? 1)
+    var before = Array(messages[1..<task]), after = Array(messages[task...])
+    func size() -> Int { (try? JSONSerialization.data(withJSONObject: [messages[0]] + before + after).count) ?? 0 }
+    while size() > limit, !before.isEmpty { before.removeFirst() }
+    while before.first?["role"] as? String == "tool" { before.removeFirst() }
+    while size() > limit, after.count > 2 {
+        after.remove(at: 1)
+        while after.count > 2, after[1]["role"] as? String == "tool" { after.remove(at: 1) }
+    }
+    return [messages[0]] + before + after
 }
 
 // Claude picks its project from his CLAUDE.md; Qwen reads none, and the 8B model chains `cd x && …` into wrong folders,
