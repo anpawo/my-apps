@@ -384,6 +384,27 @@ enum BugCheck {
                 pointer(host, at: NSPoint(x: 5, y: 30), entering: true); pointer(host, at: NSPoint(x: left + 10, y: 30))
                 let open = lines("collapsed-\(name)-open.png")
                 print("Collapsed \(name) question, ink columns per line: \(collapsed), open: \(open)")
+                // Open, the arrow points down with as much room to its right, before line 1's first word, as under it, above line 2.
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let from = Int((left + 8) * scale), to = Int((left + UserBubble.edge) * scale), top = Int(12 * scale), bottom = Int(60 * scale)
+                    func ink(_ x: Int, _ y: Int, coloured: Bool) -> Bool {
+                        guard let c = bitmap.colorAt(x: x, y: y) else { return false }
+                        let high = max(c.redComponent, c.greenComponent, c.blueComponent), low = min(c.redComponent, c.greenComponent, c.blueComponent)
+                        return coloured ? high - low > 0.3 : high < 0.5
+                    }
+                    let arrow = (top..<bottom).flatMap { y in (from..<to).filter { ink($0, y, coloured: true) }.map { (x: $0, y: y) } }
+                    if let right = arrow.map(\.x).max(), let low = arrow.map(\.y).max(), let high = arrow.map(\.y).min() {
+                        let word = (right..<bitmap.pixelsWide).first { x in (high...low).contains { ink(x, $0, coloured: false) } } ?? right
+                        // Line 2's tallest letters, wherever they fall: past the blank rows that end line 1.
+                        func inked(_ y: Int) -> Bool { (from..<bitmap.pixelsWide).contains { ink($0, y, coloured: false) } }
+                        let gap = (low..<bitmap.pixelsHigh).first { !inked($0) } ?? low
+                        let below = (gap..<bitmap.pixelsHigh).first(where: inked) ?? low
+                        let sideways = CGFloat(word - right - 1) / scale, under = CGFloat(below - low - 1) / scale
+                        print("Open \(name) question: \(sideways) pt from the arrow to line 1, \(under) pt to line 2")
+                        check(abs(sideways - under) <= 1, "an open question's arrow (\(name)) has the same room to its right as under it")
+                    } else { check(false, "the open \(name) question shows its arrow") }
+                }
                 if name == "word" { check(open.count >= 3 && open[1].1 - open[0].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 2 and leaves line 1 short") }
                 // Line 1 gains at most the "…", and may lose its last piece of word to it, never more.
                 check(collapsed.count == 1 && open.count >= 2 && abs(collapsed[0].0 - open[0].0) <= 1
@@ -391,7 +412,7 @@ enum BugCheck {
             }
         }
         do {
-            // An agent message's chevron sat beside its "from …" tag, on a darker band as tall as tag and text together.
+            // An agent message's arrow sat beside its "from …" tag instead of on the body's first line.
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-agent"))
             asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it. Three lines would stay whole, so this one goes on to a fourth and a fifth line.\""]]])
             if let item = asking.rows.first?.items.first {
@@ -407,13 +428,14 @@ enum BugCheck {
                     func dark(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { $0.redComponent + $0.greenComponent + $0.blueComponent < 1.4 } ?? false }
                     // Middle of a run of rows, in points.
                     func middle(_ rows: [Int]) -> CGFloat { rows.isEmpty ? -100 : CGFloat(rows.first! + rows.last!) / 2 / scale }
-                    let chevron = (0..<bitmap.pixelsHigh).filter { y in (column(10)..<column(34)).contains { dark($0, y) } }
                     let text = (0..<bitmap.pixelsHigh).filter { y in (column(UserBubble.edge)..<bitmap.pixelsWide).contains { dark($0, y) } }
-                    // The band is a darker pink than the bubble around it, read right of the chevron and clear of the band's rounded corners.
-                    let band = (0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: column(30), y: y).map { $0.greenComponent > 0.7 && $0.greenComponent < 0.815 } ?? false }
-                    print("Collapsed agent message: chevron at y \(middle(chevron)), text at \(middle(text)) (\(text.count) rows), band at \(middle(band)), \(CGFloat(band.count) / scale) pt tall")
-                    check(abs(middle(chevron) - middle(text)) <= 2 && abs(middle(band) - middle(chevron)) <= 1 && abs(CGFloat(band.count) / scale - 40) <= 1,
-                          "an agent message's edge is a 40 pt band centred on its text, under its tag")
+                    // Pink ink in the arrow's cells: the tag's text above, then the arrow, the last run of rows.
+                    func pink(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { $0.redComponent - $0.greenComponent > 0.5 } ?? false }
+                    let rows = (0..<bitmap.pixelsHigh).filter { y in (column(16)..<column(UserBubble.edge)).contains { pink($0, y) } }
+                    let chevron = rows.reversed().prefix { y in rows.contains(y + 1) || y == rows.last }.reversed().map { $0 }
+                    print("Collapsed agent message: arrow at y \(middle(chevron)), text at \(middle(text)) (\(text.count) rows), \(rows.count) pink rows in the arrow's cells")
+                    check(abs(middle(chevron) - middle(text)) <= 2 && rows.count > chevron.count,
+                          "an agent message's arrow sits on its body's first line, under its tag")
                 } else { check(false, "the collapsed agent message renders") }
             } else { check(false, "the agent message fixture shows its message") }
         }
