@@ -29,6 +29,16 @@ enum Store {
             .sorted { $0.at < $1.at }
     }
 
+    /// Lines of one subject as one, the newest: an hourly alarm (mac-recon) left the same line five times.
+    static func fused(_ lines: [InboxItem]) -> [InboxItem] {
+        var newest: [String: InboxItem] = [:]
+        for var line in lines {
+            line.older = newest[line.subject].map { ($0.older ?? []) + [$0.id] }
+            newest[line.subject] = line
+        }
+        return lines.compactMap { newest[$0.subject]?.id == $0.id ? newest[$0.subject] : nil }
+    }
+
     /// Sets a line aside as done (`done/`, still on disk). False when no such line waits.
     @discardableResult
     static func take(_ id: String, in folder: URL = inbox) -> Bool {
@@ -88,6 +98,8 @@ struct InboxItem: Codable, Equatable {
     let prompt: String?
     /// The checks whose answers the run followed up; none on a line another tool wrote.
     var entries: [String]? = nil
+    /// The older lines of the same subject fused under this one, set aside with it.
+    var older: [String]? = nil
 
     var session: String? {
         options.firstIndex(of: "--resume").flatMap { options.indices.contains($0 + 1) ? options[$0 + 1] : nil }

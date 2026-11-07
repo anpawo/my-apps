@@ -100,7 +100,7 @@ enum SelfCheck {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         for (id, at) in [("b", 2), ("a", 1), ("d", 4), ("c", 3)] {
-            try? Data(#"{"id":"\#(id)","at":\#(at),"kind":"done","subject":"s","line":"l","dir":"/","options":["--resume","x"]}"#.utf8)
+            try? Data(#"{"id":"\#(id)","at":\#(at),"kind":"done","subject":"\#(id)","line":"l","dir":"/","options":["--resume","x"]}"#.utf8)
                 .write(to: folder.appending(path: "\(id).json"))
         }
         try? Data("{".utf8).write(to: folder.appending(path: ".e"))
@@ -145,6 +145,17 @@ enum SelfCheck {
         starts = true
         press(kVK_Return)
         expect(inbox.items.map(\.id) == ["a"] && kept("g") && opened.last == "g", true, "inbox: ↵ on a mac-guard line opens a session on it and sets it aside")
+        for (id, at) in [("r2", 7), ("r1", 6), ("r3", 8)] {
+            try? Data(#"{"id":"\#(id)","at":\#(at),"kind":"needs","subject":"mac-recon","line":"\#(id)","dir":"/","options":[]}"#.utf8)
+                .write(to: folder.appending(path: "\(id).json"))
+        }
+        inbox.refresh(force: true)
+        expect(inbox.items.map(\.id) == ["a", "r3"] && inbox.items.last?.older == ["r1", "r2"], true,
+               "inbox: lines of one subject show once, the newest")
+        press(kVK_RightArrow)
+        press(kVK_DownArrow)
+        press(kVK_Return)
+        expect(inbox.items.map(\.id) == ["a"] && kept("r1") && kept("r2") && kept("r3"), true, "inbox: setting the fused line aside takes them all")
         let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }

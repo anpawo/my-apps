@@ -70,7 +70,7 @@ final class Inbox: NSObject, ObservableObject {
         seen = date
         let was = current?.id
         let known = Set(items.map(\.id))
-        items = Store.lines(in: folder)
+        items = Store.fused(Store.lines(in: folder))
         index = items.firstIndex { $0.id == was } ?? min(index, max(items.count - 1, 0))
         status?.button?.image = Self.badge(items.count)
         // A process mac-guard stopped does not wait for ⌘⌥K. Not on the first read: those were there before Watcher.
@@ -229,7 +229,7 @@ final class Inbox: NSObject, ObservableObject {
     }
 
     private func take(_ item: InboxItem) {
-        Store.take(item.id, in: folder)
+        for id in [item.id] + (item.older ?? []) { Store.take(id, in: folder) }
         refresh(force: true)
         if items.isEmpty { hide() }
     }
@@ -463,8 +463,8 @@ struct InboxView: View {
             // Every date of the list laid under it unseen: the block keeps the widest, so it does not change size.
             if let item = inbox.current {
                 ZStack {
-                    ForEach(inbox.items, id: \.id) { Text(Store.when($0.at)).hidden() }
-                    Text(Store.when(item.at))
+                    ForEach(inbox.items, id: \.id) { Text(Self.stamp($0)).hidden() }
+                    Text(Self.stamp(item))
                 }
                 .monospacedDigit()
                 .chip()
@@ -491,6 +491,10 @@ struct InboxView: View {
                 key("chevron.right", "next", kVK_RightArrow)
             }
         }
+    }
+
+    private static func stamp(_ item: InboxItem) -> String {
+        Store.when(item.at) + ((item.older?.count).map { " · \($0 + 1)×" } ?? "")
     }
 
     private func key(_ symbol: String, _ label: String, _ code: Int, tint: Color? = nil, icon: Color? = nil) -> some View {
