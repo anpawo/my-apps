@@ -103,7 +103,7 @@ func demoWindows() -> [WindowInfo] {
 /// own, which may be a photo of someone), and on it: the window in front if one is named, the
 /// panel centred if there is one, and the two keys if they are to be shown.
 @MainActor
-func demoScreen(panel: Data?, front: WindowInfo? = nil, keys: (command: Bool, tab: Bool)? = nil) -> Data? {
+func demoScreen(panel: Data?, front: WindowInfo? = nil, keys: (command: Bool, tab: Bool, letter: String?)? = nil) -> Data? {
     guard let screen = NSScreen.main else { return nil }
     let scale = screen.backingScaleFactor
     let w = Int(screen.frame.width * scale), h = Int(screen.frame.height * scale)
@@ -159,8 +159,10 @@ func demoScreen(panel: Data?, front: WindowInfo? = nil, keys: (command: Bool, ta
 
     // ⌘ and Tab, lit while they are down: what the fingers are doing, under what it does.
     if let keys {
-        let caps: [(label: String, width: CGFloat, down: Bool)] = [("⌘", 60, keys.command), ("Tab", 92, keys.tab)]
+        var caps: [(label: String, width: CGFloat, down: Bool)] = [("⌘", 60, keys.command), ("Tab", 92, keys.tab)]
+        // Centred on ⌘ and Tab alone, so a letter joining them does not move the two.
         var x = (size.width - caps.reduce(-10) { $0 + $1.width + 10 }) / 2
+        if let letter = keys.letter { caps.append((letter, 60, true)) }
         for cap in caps {
             let rect = CGRect(x: x, y: 64, width: cap.width, height: 52)
             (cap.down ? NSColor(srgbRed: 0.04, green: 0.45, blue: 0.95, alpha: 1)
@@ -240,27 +242,37 @@ if arguments.contains("--render") {
            let dir = arguments.first(where: { $0.hasPrefix("--frames=") }).map({ URL(fileURLWithPath: String($0.dropFirst("--frames=".count))) }) {
             NSApplication.shared.setActivationPolicy(.accessory)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            // Down the first row and onto the second, to the window that will be raised.
-            let last = min(7, list.count - 1)
-            // Each selection drawn once by the panel itself. Moving it is instant in use too, so
-            // the steps between are cuts, as is the panel coming and going.
-            let panels = (0...last).map { $0 == 0 ? nil : Panel.png(list, selected: $0, settle: 0.5) }
-            // Panel showing which selection (nil: none), window in front, ⌘ down, Tab down, seconds.
-            var script: [(panel: Int?, front: Int, command: Bool, tab: Bool, seconds: Double)] = [
-                (nil, 0, false, false, 1.2), (nil, 0, true, false, 0.3),
-                // The panel waits out its 100 ms delay before it appears.
-                (nil, 0, true, true, 0.1), (1, 0, true, true, 0.05), (1, 0, true, false, 0.55)]
-            for k in stride(from: 2, through: last, by: 1) {
-                script += [(k, 0, true, true, 0.12), (k, 0, true, false, 0.55)]
+            // Two Tabs, then the window named rather than stepped to: "m" leaves Mail and Music,
+            // "a" Mail alone, and an "x" that fits nothing is refused.
+            @MainActor func filtered(_ query: String, refusing letter: Character? = nil) -> Data? {
+                let dimmed = Set(list.filter { !SwitcherState.matches($0, query) }.map(\.id))
+                let first = list.firstIndex(where: { SwitcherState.matches($0, query) }) ?? 0
+                return Panel.png(list, selected: first, settle: 0.5, query: query, dimmed: dimmed,
+                                 refusing: letter, roomForBadge: true)
             }
+            let last = list.firstIndex(where: { SwitcherState.matches($0, "ma") }) ?? 0
+            // Each state drawn once by the panel itself; the steps between are cuts.
+            let panels = [nil, Panel.png(list, selected: 1, settle: 0.5, roomForBadge: true),
+                          Panel.png(list, selected: 2, settle: 0.5, roomForBadge: true),
+                          filtered("m"), filtered("ma"), filtered("ma", refusing: "x")]
+            // Panel (index above, nil: none), window in front, ⌘ down, Tab down, letter down, seconds.
+            var script: [(panel: Int?, front: Int, command: Bool, tab: Bool, letter: String?, seconds: Double)] = [
+                (nil, 0, false, false, nil, 1.2), (nil, 0, true, false, nil, 0.3),
+                // The panel waits out its 100 ms delay before it appears.
+                (nil, 0, true, true, nil, 0.1), (1, 0, true, true, nil, 0.05), (1, 0, true, false, nil, 0.55),
+                (2, 0, true, true, nil, 0.12), (2, 0, true, false, nil, 0.7),
+                (3, 0, true, false, "M", 0.15), (3, 0, true, false, nil, 0.8),
+                (4, 0, true, false, "A", 0.15), (4, 0, true, false, nil, 0.8),
+                (5, 0, true, false, "X", 0.45), (4, 0, true, false, nil, 0.8)]
             // ⌘ let go: the selected window comes forward. Then a ⌘Tab quicker than the delay,
             // which switches back without drawing a panel, onto the first frame of the loop.
-            script += [(nil, last, false, false, 1.8), (nil, last, true, false, 0.15), (nil, last, true, true, 0.1)]
+            script += [(nil, last, false, false, nil, 1.8), (nil, last, true, false, nil, 0.15),
+                       (nil, last, true, true, nil, 0.1)]
             var concat = ""
             for (i, step) in script.enumerated() {
                 let name = String(format: "%03d.png", i)
                 guard let png = demoScreen(panel: step.panel.flatMap { panels[$0] }, front: list[step.front],
-                                           keys: (step.command, step.tab)),
+                                           keys: (step.command, step.tab, step.letter)),
                       (try? png.write(to: dir.appendingPathComponent(name))) != nil else {
                     print("could not write \(name)")
                     exit(1)

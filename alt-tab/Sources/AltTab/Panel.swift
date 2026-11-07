@@ -119,8 +119,11 @@ enum Panel {
     /// The pane behind the tiles is painted here rather than grabbed. Its glass is a
     /// behind-window blur, composited by the WindowServer against the desktop, and a window
     /// that was never ordered in has no desktop behind it to blur.
+    /// `roomForBadge` keeps the space above the edge even with nothing typed, so frames with and
+    /// without the badge put the panel in the same place.
     static func png(_ windows: [WindowInfo], selected: Int, settle: TimeInterval,
-                    query: String = "", dimmed: Set<CGWindowID> = []) -> Data? {
+                    query: String = "", dimmed: Set<CGWindowID> = [], refusing letter: Character? = nil,
+                    roomForBadge: Bool = false) -> Data? {
         let panel = built()
         self.query = query
         self.dimmed = dimmed
@@ -133,8 +136,9 @@ enum Panel {
         view.cacheDisplay(in: view.bounds, to: rep)
         // With letters typed, the badge across the top edge is drawn too, so the picture is
         // taller by what it sticks out.
-        let badge = query.isEmpty ? nil : Badge.image(query, panelWidth: view.bounds.width, scale: panel.backingScaleFactor)
-        let over = badge == nil ? 0 : Badge.overhang
+        let badge = query.isEmpty && letter == nil ? nil
+            : Badge.image(query, refusing: letter, panelWidth: view.bounds.width, scale: panel.backingScaleFactor)
+        let over = badge == nil && !roomForBadge ? 0 : Badge.overhang
         let image = NSImage(size: NSSize(width: view.bounds.width, height: view.bounds.height + over))
         image.lockFocus()
         NSColor(calibratedWhite: 0.16, alpha: 1).setFill()

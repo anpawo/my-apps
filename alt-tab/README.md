@@ -17,7 +17,7 @@ window open is not in the list, Finder included.
 
 Hold the modifier and press Tab. Let it go and you are there. That is the whole product.
 
-![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps from tile to tile with each Tab, and letting go of ⌘ brings the Mail window forward](docs/demo.gif)
+![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps with each Tab, typing "ma" greys every window but Mail, an "x" that fits nothing flashes red and is dropped, and letting go of ⌘ brings the Mail window forward](docs/demo.gif)
 
 **It takes ⌘Tab from the first launch.** The Dock consumes ⌘Tab before any application sees
 it, so holding that chord means switching Apple's switcher off — and that setting outlives the
@@ -73,6 +73,7 @@ you quit and reopen the app — not the moment you grant it.
 | **⌘Tab** | open the switcher, and step through the windows — or whatever chord you bound |
 | **let ⌘ go** | switch to the selected window |
 | **← →** | step back or forward, with ⌘ still held |
+| **type letters** | with ⌘ still held: keep only the windows whose app name or title has a word starting with them, and select the first; Tab then steps among those, Delete takes a letter back |
 | **Escape** | change your mind |
 | **click a tile** | switch to that window — with ⌘ still held, since letting go ends the session |
 | **click the red cross** | close that window |

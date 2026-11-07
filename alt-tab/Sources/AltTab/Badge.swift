@@ -91,13 +91,16 @@ enum Badge {
     }
 
     /// The pill over a panel of this size, for `Panel.png`: a layer tree drawn into a bitmap.
-    static func image(_ query: String, panelWidth: CGFloat, scale: CGFloat) -> CGImage? {
+    static func image(_ query: String, refusing letter: Character? = nil, panelWidth: CGFloat, scale: CGFloat) -> CGImage? {
         let window = built()
         window.setFrame(NSRect(x: 0, y: 0, width: panelWidth, height: height + margin * 2), display: false)
         self.query = query
         still {
             kept.contentsScale = scale
-            layout(extra: 0)
+            refused.contentsScale = scale
+            refused.string = letter.map(String.init) ?? ""
+            refused.opacity = letter == nil ? 0 : 1
+            layout(extra: letter.map { size(String($0)).width } ?? 0)
             pill.opacity = 1
             pill.transform = CATransform3DIdentity
         }

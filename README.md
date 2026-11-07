@@ -26,7 +26,7 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 
 ### [alt-tab](alt-tab)
 
-[![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps from tile to tile with each Tab, and letting go of ⌘ brings the Mail window forward](alt-tab/docs/demo.gif)](alt-tab)
+[![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps with each Tab, typing "ma" greys every window but Mail, an "x" that fits nothing flashes red and is dropped, and letting go of ⌘ brings the Mail window forward](alt-tab/docs/demo.gif)](alt-tab)
 
 ### [autocorrect](autocorrect)
 
