@@ -419,10 +419,10 @@ struct CXView: View {
                                 if !section.rows.isEmpty {
                                     VStack(alignment: .leading, spacing: 24) {
                                         let parts = sectionParts(section.rows)
-                                        if !parts.trail.isEmpty { WorkBlock(rows: parts.trail, details: session.details).id("work-\(section.id)") }
+                                        if !parts.trail.isEmpty { WorkBlock(rows: parts.trail, details: session.details) { proxy.scrollTo(section.question == nil ? AnyHashable("exchange-\(section.id)") : AnyHashable(section.id), anchor: .top) }.id("work-\(section.id)") }
                                         if let last = parts.last { ConversationRow(row: last, session: session).equatable().id(last.id) }
                                         let sent = parts.notices.filter { $0.kind == "peer" }
-                                        if !sent.isEmpty { WorkBlock(rows: sent, details: session.details).id("sent-\(section.id)") }
+                                        if !sent.isEmpty { WorkBlock(rows: sent, details: session.details) { if let last = parts.last { proxy.scrollTo(last.id, anchor: .bottom) } else { proxy.scrollTo("exchange-\(section.id)", anchor: .top) } }.id("sent-\(section.id)") }
                                         ForEach(parts.notices.filter { $0.kind == "notice" }) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
                                     .id("exchange-\(section.id)")
@@ -831,8 +831,11 @@ struct PeerLine: View {
 struct WorkBlock: View {
     let rows: [Row]
     let details: Bool
+    // Brings the shut block back into view: shut while scrolled inside it, it left the view past the transcript's new end, blank.
+    var reveal: () -> Void = {}
     @State private var hovering = false
     @State private var pinned = false
+    @State private var top: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func animate(_ change: () -> Void) { withAnimation(reduceMotion ? nil : .smooth(duration: 0.28), change) }
     var body: some View {
@@ -862,7 +865,15 @@ struct WorkBlock: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
             .background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .onHover { inside in if !inside, hovering { animate { hovering = false } } }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { top = $0 }
+            .onHover { inside in
+                guard !inside, hovering else { return }
+                // Scrolled inside it, the transcript rises to its header first, then it shuts: shut at once under that offset, the view went blank until the scroll caught up.
+                if top < 0, !pinned, !details, !reduceMotion {
+                    withAnimation(.smooth(duration: 0.3)) { reveal() }
+                    Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in MainActor.assumeIsolated { animate { hovering = false } } }
+                } else { animate { hovering = false; if top < 0, !pinned, !details { reveal() } } }
+            }
     }
 }
 

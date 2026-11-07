@@ -338,6 +338,60 @@ enum BugCheck {
             }
         }
         do {
+            // Opened by hover, scrolled into and left by the pointer, a tall work block shut under a scroll offset past the new end: the transcript went blank.
+            let working = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("work-shut"))
+            working.ready = true; working.status = "Ready"
+            working.show(["id": "work-q", "type": "userMessage", "content": [["type": "text", "text": "list every step"]]])
+            for n in 1...60 { working.show(["id": "work-c\(n)", "type": "commandExecution", "command": "ls step-\(n)", "aggregatedOutput": "", "status": "completed"]) }
+            working.show(["id": "work-a", "type": "agentMessage", "text": "Done."])
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(working)
+            defer { window.close() }
+            await settle()
+            if let content = window.contentView {
+                func shot(_ name: String) -> NSBitmapImageRep? {
+                    content.layoutSubtreeIfNeeded()
+                    guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return nil }
+                    content.cacheDisplay(in: content.bounds, to: bitmap)
+                    if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("work-shut-\(name).png")) }
+                    return bitmap
+                }
+                // The block's tinted edge, found on the render: the first tinted column left of the middle, on the row where it sits.
+                func edge(_ bitmap: NSBitmapImageRep) -> (x: Int, y: Int)? {
+                    for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide / 2 where bitmap.colorAt(x: x, y: y).map({ $0.blueComponent - $0.greenComponent > 0.02 }) == true { return (x, y) } }
+                    return nil
+                }
+                // Inked rows of the transcript alone (right of the side bar, above the status line), in points.
+                func inked(_ bitmap: NSBitmapImageRep) -> Int {
+                    let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
+                    return stride(from: 0, to: Int(640 * scale), by: Int(scale)).filter { y in stride(from: Int(170 * scale), to: Int(1150 * scale), by: 4).contains { x in bitmap.colorAt(x: x, y: y).map { $0.redComponent + $0.greenComponent + $0.blueComponent < 2.4 } ?? false } }.count
+                }
+                if let shut = shot("before"), let spot = edge(shut) {
+                    let scale = CGFloat(shut.pixelsWide) / content.bounds.width
+                    let at = NSPoint(x: CGFloat(spot.x) / scale + 20, y: CGFloat(spot.y) / scale + 20)
+                    pointer(content, at: NSPoint(x: content.bounds.width - 5, y: at.y), entering: true)
+                    pointer(content, at: at); RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+                    func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
+                    if let outer = scrollViews(content).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }), let document = outer.documentView {
+                        let tall = document.frame.height
+                        // Scrolled to the middle of the open block, then the pointer leaves it sideways.
+                        document.scroll(NSPoint(x: 0, y: document.isFlipped ? tall / 2 : tall / 2 - outer.contentSize.height))
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                        let open = shot("open")
+                        pointer(content, at: NSPoint(x: content.bounds.width - 5, y: 400))
+                        var frames: [Int] = []
+                        let start = Date()
+                        for frame in 1...24 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 30)); if let bitmap = shot([4, 10, 11].contains(frame) ? "moving-\(frame)" : "frame") { frames.append(inked(bitmap)) } }
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                        let after = shot("after")
+                        print("Work block of 60 actions: document \(Int(tall)) pt open, \(Int(document.frame.height)) pt shut; inked rows open \(open.map(inked) ?? 0), while shutting " + frames.map(String.init).joined(separator: " ") + ", after \(after.map(inked) ?? 0)")
+                        check(tall > document.frame.height + 600 && after.flatMap(edge) != nil && frames.allSatisfy { $0 > 10 },
+                              "a work block left by the pointer while scrolled inside it shuts back into view, never on a blank transcript")
+                    } else { check(false, "a work block left while scrolled inside it: no transcript scroll view") }
+                } else { check(false, "a work block left while scrolled inside it: no tinted edge on the render") }
+            }
+        }
+        do {
             // A word too long for what is left of line 1 opens line 2: SwiftUI's truncation pulled part of it up, then put it back on hover.
             // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 1.
             for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line, then a fourth and a fifth: past three lines, a pinned question shuts to its first."),
