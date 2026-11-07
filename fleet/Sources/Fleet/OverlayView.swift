@@ -1095,9 +1095,6 @@ struct SessionTile: View {
                 // the border and the pill say its state.
                 name
                     .padding(.horizontal, 12)
-                    // In a group, centred under the pill line rather than on the whole card
-                    // (asked 2026-11-08): 11 pt inset plus a 9 pt pill's height.
-                    .padding(.top, grouped ? 28 : 0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Jarvis's mark in its icon's colours (asked 2026-11-01).
