@@ -430,6 +430,11 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
 if args.first == "--sessions" { exit(AgentMessages.list()) }
 if args.first == "--send" { exit(AgentMessages.send(Array(args.dropFirst()))) }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
+if args.first == "--route-project" {
+    let prompt = args.dropFirst().joined(separator: " ")
+    Task { print(await routeProject(prompt, account: Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }) ?? "none"); exit(0) }
+    dispatchMain()
+}
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }
 if args.contains(where: { ["--check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--icon"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString

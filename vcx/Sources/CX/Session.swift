@@ -753,6 +753,20 @@ final class Session: ObservableObject {
             }
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
+        // A window opened at / or ~ starts its first task in the task's project.
+        if !testing, !retry, !busy, ["/", NSHomeDirectory()].contains(cwd), !text.isEmpty, !rows.contains(where: { $0.kind == "user" }) {
+            status = "Choosing the project…"
+            let claude = account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }
+            submitting = true
+            let routed = await routeProject(text, account: claude)
+            submitting = false
+            if let project = routed {
+                let typed = draft
+                try? await changeDirectory(project)
+                draft = typed; draftRevision += 1
+                guard ready else { return }
+            }
+        }
         let wasBusy = busy, savedDraft = submissionDraft
         guard !busy || turnID != nil else { notice("The current turn is still starting. Your draft has been kept."); return }
         submitting = true
