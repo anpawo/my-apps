@@ -797,7 +797,7 @@ struct ConversationRow: View, Equatable {
             if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible) }
             else if row.kind == "notice" { NoticeLine(item: item) }
             else if row.kind == "peer" { PeerLine(item: item).background(Color.white) }
-            else { AssistantBubble(item: item) }
+            else { AssistantBubble(item: item).environment(\.codeEdits, session.codeEdits) }
         }
     }
 }
@@ -1150,25 +1150,54 @@ struct MarkdownBody: View {
     }
 }
 
+private struct CodeEditsKey: EnvironmentKey { static let defaultValue: CodeEdits? = nil }
+extension EnvironmentValues { var codeEdits: CodeEdits? { get { self[CodeEditsKey.self] } set { self[CodeEditsKey.self] = newValue } } }
+
 struct CodeBlock: View {
     let block: MarkdownBlock
+    @Environment(\.codeEdits) private var edits
     @State private var copied = false
     @State private var reset: Task<Void, Never>?
+    @State private var edited: String?
+    @State var editing = false
+    @FocusState private var focused: Bool
     var body: some View {
+        let code = edited ?? block.text, mono = Font.system(size: 12, design: .monospaced)
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(block.text, forType: .string)
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string)
                 copied = true; reset?.cancel()
                 reset = Task { try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled { copied = false } }
             } label: {
                 HStack {
-                    Text(block.language.isEmpty ? block.markdown ? "Markdown" : "Code" : block.language).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
+                    Text((block.language.isEmpty ? block.markdown ? "Markdown" : "Code" : block.language) + (edited == nil ? "" : " · edited")).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6)); Spacer()
                     Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: copied ? 19 : 13, weight: copied ? .light : .regular)).frame(height: 18)
                 }.padding(10).background(.black.opacity(0.025)).contentShape(Rectangle())
             }.buttonStyle(.reactive(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))).help(copied ? "Copied" : "Copy code").accessibilityLabel(copied ? "Copied" : "Copy code")
+            .overlay(alignment: .trailing) {
+                if edits != nil, !block.markdown {
+                    Button { editing.toggle() } label: {
+                        Image(systemName: editing ? "checkmark.circle" : "pencil").font(.system(size: 13)).frame(width: 24, height: 18).contentShape(Rectangle())
+                    }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).padding(.trailing, 40)
+                    .help(editing ? "Done editing" : "Edit: copy takes your version, and your next message sends it").accessibilityLabel(editing ? "Done editing" : "Edit code")
+                }
+            }
             if block.markdown { MarkdownBody(text: block.text).padding(14) }
-            else { Text(block.text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
-        }.background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06)))
+            else if editing {
+                // The hidden copy sizes the editor to its text, so it never scrolls inside the transcript; 5 pt is NSTextView's line padding.
+                Text(code + " ").font(mono).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 5).hidden()
+                .overlay {
+                    TextEditor(text: Binding(get: { code }, set: { edited = $0 == block.text ? nil : $0; edits?.set(block.text, $0) }))
+                        .font(mono).scrollContentBackground(.hidden).scrollDisabled(true).focused($focused)
+                        .onKeyPress(.escape) { editing = false; return .handled }
+                }.padding(.vertical, 14).padding(.horizontal, 9)
+                .onAppear { DispatchQueue.main.async { focused = true } }
+                .onChange(of: focused) { _, now in if !now { editing = false } }
+            }
+            else { Text(code).font(mono).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
+        }.background(.black.opacity(editing ? 0.02 : 0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(editing ? accent.opacity(0.4) : .black.opacity(0.06)))
+        .animation(.easeOut(duration: 0.25), value: editing)
+        .onAppear { edited = edits?.text[block.text] }
         .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
     }
 }

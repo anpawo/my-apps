@@ -322,6 +322,10 @@ enum Check {
         let nested = markdownBlocks("````\n### Plan\n```python\nx = 1\n```\nafter\n````\n\n## Next")
         check(nested.count == 2 && nested[0].markdown && nested[0].text.hasSuffix("after") && !nested[1].code, "a ```` block holds ``` fences and renders as Markdown")
         check(!markdownBlocks("```\n# comment\n```")[0].markdown && markdownBlocks("```md\n# T\n```")[0].markdown, "only md or ```` blocks render as Markdown")
+        let codeEdits = CodeEdits(); codeEdits.set("a", "b ```")
+        check(codeEdits.attach(to: "ok") == "I edited your code block. My version:\n````\nb ```\n````\n\nok" && codeEdits.attach(to: "x") == "x" && codeEdits.text["a"] == "b ```", "an edited code block goes once with the next prompt and stays edited")
+        codeEdits.set("a", "c"); codeEdits.set("a", "a")
+        check(codeEdits.attach(to: "") == "" && codeEdits.text["a"] == nil, "a block edited back to its original sends nothing")
         check(answerParagraphs("\n## Next\n\nText") == ["## Next", "Text"], "a heading after a fence stays a heading")
         check(answerParagraphs("**Closed**\n| A | B |\n|---|---|\n| 1 | 2 |") == ["**Closed**", "| A | B |\n|---|---|\n| 1 | 2 |"], "a table right under a text line is its own block")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
@@ -1844,6 +1848,10 @@ enum Render {
         write(MarkdownBody(text: nested).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 560), path: directory + "/nested-markdown.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
         write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
+        let edits = CodeEdits(); edits.set(message.text, "hello, my own version of the draft\nwith a second line I typed")
+        for editing in [false, true] {
+            write(CodeBlock(block: message, editing: editing).environment(\.codeEdits, edits).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-edit-\(editing ? "open" : "done").png")
+        }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {
             write(WorkBlock(rows: sent, details: open).padding(24).background(Color.white), size: CGSize(width: 760, height: open ? 220 : 90), path: directory + "/sent-\(open ? "open" : "closed").png")

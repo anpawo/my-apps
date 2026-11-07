@@ -4,6 +4,25 @@ import Darwin
 import Network
 import SwiftUI
 
+// Code blocks he edited in answers, keyed by their original text; the next prompt carries the edits the agent has not seen.
+final class CodeEdits {
+    private(set) var text: [String: String] = [:]
+    private var unsent: [String] = []
+    func set(_ original: String, _ edited: String) {
+        text[original] = edited == original ? nil : edited
+        unsent.removeAll { $0 == original }
+        if edited != original { unsent.append(original) }
+    }
+    func attach(to prompt: String) -> String {
+        let blocks = unsent.compactMap { text[$0] }; unsent.removeAll()
+        let edits = blocks.map { block in
+            let fence = block.contains("```") ? "````" : "```"
+            return "I edited your code block. My version:\n" + fence + "\n" + block + "\n" + fence
+        }
+        return (edits + [prompt]).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
 final class Item: ObservableObject, Identifiable {
     let id: String
     @Published var data: JSON
@@ -210,6 +229,7 @@ final class Session: ObservableObject {
     var planning = false
     var conversationName: String?
     var focusComposer: () -> Void = {}
+    let codeEdits = CodeEdits()
     var savedCommandDraft: NSAttributedString?
     var runtimeClient: RuntimeClient?
     private var runtimeFleetContext: String?
@@ -710,6 +730,8 @@ final class Session: ObservableObject {
     func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil, displayText: String? = nil) async {
         guard !frontendReplacing else { return }
         recalled = nil
+        var text = text
+        if !retry, !text.hasPrefix("/") { text = codeEdits.attach(to: text) }
         if runtimeClient != nil {
             if text.hasPrefix("/"), images.isEmpty, !commandHandled { await command(text); return }
             await performRuntime("send", ["text": text, "images": images, "draft": draftContent(expectedDraft ?? draft), "generation": expectedGeneration ?? draftGeneration])
