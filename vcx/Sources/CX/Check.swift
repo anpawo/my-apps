@@ -948,6 +948,16 @@ enum Check {
             check(session.busy, "in-progress turn")
             await session.stop()
             check(!session.busy && session.status == "Stopped", "interrupt reaches the backend")
+            session.draft = NSAttributedString(string: "Fix the tpyo")
+            await session.send(text: "Fix the tpyo", images: [])
+            await session.stop(source: "Escape")
+            check(session.draft.string == "Fix the tpyo" && !session.rows.contains { $0.kind == "user" && ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "Fix the tpyo" } && session.status == "Ready",
+                  "Escape before any output takes the prompt back into the composer")
+            session.editDraft(NSAttributedString(string: ""))
+            await session.send(text: "Keep going", images: [])
+            session.event(["method": "item/completed", "params": ["item": ["id": "partial", "type": "agentMessage", "text": "Started"]]])
+            await session.stop(source: "Escape")
+            check(session.draft.length == 0 && session.status == "Stopped", "Escape after output only stops the turn")
             session.models = ["other-model", "fixture-model"]
             session.modelEfforts = ["other-model": ["low", "high"], "fixture-model": ["low", "high"]]
             session.effort = "high"
@@ -1021,7 +1031,7 @@ enum Check {
             restored.connectionFactory = { account, _ in FixtureConnection(account) }
             await restored.connect(resume: "last")
             check(restored.ready && restored.draft.string == "Unsent draft", "saved native conversation restores its draft")
-            check(restored.rows.filter { $0.kind == "user" }.count == 3, "native history is restored without duplicates")
+            check(restored.rows.filter { $0.kind == "user" }.count == 4, "native history is restored without duplicates")
             check(!promptTimes.isEmpty && restored.rows.filter { $0.kind == "user" }.compactMap { $0.items.first?.data["sentAt"] as? Double } == promptTimes, "saved conversation restores its original prompt times")
             check(restored.effort == "low", "saved conversation restores the selected effort")
             check(restored.fleetContext == "Build feature", "saved conversations restore their session-written Fleet context")

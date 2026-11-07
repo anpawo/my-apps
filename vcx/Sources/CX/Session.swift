@@ -159,6 +159,7 @@ final class Session: ObservableObject {
     @Published var backgroundTasks = 0
     @Published var needsAttention = false
     private var stopSource: String?
+    private var turnPrompt: String?
     @Published private var activeActions: Set<String> = []
     @Published var changing = false
     @Published var details = false
@@ -606,13 +607,23 @@ final class Session: ObservableObject {
             // closing mid-turn or a stop nobody asked for still needs attention.
             let asked = stopSource != nil && stopSource != "Close Session"
             needsAttention = (outcome == "interrupted" && !asked) || outcome == "failed" || turn["error"] is JSON
-            if outcome == "interrupted" {
+            // Escape before the agent showed anything takes the prompt back into the composer, as Claude Code does.
+            // ponytail: the agent's own history keeps the withdrawn prompt; rewind it (Codex thread/rollback) if that misleads it.
+            let prompt = rows.last?.kind == "user" ? rows.last?.items.first : nil
+            let withdrawn = outcome == "interrupted" && stopSource == "Escape" && prompt != nil && prompt?.id == turnPrompt
+            turnPrompt = nil
+            if withdrawn, let prompt, let content = prompt.data["content"] as? [JSON] {
+                rows.removeLast(); itemMap[prompt.id] = nil; revision += 1
+                let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
+                restored.append(draft)
+                editDraft(restored)
+            } else if outcome == "interrupted" {
                 notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
             } else if needsAttention {
                 notice((turn["error"] as? JSON)?["message"] as? String ?? "Turn failed. Send a message to retry.")
             }
             stopSource = nil
-            status = outcome == "interrupted" ? "Stopped" : needsAttention ? "Failed" : "Ready"
+            status = withdrawn ? "Ready" : outcome == "interrupted" ? "Stopped" : needsAttention ? "Failed" : "Ready"
             save()
             resumeWhenOnline(after: turn)
             if let command = pendingModelCommand {
@@ -738,7 +749,7 @@ final class Session: ObservableObject {
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
         if !retry, draftGeneration == submissionGeneration, NSArray(array: draftContent(draft)).isEqual(to: draftContent(submissionDraft)) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
-        if !wasBusy { activeActions.removeAll() }
+        if !wasBusy { activeActions.removeAll(); turnPrompt = retry ? nil : id }
         busy = true; stopRequested = false; stopSource = nil; needsAttention = false; status = wasBusy ? "Sending guidance…" : "Working…"
         var outgoing = content
         if let skill { outgoing.append(skill) }

@@ -570,6 +570,7 @@ enum BugCheck {
         let wire = connection.sent.last?["input"] as? [JSON]
         check(wire?.contains { $0["type"] as? String == "skill" && $0["name"] as? String == "sm" } == true, "Codex still receives the native skill")
         check(!backendSession.needsAttention, "a new accepted prompt clears interruption attention")
+        backendSession.event(["method": "item/completed", "params": ["item": ["id": "sm-answer", "type": "agentMessage", "text": "Summing up"]]])
         await backendSession.stop(source: "Escape")
         await settle(); await settle()
         check(backendSession.rows.last?.items.first?.text.contains("Escape") == true, "the stop source stays visible after completion")
