@@ -108,6 +108,7 @@ enum VCX {
             read.insert(transcript)
             let live = transcripts.info(for: transcript)
             info.subagents = live?.subagents ?? []
+            info.backgroundShellsStartedAt = live?.backgroundShellsStartedAt ?? []
             // VCX's cwd is where the window launched; a `cd` in the session moves only the transcript's.
             if let moved = live?.cwd { info.cwd = moved }
         }

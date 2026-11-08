@@ -1132,9 +1132,9 @@ struct SessionTile: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .center)
                 // Clear of Jarvis's mark: on a group's narrower card two pills ran over it.
-                .padding(.leading, session.qwen != nil ? 24 : 0)
+                .padding(.horizontal, session.qwen != nil ? 24 : 0)
                 .padding(11)
 
                 // Bottom left, the top line left to the pills (asked 2026-10-26). In a group, only
@@ -1213,7 +1213,8 @@ struct SessionTile: View {
         // A workflow's progress rides in the pill that says the session is waiting on it.
         let label = state.label
         let text = session.workflow.map { Text("\(label): \($0.pill())") }
-            ?? session.delegatedSince.map {
+            ?? (session.delegatedSince
+                ?? (state == .delegated ? session.subagents.map(\.startedAt).min() : nil)).map {
                 let age = WorkflowProgress.duration(Date().timeIntervalSince($0))
                 // Under any state but its own the shell is named, in its colour: a bare
                 // "WORKING · 28m in" read as a turn 28 minutes long (asked 2026-10-13). And no

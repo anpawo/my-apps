@@ -251,6 +251,7 @@ struct SubagentRun: Identifiable {
     var step: String?
     /// Last write to the sub-agent's transcript — how we know it is still alive.
     var lastActivity: Date
+    var startedAt = Date()
 
     /// Who is working, in the fewest words that still identify it. The task description is
     /// specific to this run and the type is generic, so the description wins when there is one.

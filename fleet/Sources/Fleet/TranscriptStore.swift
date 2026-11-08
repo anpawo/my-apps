@@ -314,7 +314,9 @@ final class TranscriptStore {
                 // what it last said is prose, and this lands on a single tile line.
                 step: (info?.pendingToolLabels.first ?? info?.preview.last?.text)
                     .map { String($0.collapsedWhitespace.prefix(90)) },
-                lastActivity: info?.lastActivity ?? .distantPast
+                lastActivity: info?.lastActivity ?? .distantPast,
+                // The meta file is written once, at the spawn.
+                startedAt: (try? FileManager.default.attributesOfItem(atPath: metaPath)[.creationDate] as? Date) ?? Date()
             ))
         }
 
