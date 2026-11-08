@@ -292,6 +292,7 @@ struct CXView: View {
         .coordinateSpace(name: "conversation")
         .environmentObject(sending)
         .onPreferenceChange(MessageFrames.self) { frames in
+            FreezeTrace.note("MessageFrames")
             sending.receive(frames, rows: { session.rows }, reduceMotion: reduceMotion)
         }
         .overlay(alignment: .topLeading) {
@@ -428,7 +429,7 @@ struct CXView: View {
                                         ForEach(parts.notices.filter { $0.kind == "notice" }) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
                                     .id("exchange-\(section.id)")
-                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { session.exchangeTops[section.id] = $0 }
+                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("exchange top"); session.exchangeTops[section.id] = $0 }
                                     .onDisappear { session.exchangeTops[section.id] = nil }
                                     .drawnRow(session)
                                 }
@@ -446,7 +447,7 @@ struct CXView: View {
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height)
-                } action: { _, distance in if userScrolling { session.userScroll(distance: distance) } }
+                } action: { _, distance in FreezeTrace.note("transcript scroll"); if userScrolling { session.userScroll(distance: distance) } }
                 .onChange(of: session.revision) { _, _ in
                     guard session.follow.attached else { return }
                     let animate = !reduceMotion && (sending.hasPending || sending.flight != nil)
@@ -911,7 +912,7 @@ struct WorkBlock: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
             .background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { top = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("work block top"); top = $0 }
             .onHover { inside in
                 guard !inside, hovering else { return }
                 // Scrolled inside it, the transcript rises to its header first, then it shuts: shut at once under that offset, the view went blank until the scroll caught up.
@@ -988,10 +989,10 @@ struct UserBubble: View {
                 Group {
                     // At the width it had unscrolled, the text wraps as it did and keeps the height that made it scroll.
                     if scrolls { ScrollView { content }.frame(width: size.width, height: cap) }
-                    else { content.onGeometryChange(for: CGSize.self) { $0.size } action: { new in withAnimation(Self.opening(reduceMotion: reduceMotion)) { size = new } } }
+                    else { content.onGeometryChange(for: CGSize.self) { $0.size } action: { new in FreezeTrace.note("question size " + item.id); withAnimation(Self.opening(reduceMotion: reduceMotion)) { size = new } } }
                 }
                     // Open, the text shows whole and reports nothing hidden: the edge stays until the pointer leaves.
-                    .onPreferenceChange(HidesText.self) { if !hovering { hides = $0 } }
+                    .onPreferenceChange(HidesText.self) { FreezeTrace.note("question hides " + item.id); if !hovering { hides = $0 } }
                     // A send flight lands on this frame, which leaves the edge out.
                     .background(GeometryReader { geometry in
                         let frame = geometry.frame(in: .named("conversation"))
@@ -1001,8 +1002,8 @@ struct UserBubble: View {
                     .background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
                     .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
-                    .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { stuck = $0 }
-                    .onGeometryChange(for: CGFloat.self) { collapsible ? $0.bounds(of: .scrollView)?.height ?? .infinity : .infinity } action: { room = $0 }
+                    .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { FreezeTrace.note("question stuck " + item.id); stuck = $0 }
+                    .onGeometryChange(for: CGFloat.self) { collapsible ? $0.bounds(of: .scrollView)?.height ?? .infinity : .infinity } action: { FreezeTrace.note("question room " + item.id); room = $0 }
                     .animation(.easeOut(duration: 0.2), value: stuck)
                     .onHover { inside in if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
@@ -1038,7 +1039,7 @@ struct CollapsibleText: View {
             // ponytail: width from the first 10,000 characters; measured whole, a 520,000-character paste held the window 45 s.
             // A wider line past them widens the bubble only once opened.
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { open = $0 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { FreezeTrace.note("text open size"); open = $0 }
                 .hidden().frame(height: 0, alignment: .top)
             // Up to fifteen lines, it stays whole.
             let shown = collapsed && open.width > 0 && open.height > Self.line * 15.5 ? firstLine(text, width: open.width) : text

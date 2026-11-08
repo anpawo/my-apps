@@ -661,6 +661,17 @@ enum BugCheck {
             let late = try await claude.request("cx/unsend", ["id": "edited"])
             check(late["cancelled"] as? Bool == false, "a prompt Claude has read cannot be withdrawn")
         } catch { check(false, "Claude withdrawal: " + error.localizedDescription) }
+        do {
+            // A main thread that stops answering leaves a report of the callbacks it kept running, as the 11-08 freeze did not.
+            FreezeTrace.folder = directory.appendingPathComponent("freezes")
+            FreezeTrace.start(stall: 2)
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            let end = Date().addingTimeInterval(7)
+            while Date() < end { FreezeTrace.note("stuck callback"); usleep(1000) }
+            let reports = (try? FileManager.default.contentsOfDirectory(at: FreezeTrace.folder, includingPropertiesForKeys: nil)) ?? []
+            let report = reports.first { $0.pathExtension == "txt" && !$0.path.hasSuffix(".sample.txt") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            check(report.contains("\tstuck callback") && reports.contains { $0.path.hasSuffix(".sample.txt") }, "a frozen main thread leaves a report of the callbacks that kept firing, and a sample")
+        }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }

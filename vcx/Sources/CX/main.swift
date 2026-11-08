@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             catch { NSLog("VCX pending session close: %@", error.localizedDescription) }
         }
         drainOpenRequests()
-        if !headless { replaceFrontend() }
+        if !headless { replaceFrontend(); FreezeTrace.start() }
     }
 
     func observeFrontendEvents() {
