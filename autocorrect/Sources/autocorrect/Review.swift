@@ -53,7 +53,7 @@ enum Review {
     he would seldom mean (épi, an ear of wheat, when he refused eip → épi) came from that fix.
     - "fixes": fixes the app made that he did not take back right away (typed → fixed, times). He may \
     have put a wrong one right by hand later.
-    - "refused": fixes he took back with ⌫ right after; the app never makes them again. A ⌫ can also be \
+    - "refused": fixes he took back with ⌫ right after; the app does not make them again for a week. A ⌫ can also be \
     him going to put the typo right himself, not knowing the app already had.
     - "all_refused": every fix he ever took back, for context only: unrefuse names pairs from "refused" alone.
 

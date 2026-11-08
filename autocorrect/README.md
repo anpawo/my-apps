@@ -10,7 +10,7 @@ replaced as you go.
 | Key | Does |
 |---|---|
 | space, ↵ | fix the word before it, with its punctuation (`tres.` → `très.`) |
-| ⌫ right after | put back what you typed; that word is never changed that way again |
+| ⌫ right after | put back what you typed; that word is not changed that way again for a week |
 
 ## How it picks
 
@@ -36,7 +36,7 @@ defaults write com.mr.autocorrect skip -array-add <bundle id> && launchctl kicks
 
 `~/Library/Application Support/autocorrect/learned.json`, readable by you alone: how often you kept each
 word, the fixes you took back with ⌫, and the ones you let stand. A word you kept is never fixed as a typo
-again, a fix you took back is never made again, and among close spellings the one you use wins.
+again, a fix you took back is not made again for a week, and among close spellings the one you use wins.
 
 Once a day it has Claude (`~/.local/bin/claude -p`, Opus, no tools) read what it learned since the last
 time and take the mistakes out: a typo you left, which then counts as your word; a fix you let stand and put

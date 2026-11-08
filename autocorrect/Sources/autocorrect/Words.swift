@@ -6,6 +6,8 @@ struct Mine: Codable {
     var counts: [String: Int] = [:]
     var rejected: [String: Int] = [:]
     var fixes: [String: Int] = [:]
+    /// When each fix was last taken back (seconds since 1970): it is held off a week from then.
+    var refusedAt: [String: Double] = [:]
 
     init() {}
     // A file from before `fixes` lacks the key, and the synthesized decoder would refuse it whole.
@@ -14,6 +16,7 @@ struct Mine: Codable {
         counts = try c.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
         rejected = try c.decodeIfPresent([String: Int].self, forKey: .rejected) ?? [:]
         fixes = try c.decodeIfPresent([String: Int].self, forKey: .fixes) ?? [:]
+        refusedAt = try c.decodeIfPresent([String: Double].self, forKey: .refusedAt) ?? [:]
     }
 }
 
@@ -54,6 +57,9 @@ final class Words {
         if let learned, let data = try? Data(contentsOf: learned), let saved = try? JSONDecoder().decode(Mine.self, from: data) {
             mine = saved
         }
+        // Refusals from before the hold had no time: their week starts now.
+        let now = Date().timeIntervalSince1970
+        for key in mine.rejected.keys where mine.refusedAt[key] == nil { mine.refusedAt[key] = now; dirty = true }
     }
 
     var count: Int { entries.count }
@@ -90,7 +96,7 @@ final class Words {
             guard Self.elisions.contains(String(chars[..<cut]).lowercased()), cut + 1 < chars.count,
                   let rest = correct(String(chars[(cut + 1)...]), fr: fr) else { return nil }
             let fixed = String(chars[...cut]) + rest
-            return mine.rejected[lower + "\t" + fixed.lowercased()] == nil ? fixed : nil
+            return refused(lower + "\t" + fixed.lowercased()) ? nil : fixed
         }
 
         let base = Self.fold(lower)
@@ -105,9 +111,9 @@ final class Words {
         let rare = max(entries[lower]?.fr ?? 0, entries[lower]?.en ?? 0) < 2e-7 && mine.counts[lower] == nil
         var scores: [String: Double] = [:]
         func consider(_ key: String, _ score: Double) {
-            // Taken back once is never made again: a penalty did nothing for a word the lexicon
+            // Taken back: not made for a week. A penalty did nothing for a word the lexicon
             // lacks, whose own score is 0 (eip was made épi again after two ⌫).
-            guard mine.rejected[lower + "\t" + key] == nil else { return }
+            guard !refused(lower + "\t" + key) else { return }
             scores[key] = max(scores[key] ?? 0, score)
         }
         for key in byBase[base] ?? [] where key != lower {
@@ -245,8 +251,17 @@ final class Words {
         dirty = true
     }
 
-    func reject(_ typed: String, _ fixed: String) {
-        mine.rejected[typed.lowercased() + "\t" + fixed.lowercased(), default: 0] += 1
+    static let refusalHold: TimeInterval = 7 * 86400
+
+    private func refused(_ key: String) -> Bool {
+        guard let at = mine.refusedAt[key] else { return false }
+        return Date().timeIntervalSince1970 - at < Self.refusalHold
+    }
+
+    func reject(_ typed: String, _ fixed: String, at date: Date = Date()) {
+        let key = typed.lowercased() + "\t" + fixed.lowercased()
+        mine.rejected[key, default: 0] += 1
+        mine.refusedAt[key] = date.timeIntervalSince1970
         dirty = true
     }
 
@@ -277,7 +292,7 @@ final class Words {
     /// The daily review's verdicts. `reject` and `unreject` hold "typed\tfixed" keys.
     func amend(forget: [String], reject: [String], unreject: [String]) {
         for word in forget { mine.counts[word] = nil }
-        for key in unreject { mine.rejected[key] = nil }
+        for key in unreject { mine.rejected[key] = nil; mine.refusedAt[key] = nil }
         for key in reject {
             let pair = key.components(separatedBy: "\t")
             guard pair.count == 2 else { continue }
@@ -286,6 +301,7 @@ final class Words {
                 mine.counts[pair[1]] = c > n ? c - n : nil
             }
             mine.rejected[key, default: 0] += 1
+            mine.refusedAt[key] = Date().timeIntervalSince1970
             mine.counts[pair[0], default: 0] += 1
         }
         dirty = true

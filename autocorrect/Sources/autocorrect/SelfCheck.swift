@@ -92,6 +92,9 @@ enum SelfCheck {
         expect(words.correct("eip", fr: 0.5), "épi", "a word the lexicon lacks scores 0 itself")
         words.reject("eip", "épi")
         expect(words.correct("eip", fr: 0.5), nil, "yet one ⌫ is enough to stop that fix")
+        words.reject("eip", "épi", at: Date() - Words.refusalHold - 60)
+        expect(words.correct("eip", fr: 0.5), "épi", "for a week only")
+        words.reject("eip", "épi")
 
         words.keep("tema", "team")
         for word in ["team", "epitehc", "dont"] { words.learn(word) }
@@ -103,7 +106,7 @@ enum SelfCheck {
                                      unrefuse: [.init(typed: "dont", fixed: "don't", why: "")])
         expect(Review.apply(verdict, batch, to: words, seen: &seen).count, 2, "the review applies its verdict, once, and only")
         expect(words.mine.counts["the"] != nil && words.mine.rejected["dont\tdon't"] != nil, true, "where the lexicon agrees")
-        expect(words.correct("tema", fr: 0.5), nil, "a fix it rejects is never made again")
+        expect(words.correct("tema", fr: 0.5), nil, "a fix it rejects is held off too")
         expect([words.mine.counts["team"], words.mine.counts["epitehc"]], [nil, nil], "nor counted as his word, and a word it forgets is gone")
         expect(Review.Batch(words.mine, seen).isEmpty, true, "and what it read is not sent again")
 
