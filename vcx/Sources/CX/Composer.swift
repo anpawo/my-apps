@@ -12,11 +12,21 @@ final class ComposerWindow: NSWindow {
            let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: event.keyCode) ?? [83, 84, 85, 86, 87, 88, 89, 91, 92].firstIndex(of: event.keyCode),
            (firstResponder as? NSText).map({ $0 is ComposerText ? $0.string.isEmpty : !$0.isEditable }) ?? true,
            chooseOption(index + 1) { return }
-        if event.type == .keyDown, [36, 49, 76].contains(event.keyCode),
-           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-           !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true,
-           attachedSheet == nil {
-            focusComposer(); return
+        if event.type == .keyDown, !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true, attachedSheet == nil {
+            if [36, 49, 76].contains(event.keyCode), event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                focusComposer(); return
+            }
+            // Arrows and function keys carry private-use characters (U+F700...) and keep scrolling the transcript.
+            let typed = event.keyCode != 49 && event.modifierFlags.intersection([.command, .control]).isEmpty
+                && event.characters?.unicodeScalars.first.map { ![.control, .privateUse].contains($0.properties.generalCategory) } == true
+            let pasted = event.charactersIgnoringModifiers == "v" && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
+            if typed || pasted {
+                focusComposer()
+                // The app focuses asynchronously; the key follows once the composer has it.
+                if firstResponder is ComposerText { super.sendEvent(event) }
+                else { DispatchQueue.main.async { [weak self] in if self?.firstResponder is ComposerText { self?.sendEvent(event) } } }
+                return
+            }
         }
         if event.type == .leftMouseDown { clickStart = event.clickCount == 1 ? convertPoint(toScreen: event.locationInWindow) : nil }
         super.sendEvent(event)

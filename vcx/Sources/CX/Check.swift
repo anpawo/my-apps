@@ -217,7 +217,19 @@ enum Check {
             inputWindow.sendEvent(key(code, text))
             check(inputWindow.firstResponder === typingField && typingField.string.isEmpty, "unfocused key \(code) focuses the composer without inserting or submitting")
         }
+        inputWindow.makeFirstResponder(nil)
+        inputWindow.sendEvent(key(0, "A", flags: .shift))
+        check(inputWindow.firstResponder === typingField && typingField.string == "A", "an unfocused letter focuses the composer and is typed")
+        inputWindow.makeFirstResponder(nil)
+        inputWindow.sendEvent(key(126, "\u{F700}"))
+        inputWindow.sendEvent(key(53, "\u{1B}"))
+        inputWindow.sendEvent(key(8, "c", flags: .command))
+        check(inputWindow.firstResponder !== typingField && typingField.string == "A", "arrows, Escape and shortcuts leave the composer unfocused")
+        inputWindow.sendEvent(key(9, "v", flags: .command))
+        check(inputWindow.firstResponder === typingField, "an unfocused Command-V focuses the composer before it pastes")
+        typingField.setDraft(NSAttributedString(string: ""))
         let focusedRequests = focusRequests
+        inputWindow.makeFirstResponder(typingField)
         inputWindow.sendEvent(key(49, " "))
         check(typingField.string == " " && focusRequests == focusedRequests, "space edits the already focused composer normally")
         for flags: NSEvent.ModifierFlags in [.command, .control, .option, .shift] {
