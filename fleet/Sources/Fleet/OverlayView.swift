@@ -749,35 +749,37 @@ struct FleetLayout: Layout {
         let narrow = unfolded.filter { taken(wide[$0]!.width) == 1 }
             .sorted { (wide[$1]!.height, $0) < (wide[$0]!.height, $1) }
         var placed = Set<Int>()
-        var y: CGFloat = 0
+        // Each column's first free y: a directory rises to the foot of the cards in its own
+        // columns, not under a taller one beside them (asked 2026-11-08: vcx under s14's foot,
+        // a row of nothing under /).
+        var floor = Array(repeating: CGFloat(0), count: columns)
         for i in unfolded.filter({ !narrow.contains($0) }) + narrow where !placed.contains(i) {
             placed.insert(i)
             let size = wide[i]!
-            frames[i] = CGRect(origin: CGPoint(x: 0, y: y), size: size)
             let taken = min(columns, taken(size.width))
-            var depth = (0 ..< columns).map { $0 < taken ? cells(size.height) : 0 }
-            var bottom = size.height
+            let y = floor[..<taken].max()!
+            frames[i] = CGRect(origin: CGPoint(x: 0, y: y), size: size)
+            for c in 0 ..< taken { floor[c] = y + size.height + spacing }
             for (column, j) in zip(taken ..< columns, narrow.filter { !placed.contains($0) }) {
                 placed.insert(j)
-                frames[j] = CGRect(origin: CGPoint(x: CGFloat(column) * step.width, y: y), size: wide[j]!)
-                depth[column] = cells(wide[j]!.height)
-                bottom = max(bottom, wide[j]!.height)
+                frames[j] = CGRect(origin: CGPoint(x: CGFloat(column) * step.width, y: floor[column]), size: wide[j]!)
+                floor[column] += wide[j]!.height + spacing
             }
+            let depth = floor.map { $0 > y ? cells($0 - spacing - y) : 0 }
             // From the top right corner down (asked 2026-10-15), not dropped to its foot: in the
             // columns right of every directory first, under a shorter one after (asked 2026-10-16).
             let slots = (0 ..< depth.max()!).flatMap { row in
                 (0 ..< columns).filter { row >= depth[$0] }.map { (row: row, column: $0) }
             }
             let free = slots.filter { depth[$0.column] == 0 } + slots.filter { depth[$0.column] > 0 }
-            var tall: CGFloat = 0
             for slot in free {
                 guard let t = queue.popFirst() else { break }
                 frames[t] = CGRect(x: CGFloat(slot.column) * step.width, y: y + CGFloat(slot.row) * step.height,
                                    width: tile.width, height: tile.height)
-                tall = max(tall, CGFloat(slot.row + 1) * step.height - spacing)
+                floor[slot.column] = max(floor[slot.column], frames[t].maxY + spacing)
             }
-            y += max(bottom, tall) + spacing
         }
+        let y = floor.max()!
         // A last row short of the grid's width starts at its left (asked 2026-10-16), not under
         // the column the sessions beside a directory stack in.
         for (n, i) in queue.enumerated() {

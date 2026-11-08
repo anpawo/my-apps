@@ -317,6 +317,11 @@ enum SelfCheck {
         grid.wide = [size(2), size(3), size(3)]
         expect(grid.rest(3).frames.map(\.minX).map { ($0 / 238).rounded() } == [2, 0, 1], true,
                "grid: two of a height keep the order they come in")
+        // Two across beside a taller one, then two across again: it rises to the first one's foot.
+        grid.wide = [size(4, across: 2), size(6), size(4, across: 2), size(2)]
+        let risen = grid.rest(4).frames
+        expect(near(risen[2].minY, size(4, across: 2).height + 26) && near(risen[3].minY, size(6).height + 26), true,
+               "grid: a directory stands at the foot of its own columns, not under a taller one beside them")
 
         // Two across (asked 2026-10-28): only where one column runs past the room.
         func standing(_ counts: [Int], room: CGFloat) -> [Int] {
