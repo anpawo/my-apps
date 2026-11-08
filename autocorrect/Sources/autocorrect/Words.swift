@@ -179,10 +179,12 @@ final class Words {
     }
 
     /// One more or one fewer s, x, e or d at the end: another form of the same word (screenshots,
-    /// apprenants), or a daemon (launchd, systemd), not a typo of it.
-    static func inflected(_ a: String, _ b: String) -> Bool {
-        let (long, short) = a.count > b.count ? (a, b) : (b, a)
+    /// apprenants), or a daemon (launchd, systemd), not a typo of it. But a d left off is a typo
+    /// (shoul, coul: should, could).
+    static func inflected(_ typed: String, _ key: String) -> Bool {
+        let (long, short) = typed.count > key.count ? (typed, key) : (key, typed)
         return long.count == short.count + 1 && long.hasPrefix(short) && "sxed".contains(long.last!)
+            && !(long == key && long.last == "d")
     }
 
     /// Whether the macOS spell checker takes `word` in one of `languages`. It knows far more
