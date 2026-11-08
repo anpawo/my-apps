@@ -23,7 +23,7 @@ struct Mine: Codable {
 /// the language of the sentence so far, plus his own use) times how likely he typed it that way
 /// when he meant it: as is 1, without its accents or apostrophe 0.7 (the U.S. layout has no
 /// accent keys), one letter off 0.01. The best spelling replaces the typed one only when it
-/// scores five times higher, and three times higher than the next best. A word of his own
+/// scores ten times higher, and five times higher than the next best. A word of his own
 /// (typed and kept) is never fixed, but is not a spelling to fix others into: his typos are too.
 final class Words {
     private struct Entry { var fr: Float; var en: Float }
@@ -149,12 +149,12 @@ final class Words {
             }
         }
 
-        // The best spelling must beat the one typed five times over, and the next best three
+        // The best spelling must beat the one typed ten times over, and the next best five
         // times: vérifie and vérifié are as likely for "verifie", so neither is picked.
         let ranked = scores.sorted { $0.value > $1.value }
         var chosen = lower
-        if let best = ranked.first, best.value > 0, best.value >= 5 * prior(lower, fr: fr),
-           ranked.count < 2 || best.value >= 3 * ranked[1].value {
+        if let best = ranked.first, best.value > 0, best.value >= 10 * prior(lower, fr: fr),
+           ranked.count < 2 || best.value >= 5 * ranked[1].value {
             chosen = best.key
         }
         var spelled = Self.cased(capital[chosen] ?? chosen, like: typed)
