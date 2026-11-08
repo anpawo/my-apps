@@ -239,8 +239,11 @@ final class Session: ObservableObject {
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var onDraftConsumed: ((Int) -> Void)?
     var draft = NSAttributedString(string: "") {
-        didSet { if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) } }
+        didSet { if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) }; guessProject() }
     }
+    private var projectGuess: (text: String, route: Task<String?, Never>)?
+    private var projectGuessDelay: Task<Void, Never>?
+    private var routeAccount: Account? { account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled } }
     var submitDraft: () -> Void = {}
     @Published private(set) var cwd: String
     private var conversationDirectory: String
@@ -756,9 +759,8 @@ final class Session: ObservableObject {
         // A window opened at / or ~ starts its first task in the task's project.
         if !testing, !retry, !busy, ["/", NSHomeDirectory()].contains(cwd), !text.isEmpty, !rows.contains(where: { $0.kind == "user" }) {
             status = "Choosing the project…"
-            let claude = account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }
             submitting = true
-            let routed = await routeProject(text, account: claude)
+            let routed = await projectRoute(for: text)
             submitting = false
             if let project = routed {
                 let typed = draft
@@ -1267,6 +1269,28 @@ final class Session: ObservableObject {
             (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
         } catch { cwd = previous.0; conversationDirectory = previous.4; recordID = previous.1; pendingActivation = nil; pendingRestore = nil
             restoreDraft(previous.2, since: previous.3); throw error }
+    }
+
+    // The router takes 2 to 3 s; started while the first prompt is typed, Enter rarely waits on it.
+    private func guessProject() {
+        projectGuessDelay?.cancel()
+        guard !testing, runtimeClient == nil, !busy, ["/", NSHomeDirectory()].contains(cwd), !rows.contains(where: { $0.kind == "user" }) else { return }
+        let text = draft.commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.hasPrefix("/"), projectGuess?.text != text else { return }
+        projectGuessDelay = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let account = self.routeAccount
+            self.projectGuess = (text, Task { await routeProject(text, account: account) })
+        }
+    }
+
+    private func projectRoute(for prompt: String) async -> String? {
+        projectGuessDelay?.cancel()
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A guess from three quarters of the prompt stands: its last words rarely change the project.
+        if let guess = projectGuess, text.hasPrefix(guess.text), guess.text.count * 4 >= text.count * 3 { return await guess.route.value }
+        return await routeProject(text, account: routeAccount)
     }
 
     func editDraft(_ value: NSAttributedString, refresh: Bool = true) {
