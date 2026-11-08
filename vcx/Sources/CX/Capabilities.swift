@@ -188,7 +188,7 @@ extension Session {
     func refreshRepository() async {
         if runtimeClient != nil { await performRuntime("refreshRepository"); return }
         let directory = cwd
-        let result = await Task.detached { () -> (String?, String, String, String) in
+        let result = await Task.detached { () -> (String?, String, String, String, String?) in
             func git(_ arguments: [String], at path: String? = nil) -> String? {
                 let process = Process(), output = Pipe()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -196,7 +196,7 @@ extension Session {
                 process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
                 do { try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); guard process.terminationStatus == 0 else { return nil }; return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } catch { return nil }
             }
-            guard let root = git(["rev-parse", "--show-toplevel"]) else { return (nil, "No repository", "", "") }
+            guard let root = git(["rev-parse", "--show-toplevel"]) else { return (nil, "No repository", "", "", nil) }
             let common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"]) ?? ""
             var top = common.hasSuffix("/.git") ? String(common.dropLast(5)) : root
             var name = URL(fileURLWithPath: top).lastPathComponent
@@ -213,9 +213,50 @@ extension Session {
                 else if let ahead = git(["rev-list", "--count", "@{u}..HEAD"]) { status = ahead == "0" ? "up to date" : "unpushed" }
                 else { status = "status unavailable" }
             } else { status = "status unavailable" }
-            return (name, URL(fileURLWithPath: root).lastPathComponent, label, status)
+            return (name, URL(fileURLWithPath: root).lastPathComponent, label, status, root)
         }.value
         guard cwd == directory else { return }
         repositoryDirectory = result.0; repository = result.1; branch = result.2; repositoryStatus = result.3
+        if let root = result.4 { refreshPullRequest(root: root, branch: result.2) } else { pullRequest = "" }
+    }
+
+    // Keyed by repository and branch, so sessions on one checkout share a gh call and a branch switch fetches again.
+    static var pullRequests: [String: (date: Date, label: String, url: String)] = [:]
+    func refreshPullRequest(root: String, branch: String) {
+        let key = root + "\n" + branch, directory = cwd
+        let cached = Session.pullRequests[key]
+        pullRequestURL = cached?.url ?? ""; pullRequest = cached?.label ?? ""
+        if let cached, Date().timeIntervalSince(cached.date) < 300 { return }
+        Session.pullRequests[key] = (Date(), pullRequest, pullRequestURL)
+        Task {
+            let found = await Task.detached { () -> (String, String) in
+                func run(_ arguments: [String]) -> Data? {
+                    let process = Process(), output = Pipe()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                    process.arguments = arguments; process.environment = agentEnvironment()
+                    process.currentDirectoryURL = URL(fileURLWithPath: root)
+                    process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                    guard (try? process.run()) != nil else { return nil }
+                    let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: timeout)
+                    defer { timeout.cancel() }
+                    let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                    return process.terminationStatus == 0 ? data : nil
+                }
+                // gh cannot map a remote to its repository when ~/.ssh/config pins github.com to an IP: -R names it.
+                guard let remote = run(["git", "remote", "get-url", "origin"]).map({ String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }),
+                      remote.contains("github.com"),
+                      let data = run(["gh", "pr", "list", "-R", remote.replacingOccurrences(of: "^.*github\\.com[:/]|\\.git$", with: "", options: .regularExpression),
+                                      "--author", "@me", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,isDraft,reviewDecision"]),
+                      let list = (try? JSONSerialization.jsonObject(with: data)) as? [JSON],
+                      let pull = list.first(where: { $0["headRefName"] as? String == branch }) ?? list.first,
+                      let number = pull["number"] as? Int, let url = pull["url"] as? String else { return ("", "") }
+                let state = pull["isDraft"] as? Bool == true ? "draft" : ["APPROVED": "approved", "CHANGES_REQUESTED": "changes requested", "REVIEW_REQUIRED": "review required"][pull["reviewDecision"] as? String ?? ""] ?? "open"
+                return ("PR #\(number) - " + state + (list.count > 1 ? " +\(list.count - 1)" : ""), url)
+            }.value
+            Session.pullRequests[key] = (Date(), found.0, found.1)
+            guard cwd == directory, self.branch == branch else { return }
+            pullRequestURL = found.1; pullRequest = found.0
+        }
     }
 }

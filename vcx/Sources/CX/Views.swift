@@ -358,7 +358,8 @@ struct CXView: View {
                 panel.begin { result in
                     if result == .OK, let url = panel.url { session.statusCommand("/dir " + url.path) }
                 }
-            } else { session.statusCommand(command) }
+            } else if command.hasPrefix("https://"), let url = URL(string: command) { NSWorkspace.shared.open(url) }
+            else { session.statusCommand(command) }
         } label: {
             HStack(spacing: 5) {
                 if loading { ProgressView().controlSize(.mini) }
@@ -528,7 +529,12 @@ struct CXView: View {
                 usageStatus
                 separator
                 repositoryStatus
-            }.fixedSize().padding(8)
+                if !session.pullRequest.isEmpty {
+                    separator.transition(.opacity)
+                    setting("Pull request", value: session.pullRequest, command: session.pullRequestURL, color: Color(red: 0.42, green: 0.25, blue: 0.7))
+                        .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+                }
+            }.fixedSize().padding(8).animation(.easeOut(duration: 0.28), value: session.pullRequest.isEmpty)
         // The scroll view clips what it holds: the chips' shadows need room inside it, taken back outside.
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true).padding(-8)
             .frame(maxWidth: .infinity, alignment: .leading)
