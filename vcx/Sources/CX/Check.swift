@@ -1889,6 +1889,7 @@ enum Render {
         session.mcp = ["Filesystem · connected · Read and write files in the workspace.", "GitHub · connected · Browse repositories, issues, and pull requests."]
         session.instructions = ["AGENTS.md", "CLAUDE.md"]
         write(SettingsPopup(session: session), size: CGSize(width: 480, height: 520), path: directory + "/settings.png")
+        for tab in SettingsTab.allCases.dropFirst() { write(SettingsPopup(session: session, tab: tab), size: CGSize(width: 480, height: 520), path: directory + "/settings-\(tab.rawValue.lowercased()).png") }
         write(CapabilityPopup(session: session, title: "Skills"), size: CGSize(width: 380, height: 440), path: directory + "/skills.png")
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/hooks.png")
         write(CapabilityPopup(session: session, title: "MCP"), size: CGSize(width: 380, height: 440), path: directory + "/mcp.png")

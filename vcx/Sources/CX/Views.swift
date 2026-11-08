@@ -636,9 +636,42 @@ final class ActivityDotView: NSView {
     }
 }
 
+enum SettingsTab: String, CaseIterable { case session = "Session", accounts = "Accounts", qwen = "Qwen", background = "Background" }
+
 struct SettingsPopup: View {
     @ObservedObject var session: Session
     @ObservedObject private var settings = Settings.shared
+    @State var tab = SettingsTab.session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private func task(_ title: String, _ state: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top) {
+                Text(title).font(.system(size: 12, weight: .medium))
+                Spacer()
+                Text(state).font(.system(size: 11)).foregroundStyle(accent).multilineTextAlignment(.trailing)
+            }
+            Text(detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.12)) }
+    }
+    @ViewBuilder private var background: some View {
+        let routing = ["/", NSHomeDirectory()].contains(session.cwd) && !session.rows.contains { $0.kind == "user" }
+        let fallbacks = session.available.filter { $0.id != session.account.id }.map(\.name)
+        Text("Work VCX starts without a prompt from you. Each one spends tokens on the account named.").font(.system(size: 11)).foregroundStyle(.black.opacity(0.6))
+        task("Agent background tasks", session.backgroundTasks == 0 ? "None running" : "\(session.backgroundTasks) running",
+             "Commands and subagents the agent left running keep spending \(session.account.name)'s tokens after its reply; when one finishes, Claude starts a turn by itself.")
+        task("Project routing", routing ? "Armed in this window" : "Done for this window",
+             "The first prompt of a window opened in / or ~ goes to Claude Haiku on \(session.routeAccount?.name ?? "no Claude account"), with the ~/self folder map and the skill list, to pick its project. It runs while you type and again on Enter if the prompt grew by more than a quarter.")
+        task("Rate limit retries", "\(session.rateLimitRetries.count) at most",
+             "A turn stopped by a rate limit (not the plan's usage limit) is resent as \"Keep going\" on the same account after " + session.rateLimitRetries.map { "\(Int($0)) s" }.joined(separator: ", ") + ".")
+        task("Network resume", "3 at most",
+             "A turn a dropped connection killed is resent as \"Keep going\" once the internet answers again.")
+        task("Usage limit fallback", fallbacks.isEmpty ? "No fallback" : fallbacks.joined(separator: ", "),
+             "When an account reaches its usage limit mid-turn, the next enabled account takes the last prompt, with up to 48 KB of the recent conversation.")
+        task("Resume recovery", "When needed",
+             "When Claude cannot resume a saved conversation, a new one starts and gets the pending prompt with up to 48 KB of recent messages.")
+    }
     private func setting(_ title: String, _ value: String, _ command: String) -> some View {
         Button {
             session.showingSettings = false
@@ -657,17 +690,21 @@ struct SettingsPopup: View {
                 Text("Settings").font(.system(size: 16, weight: .semibold))
                 Spacer()
                 RoundButton(icon: "xmark", label: "Close settings") { session.showingSettings = false }
-            }.padding(20)
+            }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 12)
+            Picker("Settings section", selection: $tab.animation(reduceMotion ? nil : .easeOut(duration: 0.25))) {
+                ForEach(SettingsTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().padding(.horizontal, 20).padding(.bottom, 12)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
+                    switch tab {
+                    case .session:
                     setting("Provider", session.providerLabel, "/model ")
                     setting("Model", session.modelLabel, session.modelCommand)
                     if let effort = session.effectiveEffort { setting("Effort", effort, session.modelCommand + session.model + " ") }
                     setting("Permissions", session.mode, "/perms ")
                     setting("Working directory", session.cwd, "/dir ")
-                    Divider().padding(.vertical, 8)
-                    Text("Accounts").font(.system(size: 13, weight: .semibold))
+                    case .accounts:
                     ForEach(settings.value.accounts) { account in
                         setting(account.name, account.provider.capitalized + (account.enabled ? " · enabled" : " · disabled"), "/account ")
                         if let home = account.home { setting("Profile", home, "/profile " + account.provider + " ") }
@@ -677,12 +714,14 @@ struct SettingsPopup: View {
                     }
                     setting("Add account", "Claude or Codex", "/login ")
                     setting("Import profile", "Existing account folder", "/profile ")
-                    Divider().padding(.vertical, 8)
-                    Text("Qwen").font(.system(size: 13, weight: .semibold))
+                    case .qwen:
                     setting("Endpoint", settings.value.qwenURL, "/qwen url ")
                     setting("Proxy", settings.value.qwenProxy.isEmpty ? "None" : settings.value.qwenProxy, "/qwen proxy ")
                     setting("Model", settings.value.qwenModel, "/qwen model ")
-                }.padding(20)
+                    case .background:
+                    background
+                    }
+                }.padding(20).id(tab).transition(.opacity)
             }
         }.frame(width: 480, height: 520).background(Color(white: 0.98)).preferredColorScheme(.light)
             .onExitCommand { session.showingSettings = false }

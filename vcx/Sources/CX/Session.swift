@@ -246,7 +246,7 @@ final class Session: ObservableObject {
     }
     private var projectGuess: (text: String, route: Task<String?, Never>)?
     private var projectGuessDelay: Task<Void, Never>?
-    private var routeAccount: Account? { account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled } }
+    var routeAccount: Account? { account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled } }
     var submitDraft: () -> Void = {}
     @Published private(set) var cwd: String
     private var conversationDirectory: String
