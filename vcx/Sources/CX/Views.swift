@@ -920,12 +920,9 @@ struct UserBubble: View {
     @State private var hides = false
     @State private var size = CGSize.zero
     @State private var room = CGFloat.infinity
-    @State private var bodyTop: CGFloat = 0
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
-    // The arrow sits in the first line's indent, at the text's own left edge.
-    static let edge = 16 + CollapsibleText.indentWidth
     var body: some View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering, edge = collapsible && hides
         let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
@@ -934,10 +931,20 @@ struct UserBubble: View {
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
-                let content = Group {
-                    if let message { AgentMessageContent(message: message, collapsed: collapsed, indent: edge) { bodyTop = $0 } }
-                    else { MessageContent(item: item, collapsed: collapsed, indent: edge) { session.preview = $0 } }
-                }.padding(.horizontal, 16).padding(.vertical, edge ? 13 : 16) // with an edge, one line makes the bubble 40 pt tall, as a work block's header
+                let content = VStack(alignment: .leading, spacing: 6) {
+                    if let message { AgentMessageContent(message: message, collapsed: collapsed) }
+                    else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                    // Only the arrow opens it: the pointer crossing the text to read the answer under it leaves it shut.
+                    // A question of fifteen lines or less shows whole, with no arrow; open, the arrow is gone until the pointer leaves.
+                    if edge && !hovering {
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(message == nil ? accent : agentPink)
+                            .frame(width: 28, height: CollapsibleText.line, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
+                            .transition(.opacity)
+                    }
+                }.padding(16)
                 Group {
                     // At the width it had unscrolled, the text wraps as it did and keeps the height that made it scroll.
                     if scrolls { ScrollView { content }.frame(width: size.width, height: cap) }
@@ -950,19 +957,6 @@ struct UserBubble: View {
                         let frame = geometry.frame(in: .named("conversation"))
                         Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
                     })
-                    // Only the arrow's corner opens it: the pointer crossing the text to read the answer under it leaves it shut.
-                    // A question with nothing past three lines has no arrow.
-                    .overlay(alignment: .topLeading) {
-                        if edge {
-                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(hovering ? 90 : 0))
-                                .foregroundStyle(message == nil ? accent : agentPink)
-                                .frame(width: CollapsibleText.indentWidth, height: CollapsibleText.line, alignment: .leading)
-                                // On the body's first line, below an agent message's tag; the corner around it is the hover target.
-                                .padding(.leading, 16).padding(.top, 13 + (message == nil ? 0 : bodyTop)).padding([.trailing, .bottom], 8)
-                                .contentShape(Rectangle())
-                                .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
-                        }
-                    }
                     .clipShape(RoundedRectangle(cornerRadius: 17))
                     .background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
@@ -982,14 +976,11 @@ struct UserBubble: View {
 struct AgentMessageContent: View {
     let message: AgentMessages.Message
     var collapsed = false
-    var indent = false
-    var bodyTop: (CGFloat) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("from \(message.provider)-\(message.name)").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(agentPink)
                 .padding(.horizontal, 8).padding(.vertical, 4).background(agentPink.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
-                .onGeometryChange(for: CGFloat.self) { $0.size.height + 10 } action: { bodyTop($0) }
-            CollapsibleText(text: message.body, collapsed: collapsed, indent: indent)
+            CollapsibleText(text: message.body, collapsed: collapsed)
         }
     }
 }
@@ -999,23 +990,18 @@ struct AgentMessageContent: View {
 struct CollapsibleText: View {
     let text: String
     let collapsed: Bool
-    var indent = false
     @State private var open = CGSize.zero
     static let size: CGFloat = 12
     static let line = NSLayoutManager().defaultLineHeight(for: .monospacedSystemFont(ofSize: size, weight: .regular))
-    // Two monospaced cells hold the arrow; the lines under it start at the arrow's left.
-    static let indent = "  "
-    static let indentWidth = (indent as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: .regular)]).width
     var body: some View {
-        let text = indent ? Self.indent + self.text : self.text
         ZStack(alignment: .topLeading) {
             // ponytail: width from the first 10,000 characters; measured whole, a 520,000-character paste held the window 45 s.
             // A wider line past them widens the bubble only once opened.
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { open = $0 }
                 .hidden().frame(height: 0, alignment: .top)
-            // Up to three lines, it covers little of the answer even open: it stays whole.
-            let shown = collapsed && open.width > 0 && open.height > Self.line * 3.5 ? firstLine(text, width: open.width) : text
+            // Up to fifteen lines, it stays whole.
+            let shown = collapsed && open.width > 0 && open.height > Self.line * 15.5 ? firstLine(text, width: open.width) : text
             Text(shown).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(collapsed && (open.width == 0 || shown != text) ? 1 : nil).fixedSize(horizontal: false, vertical: true)
                 .preference(key: HidesText.self, value: shown != text)
@@ -1057,14 +1043,12 @@ struct MessageContent: View {
     @ObservedObject var item: Item
     // A pinned question keeps one line until hovered, so it covers little of the answer under it.
     var collapsed = false
-    var indent = false
     var preview: (String) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // ponytail: only a text that comes first leaves the arrow room; after a picture, the arrow sits on the picture's corner.
             ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, run in
                 if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
-                    CollapsibleText(text: text, collapsed: collapsed, indent: indent && n == 0)
+                    CollapsibleText(text: text, collapsed: collapsed)
                 } else { PictureRow(pieces: run, preview: preview) }
             }
         }

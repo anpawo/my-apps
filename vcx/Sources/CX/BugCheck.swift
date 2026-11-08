@@ -236,7 +236,7 @@ enum BugCheck {
                     if halfway == nil, rows > 400, rows < 560 { halfway = bitmap }
                     return rows
                 }
-                let left = tintStart(host, y: 60)
+                let left = tintStart(host, y: 60), arrow = arrowBox(host, left: left).map { NSPoint(x: $0.midX, y: $0.midY) } ?? .zero
                 pointer(host, at: NSPoint(x: 5, y: 60), entering: true)
                 pointer(host, at: NSPoint(x: left + 300, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 let shut = tinted()
@@ -244,7 +244,7 @@ enum BugCheck {
                 // A render of the whole view takes 100 to 250 ms, so the samples are timed rather than counted as 60 fps frames.
                 var heights = [shut], times = [0.0]
                 let start = Date()
-                pointer(host, at: NSPoint(x: left + 10, y: 60))
+                pointer(host, at: arrow)
                 for frame in 1...30 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); times.append(Date().timeIntervalSince(start)); heights.append(tinted()) }
                 print("Bubble opening, tinted rows per frame: " + heights.map(String.init).joined(separator: " "))
                 print("Sampled at ms: " + times.map { String(Int($0 * 1000)) }.joined(separator: " "))
@@ -253,33 +253,37 @@ enum BugCheck {
                     try? png.write(to: URL(fileURLWithPath: destination).appendingPathComponent("bubble-opening.png"))
                 }
                 check(heights.contains { $0 > shut && $0 < heights.last! } && opened >= 0.15 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
-                      "hovering its edge opens a pinned question in one smooth motion")
+                      "hovering its arrow opens a pinned question in one smooth motion")
                 RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-                pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                pointer(host, at: NSPoint(x: left + 300, y: 60)); pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 let away = tinted()
-                print("Pinned question from x \(Int(left)): \(heights[0]) tinted rows with the pointer on its text, \(heights.last!) on its edge, \(away) away")
+                print("Pinned question from x \(Int(left)): \(heights[0]) tinted rows with the pointer on its text, \(heights.last!) on its arrow, \(away) away")
                 // Column 922 crosses the bubble's rounded corners: the same shut bubble measures 272 or 274 rows from one render to the next.
                 check(heights[0] < 300 && abs(away - heights[0]) <= 4, "the pointer on a pinned question's text leaves it shut, and leaving it closes it")
             }
             do {
-                // Up to three lines, a question shows whole pinned: no edge, so its bubble is as wide pinned as anywhere else.
-                for (name, text) in [("one", "A question on one line"), ("three", "A question on three lines, " + String(repeating: "long enough to wrap in a bubble 765 pt wide ", count: 4) + "but no further.")] {
+                // Up to fifteen lines, a question shows whole pinned, with no arrow: as wide and as tall pinned as anywhere else.
+                for (name, text) in [("one", "A question on one line"), ("fifteen", (1...15).map { "Line \($0) of a question that stays whole pinned" }.joined(separator: "\n"))] {
                 let short = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("short-question-" + name))
                 short.show(["id": "short-question-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
                 if let item = short.rows.first?.items.first {
-                    func left(_ collapsible: Bool) -> CGFloat {
+                    func left(_ collapsible: Bool) -> (x: CGFloat, height: Int) {
                         let host = NSHostingView(rootView: UserBubble(item: item, session: short, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
-                        host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 200)
+                        host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 400)
                         host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                         if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
                             host.cacheDisplay(in: host.bounds, to: bitmap)
                             try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("short-\(name)-\(collapsible ? "pinned" : "plain").png"))
                         }
-                        return tintStart(host, y: 45)
+                        let x = tintStart(host, y: 45)
+                        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return (x, 0) }
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                        let column = Int((x + 20) * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+                        return (x, (0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: column, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count)
                     }
                     let pinned = left(true), plain = left(false)
-                    print("\(name.capitalized)-line question's bubble starts at x \(Int(pinned)) pinned, \(Int(plain)) unpinned")
-                    check(pinned > 0 && pinned == plain, "a question on \(name) line(s) shows whole pinned, with no edge to hover")
+                    print("\(name.capitalized)-line question's bubble starts at x \(Int(pinned.x)) pinned, \(Int(plain.x)) unpinned; \(pinned.height) tinted rows pinned, \(plain.height) unpinned")
+                    check(pinned.x > 0 && pinned.x == plain.x && abs(pinned.height - plain.height) <= 2, "a question on \(name) line(s) shows whole pinned, with no arrow")
                 }
                 }
             }
@@ -306,15 +310,15 @@ enum BugCheck {
                 }
                 pointer(content, at: NSPoint(x: 1100, y: 20), entering: true)
                 let shut = rows()
-                pointer(content, at: NSPoint(x: edge + 10, y: 20))
+                pointer(content, at: arrowBox(content, left: edge, below: 150).map { NSPoint(x: $0.midX, y: $0.midY) } ?? .zero)
                 // Taller than the transcript, it opens into a scroll view of its own: the switch happens mid-opening and must not jump.
                 var opening = [shut]
                 let start = Date()
                 for frame in 1...20 { RunLoop.main.run(until: start.addingTimeInterval(Double(frame) / 60)); opening.append(rows(after: 0)) }
                 let open = rows()
-                print("Pinned question in the transcript from x \(Int(edge)): \(shut) tinted rows over its text, \(open) over its edge")
+                print("Pinned question in the transcript from x \(Int(edge)): \(shut) tinted rows over its text, \(open) over its arrow")
                 print("Opening in the transcript, tinted rows per sample: " + opening.map(String.init).joined(separator: " "))
-                check(open > shut + 100, "in the transcript, hovering a pinned question's edge opens it")
+                check(open > shut + 100, "in the transcript, hovering a pinned question's arrow opens it")
                 check(opening.contains { $0 > shut + 20 && $0 < open - 20 } && zip(opening, opening.dropFirst()).allSatisfy { $0 <= $1 + 4 } && abs(opening.last! - open) <= 4,
                       "in the transcript, a question opening into its own scroll view grows in one smooth motion")
                 // Open and taller than the transcript, the pinned question had its end below the window: the wheel scrolled only the answer under it.
@@ -394,8 +398,8 @@ enum BugCheck {
         do {
             // A word too long for what is left of line 1 opens line 2: SwiftUI's truncation pulled part of it up, then put it back on hover.
             // A path breaks after its slashes and hyphens, and "…" still has to fit after the last piece left on line 1.
-            for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line, then a fourth and a fifth: past three lines, a pinned question shuts to its first."),
-                                 ("path", "A pinned question keeps one line, then an ellipsis: /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a third line, then a fourth and a fifth: past three lines, a pinned question shuts to its first.")] {
+            for (name, text) in [("word", "A pinned question keeps one line: 4f43b8a0b26746466d4cd6b1b84fdfd5d8b6c6d1725 and more words after it, so the text runs on to a third line, then a fourth and a fifth: past fifteen lines, a pinned question shuts to its first." + (1...12).map { "\nMore line \($0)." }.joined()),
+                                 ("path", "A pinned question keeps one line, then an ellipsis: /Users/someone/projects/a-rather-long-folder-name/and-a-file.swift and more words after it, so the text runs on to a third line, then a fourth and a fifth: past fifteen lines, a pinned question shuts to its first." + (1...12).map { "\nMore line \($0)." }.joined())] {
                 let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-" + name))
                 asking.ready = true; asking.status = "Ready"
                 asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
@@ -406,7 +410,7 @@ enum BugCheck {
                 window.isReleasedWhenClosed = false; window.contentView = host
                 defer { window.close() }
                 var scale: CGFloat = 1, text = 0
-                // Each text line as the first and last dark column of a band of dark rows, right of the edge's chevron.
+                // Each text line as the first and last dark column of a band of dark rows; the arrow's colour is not dark.
                 func lines(_ file: String) -> [(Int, Int)] {
                     host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
                     guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return [] }
@@ -416,7 +420,7 @@ enum BugCheck {
                     scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
                     var bands = [(Int, Int)](), inBand = false
                     for y in 0..<bitmap.pixelsHigh {
-                        let dark = (text..<bitmap.pixelsWide).filter { x in let p = y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel; return Int(data[p]) + Int(data[p + 1]) + Int(data[p + 2]) < 360 }
+                        let dark = (text..<bitmap.pixelsWide).filter { x in let p = y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel; return Int(data[p]) + Int(data[p + 1]) + Int(data[p + 2]) < 360 && abs(Int(data[p]) - Int(data[p + 2])) < 50 }
                         if let first = dark.first, let last = dark.last {
                             if inBand, let band = bands.popLast() { bands.append((min(band.0, first), max(band.1, last))) } else { bands.append((first, last)) }
                             inBand = true
@@ -426,39 +430,18 @@ enum BugCheck {
                 }
                 host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                 let left = tintStart(host, y: 30)
-                text = Int((left + UserBubble.edge) * CGFloat(host.bitmapImageRepForCachingDisplay(in: host.bounds)?.pixelsWide ?? 0) / host.bounds.width)
+                text = Int((left + 16) * CGFloat(host.bitmapImageRepForCachingDisplay(in: host.bounds)?.pixelsWide ?? 0) / host.bounds.width)
                 let collapsed = lines("collapsed-\(name).png")
-                // Right of the chevron, the edge's tint spans the shut bubble's whole height.
-                let shut = host.bitmapImageRepForCachingDisplay(in: host.bounds).map { bitmap in
-                    host.cacheDisplay(in: host.bounds, to: bitmap)
-                    return CGFloat((0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: Int((left + 40) * scale), y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count) / scale
-                } ?? 0
-                print("Collapsed \(name) question: \(shut) pt tall")
-                check(abs(shut - 40) <= 1, "a collapsed question (\(name)) is 40 pt tall, as a work block's header")
-                pointer(host, at: NSPoint(x: 5, y: 30), entering: true); pointer(host, at: NSPoint(x: left + 10, y: 30))
+                func arrow() -> CGRect? { arrowBox(host, left: left) }
+                let shutArrow = arrow()
+                print("Collapsed \(name) question: arrow at \(shutArrow.map { "x \(Int($0.minX - left)), y \(Int($0.minY))" } ?? "none")")
+                check(shutArrow.map { abs($0.minX - left - 16) <= 3 && $0.minY > 12 + 16 + CollapsibleText.line } == true, "a collapsed question's arrow (\(name)) sits under line 1, at the text's left")
+                pointer(host, at: NSPoint(x: 5, y: 30), entering: true); pointer(host, at: NSPoint(x: left + 20, y: 12 + 16 + CollapsibleText.line * 1.5 + 6))
                 let open = lines("collapsed-\(name)-open.png")
                 print("Collapsed \(name) question, ink columns per line: \(collapsed), open: \(open)")
-                // Open, the arrow points down with as much room to its right, before line 1's first word, as under it, above line 2.
-                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-                    host.cacheDisplay(in: host.bounds, to: bitmap)
-                    let from = Int((left + 8) * scale), to = Int((left + UserBubble.edge) * scale), top = Int(12 * scale), bottom = Int(60 * scale)
-                    func ink(_ x: Int, _ y: Int, coloured: Bool) -> Bool {
-                        guard let c = bitmap.colorAt(x: x, y: y) else { return false }
-                        let high = max(c.redComponent, c.greenComponent, c.blueComponent), low = min(c.redComponent, c.greenComponent, c.blueComponent)
-                        return coloured ? high - low > 0.3 : high < 0.5
-                    }
-                    let arrow = (top..<bottom).flatMap { y in (from..<to).filter { ink($0, y, coloured: true) }.map { (x: $0, y: y) } }
-                    if let right = arrow.map(\.x).max(), let low = arrow.map(\.y).max(), let high = arrow.map(\.y).min() {
-                        let word = (right..<bitmap.pixelsWide).first { x in (high...low).contains { ink(x, $0, coloured: false) } } ?? right
-                        // Line 2's tallest letters, wherever they fall: past the blank rows that end line 1.
-                        func inked(_ y: Int) -> Bool { (from..<bitmap.pixelsWide).contains { ink($0, y, coloured: false) } }
-                        let gap = (low..<bitmap.pixelsHigh).first { !inked($0) } ?? low
-                        let below = (gap..<bitmap.pixelsHigh).first(where: inked) ?? low
-                        let sideways = CGFloat(word - right - 1) / scale, under = CGFloat(below - low - 1) / scale
-                        print("Open \(name) question: \(sideways) pt from the arrow to line 1, \(under) pt to line 2")
-                        check(abs(sideways - under) <= 1, "an open question's arrow (\(name)) has the same room to its right as under it")
-                    } else { check(false, "the open \(name) question shows its arrow") }
-                }
+                check(arrow() == nil, "an open question (\(name)) hides its arrow")
+                pointer(host, at: NSPoint(x: 5, y: 30)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                check(arrow() != nil, "a question (\(name)) shows its arrow again once the pointer leaves")
                 if name == "word" { check(open.count >= 3 && open[1].1 - open[0].1 > Int(100 * scale), "fixture: the open question wraps its long word to line 2 and leaves line 1 short") }
                 // Line 1 gains at most the "…", and may lose its last piece of word to it, never more.
                 check(collapsed.count == 1 && open.count >= 2 && abs(collapsed[0].0 - open[0].0) <= 1
@@ -468,7 +451,7 @@ enum BugCheck {
         do {
             // An agent message's arrow sat beside its "from …" tag instead of on the body's first line.
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-agent"))
-            asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it. Three lines would stay whole, so this one goes on to a fourth and a fifth line.\""]]])
+            asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it. Fifteen lines would stay whole, so this one goes on." + (1...16).map { "\nMore line \($0)." }.joined() + "\""]]])
             if let item = asking.rows.first?.items.first {
                 let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 200)
@@ -482,14 +465,14 @@ enum BugCheck {
                     func dark(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { $0.redComponent + $0.greenComponent + $0.blueComponent < 1.4 } ?? false }
                     // Middle of a run of rows, in points.
                     func middle(_ rows: [Int]) -> CGFloat { rows.isEmpty ? -100 : CGFloat(rows.first! + rows.last!) / 2 / scale }
-                    let text = (0..<bitmap.pixelsHigh).filter { y in (column(UserBubble.edge)..<bitmap.pixelsWide).contains { dark($0, y) } }
+                    let text = (0..<bitmap.pixelsHigh).filter { y in (column(16)..<bitmap.pixelsWide).contains { dark($0, y) } }
                     // Pink ink in the arrow's cells: the tag's text above, then the arrow, the last run of rows.
                     func pink(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { $0.redComponent - $0.greenComponent > 0.5 } ?? false }
-                    let rows = (0..<bitmap.pixelsHigh).filter { y in (column(16)..<column(UserBubble.edge)).contains { pink($0, y) } }
+                    let rows = (0..<bitmap.pixelsHigh).filter { y in (column(16)..<column(28)).contains { pink($0, y) } }
                     let chevron = rows.reversed().prefix { y in rows.contains(y + 1) || y == rows.last }.reversed().map { $0 }
                     print("Collapsed agent message: arrow at y \(middle(chevron)), text at \(middle(text)) (\(text.count) rows), \(rows.count) pink rows in the arrow's cells")
-                    check(abs(middle(chevron) - middle(text)) <= 2 && rows.count > chevron.count,
-                          "an agent message's arrow sits on its body's first line, under its tag")
+                    check(abs(middle(chevron) - middle(text) - CollapsibleText.line - 6) <= 3 && rows.count > chevron.count,
+                          "an agent message's arrow sits under its body's first line")
                 } else { check(false, "the collapsed agent message renders") }
             } else { check(false, "the agent message fixture shows its message") }
         }
@@ -686,6 +669,23 @@ enum BugCheck {
     let event = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: point.x, y: view.bounds.height - point.y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                    windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
     entering ? view.mouseEntered(with: event) : view.mouseMoved(with: event)
+}
+
+// A shut question's arrow, in points: the lowest run of coloured rows at its bubble's left, above `below`.
+@MainActor func arrowBox(_ view: NSView, left: CGFloat, below: CGFloat = .infinity) -> CGRect? {
+    view.layoutSubtreeIfNeeded()
+    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width, columns = Int((left + 12) * scale)..<Int((left + 32) * scale)
+    func coloured(_ x: Int, _ y: Int) -> Bool {
+        bitmap.colorAt(x: x, y: y).map { max($0.redComponent, $0.greenComponent, $0.blueComponent) - min($0.redComponent, $0.greenComponent, $0.blueComponent) > 0.3 } ?? false
+    }
+    let rows = (0..<min(bitmap.pixelsHigh, Int(min(below, 100_000) * scale))).filter { y in columns.contains { coloured($0, y) } }
+    guard let last = rows.last else { return nil }
+    var top = last
+    while rows.contains(top - 1) { top -= 1 }
+    let xs = (top...last).flatMap { y in columns.filter { coloured($0, y) } }
+    return CGRect(x: CGFloat(xs.min()!) / scale, y: CGFloat(top) / scale, width: CGFloat(xs.max()! - xs.min()!) / scale, height: CGFloat(last - top) / scale)
 }
 
 // Where a bubble's tint starts on a row of the view's render, in points.
