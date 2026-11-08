@@ -321,7 +321,7 @@ final class ComposerText: NSTextView {
         guard let text = board.string(forType: .string) else { return false }
         for piece in pastedPieces(text) {
             switch piece {
-            case .text(let words) where words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: insertText(words, replacementRange: selectedRange())
+            case .text(let words) where words.count < 20 || words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: insertText(words, replacementRange: selectedRange())
             case .text(let words): putPaste(words)
             case .image(let path): putImage(path)
             }

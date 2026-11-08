@@ -80,13 +80,13 @@ enum BugCheck {
         try capture("with-text")
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
-        board.clearContents(); board.setString("line one\nline two", forType: .string)
+        board.clearContents(); board.setString("line one of the paste\nline two", forType: .string)
         field.paste(from: board)
         try capture("with-paste")
         let pasted = field.textStorage!.attribute(.attachment, at: field.selectedRange().location - 1, effectiveRange: nil) as? PasteChip
-        check(pasted?.number == 1 && field.message().0.hasSuffix("textline one\nline two") && draftContent(frontend.draft).last?["type"] as? String == "paste", "pasted text shows as [Paste #1] and still sends its text")
+        check(pasted?.number == 1 && field.message().0.hasSuffix("textline one of the paste\nline two") && draftContent(frontend.draft).last?["type"] as? String == "paste", "pasted text shows as [Paste #1] and still sends its text")
         check(runtimeDraft(draftContent(frontend.draft)).attribute(.attachment, at: frontend.draft.length - 1, effectiveRange: nil) is PasteChip, "a restored draft keeps its paste chip")
-        check(coordinator.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && field.string.hasSuffix("line one\nline two"), "Tab right after a paste expands it to text")
+        check(coordinator.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && field.string.hasSuffix("line one of the paste\nline two"), "Tab right after a paste expands it to text")
         field.paste(from: board); field.insertText(" ", replacementRange: field.selectedRange())
         check(!coordinator.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))) && field.textStorage!.attribute(.attachment, at: field.string.utf16.count - 2, effectiveRange: nil) is PasteChip, "Tab after typing leaves the paste collapsed")
         field.deleteBackward(nil)
@@ -97,6 +97,9 @@ enum BugCheck {
         check(oldWorkerEcho.count == 2 && !oldWorkerEcho.contains { $0["type"] as? String == "paste" } && frontend.draft.attribute(.attachment, at: frontend.draft.length - 2, effectiveRange: nil) is PasteChip, "a runtime worker that echoes the paste as text keeps the chip")
         frontend.applyRuntimeDraft(["draft": [JSON](), "draftGeneration": frontend.draftGeneration])
         check(frontend.draft.length == 0, "a runtime that clears the draft still clears it")
+        board.clearContents(); board.setString("under twenty", forType: .string)
+        field.paste(from: board)
+        check(field.string.hasSuffix("under twenty") && field.textStorage!.attribute(.attachment, at: field.string.utf16.count - 1, effectiveRange: nil) == nil, "a paste under 20 characters goes in as text")
         let presence = FleetPresence(session: frontend)
         defer { presence.close() }
         let presenceFile = frontend.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
