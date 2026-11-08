@@ -136,14 +136,19 @@ final class Words {
         // A typo, but not in a name (capital), an abbreviation (no vowel: mdr, bcp, smth), a word
         // missing its accents (genere: génère or généré, not genre) nor a word macOS knows
         // (plugin, hotkey, tutoriels). Three letters have too many neighbours: only two swapped
-        // ones (teh) count there. Two swaps when one slip finds nothing (vraiemtn), from five
-        // letters on: a swap with another slip turns distnoted into distorted, pyright upright.
+        // ones (teh) count there. Two swaps (vraiemtn), or one with a letter meant twice (dispaear),
+        // when one slip finds nothing, from five letters on: a swap with another slip turns
+        // distnoted into distorted, pyright upright.
+        var bar = 5.0
         if rare, scores.isEmpty, typedMarks.1 == 0, chars.count >= 3, chars[0].isLowercase,
-           base.contains(where: { "aeiouy".contains($0) }), !known(lower) {
+           base.contains(where: { "aeiouy".contains($0) }), entries[lower] != nil || !known(lower) {
+            // One macOS knows that the lexicon has, too rare to count, gives way only to a far
+            // likelier word: thew to the, not unset to upset nor deriving to driving.
+            if known(lower) { bar = 1000 }
             for (second, channel) in [(false, 0.01), (true, 0.0001)] where scores.isEmpty {
                 if second && chars.count < 5 { break }
                 let edits = second
-                    ? Set(Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) })
+                    ? Set(Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) }).union(Self.swapsDoubled(base))
                     : Self.edits(base, swapsOnly: chars.count < 4)
                 for edit in edits {
                     for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && known(key) {
@@ -157,7 +162,7 @@ final class Words {
         // times: vérifie and vérifié are as likely for "verifie", so neither is picked.
         let ranked = scores.sorted { $0.value > $1.value }
         var chosen = lower
-        if let best = ranked.first, best.value > 0, best.value >= 5 * prior(lower, fr: fr),
+        if let best = ranked.first, best.value > 0, best.value >= bar * prior(lower, fr: fr),
            ranked.count < 2 || best.value >= 3 * ranked[1].value {
             chosen = best.key
         }
@@ -232,6 +237,20 @@ final class Words {
         out.remove(word)
         let swapped = w.count > 1 ? String([w[1], w[0]] + w.dropFirst(2)) : word
         return out.filter { $0.first == w.first || $0 == swapped }
+    }
+
+    /// Two letters swapped, one of which was also meant twice (dispaear: disappear), keeping
+    /// the first letter. A doubling elsewhere in the word turns attrs into arts, tailnet taillent.
+    static func swapsDoubled(_ word: String) -> Set<String> {
+        let w = Array(word)
+        var out = Set<String>()
+        for i in 1..<max(1, w.count - 1) {
+            var s = w
+            s.swapAt(i, i + 1)
+            out.insert(String(s[...i] + s[i...]))
+            out.insert(String(s[...(i + 1)] + s[(i + 1)...]))
+        }
+        return out
     }
 
     /// How French the sentence is once `word` is added to it. Kept within 5–95 %: one borrowed

@@ -45,6 +45,8 @@ enum SelfCheck {
             ("im tired", "I'm tired", ""),
             ("teh cat", "the cat", "a typo, one letter off"),
             ("c'est vraiemtn cool", "c'est vraiment cool", "two swaps"),
+            ("it should dispaear", "it should disappear", "a swap and a missed double letter"),
+            ("for thew height", "for the height", "a word too rare to count, though macOS knows it"),
             ("because of teh becuase", "because of the because", ""),
             ("le role", "le rôle", "rôle in French"),
             ("the role", "the role", "role in English"),
