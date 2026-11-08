@@ -188,7 +188,7 @@ extension Session {
     func refreshRepository() async {
         if runtimeClient != nil { await performRuntime("refreshRepository"); return }
         let directory = cwd
-        let result = await Task.detached { () -> (String?, String, String, String, String?) in
+        let result = await Task.detached { () -> (String?, String, String, String, String?, [String]) in
             func git(_ arguments: [String], at path: String? = nil) -> String? {
                 let process = Process(), output = Pipe()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -196,7 +196,7 @@ extension Session {
                 process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
                 do { try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); guard process.terminationStatus == 0 else { return nil }; return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } catch { return nil }
             }
-            guard let root = git(["rev-parse", "--show-toplevel"]) else { return (nil, "No repository", "", "", nil) }
+            guard let root = git(["rev-parse", "--show-toplevel"]) else { return (nil, "No repository", "", "", nil, []) }
             let common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"]) ?? ""
             var top = common.hasSuffix("/.git") ? String(common.dropLast(5)) : root
             var name = URL(fileURLWithPath: top).lastPathComponent
@@ -205,18 +205,18 @@ extension Session {
             }
             let branch = git(["branch", "--show-current"]) ?? ""
             let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
-            let status: String
-            if let changes = git(["status", "--porcelain"]) {
+            let status: String, porcelain = git(["status", "--porcelain"])
+            if let changes = porcelain {
                 if !changes.isEmpty { status = "uncommitted" }
                 else if branch.isEmpty { status = "" }
                 else if git(["rev-parse", "--abbrev-ref", "@{u}"]) == nil { status = "local only" }
                 else if let ahead = git(["rev-list", "--count", "@{u}..HEAD"]) { status = ahead == "0" ? "up to date" : "unpushed" }
                 else { status = "status unavailable" }
             } else { status = "status unavailable" }
-            return (name, URL(fileURLWithPath: root).lastPathComponent, label, status, root)
+            return (name, URL(fileURLWithPath: root).lastPathComponent, label, status, root, porcelain?.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) } ?? [])
         }.value
         guard cwd == directory else { return }
-        repositoryDirectory = result.0; repository = result.1; branch = result.2; repositoryStatus = result.3
+        repositoryDirectory = result.0; repository = result.1; branch = result.2; repositoryStatus = result.3; repositoryChanges = result.5
         if let root = result.4 { refreshPullRequest(root: root, branch: result.2) } else { pullRequest = "" }
     }
 

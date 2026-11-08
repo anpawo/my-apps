@@ -216,6 +216,7 @@ final class Session: ObservableObject {
     @Published var repository = "Checking…"
     @Published var branch = ""
     @Published var repositoryStatus = ""
+    @Published var repositoryChanges: [String] = []
     @Published var repositoryDirectory: String?
     @Published var pullRequest = ""
     var pullRequestURL = ""
@@ -604,7 +605,7 @@ final class Session: ObservableObject {
                     deltas.removeValue(forKey: data["id"] as? String ?? "")
                     if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd {
                         cwd = directory
-                        repositoryDirectory = nil; branch = ""; repositoryStatus = ""; pullRequest = ""
+                        repositoryDirectory = nil; branch = ""; repositoryStatus = ""; repositoryChanges = []; pullRequest = ""
                         (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
                         Task { await refreshRepository() }
                         save()
@@ -1399,7 +1400,7 @@ final class Session: ObservableObject {
             "cwd": cwd, "conversationDirectory": conversationDirectory, "stateDirectory": stateDirectory.path, "model": model, "status": status, "ready": ready, "busy": busy,
             "needsAttention": needsAttention, "backgroundTasks": backgroundTasks, "changing": changing, "activeActions": Array(activeActions), "context": context,
             "usage": usage, "usageLoading": usageLoading, "tokens": tokens, "repository": repository, "branch": branch,
-            "repositoryStatus": repositoryStatus, "pullRequest": pullRequest, "pullRequestURL": pullRequestURL, "hooks": hooks, "skills": skills, "builtinCommands": builtinCommands, "mcp": mcp,
+            "repositoryStatus": repositoryStatus, "repositoryChanges": repositoryChanges, "pullRequest": pullRequest, "pullRequestURL": pullRequestURL, "hooks": hooks, "skills": skills, "builtinCommands": builtinCommands, "mcp": mcp,
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
             "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts, "modelAliases": modelAliases,
             "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
@@ -1443,6 +1444,7 @@ final class Session: ObservableObject {
         contextUsed = value["contextUsed"] as? Int; contextLimit = value["contextLimit"] as? Int
         repository = value["repository"] as? String ?? repository; branch = value["branch"] as? String ?? branch
         repositoryStatus = value["repositoryStatus"] as? String ?? repositoryStatus
+        repositoryChanges = value["repositoryChanges"] as? [String] ?? repositoryChanges
         pullRequestURL = value["pullRequestURL"] as? String ?? pullRequestURL; pullRequest = value["pullRequest"] as? String ?? pullRequest
         repositoryDirectory = value["repositoryDirectory"] as? String
         hooks = value["hooks"] as? [String] ?? []; skills = value["skills"] as? [String] ?? []

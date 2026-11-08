@@ -459,7 +459,7 @@ extension Session {
                 notice(values.isEmpty ? "No entries reported for " + String(verb.dropFirst()) + "." : values.joined(separator: "\n"))
             case "/tokens": notice(tokens + (context.isEmpty ? "" : "\n" + context))
             case "/usage": await refreshUsage(); notice(usage.isEmpty ? "The provider has not reported subscription usage yet." : usage)
-            case "/repo": await refreshRepository(); notice(repository + " · " + repositoryLabel)
+            case "/repo": await refreshRepository(); notice(([repository + " · " + repositoryLabel] + repositoryChanges).joined(separator: "\n"))
             case "/compact", "/review":
                 try idle(); guard ready else { throw CXError(message: "Reconnect first.") }
                 if account.provider == "codex" {

@@ -361,6 +361,7 @@ enum Check {
             try! Data("changed".utf8).write(to: URL(fileURLWithPath: repoPath + "/file"))
             await repoSession.refreshRepository()
             check(repoSession.repositoryLabel == "@main - uncommitted", "uncommitted changes take priority")
+            check(repoSession.repositoryChanges == ["M file"], "the uncommitted state lists the modified files")
             gitCheck(["add", "file"], at: repoPath)
             gitCheck(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Change fixture"], at: repoPath)
             await repoSession.refreshRepository()

@@ -367,7 +367,7 @@ struct CXView: View {
             }
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
-        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command).accessibilityLabel("\(title): \(value). \(command)")
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command == "/repo" && !session.repositoryChanges.isEmpty ? session.repositoryChanges.joined(separator: "\n") : command).accessibilityLabel("\(title): \(value). \(command)")
     }
 
     private func capability(_ title: String) -> some View {
