@@ -156,14 +156,14 @@ struct Reel: Identifiable {
 
 /// Link in, verdict out — the phone's pipeline, run from this Mac.
 ///
-///     yt-dlp → .mp4 → ffmpeg → .wav → whisper.cpp → transcript → claude -p (web search) → JSON
-///                  ↘ stills, or a photo slide → Vision → the text on screen ↗
+///     reels skill's fetch.py (yt-dlp, whisper.cpp, stills) → transcript, stills
+///                                    → Vision → the text on screen → claude -p (web search) → JSON
 ///
-/// Each step is a binary already installed for other reasons, called by absolute path because a
-/// LaunchAgent has no `PATH`. Everything a step writes lands in one directory under the temp
-/// folder, kept afterwards: when a check goes wrong the `.err` file of the step that broke is
-/// the diagnosis, and the phone's history of "The coroutine scope left the composition" is what
-/// a pipeline with no trace looks like.
+/// The download and the transcript are the skill's, so a Reel pasted in a session and a Reel
+/// shared to the phone go through the same code and the same cache, `~/Library/Caches/analyse`.
+/// What the step prints lands in one directory under the temp folder, kept afterwards: when a
+/// check goes wrong the `.err` file is the diagnosis, and the phone's history of "The coroutine
+/// scope left the composition" is what a pipeline with no trace looks like.
 ///
 /// ponytail: the text on screen is read by Vision's OCR, which is sure of itself on type burnt
 /// into the picture and less so on a monitor filmed at an angle. The phone hands its stills to
@@ -177,13 +177,9 @@ enum ReelCheck {
         }
     }
 
-    private static let ytdlp = "/opt/homebrew/bin/yt-dlp"
-    private static let ffmpeg = "/opt/homebrew/bin/ffmpeg"
-    private static let whisper = "/opt/homebrew/bin/whisper-cli"
-    private static let models = NSHomeDirectory() + "/.local/share/whisper"
-    /// The Firefox profile signed in to Instagram. Named: left to itself yt-dlp takes the
-    /// profile last written to, which is as often the work one.
-    private static let firefox = "firefox:77xcox0v.default-release"
+    /// Called through the system's python by absolute path: a LaunchAgent has no `PATH`.
+    private static let python = "/usr/bin/python3"
+    private static let fetch = NSHomeDirectory() + "/.claude/skills/reels/fetch.py"
 
     /// Run the whole thing on one Reel and write the outcome to its document, whichever way it
     /// went. Never throws: the caller is a timer, and the document is where the answer goes.
@@ -215,89 +211,47 @@ enum ReelCheck {
     static func check(_ reel: Reel, in dir: URL,
                       progress: (String) -> Void = { _ in }) async throws -> [String: Any] {
         let url = reel.url.isEmpty ? "https://www.instagram.com/reel/\(reel.id)/" : reel.url
-        progress("Downloading\u{2026}")
-        // What was written decides, not the exit code. A link is as often a carousel as a Reel,
-        // and yt-dlp exits 1 on every photo slide — "No video formats found" — having downloaded
-        // the videos beside them. `--write-thumbnail` is what brings the photo slides back: a
-        // slide's thumbnail is the slide.
-        var refused: Error?
-        let fetch = ["-q", "--no-warnings", "--socket-timeout", "20",
-                     "--ignore-no-formats-error", "--write-thumbnail",
-                     "--convert-thumbnails", "jpg",
-                     "-o", "reel-%(autonumber)s.%(ext)s",
-                     "--print-to-file", "%(uploader)s\n%(description)s",
-                     "meta-%(autonumber)s.txt",
-                     url]
-        let written = { ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).sorted() }
-        do {
-            try await exec(ytdlp, fetch, in: dir, step: "yt-dlp", timeout: 300)
-        } catch { refused = error }
-        // Signed in only for what was refused signed out. Instagram keeps some Reels behind
-        // the login — "empty media response", 2026-09-28 — and an account that fetches every
-        // Reel from a script is an account that gets flagged; one request per refusal is not.
-        if !written().contains(where: { $0.hasPrefix("reel-") }) {
-            do {
-                try await exec(ytdlp, ["--cookies-from-browser", firefox] + fetch,
-                               in: dir, step: "yt-dlp-signed", timeout: 300)
-            } catch { refused = error }
+        progress("Transcribing\u{2026}")
+        // Four threads: a Reel is a minute or two and takes a third of that to transcribe, and
+        // the machine has to stay usable while it does — this runs whether or not you are here.
+        let out = try await exec(python, [fetch, url, "--whisper", "--threads", "4"],
+                                 in: dir, step: "fetch", timeout: 1800)
+        guard let line = out.split(separator: "\n").first(where: { $0.hasPrefix("dir: ") }) else {
+            throw Failure.step("fetch.py", "no folder printed")
         }
-        let files = written()
-        let meta = files.first { $0.hasPrefix("meta-") }
-            .flatMap { try? String(contentsOf: dir.appending(path: $0), encoding: .utf8) } ?? ""
-        let author = reel.author.isEmpty
-            ? String(meta.split(separator: "\n", maxSplits: 1).first ?? "") : reel.author
+        let cache = URL(fileURLWithPath: String(line.dropFirst("dir: ".count)))
+        let text = { (name: String) in
+            (try? String(contentsOf: cache.appending(path: name), encoding: .utf8)) ?? ""
+        }
+        let meta = text("meta.txt")
+        let channel = meta.split(separator: "\n").first { $0.hasPrefix("channel: ") }
+            .map { String($0.dropFirst("channel: ".count)) }.flatMap { $0 == "None" ? nil : $0 } ?? ""
+        let author = reel.author.isEmpty ? channel : reel.author
         let caption = reel.caption.isEmpty
-            ? String(meta.split(separator: "\n", maxSplits: 1).dropFirst().first ?? "") : reel.caption
+            ? meta.components(separatedBy: "\n\n").dropFirst().joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            : reel.caption
+        // The skill's transcript opens on its source and stamps each paragraph; the card keeps
+        // only the words.
+        let spoken = text("transcript.txt").split(separator: "\n", omittingEmptySubsequences: false)
+            .dropFirst()
+            .map { $0.replacingOccurrences(of: #"^\[\d\d:\d\d:\d\d\] "#, with: "", options: .regularExpression) }
+            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let media = files.filter { $0.hasPrefix("reel-") && !$0.hasSuffix(".part") }
-        let videos = media.filter { !$0.hasSuffix(".jpg") }
-        // A video's thumbnail is a frame of it; a slide with no video beside it is a photo.
-        let stem = { (name: String) in (name as NSString).deletingPathExtension }
-        let photos = media.filter { $0.hasSuffix(".jpg") && !videos.map(stem).contains(stem($0)) }
-        guard !videos.isEmpty || !photos.isEmpty else {
-            throw refused ?? Failure.step("yt-dlp", "nothing written")
-        }
-
-        var spoken: [String] = []
-        var stills = photos
-        for (index, video) in videos.enumerated() {
-            progress("Transcribing\u{2026}")
-            // A video with no audio track fails here, and that is an answer: nothing was said.
-            var said = ""
-            if (try? await exec(ffmpeg, ["-loglevel", "error", "-y", "-i", video, "-vn", "-ac", "1",
-                                         "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"],
-                                in: dir, step: "ffmpeg", timeout: 120)) != nil {
-                // Four threads: a Reel is a minute or two and takes a third of that to
-                // transcribe, and the machine has to stay usable while it does — this runs
-                // whether or not you are here.
-                said = try await exec(whisper, ["-m", models + "/ggml-large-v3-q5_0.bin",
-                                                "-f", "audio.wav", "-l", "auto",
-                                                "--vad", "-vm", models + "/ggml-silero-v5.1.2.bin",
-                                                "-t", "4", "-np", "-nt"],
-                                      in: dir, step: "whisper", timeout: 900)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            if !said.isEmpty { spoken.append(said) }
-            // The picture is read even under a voice: what is said is often not the point, the
-            // text on screen is (2026-10-20, a Reel left unverifiable for want of it). One
-            // still every `stillEvery` seconds.
-            progress("Reading the screen\u{2026}")
-            _ = try? await exec(ffmpeg, ["-loglevel", "error", "-y", "-i", video,
-                                     "-vf", "fps=1/\(stillEvery),scale=960:-2",
-                                     "-frames:v", String(maxStills), "-q:v", "3",
-                                     "still-\(index)-%03d.jpg"],
-                            in: dir, step: "stills", timeout: 120)
-            stills += ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
-                .filter { $0.hasPrefix("still-\(index)-") }.sorted()
-        }
-        if !photos.isEmpty, videos.isEmpty { progress("Reading the screen\u{2026}") }
-        let seen = read(stills.map { dir.appending(path: $0) })
-        var transcript = spoken.joined(separator: "\n\n")
+        // The picture is read even under a voice: what is said is often not the point, the text
+        // on screen is (2026-10-20, a Reel left unverifiable for want of it). A carousel's photos
+        // first, then each video's stills.
+        progress("Reading the screen\u{2026}")
+        let pictures = ((try? FileManager.default.contentsOfDirectory(atPath: cache.path)) ?? [])
+            .filter { ($0.hasPrefix("slide-") || $0.hasPrefix("still-")) && $0.hasSuffix(".jpg") }
+            .sorted()
+        let seen = read(pictures.map { cache.appending(path: $0) })
+        var transcript = spoken
         if !seen.isEmpty {
             transcript += (transcript.isEmpty ? "" : "\n\n") + "[Texte lu à l'écran]\n" + seen
         }
         guard !transcript.isEmpty || !caption.isEmpty else {
-            throw Failure.step("whisper", "nothing spoken, nothing on screen and no caption")
+            throw Failure.step("fetch.py", "nothing spoken, nothing on screen and no caption")
         }
 
         progress("Checking on the web\u{2026}")
@@ -342,11 +296,6 @@ enum ReelCheck {
     static func summaryOf(_ verdict: [String: Any]) -> String {
         (verdict["resume"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
-    /// Seconds between two stills, and how many at most: a minute of Reel is twenty pictures,
-    /// a slide of text stays up longer than three seconds, and the longest Reels run four minutes.
-    private static let stillEvery = 3
-    private static let maxStills = 80
 
     /// Every line of text on these pictures, in order, each once: a caption burnt into a video
     /// is on twenty stills in a row.

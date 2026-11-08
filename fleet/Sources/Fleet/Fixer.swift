@@ -159,7 +159,9 @@ final class Fixer: ObservableObject {
             facts = """
             It is a Reel that Fleet's analyser gave up on after \(Reel.maxTries) tries. The \
             analyser is `fleet --reels-run` (~/self/my-apps/fleet/Sources/Fleet/Reels.swift), its log \
-            /tmp/fleet-reels.log; `fleet --reels` lists them and `fleet --check-reel \
+            /tmp/fleet-reels.log; the download and transcript are the reels skill's \
+            ~/.claude/skills/reels/fetch.py, its trace in $TMPDIR/fleet-reels/<shortcode>/fetch.err \
+            and its files in ~/Library/Caches/analyse/<shortcode>/; `fleet --reels` lists them and `fleet --check-reel \
             <shortcode>` runs one.
             """
         } else if alert.hasPrefix("firestore") || alert.hasPrefix("todo") {
