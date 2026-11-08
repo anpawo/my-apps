@@ -281,6 +281,7 @@ final class Session: ObservableObject {
     var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
     static var testConnectionFactory: ((Account, String) -> any Connection)?
+    static var router: (String, Account?) async -> String? = { await routeProject($0, account: $1) }
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
     private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
     private var nativePointer: URL { pointer.deletingPathExtension().appendingPathExtension("native.json") }
@@ -759,18 +760,7 @@ final class Session: ObservableObject {
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
         // A window opened at / or ~ starts its first task in the task's project.
-        if !testing, !retry, !busy, ["/", NSHomeDirectory()].contains(cwd), !text.isEmpty, !rows.contains(where: { $0.kind == "user" }) {
-            status = "Choosing the project…"
-            submitting = true
-            let routed = await projectRoute(for: text)
-            submitting = false
-            if let project = routed {
-                let typed = draft
-                try? await changeDirectory(project)
-                draft = typed; draftRevision += 1
-                guard ready else { return }
-            }
-        }
+        let routes = !testing && !retry && !busy && ["/", NSHomeDirectory()].contains(cwd) && !text.isEmpty && !rows.contains(where: { $0.kind == "user" })
         let wasBusy = busy, savedDraft = submissionDraft
         guard !busy || turnID != nil else { notice("The current turn is still starting. Your draft has been kept."); return }
         submitting = true
@@ -807,6 +797,20 @@ final class Session: ObservableObject {
         }
         if wasBusy { params["expectedTurnId"] = turnID }
         do {
+            // The prompt is already in the chat; the agent moves to its project behind it.
+            if routes {
+                status = "Choosing the project…"
+                if let project = await projectRoute(for: text), project != cwd {
+                    let previous = (cwd, conversationDirectory), stopping = stopRequested
+                    cwd = project; conversationDirectory = project
+                    do { try await activate(account, resume: nil, keepRows: true) }
+                    catch { cwd = previous.0; conversationDirectory = previous.1; throw error }
+                    injectedContext = ""; busy = true; stopRequested = stopping; status = "Working…"
+                    params["threadId"] = threadID ?? ""; params["cwd"] = cwd
+                    (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
+                    Task { await self.refreshCatalog() }
+                } else { status = "Working…" }
+            }
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
             if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
             injectedContext = ""
@@ -1283,7 +1287,7 @@ final class Session: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard let self, !Task.isCancelled else { return }
             let account = self.routeAccount
-            self.projectGuess = (text, Task { await routeProject(text, account: account) })
+            self.projectGuess = (text, Task { await Session.router(text, account) })
         }
     }
 
@@ -1292,7 +1296,7 @@ final class Session: ObservableObject {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         // A guess from three quarters of the prompt stands: its last words rarely change the project.
         if let guess = projectGuess, text.hasPrefix(guess.text), guess.text.count * 4 >= text.count * 3 { return await guess.route.value }
-        return await routeProject(text, account: routeAccount)
+        return await Session.router(text, routeAccount)
     }
 
     func editDraft(_ value: NSAttributedString, refresh: Bool = true) {

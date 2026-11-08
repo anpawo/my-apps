@@ -749,6 +749,25 @@ enum Check {
                 }
             }
             do {
+                let routed = Session(cwd: "/", stateDirectory: directory.appendingPathComponent("route-state"))
+                var folders: [String] = [], fixtures: [FixtureConnection] = []
+                routed.connectionFactory = { account, folder in let fixture = FixtureConnection(account); folders.append(folder); fixtures.append(fixture); return fixture }
+                await routed.connect(resume: nil)
+                let router = Session.router
+                var answer: CheckedContinuation<String?, Never>?
+                Session.router = { _, _ in await withCheckedContinuation { answer = $0 } }
+                let sending = Task { await routed.send(text: "fix the fixture", images: []) }
+                for _ in 0..<200 where answer == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+                check(routed.rows.contains { $0.kind == "user" } && routed.busy && fixtures.last?.sent.isEmpty == true,
+                      "the first prompt of a window at / shows in the chat while its project is chosen")
+                answer?.resume(returning: directory.path)
+                await sending.value
+                Session.router = router
+                check(fixtures.count == 2 && folders.last == directory.path && fixtures.last?.sent.first?["cwd"] as? String == directory.path
+                      && routed.rows.filter { $0.kind == "user" }.count == 1, "the first prompt starts in the project chosen for it, its row kept")
+                routed.close()
+            }
+            do {
                 let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
                 var connection: FixtureConnection?
                 resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }
