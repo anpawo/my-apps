@@ -6,7 +6,7 @@ struct Mine: Codable {
     var counts: [String: Int] = [:]
     var rejected: [String: Int] = [:]
     var fixes: [String: Int] = [:]
-    /// When each fix was last taken back (seconds since 1970): it is held off a week from then.
+    /// When each fix was last taken back (seconds since 1970): it is held off ten minutes from then.
     var refusedAt: [String: Double] = [:]
 
     init() {}
@@ -57,9 +57,6 @@ final class Words {
         if let learned, let data = try? Data(contentsOf: learned), let saved = try? JSONDecoder().decode(Mine.self, from: data) {
             mine = saved
         }
-        // Refusals from before the hold had no time: their week starts now.
-        let now = Date().timeIntervalSince1970
-        for key in mine.rejected.keys where mine.refusedAt[key] == nil { mine.refusedAt[key] = now; dirty = true }
     }
 
     var count: Int { entries.count }
@@ -111,10 +108,11 @@ final class Words {
         let rare = max(entries[lower]?.fr ?? 0, entries[lower]?.en ?? 0) < 2e-7 && mine.counts[lower] == nil
         var scores: [String: Double] = [:]
         func consider(_ key: String, _ score: Double) {
-            // Taken back: not made for a week. A penalty did nothing for a word the lexicon
-            // lacks, whose own score is 0 (eip was made épi again after two ⌫).
-            guard !refused(lower + "\t" + key) else { return }
-            scores[key] = max(scores[key] ?? 0, score)
+            // Taken back: held off ten minutes, then a little weaker for each time it was.
+            let pair = lower + "\t" + key
+            guard !refused(pair) else { return }
+            let weaker = score * pow(Self.refusalWeight, Double(mine.rejected[pair] ?? 0))
+            scores[key] = max(scores[key] ?? 0, weaker)
         }
         for key in byBase[base] ?? [] where key != lower {
             // An apostrophe, a hyphen or an accent he typed stays (pop-up is not popup, nor mesuré
@@ -251,7 +249,8 @@ final class Words {
         dirty = true
     }
 
-    static let refusalHold: TimeInterval = 7 * 86400
+    static let refusalHold: TimeInterval = 10 * 60
+    static let refusalWeight = 0.7
 
     private func refused(_ key: String) -> Bool {
         guard let at = mine.refusedAt[key] else { return false }

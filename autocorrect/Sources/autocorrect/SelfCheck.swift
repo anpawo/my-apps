@@ -93,8 +93,13 @@ enum SelfCheck {
         words.reject("eip", "épi")
         expect(words.correct("eip", fr: 0.5), nil, "yet one ⌫ is enough to stop that fix")
         words.reject("eip", "épi", at: Date() - Words.refusalHold - 60)
-        expect(words.correct("eip", fr: 0.5), "épi", "for a week only")
+        expect(words.correct("eip", fr: 0.5), "épi", "for ten minutes only")
         words.reject("eip", "épi")
+        let past = Date() - Words.refusalHold - 60
+        words.reject("quil", "qu'il", at: past)
+        expect(words.correct("quil", fr: 0.5), "qu'il", "a sure fix outlives a stray ⌫")
+        for _ in 0..<20 { words.reject("quil", "qu'il", at: past) }
+        expect(words.correct("quil", fr: 0.5), nil, "but each refusal weighs it a little less")
 
         words.keep("tema", "team")
         for word in ["team", "epitehc", "dont"] { words.learn(word) }
