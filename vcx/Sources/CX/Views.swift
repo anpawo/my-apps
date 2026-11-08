@@ -313,6 +313,7 @@ struct CXView: View {
                             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(session.preview != nil)
                     .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.24), value: session.preview != nil)
             }
         }
