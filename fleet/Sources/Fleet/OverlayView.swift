@@ -939,11 +939,14 @@ struct GroupTile: View {
     /// Between the group's border and its cards, across and down, and between two of its
     /// cards: the one gap (asked 2026-10-15).
     static let inset: CGFloat = 10
-    /// The name, in a pill across the top border, centred, as alt-tab shows what is typed
-    /// (asked 2026-11-09).
-    private static let pillHeight: CGFloat = 28
-    /// The room over the cards: the pill's lower half, and air under it.
-    static let nameBand = pillHeight / 2 + 4
+    /// The name, and the room it keeps over and under it: more under it than over it, where
+    /// the border already is (asked 2026-10-15).
+    private static let nameSize: CGFloat = 20
+    private static let nameLine = nameSize * 1.2
+    private static let nameAir: CGFloat = 4
+    private static let nameFoot: CGFloat = 11
+    /// The name stands centred over the cards, in a band of its own.
+    static let nameBand = nameAir + nameLine + nameFoot
     /// A repo inside the group's: its name, with the line on either side of it.
     static let subBand: CGFloat = 20
     /// One of its cards: a grid cell less the gap on either side, as tall in every group.
@@ -962,6 +965,13 @@ struct GroupTile: View {
                     // Held to the card's own size as far as the stack goes: left to their
                     // full one, they ran out past the border.
                     .frame(width: box.size.width, height: box.size.height, alignment: .topLeading)
+
+                Text(name)
+                    .font(.system(size: Self.nameSize, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .offset(x: (box.size.width - nameWidth) / 2, y: Self.inset + Self.nameAir)
             }
             // The empty room inside the card belongs to the directory: a click there does not
             // fall through to the panel's dismiss layer. The cards inside take their own clicks.
@@ -981,21 +991,13 @@ struct GroupTile: View {
             RoundedRectangle(cornerRadius: 10 + Self.inset, style: .continuous)
                 .strokeBorder(Self.tint, lineWidth: 2.5)
         )
-        // Over the border, out of the clip: half of it stands above the group.
-        .overlay(alignment: .top) {
-            Text(name)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 14)
-                .frame(minWidth: Self.pillHeight, minHeight: Self.pillHeight)
-                .background(Capsule().fill(Color(white: 0.13))
-                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2))
-                .overlay(Capsule().strokeBorder(Self.tint, lineWidth: 2))
-                .offset(y: -Self.pillHeight / 2)
-                .allowsHitTesting(false)
-        }
+    }
+
+    /// The name's width at rest, measured rather than laid out: the text is placed by hand, so
+    /// centring it needs a number before anything is drawn.
+    private var nameWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: Self.nameSize, weight: .semibold)
+        return (name as NSString).size(withAttributes: [.font: font]).width
     }
 
     /// The sessions, under the name, in the order the grid has them.
