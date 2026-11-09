@@ -69,7 +69,7 @@ struct OverlayView: View {
     private var tile: CGSize { GroupTile.cell(centerWidth, spacing: tileSpacing) }
     /// Wider than it looks like it needs to be: the hover glow is a 16pt shadow, and the
     /// neighbouring tile is opaque and drawn after, so a tighter gap eats the glow.
-    private let tileSpacing: CGFloat = 26
+    private let tileSpacing: CGFloat = 18
 
     /// The grid's own width, pinned rather than flexible: a grid that resized with the fleet
     /// would slide the side column around every time a session started.
@@ -96,7 +96,7 @@ struct OverlayView: View {
 
     /// How far the fleet's frame reaches past its grid either side: a tile's hover glow
     /// reaches 22pt, and a frame inside that is a line the cards wipe over.
-    static let fleetSpread: CGFloat = 26
+    static let fleetSpread: CGFloat = 18
     /// The fleet's frame, outline to outline — which the ALERT bar over it matches.
     private var fleetFrameWidth: CGFloat { centerWidth + 2 * Self.fleetSpread }
 
@@ -1038,7 +1038,7 @@ struct SessionTile: View {
     @State private var hovering = false
 
     /// What three take beside the side columns on a 1470 pt laptop screen, with some edge left.
-    static let width: CGFloat = 236
+    static let width: CGFloat = 248
     /// Every session card is 16:9 (asked 2026-10-15), on the grid and inside a group.
     static let height = width * 9 / 16
     static func height(width: CGFloat) -> CGFloat { width * 9 / 16 }
