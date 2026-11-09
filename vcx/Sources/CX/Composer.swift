@@ -224,11 +224,15 @@ struct Composer: NSViewRepresentable {
         func textView(_ view: NSTextView, shouldChangeTypingAttributes old: [String: Any], toAttributes new: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
             new.filter { $0.key != .toolTip }
         }
+        // Measured when the deferred update runs: comparing a fresh height with one still waiting to be set
+        // dropped the last of two measures in one pass and left a wrapped line clipped.
         func measure(_ field: NSTextView) {
-            guard let manager = field.layoutManager, let container = field.textContainer else { return }
-            manager.ensureLayout(for: container)
-            let height = min(max(manager.usedRect(for: container).height, 24), 150).rounded(.up)
-            if height != session.editorHeight { DispatchQueue.main.async { self.session.editorHeight = height } }
+            DispatchQueue.main.async { [weak field, session] in
+                guard let field, let manager = field.layoutManager, let container = field.textContainer else { return }
+                manager.ensureLayout(for: container)
+                let height = min(max(manager.usedRect(for: container).height, 24), 150).rounded(.up)
+                if height != session.editorHeight { session.editorHeight = height }
+            }
         }
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
             if selector == #selector(NSResponder.insertTab(_:)), (view as? ComposerText)?.expandPaste() == true { return true }

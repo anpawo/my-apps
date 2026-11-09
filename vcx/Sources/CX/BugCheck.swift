@@ -22,6 +22,19 @@ enum BugCheck {
             field.delegate = coordinator
             return (field, coordinator)
         }
+        do {
+            let sized = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("sized"))
+            sized.draft = NSAttributedString(string: String(repeating: "wrap ", count: 30)); sized.draftRevision += 1
+            let host = NSHostingView(rootView: Composer(session: sized))
+            host.frame = NSRect(x: 0, y: 0, width: 600, height: 150); host.layoutSubtreeIfNeeded()
+            await settle()
+            let sizedField = RuntimeUpdate.composer(in: host)!, wrapped = sized.editorHeight
+            sizedField.setFrameSize(NSSize(width: 2000, height: sizedField.frame.height))
+            sizedField.setFrameSize(NSSize(width: 600, height: sizedField.frame.height))
+            await settle()
+            check(wrapped > 24 && sized.editorHeight == wrapped, "a wrapped draft keeps its height after two measures in one pass (\(wrapped) → \(sized.editorHeight))")
+            sized.close()
+        }
         let account = Settings.shared.value.accounts.first { $0.provider == "codex" }!
         let preferences = Settings.shared.value
         defer { Settings.shared.value = preferences; Settings.shared.save() }
