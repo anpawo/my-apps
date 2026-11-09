@@ -42,9 +42,8 @@ struct OverlayView: View {
     var eagerLayout = false
 
 
-    /// The one side block unfolded: the last one the pointer was on, until it leaves the column
-    /// (asked 2026-11-09: every block folded unless hovered). Kept while the pointer crosses the
-    /// gap to the next heading, which would otherwise jump up under it. Seeded from the `-open`
+    /// The one side block unfolded: the one under the pointer, folded again as the pointer
+    /// leaves it (asked 2026-11-09: every block folded unless hovered). Seeded from the `-open`
     /// flags so a render can show one.
     @State private var sideOpen: String? = [
         ("--reels-open", "reels"), ("--mail-open", "mail"), ("--school-open", "epitech"),
@@ -80,8 +79,9 @@ struct OverlayView: View {
     private let sideWidth: CGFloat = 272
 
     /// A block folding to its heading, or growing into the room one left: slow enough to see
-    /// where the room went.
-    static let fold: Animation = .easeInOut(duration: 0.35)
+    /// where the room went. Ease-out, so it moves on the frame the pointer arrives: an ease-in
+    /// start read as a delay (asked 2026-11-09).
+    static let fold: Animation = .easeOut(duration: 0.25)
 
     /// The leftover width goes to the two edges, equally.
     private static let edgeWeight = 2
@@ -264,7 +264,7 @@ struct OverlayView: View {
                         .onHover { side("spending", $0) }
                     PluginColumns(store: controller.plugins, commandHeld: held,
                                   scrolling: !eagerLayout, limit: free, opened: sideOpen,
-                                  first: ["nutrition.json"], onHover: { side($0, true) })
+                                  first: ["nutrition.json"], onHover: side)
                 }
             }
             gap(Self.edgeWeight)
@@ -322,11 +322,12 @@ struct OverlayView: View {
         .padding(.top, -40)
     }
 
-    /// The pointer onto a side block opens it; off the column, all fold. Onto the gap between
-    /// two, nothing changes.
+    /// The pointer onto a side block opens it, off it folds it; another block entered first
+    /// keeps its own open.
     private func side(_ key: String?, _ inside: Bool) {
-        guard inside, sideOpen != key else { return }
-        withAnimation(Self.fold) { sideOpen = key }
+        let next = inside ? key : (sideOpen == key ? nil : sideOpen)
+        guard sideOpen != next else { return }
+        withAnimation(Self.fold) { sideOpen = next }
     }
 
     /// The tiles with the prompt bubble immediately under them, as one block. The bubble rides

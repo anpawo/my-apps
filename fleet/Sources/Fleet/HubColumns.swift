@@ -507,7 +507,9 @@ struct TodoColumn: View {
             // and given back outside, so the clip lands out of its reach.
             if scrolling {
                 ScrollView(.vertical) {
-                    VStack(spacing: 8) { rows }
+                    // Lazy: the rows are built each time the block opens, and 64 of them built
+                    // whole held the opening 160 ms (measured 2026-11-09, `--bench-panel`).
+                    LazyVStack(spacing: 8) { rows }
                         .padding(.horizontal, Self.glowRoom)
                 }
                 .scrollIndicators(.hidden)

@@ -161,7 +161,7 @@ struct PluginColumns: View {
     var opened: String?
     /// These files' blocks before the others, in this order; the rest by file name.
     var first: [String] = []
-    var onHover: (String) -> Void = { _ in }
+    var onHover: (String, Bool) -> Void = { _, _ in }
 
     var body: some View {
         let rank = { (id: String) in first.firstIndex(of: id) ?? first.count }
@@ -169,7 +169,7 @@ struct PluginColumns: View {
             PluginColumn(block: block, store: store, commandHeld: commandHeld,
                          scrolling: scrolling, limit: limit,
                          open: opened == block.id || opened == "plugins")
-                .onHover { if $0 { onHover(block.id) } }
+                .onHover { onHover(block.id, $0) }
         }
     }
 }
