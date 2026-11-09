@@ -46,6 +46,7 @@ struct OverlayView: View {
     /// (asked 2026-11-09: every block folded unless hovered). Kept while the pointer crosses the
     /// gap to the next heading, which would otherwise jump up under it. Seeded from the `-open`
     /// flags so a render can show one.
+    @State private var sideFrames: [String: CGRect] = [:]
     @State private var sideOpen: String? = [
         ("--reels-open", "reels"), ("--mail-open", "mail"), ("--school-open", "epitech"),
         ("--crons-open", "crons"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
@@ -212,30 +213,33 @@ struct OverlayView: View {
                 let plugins = controller.plugins.blocks.count
                 VStack(alignment: .leading, spacing: Self.blockGap) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
-                    // Every other block folded to its heading line, and the open one given what
-                    // they leave: the room under the memory less a heading line and a gap for
-                    // each of the others. A limit counts the frame, which reaches `blockSpread`
-                    // past the block top and bottom.
+                    // Every other block folded to its heading line, and the open one as tall as
+                    // the whole room under the memory at most (asked 2026-11-09): it pushes the
+                    // others up and down, see `sideShift`, and the column's edges cut them.
                     GeometryReader { space in
-                        let free = space.size.height - CGFloat(5 + plugins) * Self.overLine
-                            + 2 * Self.blockSpread
+                        let free = space.size.height
                         VStack(alignment: .leading, spacing: Self.blockGap) {
                             ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
                                 .onHover { side("reels", $0) }
+                                .sideFrame("reels")
                             MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
                                        limit: free, open: sideOpen == "mail")
                                 .onHover { side("mail", $0) }
+                                .sideFrame("mail")
                             EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
                                           scrolling: !eagerLayout, open: sideOpen == "epitech")
                                 .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
                                        alignment: .top)
                                 .onHover { side("epitech", $0) }
+                                .sideFrame("epitech")
                             CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
                                        scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
                                 .onHover { side("crons", $0) }
+                                .sideFrame("crons")
                             MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                         open: sideOpen == "spending")
                                 .onHover { side("spending", $0) }
+                                .sideFrame("spending")
                             PluginColumns(store: controller.plugins, commandHeld: held,
                                           scrolling: !eagerLayout, limit: free, opened: sideOpen,
                                           onHover: { side($0, true) })
@@ -244,10 +248,14 @@ struct OverlayView: View {
                                 .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
                                        ? .infinity : nil)
                                 .onHover { side("todo", $0) }
+                                .sideFrame("todo")
                         }
-                        .frame(height: space.size.height, alignment: .top)
+                        .frame(height: space.size.height + CGFloat(5 + plugins) * Self.overLine,
+                               alignment: .top)
                     }
                 }
+                .coordinateSpace(name: SideFrames.space)
+                .onPreferenceChange(SideFrames.self) { sideFrames = $0 }
                 .onHover { if !$0 { side(nil, true) } }
                 .animation(Self.fold, value: hub.mailEmpty)
                 .animation(Self.fold, value: hub.schoolEmpty)
@@ -257,6 +265,8 @@ struct OverlayView: View {
                     if !shown { sideOpen = nil }
                 }
                 .frame(height: Self.blockHeight, alignment: .top)
+                .offset(y: -sideShift)
+                .animation(Self.fold, value: sideShift)
                 // Cut off at the panel's own bottom gap rather than run off the screen. The
                 // widening either side of the clip is the room a block's frame takes past its
                 // content — see `blockFrame` — which a clip at the column's width would shave.
@@ -308,6 +318,15 @@ struct OverlayView: View {
         // shadow reaches 16pt out on hover.
         .padding(.top, 26)
         .background(dismissLayer)
+    }
+
+    /// Where each side block sits in its column, measured: the open one grows as much up as
+    /// down, so the column moves up by half of what it gained, held so that its own heading and
+    /// foot stay inside the column's edges.
+    private var sideShift: CGFloat {
+        guard let key = sideOpen, let open = sideFrames[key] else { return 0 }
+        let half = (open.height - 14) / 2
+        return min(max(half, open.maxY - Self.blockHeight, 0), max(0, open.minY))
     }
 
     /// The pointer onto a side block opens it; off the column, all fold. Onto the gap between
@@ -1538,5 +1557,23 @@ private struct HogPill: View {
             Capsule().fill(.white.opacity(0.06))
                 .overlay(Capsule().stroke(tint.opacity(0.25), lineWidth: 1))
         )
+    }
+}
+
+/// Each side block's frame in its column — see `OverlayView.sideShift`.
+struct SideFrames: PreferenceKey {
+    static let space = "side-column"
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+extension View {
+    func sideFrame(_ key: String) -> some View {
+        background(GeometryReader { box in
+            Color.clear.preference(key: SideFrames.self,
+                                   value: [key: box.frame(in: .named(SideFrames.space))])
+        })
     }
 }

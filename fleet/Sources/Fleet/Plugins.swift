@@ -167,6 +167,7 @@ struct PluginColumns: View {
                          scrolling: scrolling, limit: limit,
                          open: opened == block.id || opened == "plugins")
                 .onHover { if $0 { onHover(block.id) } }
+                .sideFrame(block.id)
         }
     }
 }
