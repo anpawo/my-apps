@@ -1048,13 +1048,26 @@ struct SessionTile: View {
 
     private func ground(_ shape: some Shape) -> some View {
         shape
-            // Inside a group the state fills the card (asked 2026-11-09).
-            .fill(grouped ? state.tint.opacity(0.7) : Color(red: 0.07, green: 0.07, blue: 0.09))
+            // Inside a group the state fills the card, dimmed by the dark ground under it
+            // (asked 2026-11-09).
+            .fill(grouped ? state.tint.opacity(0.55) : Color(red: 0.07, green: 0.07, blue: 0.09))
             // A shadow fades out about twice its radius away. At 16 the hover glow ran past the
             // room it is given, and was cut in a straight line: by the scroll view over the top
             // row, by a group's border, and over the card beside it in a group (2026-10-20).
             // The pointer no longer brightens it at all (asked the same day).
             .shadow(color: state.tint.opacity(0.18), radius: grouped ? 4 : 8)
+            .overlay {
+                // Frosted without a blur pass: a soft light from the top left, a shade at the
+                // foot and a tiled grain, each a single filled shape (asked 2026-11-09).
+                if grouped {
+                    shape.fill(RadialGradient(colors: [.white.opacity(0.18), .clear],
+                                              center: .topLeading, startRadius: 0, endRadius: 170))
+                    shape.fill(LinearGradient(colors: [.clear, .black.opacity(0.2)],
+                                              startPoint: .top, endPoint: .bottom))
+                    shape.fill(ImagePaint(image: Image(nsImage: Grain.image), scale: 0.5))
+                        .opacity(0.07)
+                }
+            }
     }
 
     /// A session fused with Qwen works while Qwen answers it, which Claude Code knows nothing of.
@@ -1128,8 +1141,7 @@ struct SessionTile: View {
             // group's smaller cards bigger again the same day.
             .font(.system(size: grouped ? 19 : (title == nil ? 31 : 22) * 0.9 * 0.75,
                           weight: grouped ? .bold : .semibold))
-            // Dark on a filled card: white on the green, yellow or blank-state fill did not read.
-            .foregroundStyle(grouped ? .black.opacity(0.85) : .white)
+            .foregroundStyle(.white)
             .lineLimit(title == nil ? 1 : 2)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
@@ -1139,12 +1151,27 @@ struct SessionTile: View {
     private var folder: some View {
         Text(session.qwen != nil ? "qwen" : session.folder)
             .font(.system(size: 10.5, design: .monospaced))
-            .foregroundStyle(grouped ? .black.opacity(0.5) : .white.opacity(0.4))
+            .foregroundStyle(.white.opacity(grouped ? 0.55 : 0.4))
             .lineLimit(1)
             .truncationMode(.tail)
     }
 }
 
+
+/// Grey noise, made once and tiled over a group's cards: their grain.
+enum Grain {
+    static let image: NSImage = {
+        let side = 128
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
+                                   bitsPerSample: 8, samplesPerPixel: 1, hasAlpha: false,
+                                   isPlanar: false, colorSpaceName: .deviceWhite,
+                                   bytesPerRow: side, bitsPerPixel: 8)!
+        for i in 0 ..< side * side { rep.bitmapData![i] = .random(in: 0 ... 255) }
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.addRepresentation(rep)
+        return image
+    }()
+}
 
 /// `InsettableShape` has an associated type, so a shape cannot simply be returned from an
 /// `if`. This is the usual type-erasing wrapper, kept minimal: `strokeBorder` is the only
