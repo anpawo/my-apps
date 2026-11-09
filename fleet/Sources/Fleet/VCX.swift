@@ -109,8 +109,9 @@ enum VCX {
             let live = transcripts.info(for: transcript)
             info.subagents = live?.subagents ?? []
             info.backgroundShellsStartedAt = live?.backgroundShellsStartedAt ?? []
-            // VCX's cwd is where the window launched; a `cd` in the session moves only the transcript's.
-            if let moved = live?.cwd { info.cwd = moved }
+            // VCX's cwd, not the transcript's: it is the folder the window's bar shows, moved by a
+            // standalone `cd` and by /dir at once, where the transcript's waits for Claude's next
+            // line and never sees /dir (asked 2026-11-09).
         }
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
