@@ -999,6 +999,11 @@ enum Check {
             check(session.draft.string == "Fix the tpyo" && !session.rows.contains { $0.kind == "user" && ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "Fix the tpyo" } && session.status == "Ready",
                   "Escape before any output takes the prompt back into the composer")
             session.editDraft(NSAttributedString(string: ""))
+            await session.send(text: "Fix the tpyo", images: [])
+            _ = session.movePromptHistory(-1)
+            await session.stop(source: "Escape")
+            check(session.draft.string == "Fix the tpyo", "Up pressed while Escape withdraws a prompt leaves one copy in the composer")
+            session.editDraft(NSAttributedString(string: ""))
             await session.send(text: "Keep going", images: [])
             session.event(["method": "item/completed", "params": ["item": ["id": "partial", "type": "agentMessage", "text": "Started"]]])
             await session.stop(source: "Escape")

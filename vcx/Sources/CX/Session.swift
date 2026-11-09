@@ -641,9 +641,7 @@ final class Session: ObservableObject {
             turnPrompt = nil
             if withdrawn, let prompt, let content = prompt.data["content"] as? [JSON] {
                 rows.removeLast(); itemMap[prompt.id] = nil; revision += 1
-                let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
-                restored.append(draft)
-                editDraft(restored)
+                editDraft(withdrawnDraft(content))
             } else if outcome == "interrupted" {
                 notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
             } else if needsAttention {
@@ -1337,11 +1335,16 @@ final class Session: ObservableObject {
             let unsent = runtimeClient == nil ? await unsend(item.id) : await performRuntime("unsend", ["id": item.id])?["cancelled"] as? Bool == true
             guard unsent else { _ = movePromptHistory(-1); return }
             recalled = (recordID, content)
-            let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
-            restored.append(draft)
-            editDraft(restored)
+            editDraft(withdrawnDraft(content))
         }
         return true
+    }
+
+    // Up arrow pressed while a withdrawal is in flight already copied the same prompt from history: keep one copy.
+    private func withdrawnDraft(_ content: [JSON]) -> NSAttributedString {
+        let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
+        if !NSArray(array: plainDraftContent(draftContent(draft))).isEqual(to: plainDraftContent(draftContent(restored))) { restored.append(draft) }
+        return restored
     }
 
     // Escape while editing a withdrawn prompt sends it back as it was.
