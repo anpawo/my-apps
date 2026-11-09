@@ -159,10 +159,13 @@ struct PluginColumns: View {
     var limit: CGFloat = .infinity
     /// The side block open under the pointer — see `OverlayView.sideOpen`; "plugins" opens all.
     var opened: String?
+    /// These files' blocks before the others, in this order; the rest by file name.
+    var first: [String] = []
     var onHover: (String) -> Void = { _ in }
 
     var body: some View {
-        ForEach(store.blocks) { block in
+        let rank = { (id: String) in first.firstIndex(of: id) ?? first.count }
+        ForEach(store.blocks.enumerated().sorted { (rank($0.1.id), $0.0) < (rank($1.1.id), $1.0) }.map(\.1)) { block in
             PluginColumn(block: block, store: store, commandHeld: commandHeld,
                          scrolling: scrolling, limit: limit,
                          open: opened == block.id || opened == "plugins")

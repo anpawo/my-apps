@@ -279,44 +279,45 @@ enum SelfCheck {
 
     /// How the grid stands its directories: each one column wide, a cell down for each session.
     private static func grid(_ expect: (Bool, Bool, String) -> Void) {
-        // The panel's own grid: three columns of 212 and two gaps of 26.
+        // The panel's own grid: three columns of a card and two gaps of 26.
+        let tileW = SessionTile.width, w = 3 * tileW + 2 * 26
         func size(_ count: Int, across: Int = 1) -> CGSize {
-            GroupTile.size(holding: [count], across: across, in: 688, spacing: 26)
+            GroupTile.size(holding: [count], across: across, in: w, spacing: 26)
         }
         func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.001 }
-        let cell = GroupTile.cell(688, spacing: 26)
-        expect(cell == CGSize(width: 212, height: SessionTile.height)
-               && size(2).width == 212 && size(5).width == 212
-               && near(size(3).height, 3 * (GroupTile.card(holding: [3], in: 688, spacing: 26).height + GroupTile.inset) + GroupTile.inset + GroupTile.nameBand), true,
+        let cell = GroupTile.cell(w, spacing: 26)
+        expect(cell == CGSize(width: tileW, height: SessionTile.height)
+               && size(2).width == tileW && size(5).width == tileW
+               && near(size(3).height, 3 * (GroupTile.card(holding: [3], in: w, spacing: 26).height + GroupTile.inset) + GroupTile.inset + GroupTile.nameBand), true,
                "grid: a directory stands in one of the grid's columns, a card down for each session, its name's band on top")
-        expect(Set([[1], [2], [3], [5]].map { GroupTile.card(holding: $0, in: 688, spacing: 26).height })
-                   .union([GroupTile.card(holding: [5], across: 2, in: 688, spacing: 26).height,
-                           GroupTile.card(holding: [1, 2], in: 688, spacing: 26).height]).count == 1, true,
+        expect(Set([[1], [2], [3], [5]].map { GroupTile.card(holding: $0, in: w, spacing: 26).height })
+                   .union([GroupTile.card(holding: [5], across: 2, in: w, spacing: 26).height,
+                           GroupTile.card(holding: [1, 2], in: w, spacing: 26).height]).count == 1, true,
                "grid: every group's cards are one height, so rows side by side line up (2026-11-09)")
-        expect(GroupTile.card(holding: [1], in: 688, spacing: 26).height >= 0.5 * SessionTile.height, true,
+        expect(GroupTile.card(holding: [1], in: w, spacing: 26).height >= 0.5 * SessionTile.height, true,
                "grid: a group's card keeps at least half a session's height (shorter asked 2026-11-09)")
-        let card = GroupTile.card(holding: [3], in: 688, spacing: 26)
-        expect(near(card.width + 2 * GroupTile.inset, 212)
+        let card = GroupTile.card(holding: [3], in: w, spacing: 26)
+        expect(near(card.width + 2 * GroupTile.inset, tileW)
                && near(3 * card.height + 4 * GroupTile.inset + GroupTile.nameBand, size(3).height), true,
                "grid: its cards inside its border, the one gap all round, its name in a band over them")
-        var grid = FleetLayout(tile: CGSize(width: 212, height: SessionTile.height), spacing: 26, columns: 3)
+        var grid = FleetLayout(tile: CGSize(width: tileW, height: SessionTile.height), spacing: 26, columns: 3)
         // Five and two, three sessions: all three in the column right of both, none under the
         // two (asked 2026-10-16).
         grid.wide = [size(5), size(2), nil, nil, nil]
         let right = grid.rest(5)
         expect(zip(right.frames[2...].map(\.origin), 0 ..< 3).allSatisfy {
-                   near($0.x, 476) && near($0.y, CGFloat($1) * (cell.height + 26))
+                   near($0.x, 2 * (tileW + 26)) && near($0.y, CGFloat($1) * (cell.height + 26))
                }, true,
                "grid: sessions stand right of every directory before they take the cells under a shorter one")
         // Four, two and three: every column holds one, the session under the shortest.
         grid.wide = [size(4), size(2), size(3), nil]
         let under = grid.rest(4)
-        expect(near(under.frames[3].minX, 476) && under.frames[3].minY >= size(2).height + 26, true,
+        expect(near(under.frames[3].minX, 2 * (tileW + 26)) && under.frames[3].minY >= size(2).height + 26, true,
                "grid: with a directory in every column, a session takes the cell under the shortest")
-        expect(under.frames[0...2].map(\.minX).map { ($0 / 238).rounded() } == [0, 2, 1], true,
+        expect(under.frames[0...2].map(\.minX).map { ($0 / (tileW + 26)).rounded() } == [0, 2, 1], true,
                "grid: directories stand from the most rows on the left to the fewest")
         grid.wide = [size(2), size(3), size(3)]
-        expect(grid.rest(3).frames.map(\.minX).map { ($0 / 238).rounded() } == [2, 0, 1], true,
+        expect(grid.rest(3).frames.map(\.minX).map { ($0 / (tileW + 26)).rounded() } == [2, 0, 1], true,
                "grid: two of a height keep the order they come in")
         // Two across beside a taller one, then two across again: it rises to the first one's foot.
         grid.wide = [size(4, across: 2), size(6), size(4, across: 2), size(2)]
@@ -327,7 +328,7 @@ enum SelfCheck {
         // Two across (asked 2026-10-28): only where one column runs past the room.
         func standing(_ counts: [Int], room: CGFloat) -> [Int] {
             let laid = FleetLayout(tile: grid.tile, spacing: 26, columns: 3).widening([counts.map { [$0] }], room: room) {
-                GroupTile.size(holding: $0, across: $1, in: 688, spacing: 26)
+                GroupTile.size(holding: $0, across: $1, in: w, spacing: 26)
             }[0]
             return laid.wide.map { $0.map { laid.taken($0.width) } ?? 0 }
         }
@@ -345,15 +346,15 @@ enum SelfCheck {
         // One grid a desktop (asked 2026-10-31): the room is theirs together.
         let desks = FleetLayout(tile: grid.tile, spacing: 26, columns: 3)
             .widening([[[5]], [[3]]], room: size(5, across: 2).height + size(3).height) {
-                GroupTile.size(holding: $0, across: $1, in: 688, spacing: 26)
+                GroupTile.size(holding: $0, across: $1, in: w, spacing: 26)
             }
         expect(desks.map { $0.wide.map { $0.map { desks[0].taken($0.width) } ?? 0 } } == [[2], [1]], true,
                "grid: desktops share the room, the most sessions on any of them two across first")
-        let nested = GroupTile.card(holding: [1, 2], in: 688, spacing: 26)
+        let nested = GroupTile.card(holding: [1, 2], in: w, spacing: 26)
         expect(near(3 * nested.height + 4 * GroupTile.inset + GroupTile.nameBand + GroupTile.subBand + GroupTile.inset,
-                    GroupTile.size(holding: [1, 2], in: 688, spacing: 26).height), true,
+                    GroupTile.size(holding: [1, 2], in: w, spacing: 26).height), true,
                "grid: a repo inside the group's adds its line and name to the group, its cards keep their height")
-        let pair = GroupTile.card(holding: [5], across: 2, in: 688, spacing: 26)
+        let pair = GroupTile.card(holding: [5], across: 2, in: w, spacing: 26)
         expect(near(2 * pair.width + 3 * GroupTile.inset, size(5, across: 2).width)
                && pair.height >= 0.5 * SessionTile.height, true,
                "grid: two across, its cards keep half a session's height")

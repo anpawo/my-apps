@@ -200,90 +200,38 @@ struct OverlayView: View {
         HStack(alignment: .top, spacing: 0) {
             gap(Self.edgeWeight)
             if controller.hub.isConfigured {
-                // The step the podium leaves above the mail is exactly where the machine's own
-                // state belongs: the one thing on the panel that is not about Claude at all,
-                // in the corner, at the width of the column it sits over. A minimum rather
-                // than a height — under pressure the hogs need more rows, and an alert that
-                // shoves the column down is an alert doing its job.
-                // Every space between the blocks is the same space: a column whose gaps vary
-                // reads as groups nobody meant to make.
+                // Left (asked 2026-11-09): the memory standing on top, the crons under it, then
+                // a gap, then the mail and the todos; the school and the Reels last.
                 let hub = controller.hub
                 let held = controller.commandHeld
-                let plugins = controller.plugins.blocks.count
-                VStack(alignment: .leading, spacing: Self.blockGap) {
+                sideColumn(keys: ["crons", "mail", "todo", "epitech", "reels"], gap: Self.blockGap) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
-                    // Every other block folded to its heading line, and the open one as tall as
-                    // the whole room under the memory at most (asked 2026-11-09): it pushes the
-                    // others up and down, see `sideShift`, and the column's edges cut them.
-                    GeometryReader { space in
-                        let free = space.size.height
-                        VStack(alignment: .leading, spacing: Self.blockGap) {
-                            ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
-                                .onHover { side("reels", $0) }
-                                .sideFrame("reels")
-                            MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
-                                       limit: free, open: sideOpen == "mail")
-                                .onHover { side("mail", $0) }
-                                .sideFrame("mail")
-                            EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                                          scrolling: !eagerLayout, open: sideOpen == "epitech")
-                                .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
-                                       alignment: .top)
-                                .onHover { side("epitech", $0) }
-                                .sideFrame("epitech")
-                            CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
-                                       scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
-                                .onHover { side("crons", $0) }
-                                .sideFrame("crons")
-                            MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
-                                        open: sideOpen == "spending")
-                                .onHover { side("spending", $0) }
-                                .sideFrame("spending")
-                            PluginColumns(store: controller.plugins, commandHeld: held,
-                                          scrolling: !eagerLayout, limit: free, opened: sideOpen,
-                                          onHover: { side($0, true) })
-                            TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                                       scrolling: !eagerLayout, open: sideOpen == "todo")
-                                .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
-                                       ? .infinity : nil)
-                                .onHover { side("todo", $0) }
-                                .sideFrame("todo")
-                        }
-                        .frame(height: space.size.height + CGFloat(5 + plugins) * Self.overLine,
+                } blocks: { free in
+                    CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
+                               scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
+                        .onHover { side("crons", $0) }
+                        .sideFrame("crons")
+                        .padding(.bottom, Self.blockGap)
+                    MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
+                               limit: free, open: sideOpen == "mail")
+                        .onHover { side("mail", $0) }
+                        .sideFrame("mail")
+                    TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
+                               scrolling: !eagerLayout, open: sideOpen == "todo")
+                        .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
+                               ? .infinity : nil)
+                        .onHover { side("todo", $0) }
+                        .sideFrame("todo")
+                    EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
+                                  scrolling: !eagerLayout, open: sideOpen == "epitech")
+                        .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
                                alignment: .top)
-                    }
+                        .onHover { side("epitech", $0) }
+                        .sideFrame("epitech")
+                    ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
+                        .onHover { side("reels", $0) }
+                        .sideFrame("reels")
                 }
-                .coordinateSpace(name: SideFrames.space)
-                .onPreferenceChange(SideFrames.self) { sideFrames = $0 }
-                .onHover { if !$0 { side(nil, true) } }
-                .animation(Self.fold, value: hub.mailEmpty)
-                .animation(Self.fold, value: hub.schoolEmpty)
-                .animation(Self.fold, value: hub.todoEmpty)
-                // A panel put away with the pointer on a block brings no hover-out back.
-                .onChange(of: controller.isPanelVisible) { _, shown in
-                    if !shown { sideOpen = nil }
-                }
-                .frame(height: Self.blockHeight, alignment: .top)
-                .offset(y: -sideShift)
-                .animation(Self.fold, value: sideShift)
-                // Cut off at the panel's own bottom gap rather than run off the screen. The
-                // widening either side of the clip is the room a block's frame takes past its
-                // content — see `blockFrame` — which a clip at the column's width would shave.
-                .frame(width: sideWidth, height: Self.columnHeight, alignment: .top)
-                // The clip is only ever meant to land at the foot of the column, so it is
-                // opened out everywhere else: a block's frame reaches `blockSpread` past its
-                // content either side — see `blockFrame` — and its heading chip stands proud
-                // of the top, which a box drawn at the content's own bounds shaved off.
-                .padding(.horizontal, Self.blockSpread)
-                // Well over the top: the memory's pane reaches exactly `blockSpread` up, and a
-                // clip whose rounded corner sat right there shaved its top corners.
-                .padding(.top, 40)
-                // Rounded, not squared off: what the cut lands on is a card, and a card
-                // sliced on a straight line reads as a drawing error rather than a list
-                // carrying on past the edge.
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, -Self.blockSpread)
-                .padding(.top, -40)
                 Spacer(minLength: 0).frame(width: Self.innerGap)
             }
             // A wall for layout: a geometry reader's own size never depends on what is in it,
@@ -310,10 +258,21 @@ struct OverlayView: View {
                             .offset(y: -Self.overLine)
                     }
                 }
-            // As wide as the column on the left: the fleet stands in the middle of the screen
-            // (asked 2026-11-09), the column in the margin beside it.
+            // Right (asked 2026-11-09): the spending, then the plugins, nutrition first.
             if controller.hub.isConfigured {
-                Spacer(minLength: 0).frame(width: Self.innerGap + sideWidth)
+                let held = controller.commandHeld
+                Spacer(minLength: 0).frame(width: Self.innerGap)
+                sideColumn(keys: ["spending"] + controller.plugins.blocks.map(\.id)) {
+                    EmptyView()
+                } blocks: { free in
+                    MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
+                                open: sideOpen == "spending")
+                        .onHover { side("spending", $0) }
+                        .sideFrame("spending")
+                    PluginColumns(store: controller.plugins, commandHeld: held,
+                                  scrolling: !eagerLayout, limit: free, opened: sideOpen,
+                                  first: ["nutrition.json"], onHover: { side($0, true) })
+                }
             }
             gap(Self.edgeWeight)
         }
@@ -327,10 +286,60 @@ struct OverlayView: View {
     /// Where each side block sits in its column, measured: the open one grows as much up as
     /// down, so the column moves up by half of what it gained, held so that its own heading and
     /// foot stay inside the column's edges.
-    private var sideShift: CGFloat {
-        guard let key = sideOpen, let open = sideFrames[key] else { return 0 }
+    private func sideShift(_ keys: [String]) -> CGFloat {
+        guard let key = sideOpen, keys.contains(key), let open = sideFrames[key] else { return 0 }
         let half = (open.height - 14) / 2
         return min(max(half, open.maxY - Self.blockHeight, 0), max(0, open.minY))
+    }
+
+    /// A side column: `top` standing, then its blocks, each folded to its heading but the one
+    /// under the pointer, as tall as the whole room under `top` at most: it pushes the others up
+    /// and down, see `sideShift`, and the column's edges cut them. `gap` is any room the blocks
+    /// take past their own gaps.
+    private func sideColumn<Top: View, Blocks: View>(
+        keys: [String], gap: CGFloat = 0, @ViewBuilder top: () -> Top,
+        @ViewBuilder blocks: @escaping (CGFloat) -> Blocks
+    ) -> some View {
+        let hub = controller.hub
+        return VStack(alignment: .leading, spacing: Self.blockGap) {
+            top()
+            GeometryReader { space in
+                VStack(alignment: .leading, spacing: Self.blockGap) { blocks(space.size.height) }
+                    .frame(height: space.size.height + CGFloat(keys.count - 1) * Self.overLine + gap,
+                           alignment: .top)
+            }
+        }
+        .coordinateSpace(name: SideFrames.space)
+        .onPreferenceChange(SideFrames.self) { sideFrames.merge($0) { $1 } }
+        .onHover { if !$0 { side(nil, true) } }
+        .animation(Self.fold, value: hub.mailEmpty)
+        .animation(Self.fold, value: hub.schoolEmpty)
+        .animation(Self.fold, value: hub.todoEmpty)
+        // A panel put away with the pointer on a block brings no hover-out back.
+        .onChange(of: controller.isPanelVisible) { _, shown in
+            if !shown { sideOpen = nil }
+        }
+        .frame(height: Self.blockHeight, alignment: .top)
+        .offset(y: -sideShift(keys))
+        .animation(Self.fold, value: sideShift(keys))
+        // Cut off at the panel's own bottom gap rather than run off the screen. The
+        // widening either side of the clip is the room a block's frame takes past its
+        // content — see `blockFrame` — which a clip at the column's width would shave.
+        .frame(width: sideWidth, height: Self.columnHeight, alignment: .top)
+        // The clip is only ever meant to land at the foot of the column, so it is
+        // opened out everywhere else: a block's frame reaches `blockSpread` past its
+        // content either side — see `blockFrame` — and its heading chip stands proud
+        // of the top, which a box drawn at the content's own bounds shaved off.
+        .padding(.horizontal, Self.blockSpread)
+        // Well over the top: the memory's pane reaches exactly `blockSpread` up, and a
+        // clip whose rounded corner sat right there shaved its top corners.
+        .padding(.top, 40)
+        // Rounded, not squared off: what the cut lands on is a card, and a card
+        // sliced on a straight line reads as a drawing error rather than a list
+        // carrying on past the edge.
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, -Self.blockSpread)
+        .padding(.top, -40)
     }
 
     /// The pointer onto a side block opens it; off the column, all fold. Onto the gap between
@@ -1045,7 +1054,7 @@ struct SessionTile: View {
     @State private var hovering = false
 
     /// What three take beside the side columns on a 1470 pt laptop screen, with some edge left.
-    static let width: CGFloat = 212
+    static let width: CGFloat = 236
     /// Every session card is 16:9 (asked 2026-10-15), on the grid and inside a group.
     static let height = width * 9 / 16
     static func height(width: CGFloat) -> CGFloat { width * 9 / 16 }
