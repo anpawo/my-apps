@@ -46,7 +46,6 @@ struct OverlayView: View {
     /// (asked 2026-11-09: every block folded unless hovered). Kept while the pointer crosses the
     /// gap to the next heading, which would otherwise jump up under it. Seeded from the `-open`
     /// flags so a render can show one.
-    @State private var sideFrames: [String: CGRect] = [:]
     @State private var sideOpen: String? = [
         ("--reels-open", "reels"), ("--mail-open", "mail"), ("--school-open", "epitech"),
         ("--crons-open", "crons"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
@@ -210,27 +209,22 @@ struct OverlayView: View {
                     CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
                                scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
                         .onHover { side("crons", $0) }
-                        .sideFrame("crons")
                         .padding(.bottom, Self.blockGap)
                     MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
                                limit: free, open: sideOpen == "mail")
                         .onHover { side("mail", $0) }
-                        .sideFrame("mail")
                     TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
                                scrolling: !eagerLayout, open: sideOpen == "todo")
                         .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
                                ? .infinity : nil)
                         .onHover { side("todo", $0) }
-                        .sideFrame("todo")
                     EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
                                   scrolling: !eagerLayout, open: sideOpen == "epitech")
                         .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
                                alignment: .top)
                         .onHover { side("epitech", $0) }
-                        .sideFrame("epitech")
                     ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
                         .onHover { side("reels", $0) }
-                        .sideFrame("reels")
                 }
                 Spacer(minLength: 0).frame(width: Self.innerGap)
             }
@@ -268,7 +262,6 @@ struct OverlayView: View {
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
                         .onHover { side("spending", $0) }
-                        .sideFrame("spending")
                     PluginColumns(store: controller.plugins, commandHeld: held,
                                   scrolling: !eagerLayout, limit: free, opened: sideOpen,
                                   first: ["nutrition.json"], onHover: { side($0, true) })
@@ -283,19 +276,10 @@ struct OverlayView: View {
         .background(dismissLayer)
     }
 
-    /// Where each side block sits in its column, measured: the open one grows as much up as
-    /// down, so the column moves up by half of what it gained, held so that its own heading and
-    /// foot stay inside the column's edges.
-    private func sideShift(_ keys: [String]) -> CGFloat {
-        guard let key = sideOpen, keys.contains(key), let open = sideFrames[key] else { return 0 }
-        let half = (open.height - 14) / 2
-        return min(max(half, open.maxY - Self.blockHeight, 0), max(0, open.minY))
-    }
-
     /// A side column: `top` standing, then its blocks, each folded to its heading but the one
-    /// under the pointer, as tall as the whole room under `top` at most: it pushes the others up
-    /// and down, see `sideShift`, and the column's edges cut them. `gap` is any room the blocks
-    /// take past their own gaps.
+    /// under the pointer, as tall as the whole room under `top` at most: it grows down only,
+    /// pushing the blocks under it, and the column's foot cuts them (asked 2026-11-09: nothing
+    /// moves up on hover). `gap` is any room the blocks take past their own gaps.
     private func sideColumn<Top: View, Blocks: View>(
         keys: [String], gap: CGFloat = 0, @ViewBuilder top: () -> Top,
         @ViewBuilder blocks: @escaping (CGFloat) -> Blocks
@@ -309,8 +293,6 @@ struct OverlayView: View {
                            alignment: .top)
             }
         }
-        .coordinateSpace(name: SideFrames.space)
-        .onPreferenceChange(SideFrames.self) { sideFrames.merge($0) { $1 } }
         .onHover { if !$0 { side(nil, true) } }
         .animation(Self.fold, value: hub.mailEmpty)
         .animation(Self.fold, value: hub.schoolEmpty)
@@ -320,8 +302,6 @@ struct OverlayView: View {
             if !shown { sideOpen = nil }
         }
         .frame(height: Self.blockHeight, alignment: .top)
-        .offset(y: -sideShift(keys))
-        .animation(Self.fold, value: sideShift(keys))
         // Cut off at the panel's own bottom gap rather than run off the screen. The
         // widening either side of the clip is the room a block's frame takes past its
         // content — see `blockFrame` — which a clip at the column's width would shave.
@@ -1601,23 +1581,5 @@ private struct HogPill: View {
             Capsule().fill(.white.opacity(0.06))
                 .overlay(Capsule().stroke(tint.opacity(0.25), lineWidth: 1))
         )
-    }
-}
-
-/// Each side block's frame in its column — see `OverlayView.sideShift`.
-struct SideFrames: PreferenceKey {
-    static let space = "side-column"
-    static let defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
-
-extension View {
-    func sideFrame(_ key: String) -> some View {
-        background(GeometryReader { box in
-            Color.clear.preference(key: SideFrames.self,
-                                   value: [key: box.frame(in: .named(SideFrames.space))])
-        })
     }
 }
