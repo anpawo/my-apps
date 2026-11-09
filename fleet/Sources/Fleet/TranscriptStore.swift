@@ -413,7 +413,8 @@ final class TranscriptStore {
                                           "Workflow launched in background", "<task-notification>",
                                           "Successfully stopped task",
                                           #""name":"Agent""#, #""name":"Task""#,
-                                          "Async agent launched", "resumedAgentId"].map { Data($0.utf8) }
+                                          "Async agent launched", "resumedAgentId",
+                                          #""toolUseResult":{"status":"completed""#].map { Data($0.utf8) }
 
     /// Sessions are long and only recent state matters, so a cold read starts near the end.
     private static func tailStart(size: UInt64) -> UInt64 {
@@ -728,6 +729,10 @@ private struct ParseState {
                     if let launch = texts.first(where: { $0.hasPrefix("Async agent launched") }),
                        let r = launch.range(of: "agentId: ") {
                         agentCallByID[Self.token(launch, from: r.upperBound)] = id
+                    } else if agentSpawnedAt[id] != nil, resumedAgent[id] == nil,
+                              !texts.contains(where: { $0.hasPrefix("Async agent launched") }) {
+                        // A foreground agent hands its report back here; no notification follows.
+                        agentEndedAt[id] = lastMessageAt ?? Date()
                     }
                     // Stopped by hand: no notification will ever come for it.
                     for t in texts {

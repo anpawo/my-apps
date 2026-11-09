@@ -1113,10 +1113,15 @@ enum SelfCheck {
         try? FileManager.default.copyItem(atPath: agents + "/agent-x.jsonl", toPath: agents + "/agent-y.jsonl")
         append(#"{"type":"assistant","timestamp":"\#(stamp(4))","message":{"id":"m3c","content":[{"type":"tool_use","id":"toolu_old","name":"Agent","input":{"description":"Fix the corners"}}]}}"#)
         append(#"{"type":"user","timestamp":"\#(stamp(4))","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_old","content":[{"type":"text","text":"Async agent launched successfully.\nagentId: y (internal ID)"}]}]}}"#)
+        // Run in the foreground: its report is the tool_result, and no notification follows.
+        append(#"{"type":"assistant","timestamp":"\#(stamp(4))","message":{"id":"m3e","content":[{"type":"tool_use","id":"toolu_fg","name":"Agent","input":{"description":"Review it"}}]}}"#)
+        append(#"{"type":"user","timestamp":"\#(stamp(4))","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_fg","content":[{"type":"text","text":"PASS"}]}]},"toolUseResult":{"status":"completed","agentId":"z"}}"#)
         let padding = #"{"type":"assistant","timestamp":"\#(stamp(3))","message":{"id":"m3d","content":[{"type":"text","text":"\#(String(repeating: "x", count: 4000))"}]}}"#
         for _ in 0 ..< (Config.transcriptTailBytes / 4000 + 2) { append(padding) }
         expect(TranscriptStore().info(for: session)?.subagents.count ?? -1, 1,
                "an agent spawned before the parsed tail is still out after a restart")
+        expect(TranscriptStore().info(for: session)?.unfinishedAgentIDs.contains("toolu_fg") == true ? 1 : 0, 0,
+               "a foreground agent that reported back before the parsed tail is not out")
 
         // Taken down with its session: the resume names it by its own id, and no call.
         append(#"{"type":"user","timestamp":"\#(stamp(2))","queueTranscriptOnly":true,"message":{"content":"<task-notification>\n<task-id>y</task-id>\n<status>stopped</status>\n<summary>1 background agent didn't finish before the previous session ended</summary>\n</task-notification>"}}"#)
