@@ -926,7 +926,7 @@ struct GroupTile: View {
                       height: cardHeight(cell(width, spacing: spacing)))
     }
     /// Shorter than a grid cell, now the state fills the card rather than lining it (asked 2026-11-09).
-    private static func cardHeight(_ cell: CGSize) -> CGFloat { (cell.height - 2 * inset) * 0.65 }
+    private static func cardHeight(_ cell: CGSize) -> CGFloat { (cell.height - 2 * inset) * 0.585 }
 
     var body: some View {
         GeometryReader { box in
