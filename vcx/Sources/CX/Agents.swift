@@ -227,11 +227,13 @@ final class ClaudeConnection: Connection {
                 tools.removeAll(); blocks.removeAll(); pendingUsers.removeAll()
             }
             let userID = params["clientUserMessageId"] as? String ?? UUID().uuidString
-            try write(["type": "user", "uuid": userID, "message": ["role": "user", "content": content]])
+            let prompt: JSON = ["type": "user", "uuid": userID, "message": ["role": "user", "content": content]]
+            try write(prompt)
+            if !steering { watchFirstEvent(prompt, effort: params["effort"] as? String, retried: false) }
             resumed = true; pendingUsers.append(userID)
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
-        case "turn/interrupt": stopped = true; try control(["subtype": "interrupt"]); return [:]
+        case "turn/interrupt": stopped = true; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); return [:]
         // Claude refuses bypass live unless it was launched with --allow-dangerously-skip-permissions, which an older VCX build did not pass.
         case "cx/mode":
             let value = params["mode"] as? String == "bypass" ? "bypass" : "ask", native = value == "bypass" ? "bypassPermissions" : "default"
@@ -265,8 +267,37 @@ final class ClaudeConnection: Connection {
         var params = params; params["threadId"] = thread
         event(["method": method, "params": params])
     }
+    // claude -p can wait forever on an API request that never answers (2026-11-09: 204 of ~270 KB sent, then only
+    // keep-alives for 40 min, no event, no error). Until its first event the prompt is not in the transcript, so a new
+    // claude can take it again.
+    static var firstEventTimeout: Double = 120
+    private var firstEvent: DispatchWorkItem?
+    private func watchFirstEvent(_ prompt: JSON, effort: String?, retried: Bool) {
+        firstEvent?.cancel()
+        let current = turn
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, !closed, !stopped, turn == current, let old = process else { return }
+            firstEvent = nil
+            guard !retried else { emit("warning", ["message": "Claude has not answered in \(Int(Self.firstEventTimeout)) s. Stop and send again."]); return }
+            process = nil; reader?.close(); reader = nil; try? input?.close(); endProcess(old, signal: SIGKILL)
+            Task { [weak self] in
+                guard let self, !closed else { return }
+                do {
+                    let session = String(thread.dropFirst(7)), projects = (account.home ?? NSHomeDirectory() + "/.claude") + "/projects"
+                    let saved = ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: "\(projects)/\($0)/\(session).jsonl") }
+                    try launch(resume: saved)
+                    if let effort { _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15) }
+                    try write(prompt)
+                    watchFirstEvent(prompt, effort: effort, retried: true)
+                } catch { emit("cx/error", ["message": "Claude did not answer and could not be restarted: " + error.localizedDescription]) }
+            }
+        }
+        firstEvent = item; DispatchQueue.main.asyncAfter(deadline: .now() + Self.firstEventTimeout, execute: item)
+    }
     func receive(_ message: JSON) {
         if message["parent_tool_use_id"] is String { return }
+        let kind = message["type"] as? String ?? ""
+        if ["stream_event", "assistant", "result", "user", "control_request"].contains(kind) || (kind == "system" && message["subtype"] as? String == "api_retry") { firstEvent?.cancel(); firstEvent = nil }
         switch message["type"] as? String {
         case "control_response":
             let response = message["response"] as? JSON ?? [:]
@@ -450,6 +481,7 @@ final class ClaudeConnection: Connection {
         try input.write(contentsOf: JSONSerialization.data(withJSONObject: message) + Data([10]))
     }
     func close() {
+        firstEvent?.cancel(); firstEvent = nil
         for timer in timers.values { timer.cancel() }; timers.removeAll()
         for continuation in waiting.values { continuation.resume(throwing: CXError(message: "Claude is disconnected.")) }; waiting.removeAll()
         closed = true; reader?.close(); reader = nil; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }

@@ -655,6 +655,21 @@ enum Check {
                     check(relaunched.cwd == repoPath && URL(fileURLWithPath: launched).lastPathComponent == directory.lastPathComponent, "Claude launches in the conversation's starting folder, not a folder it cd'd into")
                     relaunched.close()
                 }
+                do {
+                    let stalled = ClaudeConnection(account: Account(id: "stall", name: "Stall", provider: "claude"), cwd: directory.path)
+                    let launches = directory.appendingPathComponent("stall-launches"), seen = directory.appendingPathComponent("stall-seen")
+                    var warned = false
+                    stalled.event = { if $0["method"] as? String == "warning" { warned = true } }
+                    let previous = ClaudeConnection.firstEventTimeout; ClaudeConnection.firstEventTimeout = 0.3
+                    try await stalled.start(command: ["/bin/sh", "-c", "echo x >> '\(launches.path)'; if [ $(wc -l < '\(launches.path)') -gt 1 ]; then cat > '\(seen.path)'; else while read line; do :; done; fi"])
+                    _ = try await stalled.request("turn/start", ["input": [["type": "text", "text": "Stalled prompt"]]])
+                    for _ in 0..<300 where !((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") { try await Task.sleep(nanoseconds: 10_000_000) }
+                    check(((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") && !warned, "Claude restarts and sends the prompt again when its first turn never answers")
+                    for _ in 0..<100 where !warned { try await Task.sleep(nanoseconds: 10_000_000) }
+                    check(warned && ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").count == 2, "a second silent start warns instead of restarting again")
+                    ClaudeConnection.firstEventTimeout = previous
+                    stalled.close()
+                }
                 claudeMessageIDs.removeAll()
                 claude.receive(["type": "stream_event", "event": ["type": "message_start", "message": ["id": "msg_think"]]])
                 claude.receive(["type": "stream_event", "event": ["type": "content_block_start", "index": 1, "content_block": ["type": "text", "text": ""]]])
