@@ -146,16 +146,20 @@ struct CronColumn: View {
         // The healthy ones first. Fourteen green borders are wallpaper; what the block is for
         // is the two that are not, and they have to be in the same place every time.
         let all = jobs.sorted { $0.name < $1.name }
+        let failed = all.filter { !$0.ok }.count
         HubColumn(title: title,
                   count: all.count,
                   showsZero: true,
                   tint: Self.tint,
                   fill: Self.tint.darkened(0.48),
+                  // The failed ones over the total, in red, and no verdict mark (asked 2026-11-09).
+                  badgeText: failed == 0 ? nil
+                      : Text("\(failed)").foregroundStyle(SessionState.running.tint)
+                        + Text("/\(all.count)").foregroundStyle(.white.opacity(0.45)),
                   minRows: 0,
                   fills: false,
                   topInset: 5,
-                  collapsed: all.isEmpty || !open,
-                  healthy: all.isEmpty ? nil : all.allSatisfy(\.ok)) {
+                  collapsed: all.isEmpty || !open) {
             if scrolling {
                 ScrollView(.vertical) {
                     VStack(spacing: 5) { rows(all) }

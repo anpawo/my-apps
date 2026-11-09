@@ -64,8 +64,8 @@ struct OverlayView: View {
     /// to the middle. A lone tile that centres itself reads as a different column each time
     /// the fleet is odd-numbered.
     ///
-    /// Four since the right column's blocks moved left (asked 2026-11-09), on the room it left.
-    static let tilesPerRow = 4
+    /// Three (asked 2026-10-15, again 2026-11-09 after a day of four).
+    static let tilesPerRow = 3
 
     private var tile: CGSize { GroupTile.cell(centerWidth, spacing: tileSpacing) }
     /// Wider than it looks like it needs to be: the hover glow is a 16pt shadow, and the
@@ -73,13 +73,12 @@ struct OverlayView: View {
     private let tileSpacing: CGFloat = 26
 
     /// The grid's own width, pinned rather than flexible: a grid that resized with the fleet
-    /// would slide the side column around every time a session started. The three columns of
-    /// cards it had, and the room of the right side column it took over (2026-11-09).
-    private var centerWidth: CGFloat { SessionTile.width * 3 + tileSpacing * 2
-        + Self.innerGap + sideWidth }
+    /// would slide the side column around every time a session started.
+    private var centerWidth: CGFloat { SessionTile.width * CGFloat(Self.tilesPerRow)
+        + tileSpacing * CGFloat(Self.tilesPerRow - 1) }
     /// Narrow on purpose. The side blocks are what is on your plate, not what you are working
     /// on: they earn a glance each, and anything wider starts competing with the fleet.
-    private let sideWidth: CGFloat = 288
+    private let sideWidth: CGFloat = 272
 
     /// A block folding to its heading, or growing into the room one left: slow enough to see
     /// where the room went.
@@ -311,6 +310,11 @@ struct OverlayView: View {
                             .offset(y: -Self.overLine)
                     }
                 }
+            // As wide as the column on the left: the fleet stands in the middle of the screen
+            // (asked 2026-11-09), the column in the margin beside it.
+            if controller.hub.isConfigured {
+                Spacer(minLength: 0).frame(width: Self.innerGap + sideWidth)
+            }
             gap(Self.edgeWeight)
         }
         .frame(maxWidth: .infinity)
@@ -1141,7 +1145,7 @@ struct SessionTile: View {
             // group's smaller cards bigger again the same day.
             .font(.system(size: grouped ? 19 : (title == nil ? 31 : 22) * 0.9 * 0.75,
                           weight: grouped ? .bold : .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(grouped ? .black.opacity(0.85) : .white)
             .lineLimit(title == nil ? 1 : 2)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
@@ -1151,7 +1155,7 @@ struct SessionTile: View {
     private var folder: some View {
         Text(session.qwen != nil ? "qwen" : session.folder)
             .font(.system(size: 10.5, design: .monospaced))
-            .foregroundStyle(.white.opacity(grouped ? 0.55 : 0.4))
+            .foregroundStyle(grouped ? .black.opacity(0.5) : .white.opacity(0.4))
             .lineLimit(1)
             .truncationMode(.tail)
     }
