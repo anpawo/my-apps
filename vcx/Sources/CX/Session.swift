@@ -322,8 +322,9 @@ final class Session: ObservableObject {
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(conversationDirectory.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
-    var modelLabel: String {
-        model.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
+    var modelLabel: String { modelName(modelAliases[model] ?? model) }
+    func modelName(_ id: String) -> String {
+        id.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: "-(\\d+)-(\\d+)$", with: " $1.$2", options: .regularExpression)
             .replacingOccurrences(of: "-", with: " ").capitalized
     }

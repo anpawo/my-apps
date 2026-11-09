@@ -618,10 +618,12 @@ enum Check {
                     aliases.applyClaudeCatalog(catalog)
                     aliases.model = claude.model
                     aliases.showCommands("/model " + aliases.account.provider + " ", preserveDraft: false)
-                    check(aliases.commandOptions.map(\.name) == ["fixture-claude"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
+                    check(aliases.commandOptions.map(\.name) == ["fixture-claude · Fixture Claude 1"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
                     check(aliases.commandOptions.first?.detail == "fixture-claude-1", "the model menu names the model an alias runs")
                     aliases.showCommands("/model " + aliases.account.provider + " claude-1", preserveDraft: false)
-                    check(aliases.commandOptions.map(\.name) == ["fixture-claude"], "the model menu finds an alias by the model it runs")
+                    check(aliases.commandOptions.map(\.name) == ["fixture-claude · Fixture Claude 1"], "the model menu finds an alias by the model it runs and names its version")
+                    aliases.modelAliases = ["opus": "claude-opus-5-5"]; aliases.model = "opus"
+                    check(aliases.modelLabel == "Opus 5.5", "the status bar names the model an alias runs")
                 }
                 let previousModel = claude.model
                 do {
