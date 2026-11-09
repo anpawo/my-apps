@@ -42,11 +42,15 @@ struct OverlayView: View {
     var eagerLayout = false
 
 
-    /// EPITECH open under the pointer — see `EpitechColumn.open`. Seeded from `--school-open`
-    /// so a render can show it.
-    @State private var schoolOpen = CommandLine.arguments.contains("--school-open")
-    /// MAIL's list, measured — see `reelsRoom`.
-    @State private var mailNeed: CGFloat = 0
+    /// The one side block unfolded: the last one the pointer was on, until it leaves the column
+    /// (asked 2026-11-09: every block folded unless hovered). Kept while the pointer crosses the
+    /// gap to the next heading, which would otherwise jump up under it. Seeded from the `-open`
+    /// flags so a render can show one.
+    @State private var sideOpen: String? = [
+        ("--reels-open", "reels"), ("--mail-open", "mail"), ("--school-open", "epitech"),
+        ("--crons-open", "crons"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
+        ("--todo-open", "todo"),
+    ].first { CommandLine.arguments.contains($0.0) }?.1
     /// How tall the grid's own area is, measured: the heading above it is laid out, not
     /// arithmetic. See `room`.
     @State private var gridSpace: CGFloat = 0
@@ -59,21 +63,21 @@ struct OverlayView: View {
     /// to the middle. A lone tile that centres itself reads as a different column each time
     /// the fleet is odd-numbered.
     ///
-    /// Three (asked 2026-10-15), on tiles narrow enough that the side columns keep their width.
-    static let tilesPerRow = 3
+    /// Four since the right column's blocks moved left (asked 2026-11-09), on the room it left.
+    static let tilesPerRow = 4
 
-    private let tileWidth = SessionTile.width
+    private var tile: CGSize { GroupTile.cell(centerWidth, spacing: tileSpacing) }
     /// Wider than it looks like it needs to be: the hover glow is a 16pt shadow, and the
     /// neighbouring tile is opaque and drawn after, so a tighter gap eats the glow.
     private let tileSpacing: CGFloat = 26
 
-    /// The grid's own width, pinned rather than flexible: it is the middle of three columns
-    /// now, and a middle that resizes with the fleet would slide the mail and todo columns
-    /// around every time a session started.
-    private var centerWidth: CGFloat { tileWidth * CGFloat(Self.tilesPerRow)
-        + tileSpacing * CGFloat(Self.tilesPerRow - 1) }
-    /// Narrow on purpose. These two are what is on your plate, not what you are working on —
-    /// they earn a glance each, and anything wider starts competing with the fleet.
+    /// The grid's own width, pinned rather than flexible: a grid that resized with the fleet
+    /// would slide the side column around every time a session started. The three columns of
+    /// cards it had, and the room of the right side column it took over (2026-11-09).
+    private var centerWidth: CGFloat { SessionTile.width * 3 + tileSpacing * 2
+        + Self.innerGap + sideWidth }
+    /// Narrow on purpose. The side blocks are what is on your plate, not what you are working
+    /// on: they earn a glance each, and anything wider starts competing with the fleet.
     private let sideWidth: CGFloat = 288
 
     /// A block folding to its heading, or growing into the room one left: slow enough to see
@@ -187,30 +191,11 @@ struct OverlayView: View {
         }
     }
 
-    /// What REELS may be at rest, pane included, out of `below` — the left column under the
-    /// memory: what is left once MAIL has its list and EPITECH its heading line. A heading line
-    /// is 14, as `overLine` counts it; MAIL's list sits 17 under its own. Nothing until the
-    /// list has been measured, or REELS would open for a frame before the mails shut it.
-    private func reelsRoom(_ below: CGFloat) -> CGFloat {
-        let hub = controller.hub
-        guard hub.mailEmpty || mailNeed > 0 else { return 0 }
-        let mail = hub.mailEmpty ? 14 : 14 + 17 + mailNeed
-        return below - Self.blockGap - mail - Self.overLine + 2 * Self.blockSpread
-    }
-
-    /// The whole panel below the header, across: the mail worth reading, the fleet, the list of
-    /// things to do.
+    /// The whole panel below the header, across: one column of every side block, folded to
+    /// its heading but the one under the pointer, then the fleet (asked 2026-11-09).
     ///
-    /// The sides are not sessions and never will be — they are the other two things this
-    /// machine knows are waiting for you, read from the same Firestore the phone uses. They sit
-    /// out here rather than above or below the grid because a glance across is free and a
-    /// glance down the page is not: the fleet stays exactly where it has always been, in the
-    /// middle, and the sides are only in your eye if you look for them.
-    ///
-    /// The three blocks are fixed and `frameGap` apart; the two edges carry all of the flex.
-    ///
-    /// Both vanish together on a machine with no key in the Keychain, so the grid re-centres
-    /// instead of sitting between two empty apologies.
+    /// The two are fixed and `frameGap` apart; the two edges carry all of the flex. The column
+    /// vanishes on a machine with no key in the Keychain, and the grid re-centres.
     private func board(scrolling: Bool) -> some View {
         HStack(alignment: .top, spacing: 0) {
             gap(Self.edgeWeight)
@@ -220,57 +205,56 @@ struct OverlayView: View {
                 // in the corner, at the width of the column it sits over. A minimum rather
                 // than a height — under pressure the hogs need more rows, and an alert that
                 // shoves the column down is an alert doing its job.
-                // One gap, three blocks: the machine's own two lines, the mail and the
-                // school. Every space between them is the same space — a column whose gaps
-                // vary reads as groups nobody meant to make.
-                // One block takes what is left of the column once the memory has had its
-                // line: EPITECH under the pointer, MAIL the rest of the time, REELS whatever
-                // the mails leave (asked 2026-10-15). The others are their heading, or as tall
-                // as what they hold. Each scrolls inside its share, so none can push another
-                // off the bottom.
+                // Every space between the blocks is the same space: a column whose gaps vary
+                // reads as groups nobody meant to make.
                 let hub = controller.hub
-                let school = schoolOpen && !hub.schoolEmpty
+                let held = controller.commandHeld
+                let plugins = controller.plugins.blocks.count
                 VStack(alignment: .leading, spacing: Self.blockGap) {
-                    MemoryStrip(reaper: controller.reaper,
-                                commandHeld: controller.commandHeld)
-                    // Read under the memory, which grows under pressure: what is left there
-                    // does not move when REELS opens into it.
-                    GeometryReader { below in
+                    MemoryStrip(reaper: controller.reaper, commandHeld: held)
+                    // Every other block folded to its heading line, and the open one given what
+                    // they leave: the room under the memory less a heading line and a gap for
+                    // each of the others. A limit counts the frame, which reaches `blockSpread`
+                    // past the block top and bottom.
+                    GeometryReader { space in
+                        let free = space.size.height - CGFloat(5 + plugins) * Self.overLine
+                            + 2 * Self.blockSpread
                         VStack(alignment: .leading, spacing: Self.blockGap) {
-                            ReelBlock(hub: hub, commandHeld: controller.commandHeld,
-                                      limit: Self.columnHeight / 3,
-                                      room: school ? 0 : reelsRoom(below.size.height))
-                            GeometryReader { space in
-                                let free = space.size.height - Self.blockGap
-                                VStack(alignment: .leading, spacing: Self.blockGap) {
-                                    // Under an open school, three sevenths at most. Otherwise
-                                    // all of it but EPITECH's heading line and the gap over
-                                    // it — a limit counts the frame, which reaches
-                                    // `blockSpread` past the block top and bottom.
-                                    MailColumn(hub: hub,
-                                               commandHeld: controller.commandHeld,
-                                               scrolling: !eagerLayout,
-                                               limit: school ? max(0, free * 3 / 7)
-                                                   : space.size.height - Self.overLine + 2 * Self.blockSpread,
-                                               natural: $mailNeed)
-                                    EpitechColumn(hub: hub,
-                                                  commandHeld: controller.commandHeld,
-                                                  onDismiss: controller.dismiss,
-                                                  scrolling: !eagerLayout,
-                                                  open: $schoolOpen)
-                                        .frame(maxHeight: school ? .infinity : nil, alignment: .top)
-                                }
-                                .frame(height: space.size.height, alignment: .top)
-                            }
+                            ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
+                                .onHover { side("reels", $0) }
+                            MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
+                                       limit: free, open: sideOpen == "mail")
+                                .onHover { side("mail", $0) }
+                            EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
+                                          scrolling: !eagerLayout, open: sideOpen == "epitech")
+                                .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
+                                       alignment: .top)
+                                .onHover { side("epitech", $0) }
+                            CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
+                                       scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
+                                .onHover { side("crons", $0) }
+                            MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
+                                        open: sideOpen == "spending")
+                                .onHover { side("spending", $0) }
+                            PluginColumns(store: controller.plugins, commandHeld: held,
+                                          scrolling: !eagerLayout, limit: free, opened: sideOpen,
+                                          onHover: { side($0, true) })
+                            TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
+                                       scrolling: !eagerLayout, open: sideOpen == "todo")
+                                .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
+                                       ? .infinity : nil)
+                                .onHover { side("todo", $0) }
                         }
-                        .frame(height: below.size.height, alignment: .top)
+                        .frame(height: space.size.height, alignment: .top)
                     }
                 }
+                .onHover { if !$0 { side(nil, true) } }
                 .animation(Self.fold, value: hub.mailEmpty)
                 .animation(Self.fold, value: hub.schoolEmpty)
-                // A panel put away with the pointer on the school brings no hover-out back.
+                .animation(Self.fold, value: hub.todoEmpty)
+                // A panel put away with the pointer on a block brings no hover-out back.
                 .onChange(of: controller.isPanelVisible) { _, shown in
-                    if !shown { schoolOpen = false }
+                    if !shown { sideOpen = nil }
                 }
                 .frame(height: Self.blockHeight, alignment: .top)
                 // Cut off at the panel's own bottom gap rather than run off the screen. The
@@ -317,44 +301,6 @@ struct OverlayView: View {
                             .offset(y: -Self.overLine)
                     }
                 }
-            if controller.hub.isConfigured {
-                Spacer(minLength: 0).frame(width: Self.innerGap)
-                // The agent block takes what its cards need and no more, half the column at
-                // the most; the list has the rest. Five agents under a block sized for fifteen
-                // was a third of the column of blue paper.
-                //
-                // No podium here: it starts on the fleet's own line. It is the other list
-                // you are answerable to, and a step below the sessions read as a footnote to
-                // them.
-                GeometryReader { space in
-                    let free = space.size.height - Self.blockGap
-                    VStack(alignment: .leading, spacing: Self.blockGap) {
-                        CronColumn(title: "CRONS", jobs: controller.launchd.jobs,
-                                   commandHeld: controller.commandHeld,
-                                   scrolling: !eagerLayout, limit: max(0, free / 2))
-                        MoneyColumn(store: controller.money,
-                                    scrolling: !eagerLayout, limit: max(0, free * 3 / 4))
-                        PluginColumns(store: controller.plugins,
-                                      commandHeld: controller.commandHeld,
-                                      scrolling: !eagerLayout, limit: max(0, free * 3 / 4))
-                        TodoColumn(hub: controller.hub,
-                                   commandHeld: controller.commandHeld,
-                                   onDismiss: controller.dismiss,
-                                   scrolling: !eagerLayout)
-                            .frame(maxHeight: controller.hub.todoEmpty ? nil : .infinity)
-                    }
-                    .animation(Self.fold, value: controller.hub.todoEmpty)
-                    .animation(Self.fold, value: controller.launchd.jobs.isEmpty)
-                    // Pinned to the top of the column. The agent block takes only what its
-                    // cards need, so the stack is shorter than the space it is given — and a
-                    // stack left to sit in the middle of that space starts the agents below
-                    // the fleet's own line.
-                    .frame(maxHeight: .infinity, alignment: .top)
-                }
-                    // The same height as the column on the other side, so the two lists you
-                    // are answerable to end on the same line at the foot of the panel.
-                    .frame(width: sideWidth, height: Self.blockHeight, alignment: .top)
-            }
             gap(Self.edgeWeight)
         }
         .frame(maxWidth: .infinity)
@@ -362,6 +308,13 @@ struct OverlayView: View {
         // shadow reaches 16pt out on hover.
         .padding(.top, 26)
         .background(dismissLayer)
+    }
+
+    /// The pointer onto a side block opens it; off the column, all fold. Onto the gap between
+    /// two, nothing changes.
+    private func side(_ key: String?, _ inside: Bool) {
+        guard inside, sideOpen != key else { return }
+        withAnimation(Self.fold) { sideOpen = key }
     }
 
     /// The tiles with the prompt bubble immediately under them, as one block. The bubble rides
@@ -516,8 +469,7 @@ struct OverlayView: View {
         // Every directory stands unfolded in the grid itself, its sessions in view with nothing
         // to click (asked 2026-10-12; never folded since 2026-10-18), in one column (asked
         // 2026-10-22), or two where that alone keeps the grid on the screen (asked 2026-10-28).
-        let layouts = FleetLayout(tile: CGSize(width: tileWidth, height: SessionTile.height),
-                                  spacing: tileSpacing, columns: Self.tilesPerRow)
+        let layouts = FleetLayout(tile: tile, spacing: tileSpacing, columns: Self.tilesPerRow)
             .widening(sections.map { $0.map(\.parts) },
                       room: room - CGFloat(max(0, sections.count - 1)) * (2 * tileSpacing + 1)) {
                 GroupTile.size(holding: $0, across: $1, in: centerWidth, spacing: tileSpacing)

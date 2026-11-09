@@ -1021,9 +1021,9 @@ let knownFlags: Set<String> = [
     "--ax-probe", "--bench", "--blocks-open", "--bench-panel", "--check-reel", "--close", "--cmd", "--crons-open", "--demo",
     "--deferred", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
     "--launch", "--mail", "--memory", "--memory-open", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels", "--reels-open",
-    "--live", "--money-open", "--reels-run", "--render", "--render-settings", "--route", "--scan", "--school-open", "--screen",
+    "--live", "--mail-open", "--money-open", "--reels-run", "--render", "--render-settings", "--route", "--scan", "--school-open", "--screen",
     "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",
-    "--todos", "--uninstall-hooks", "--windows",
+    "--todo-open", "--todos", "--uninstall-hooks", "--windows",
 ]
 if let unknown = CommandLine.arguments.dropFirst().first(where: {
     $0.hasPrefix("--") && !knownFlags.contains($0)

@@ -343,8 +343,8 @@ struct MoneyColumn: View {
     /// rather than push TODO off the panel.
     var limit: CGFloat = .infinity
 
-    /// Seeded from a flag so a render can show the open block, which only a pointer opens.
-    @State private var open = CommandLine.arguments.contains("--money-open")
+    /// Under the pointer — see `OverlayView.sideOpen`.
+    var open = false
     /// Whether the block's lower edge cuts a month: scrolled off the top, and not at the end.
     @State private var runsOn = false
     /// How many months the list holds: `recent`, until the button is asked for more.
@@ -404,7 +404,6 @@ struct MoneyColumn: View {
                 HubEmptyLine(text: "Last payment read: \(Money.day(latest))")
             }
         }
-        .onHover { inside in withAnimation(OverlayView.fold) { open = inside } }
         .onChange(of: open) { if !open { shown = Self.recent } }
         .fixedSize(horizontal: false, vertical: true)
     }

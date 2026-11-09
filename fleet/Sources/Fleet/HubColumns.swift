@@ -23,9 +23,10 @@ struct MailColumn: View {
 
     /// The tallest the block may be: it is as tall as its mails, up to this, and scrolls past it.
     var limit: CGFloat = .infinity
-    /// What the mails actually need, measured — see `CronColumn.natural`. Held by the panel,
-    /// which gives REELS what they leave of the column.
-    @Binding var natural: CGFloat
+    /// Folded to its heading until the pointer is on it — see `OverlayView.sideOpen`.
+    var open = false
+    /// What the mails actually need, measured — see `CronColumn.natural`.
+    @State private var natural: CGFloat = 0
     /// The heading line, the gap under it and the frame's padding — see `CronColumn.chrome`.
     private static let chrome: CGFloat = 56
 
@@ -39,7 +40,7 @@ struct MailColumn: View {
                   showsZero: true,
                   tint: BlockTint.mail,
                   fill: BlockTint.mail.darkened(0.36),
-                  collapsed: hub.mailEmpty) {
+                  collapsed: hub.mailEmpty || !open) {
             // As tall as its mails (asked 2026-09-28: one mail sat on three rows of empty
             // block), up to `limit`; past it the list scrolls rather than running down over
             // the school underneath.
@@ -130,7 +131,7 @@ struct CronColumn: View {
     /// Unfolded while the pointer is on it, no ⌘ needed (asked 2026-10-16; ⌘ was needed from
     /// 2026-10-07). Folded to its heading otherwise: fifteen healthy
     /// routines are wallpaper, and the verdict on the heading says whether any of them is not.
-    @State private var open = CommandLine.arguments.contains("--crons-open")
+    var open = false
 
     /// What the cards actually need, measured. The block is that tall, up to the height it has
     /// been given: five agents must not leave a third of the column empty under them, and a
@@ -185,7 +186,6 @@ struct CronColumn: View {
         }
         .animation(TodoColumn.unroll, value: commandHeld)
         .animation(TodoColumn.unroll, value: natural)
-        .onHover { inside in withAnimation(OverlayView.fold) { open = inside } }
         // Its own height, not the slot's. A `maxHeight` alone reads as "flexible up to", so
         // the stack handed it the whole third and the block sat centred in the empty half.
         .fixedSize(horizontal: false, vertical: true)
@@ -447,6 +447,8 @@ struct TodoColumn: View {
     /// Off for an offscreen render: `ImageRenderer` draws nothing inside a `ScrollView`, and a
     /// screenshot of the panel showed an empty column under a count of 21.
     var scrolling = true
+    /// Folded to its heading until the pointer is on it, or a todo is being written.
+    var open = false
 
     /// The row under the pointer, which is the only one that opens. Held here rather than on
     /// the row, because a row is rebuilt from scratch every time the fleet refreshes — once a
@@ -494,7 +496,7 @@ struct TodoColumn: View {
                   tint: BlockTint.todo,
                   fill: BlockTint.todo.darkened(0.44),
                   fills: true,
-                  collapsed: hub.todoEmpty) {
+                  collapsed: hub.todoEmpty || !(open || hub.composing)) {
             // The list scrolls, the heading does not, and the rest of the panel does not
             // move at all — the fleet either side has its own scroll for the same reason.
             // The horizontal padding is the room a lifted card's shadow needs, taken inside
@@ -1356,8 +1358,8 @@ struct EpitechColumn: View {
     /// Seeded from `FLEET_HOVER`, like CRONS', so a render can show one card's details.
     @State private var hovered: String? = ProcessInfo.processInfo.environment["FLEET_HOVER"]
     /// Folded to its heading — the name and the credits — until the pointer is on it (asked
-    /// 2026-10-15). On the panel rather than here: the room it opens into is the mail's.
-    @Binding var open: Bool
+    /// 2026-10-15). On the panel rather than here: one block of the column opens at a time.
+    var open = false
 
     var body: some View {
         HubColumn(title: "EPITECH",
@@ -1389,8 +1391,6 @@ struct EpitechColumn: View {
             }
         }
         .animation(TodoColumn.unroll, value: commandHeld)
-        // In a transaction, so the mail over it gives way in the same movement.
-        .onHover { inside in withAnimation(OverlayView.fold) { open = inside } }
     }
 
     /// Two to a row. The card is three facts wide — a name, what it pays, when it closes —
@@ -1807,9 +1807,8 @@ struct ReelBlock: View {
     /// that room empty), the heading alone when not.
     var room: CGFloat = 0
 
-    /// Seeded from `--reels-open` so a render can show the list, which nothing else opens
-    /// without a pointer.
-    @State private var open = CommandLine.arguments.contains("--reels-open")
+    /// Under the pointer — see `OverlayView.sideOpen`.
+    var open = false
     @State private var hovered: String?
     /// What the cards need, measured: the list is that tall up to the limit.
     @State private var natural: CGFloat = 0
@@ -1870,8 +1869,6 @@ struct ReelBlock: View {
             }
         }
         .animation(TodoColumn.unroll, value: commandHeld)
-        // In a transaction, so the blocks under it give way in the same movement.
-        .onHover { inside in withAnimation(OverlayView.fold) { open = inside } }
     }
 }
 

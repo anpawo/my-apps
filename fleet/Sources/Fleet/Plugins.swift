@@ -157,11 +157,16 @@ struct PluginColumns: View {
     var scrolling = true
     /// The most each block takes of its column, past which its list scrolls.
     var limit: CGFloat = .infinity
+    /// The side block open under the pointer — see `OverlayView.sideOpen`; "plugins" opens all.
+    var opened: String?
+    var onHover: (String) -> Void = { _ in }
 
     var body: some View {
         ForEach(store.blocks) { block in
             PluginColumn(block: block, store: store, commandHeld: commandHeld,
-                         scrolling: scrolling, limit: limit)
+                         scrolling: scrolling, limit: limit,
+                         open: opened == block.id || opened == "plugins")
+                .onHover { if $0 { onHover(block.id) } }
         }
     }
 }
@@ -179,7 +184,7 @@ struct PluginColumn: View {
     var scrolling = true
     var limit: CGFloat = .infinity
 
-    @State private var open = CommandLine.arguments.contains("--blocks-open")
+    var open = false
     /// Whether the lower edge cuts a line.
     @State private var runsOn = false
     /// The item in the pointer's hand. Gone with the gesture, however it ends.
@@ -243,7 +248,6 @@ struct PluginColumn: View {
             }
         }
         .onHover { inside in
-            withAnimation(OverlayView.fold) { open = inside }
             if !inside, store.hovered?.block == block.id { store.hovered = nil }
         }
         .fixedSize(horizontal: false, vertical: true)
