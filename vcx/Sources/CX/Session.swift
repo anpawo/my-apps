@@ -48,7 +48,7 @@ final class Item: ObservableObject, Identifiable {
         case "mcpToolCall", "dynamicToolCall": return ["server", "namespace", "tool"].compactMap { data[$0] as? String }.joined(separator: ".")
         case "webSearch": return "Search: " + (data["query"] as? String ?? "web")
         case "peerMessage": return (data["direction"] as? String == "sent" ? (failed ? "Not sent to " : "Sent to ") : "Message from ") + (data["name"] as? String ?? "another session")
-        case "reasoning": return "Thinking"
+        case "reasoning": return data["description"] as? String ?? "Thinking"
         default: return kind.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized
         }
     }

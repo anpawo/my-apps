@@ -707,9 +707,8 @@ enum Check {
                           && qwenProject("what is 2+2", cwd: "/") == nil && qwenProject("fix vcx and the qwen models", cwd: "/") == nil && qwenProject("fix vcx", cwd: projects + "qwen") == nil,
                           "a first Qwen request outside a project picks the one ~/self project it names, and none when it names zero or two")
                 }
-                let longOutput = String(repeating: "a", count: 5000) + "END"
-                check(qwenToolOutput("short") == "short" && qwenToolOutput(longOutput).count < 2100 && qwenToolOutput(longOutput).hasPrefix("aaa") && qwenToolOutput(longOutput).hasSuffix("END"),
-                      "Qwen gets a long command output as its head and tail, small enough for its 2048-token window")
+                let loop = await qwenLoop()
+                check(loop, "Qwen pauses on a repeated command or a slow step, compacts a full context and cuts long outputs")
                 let bulk = String(repeating: "x", count: 2000)
                 let history: [JSON] = [["role": "system", "content": "s"], ["role": "user", "content": "old"]] + (0..<20).flatMap { _ in [["role": "assistant", "content": "", "tool_calls": [["function": ["name": "run_command"]]]], ["role": "tool", "content": bulk]] as [JSON] } + [["role": "user", "content": "now"]] + (0..<12).flatMap { _ in [["role": "assistant", "content": "", "tool_calls": [["function": ["name": "run_command"]]]], ["role": "tool", "content": bulk]] as [JSON] }
                 let trimmed = qwenHistory(history, limit: 16000)
@@ -1911,6 +1910,10 @@ enum Render {
         for open in [false, true] {
             write(WorkBlock(rows: sent, details: open).padding(24).background(Color.white), size: CGSize(width: 760, height: open ? 220 : 90), path: directory + "/sent-\(open ? "open" : "closed").png")
         }
+        let steps = [Item(["id": "s1", "type": "reasoning", "description": "Step 1", "seconds": 42, "status": "completed"]),
+                     Item(["id": "c1", "type": "commandExecution", "command": "unzip -l mod.jar | head", "seconds": 1, "exitCode": 0, "status": "completed"]),
+                     Item(["id": "s2", "type": "reasoning", "description": "Step 2", "status": "inProgress", "stepStartedAt": Date().timeIntervalSince1970 - 95])]
+        write(VStack(spacing: 6) { ForEach(steps) { ActionView(item: $0) } }.padding(24).background(Color.white).environment(\.colorScheme, .light), size: CGSize(width: 520, height: 170), path: directory + "/qwen-steps.png")
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/state"))
         session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"
         session.contextUsed = 240000; session.contextLimit = 1000000
@@ -2331,5 +2334,67 @@ struct AppIcon: View {
             .stroke(.white, style: StrokeStyle(lineWidth: 32, lineCap: .round, lineJoin: .round))
             .frame(width: 530, height: 260)
         }
+    }
+}
+
+extension Check {
+    // vcx --qwen-check: Qwen's loop without a step cap, against the HTTP fixture in tests/native_peer.py.
+    static func qwenLoop() async -> Bool {
+        var failed = false
+        func check(_ value: Bool, _ message: String) { print((value ? "ok: " : "FAIL: ") + message); if !value { failed = true } }
+        let output = String(repeating: "a", count: 19997) + "END", cut = qwenToolOutput(output)
+        check(qwenToolOutput("short") == "short" && cut.count < 8200 && cut.hasPrefix("aaa") && cut.hasSuffix("END") && cut.contains("12000 characters cut"),
+              "a long command output reaches Qwen as about 8K characters of head and tail, with how much was cut")
+        check(qwenToolOutput(String(repeating: "b", count: 32768), dropped: 100000).contains("124768 characters cut"), "the cut note counts what the output reader already dropped")
+        check(!qwenNeedsCompaction(tokens: 49151, bytes: 0) && qwenNeedsCompaction(tokens: 49152, bytes: 0) && qwenNeedsCompaction(tokens: 0, bytes: 150000),
+              "compaction starts at 75 % of the 65536-token window, by Ollama's count or by the history's size")
+        check(qwenRepeats(["a", "b", "b", "b"]) && !qwenRepeats(["b", "a", "b", "b"]) && !qwenRepeats(["b", "b"]), "three identical commands in a row count as a loop")
+        let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/native_peer.py").path
+        let server = Process(), pipe = Pipe()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/env"); server.arguments = ["python3", fixture, "http"]
+        server.standardOutput = pipe; server.standardError = FileHandle.nullDevice
+        defer { if server.isRunning { server.terminate() } }
+        do {
+            try server.run()
+            let port = String(decoding: pipe.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            var preferences = Preferences(); preferences.mode = "bypass"; preferences.qwenURL = "http://127.0.0.1:" + port + "/api/chat"
+            func turn(_ qwen: QwenConnection, _ prompt: String) async throws -> (status: String, text: String, commands: [String]) {
+                var done: JSON?, text = "", commands: [String] = []
+                qwen.event = { message in
+                    let p = message["params"] as? JSON ?? [:]
+                    if message["method"] as? String == "item/completed", let item = p["item"] as? JSON {
+                        if item["type"] as? String == "agentMessage" { text = item["text"] as? String ?? "" }
+                        if item["type"] as? String == "commandExecution" { commands.append(item["command"] as? String ?? "") }
+                    }
+                    if message["method"] as? String == "turn/completed" { done = p["turn"] as? JSON }
+                }
+                _ = try await qwen.request("turn/start", ["input": [["type": "text", "text": prompt]]])
+                for _ in 0..<1000 where done == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+                return (done?["status"] as? String ?? "none", text, commands)
+            }
+            let directory = NSTemporaryDirectory()
+            let looping = QwenConnection(preferences: preferences, cwd: directory)
+            let first = try await turn(looping, "REPEAT")
+            check(first.status == "completed" && first.commands == ["printf repeat-check", "printf repeat-check"] && first.text.contains("three times in a row"),
+                  "a third identical command is not run: the turn ends on a question, not a failure")
+            let resumed = try await turn(looping, "Continue")
+            check(resumed.status == "completed" && resumed.commands.count == 2 && looping.messages.contains { $0["content"] as? String == "REPEAT" } && looping.messages.contains { ($0["content"] as? String)?.contains("three times in a row") == true },
+                  "a reply resumes the paused task with its history kept")
+            looping.close()
+            let full = QwenConnection(preferences: preferences, cwd: directory)
+            let compacted = try await turn(full, "COMPACT")
+            check(compacted.status == "completed" && compacted.text.hasPrefix("system,user,user,assistant,tool|Summary of the work so far") && compacted.text.hasSuffix("\n\nFIXTURE SUMMARY"),
+                  "over 75 % of the window, the history becomes the system prompt, the request, Qwen's summary without its thinking, and the last step")
+            check(full.messages[1]["content"] as? String == "COMPACT" && full.messages.count == 6, "compaction keeps the request word for word and the turn goes on")
+            full.close()
+            let previous = QwenConnection.stepLimit; QwenConnection.stepLimit = 0.5
+            let slow = QwenConnection(preferences: preferences, cwd: directory)
+            let stalled = try await turn(slow, "SLOW")
+            QwenConnection.stepLimit = previous
+            check(stalled.status == "completed" && stalled.text.hasPrefix("Step 1 ran for over") && stalled.text.contains("Should I continue?"), "a model step past the time limit stops the turn with a question, not a failure")
+            slow.close()
+        } catch { check(false, "Qwen loop fixture: " + error.localizedDescription) }
+        return !failed
     }
 }

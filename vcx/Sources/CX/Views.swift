@@ -938,7 +938,16 @@ struct ActionView: View {
         // The header carries the card's padding so its hover tint fills the card's top, not a box inside it.
         VStack(alignment: .leading, spacing: 0) {
             Button { withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { open.toggle() } } label: {
-                HStack { Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right").rotationEffect(.degrees(open && !item.failed ? 90 : 0)); Text(item.title).lineLimit(1) }
+                HStack {
+                    Image(systemName: item.failed ? "exclamationmark.circle" : "chevron.right").rotationEffect(.degrees(open && !item.failed ? 90 : 0)); Text(item.title).lineLimit(1)
+                    Spacer(minLength: 8)
+                    // Qwen's steps: a live counter while one runs, its duration once done.
+                    if let start = item.data["stepStartedAt"] as? Double, item.data["status"] as? String == "inProgress" {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in Text(Duration.seconds(max(0, Int(context.date.timeIntervalSince1970 - start))).formatted(.time(pattern: .minuteSecond))).monospacedDigit().opacity(0.6) }
+                    } else if let seconds = item.data["seconds"] as? Int {
+                        Text(Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond))).monospacedDigit().opacity(0.6)
+                    }
+                }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 9).padding(.bottom, open ? 8 : 9).contentShape(Rectangle())
             }.buttonStyle(.reactive(Rectangle())).font(.system(size: 12, design: .monospaced)).foregroundStyle(item.failed ? Color(red: 0.65, green: 0.32, blue: 0.04) : .black.opacity(0.65))
             if open {

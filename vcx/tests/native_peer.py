@@ -3,6 +3,7 @@ import json
 import os
 import shlex
 import sys
+import time
 
 mode = sys.argv[1]
 
@@ -18,6 +19,22 @@ if mode == 'http':
             self.send_response(200)
             self.send_header('Content-Type', 'application/x-ndjson')
             self.end_headers()
+            users = [m['content'] for m in body['messages'] if m['role'] == 'user']
+            if 'tools' not in body:
+                self.wfile.write((json.dumps({'message': {'content': '<think>plan</think>FIXTURE SUMMARY'}, 'done': True}) + '\n').encode())
+                return
+            if 'REPEAT' in users:
+                self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf repeat-check'}}}]}, 'done': True}) + '\n').encode())
+                return
+            if 'COMPACT' in users:
+                if body['messages'][-1]['content'] == 'COMPACT':
+                    self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf compact-check'}}}]}, 'done': True, 'prompt_eval_count': 60000, 'eval_count': 10}) + '\n').encode())
+                else:
+                    answer = ','.join(m['role'] for m in body['messages']) + '|' + body['messages'][2]['content']
+                    self.wfile.write((json.dumps({'message': {'content': answer}, 'done': True}) + '\n').encode())
+                return
+            if body['messages'][-1]['content'] == 'SLOW':
+                time.sleep(3)
             if body['messages'][-1]['content'] == 'TOOLS':
                 self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf native-tool-check'}}}]}, 'done': True}) + '\n').encode())
                 return
@@ -35,7 +52,7 @@ if mode == 'http':
         def log_message(self, *args):
             pass
 
-    server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     print(server.server_port, flush=True)
     server.serve_forever()
 else:

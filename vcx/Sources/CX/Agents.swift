@@ -587,6 +587,12 @@ final class QwenConnection: Connection {
     private var permissions: [String: CheckedContinuation<Bool, Never>] = [:]
     private var commandProcess: Process?
     private var network: URLSession?
+    private var taskRequest: JSON?
+    private var paused = false
+    private var contextTokens = 0
+    private var overdue: String?
+    // A model step longer than this pauses the turn with a question; a running command is waited for however long it takes.
+    static var stepLimit: Double = 600
     private func connection() throws -> URLSession {
         if let network { return network }
         let session = try qwenNetwork(preferences); network = session; return session
@@ -629,8 +635,9 @@ final class QwenConnection: Connection {
             if !images.isEmpty { message["images"] = images }
             let project = messages.count == 1 ? qwenProject(text, cwd: cwd).flatMap { workingDirectory($0, within: initialDirectory) } : nil
             messages.append(message)
-            // Bound remote context without loading a local model or asking another model to summarize.
-            if messages.count > 41 { messages.removeSubrange(1..<(messages.count - 40)) }
+            // A reply to a pause question continues the paused task, whose request compaction keeps.
+            if !paused || taskRequest == nil { taskRequest = message }
+            paused = false
             turn = UUID().uuidString
             let current = turn, item = UUID().uuidString
             emit("turn/started", ["turn": ["id": current]])
@@ -640,22 +647,36 @@ final class QwenConnection: Connection {
                 cwd = project
             }
             task = Task {
+                let model = selectedModel ?? preferences.qwenModel
+                var commands: [String] = [], number = 0, lastCommand = ""
                 do {
-                    for _ in 0..<12 {
+                    while true {
                         try Task.checkCancellation()
-                        let (answer, calls) = try await completion(url: url, model: selectedModel ?? preferences.qwenModel, item: item)
+                        if qwenNeedsCompaction(tokens: contextTokens, bytes: (try? JSONSerialization.data(withJSONObject: messages.map { $0.filter { $0.key != "images" } }).count) ?? 0) {
+                            try await step("Compacting context") { await compact(url: url, model: model) }
+                        }
+                        number += 1
+                        let (answer, calls) = try await step("Step \(number)") { try await completion(url: url, model: model, item: item) }
                         if !calls.isEmpty {
                             messages.append(["role": "assistant", "content": answer, "tool_calls": calls])
+                            var pause: String?
                             for call in calls {
                                 let function = call["function"] as? JSON ?? [:]
                                 let arguments = function["arguments"] as? JSON ?? [:]
                                 let name = function["name"] as? String ?? ""
                                 let result: String
-                                if name == "run_command", let command = arguments["command"] as? String, !command.isEmpty, command.utf8.count < 65536, !command.contains("\0") {
-                                    result = try await commandResult(command)
+                                if pause != nil { result = "Not run: VCX paused the task to ask the user." }
+                                else if name == "run_command", let command = arguments["command"] as? String, !command.isEmpty, command.utf8.count < 65536, !command.contains("\0") {
+                                    commands.append(command)
+                                    // Without a step cap, a looping model in bypass mode would go on forever, each loop being fast.
+                                    if qwenRepeats(commands) {
+                                        pause = "I issued the same command three times in a row, so I stopped instead of running it again:\n\n```\n\(command)\n```\n\nShould I continue? Reply to resume where I stopped, or tell me what to try instead."
+                                        result = "Not run: this is the third identical command in a row. VCX paused the task to ask the user."
+                                    } else { result = try await commandResult(command); lastCommand = command }
                                 } else { result = "Unsupported or invalid tool request. No command was executed." }
                                 messages.append(["role": "tool", "tool_name": name, "content": result])
                             }
+                            if let pause { ask(pause, turn: current); return }
                             continue
                         }
                         messages.append(["role": "assistant", "content": answer])
@@ -663,8 +684,11 @@ final class QwenConnection: Connection {
                         task = nil
                         return
                     }
-                    throw CXError(message: "Qwen reached 12 tool steps. Send a message to continue.")
                 } catch {
+                    if let overdue {
+                        ask("\(overdue) ran for over \(Int(Self.stepLimit / 60)) minutes without finishing, so I stopped it." + (lastCommand.isEmpty ? "" : " The last command I ran:\n\n```\n\(lastCommand)\n```\n") + "\nShould I continue? Reply to resume where I stopped; the conversation is kept.", turn: current)
+                        return
+                    }
                     let cancelled = Task.isCancelled
                     var result: JSON = ["id": current, "status": cancelled ? "interrupted" : "failed"]
                     if !cancelled { result["error"] = ["message": error.localizedDescription] }
@@ -682,13 +706,56 @@ final class QwenConnection: Connection {
         }
     }
     private func emit(_ method: String, _ params: JSON) { var p = params; p["threadId"] = thread; event(["method": method, "params": p]) }
-    private func completion(url: URL, model: String, item: String) async throws -> (String, [JSON]) {
-        var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 120
+    // Shown while it runs with a live counter, then with its duration; past stepLimit it cancels the turn, which asks instead of failing.
+    private func step<T>(_ title: String, _ body: () async throws -> T) async throws -> T {
+        // Compaction swallows its own errors, so a step it overran is caught here, before overdue is reset.
+        try Task.checkCancellation()
+        let start = Date()
+        var item: JSON = ["id": UUID().uuidString, "type": "reasoning", "description": title, "stepStartedAt": start.timeIntervalSince1970]
+        emit("item/started", ["item": item])
+        overdue = nil
+        let timer = DispatchWorkItem { [weak self] in self?.overdue = title; self?.task?.cancel() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stepLimit, execute: timer)
+        defer {
+            timer.cancel()
+            item["stepStartedAt"] = nil; item["seconds"] = Int(Date().timeIntervalSince(start).rounded()); item["status"] = "completed"
+            emit("item/completed", ["item": item])
+        }
+        return try await body()
+    }
+    private func ask(_ question: String, turn current: String) {
+        messages.append(["role": "assistant", "content": question])
+        emit("item/completed", ["item": ["id": UUID().uuidString, "type": "agentMessage", "text": question, "provider": "Qwen"]])
+        emit("turn/completed", ["turn": ["id": current, "status": "completed"]])
+        paused = true; task = nil
+    }
+    private func chatRequest(_ url: URL, _ body: JSON) throws -> URLRequest {
+        var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = Self.stepLimit
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. Commands time out after two minutes.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
-        var outgoing = qwenHistory(messages)
+        var outgoing = qwenHistory(body["messages"] as? [JSON] ?? messages)
         outgoing[0]["content"] = (messages[0]["content"] as? String ?? "") + "\n" + developerInstructions
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "messages": outgoing, "stream": true, "keep_alive": "5m", "options": ["num_ctx": 65536], "think": false, "tools": [tool]])
+        request.httpBody = try JSONSerialization.data(withJSONObject: body.merging(["messages": outgoing, "keep_alive": "5m", "options": ["num_ctx": qwenWindow], "think": false]) { $1 })
+        return request
+    }
+    // Ollama drops the oldest messages of an overflowing window, the request first; a summary keeps what the task needs.
+    private func compact(url: URL, model: String) async {
+        let prompt = "Your context is nearly full and older messages will be removed. Write a summary you will continue the task from: the task, the findings so far (facts, paths, names, values), the files touched and how, what was tried and failed, and the next step. Keep every detail needed to continue. Plain text, at most 600 words."
+        do {
+            let request = try chatRequest(url, ["model": model, "messages": messages + [["role": "user", "content": prompt]], "stream": false])
+            let (data, response) = try await connection().data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let body = try JSONSerialization.jsonObject(with: data) as? JSON,
+                  let text = (body["message"] as? JSON)?["content"] as? String else { throw CXError(message: "Qwen returned no summary.") }
+            let summary = (text.components(separatedBy: "</think>").last ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !summary.isEmpty, let original = taskRequest else { throw CXError(message: "Qwen returned an empty summary.") }
+            messages = qwenCompacted(messages, request: original, summary: summary)
+            contextTokens = 0
+        } catch {
+            if !Task.isCancelled { emit("warning", ["message": "Qwen could not compact its context (\(error.localizedDescription)); its oldest messages will be dropped instead."]) }
+        }
+    }
+    private func completion(url: URL, model: String, item: String) async throws -> (String, [JSON]) {
+        let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. A command runs until it exits and gets no input: never start one that waits for input or runs forever (servers, watchers). Long outputs are cut to their head and tail.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
+        let request = try chatRequest(url, ["model": model, "stream": true, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
         var answer = "", calls: [JSON] = []
@@ -701,7 +768,11 @@ final class QwenConnection: Connection {
             let delta = message["content"] as? String ?? ""
             answer += delta
             calls += message["tool_calls"] as? [JSON] ?? []
-            if event["done"] as? Bool == true { emit("cx/tokens", ["input": event["prompt_eval_count"] as? Int ?? 0, "output": event["eval_count"] as? Int ?? 0]) }
+            if event["done"] as? Bool == true {
+                let input = event["prompt_eval_count"] as? Int ?? 0, output = event["eval_count"] as? Int ?? 0
+                contextTokens = input + output
+                emit("cx/tokens", ["input": input, "output": output])
+            }
             emit("item/agentMessage/delta", ["itemId": id, "delta": delta])
         }
         if !answer.isEmpty { emit("item/completed", ["item": ["id": id, "type": "agentMessage", "text": answer, "provider": "Qwen"]]) }
@@ -712,7 +783,8 @@ final class QwenConnection: Connection {
     private func commandResult(_ command: String) async throws -> String {
         let id = UUID().uuidString
         let directory = cwd
-        emit("item/started", ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "status": "inProgress"]])
+        let start = Date()
+        emit("item/started", ["item": ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "status": "inProgress", "stepStartedAt": start.timeIntervalSince1970]])
         let allowed = preferences.mode == "bypass" ? true : await withCheckedContinuation { continuation in
             permissions[id] = continuation
             event(["id": id, "method": "item/commandExecution/requestApproval", "params": ["threadId": thread, "command": command, "reason": "Qwen wants to run this command in " + cwd]])
@@ -727,26 +799,28 @@ final class QwenConnection: Connection {
         process.currentDirectoryURL = URL(fileURLWithPath: cwd); process.environment = agentEnvironment(fleet: fleetFile).merging(["VCX_THREAD_ID": thread]) { $1 }
         process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = output
         try process.run(); commandProcess = process
-        let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: timeout)
-        let result: (String, Int32) = await withCheckedContinuation { continuation in
+        // Head and tail only: the middle of a huge output is never sent to the model.
+        let result: (String, Int, Int32) = await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
-                var buffer = Data()
+                var head = Data(), tail = Data(), dropped = 0
                 while true {
-                    let data = output.fileHandleForReading.availableData
+                    var data = output.fileHandleForReading.availableData
                     if data.isEmpty { break }
-                    buffer.append(data)
-                    if buffer.count > 16384 { buffer = Data(buffer.suffix(16384)) }
+                    let taken = min(16384 - head.count, data.count)
+                    head.append(data.prefix(taken)); data = data.dropFirst(taken)
+                    tail.append(data)
+                    if tail.count > 16384 { dropped += tail.count - 16384; tail = Data(tail.suffix(16384)) }
                 }
                 process.waitUntilExit()
-                continuation.resume(returning: (String(decoding: buffer, as: UTF8.self), process.terminationStatus))
+                continuation.resume(returning: (String(decoding: head + tail, as: UTF8.self), dropped, process.terminationStatus))
             }
         }
-        timeout.cancel(); commandProcess = nil
-        let item: JSON = ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "aggregatedOutput": result.0, "exitCode": result.1, "status": result.1 == 0 ? "completed" : "failed"]
+        commandProcess = nil
+        let item: JSON = ["id": id, "type": "commandExecution", "command": command, "cwd": directory, "aggregatedOutput": qwenToolOutput(result.0, dropped: result.1, limit: 32768), "exitCode": result.2,
+                          "status": result.2 == 0 ? "completed" : "failed", "seconds": Int(Date().timeIntervalSince(start).rounded())]
         if let directory = shellDirectory(item, current: cwd, initial: initialDirectory) { cwd = directory }
         emit("item/completed", ["item": item])
-        return "Exit: \(result.1)\n" + qwenToolOutput(result.0)
+        return "Exit: \(result.2)\n" + qwenToolOutput(result.0, dropped: result.1)
     }
     func respond(_ id: Any, _ result: JSON) throws { permissions.removeValue(forKey: String(describing: id))?.resume(returning: result["decision"] as? String == "accept") }
     func reject(_ id: Any, method: String) throws { permissions.removeValue(forKey: String(describing: id))?.resume(returning: false) }
@@ -757,10 +831,26 @@ final class QwenConnection: Connection {
     }
 }
 
-// The PC's 6 GB GPU holds a 2048-token window; a 16 KB output (about 4k tokens) pushed the task out and Qwen looped.
-func qwenToolOutput(_ text: String, limit: Int = 2000) -> String {
-    guard text.count > limit else { return text }
-    return String(text.prefix(limit / 2)) + "\n[… \(text.count - limit) characters cut …]\n" + String(text.suffix(limit / 2))
+// 8K characters is about 3K tokens: one output cannot fill the 65536-token window by itself. `dropped` counts what the
+// reader already left out of the middle.
+func qwenToolOutput(_ text: String, dropped: Int = 0, limit: Int = 8000) -> String {
+    guard text.count + dropped > limit else { return text }
+    return String(text.prefix(limit / 2)) + "\n[… \(text.count + dropped - limit) characters cut from the middle of this output …]\n" + String(text.suffix(limit / 2))
+}
+
+let qwenWindow = 65536
+
+// prompt_eval_count can leave out a prompt Ollama had cached, so the history's size (about 2.8 bytes of JSON per token)
+// backs it up; at 75 % the rest of the window still holds a step's outputs and the answer.
+func qwenNeedsCompaction(tokens: Int, bytes: Int, window: Int = qwenWindow) -> Bool { max(tokens, bytes / 3) >= window * 3 / 4 }
+
+func qwenRepeats(_ commands: [String]) -> Bool { commands.count >= 3 && Set(commands.suffix(3)).count == 1 }
+
+// System prompt, the task's request word for word, the summary, then the last step as it came.
+func qwenCompacted(_ messages: [JSON], request: JSON, summary: String) -> [JSON] {
+    var last = Array(messages[(messages.lastIndex { $0["role"] as? String == "assistant" } ?? messages.count)...])
+    last.removeAll { NSDictionary(dictionary: $0).isEqual(to: request) }
+    return [messages[0], request, ["role": "user", "content": "Summary of the work so far (VCX compacted the earlier messages to fit your context):\n\n" + summary]] + last
 }
 
 // Qwen's window holds prompt and answer together: at 8192 tokens, 41 messages of tool output took 8106 of them and it
