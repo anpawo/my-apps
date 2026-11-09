@@ -1049,7 +1049,7 @@ struct SessionTile: View {
     private func ground(_ shape: some Shape) -> some View {
         shape
             // Inside a group the state fills the card (asked 2026-11-09).
-            .fill(grouped ? state.tint : Color(red: 0.07, green: 0.07, blue: 0.09))
+            .fill(grouped ? state.tint.opacity(0.7) : Color(red: 0.07, green: 0.07, blue: 0.09))
             // A shadow fades out about twice its radius away. At 16 the hover glow ran past the
             // room it is given, and was cut in a straight line: by the scroll view over the top
             // row, by a group's border, and over the card beside it in a group (2026-10-20).
@@ -1127,7 +1127,7 @@ struct SessionTile: View {
             // Smaller on 2026-10-15: 0.9 of what it was, then on the grid 0.75 of that; on a
             // group's smaller cards bigger again the same day.
             .font(.system(size: grouped ? 19 : (title == nil ? 31 : 22) * 0.9 * 0.75,
-                          weight: .semibold))
+                          weight: grouped ? .bold : .semibold))
             // Dark on a filled card: white on the green, yellow or blank-state fill did not read.
             .foregroundStyle(grouped ? .black.opacity(0.85) : .white)
             .lineLimit(title == nil ? 1 : 2)
