@@ -92,10 +92,23 @@ struct ImagePreview: View {
     let path: String
     let size: CGSize
     var dismiss: () -> Void
+    @State private var copied = false
+    @State private var reset: Task<Void, Never>?
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let image = thumbnail(path, size: 1600) { Image(nsImage: image).resizable().scaledToFit() }
+                if let image = thumbnail(path, size: 1600) {
+                    Image(nsImage: image).resizable().scaledToFit()
+                        .onTapGesture { copy() }
+                        .help("Click to copy the image").accessibilityAddTraits(.isButton).accessibilityLabel("Copy image")
+                        .overlay {
+                            if copied {
+                                Label("Copied", systemImage: "checkmark").font(.system(size: 13, weight: .medium))
+                                    .padding(.horizontal, 14).padding(.vertical, 8).background(.regularMaterial, in: Capsule())
+                                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                            }
+                        }.animation(.easeOut(duration: 0.25), value: copied)
+                }
                 else { Text("This image is no longer available.").frame(maxWidth: .infinity, maxHeight: .infinity) }
             }.padding(16)
             RoundButton(icon: "xmark", label: "Close image", action: dismiss).padding(10)
@@ -104,6 +117,12 @@ struct ImagePreview: View {
             .clipShape(RoundedRectangle(cornerRadius: 18))
             .shadow(color: .black.opacity(0.2), radius: 28, y: 12)
             .accessibilityAddTraits(.isModal)
+    }
+    private func copy() {
+        guard let image = NSImage(contentsOfFile: path) else { return }
+        NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([image])
+        copied = true; reset?.cancel()
+        reset = Task { try? await Task.sleep(nanoseconds: 1_500_000_000); if !Task.isCancelled { copied = false } }
     }
 }
 
