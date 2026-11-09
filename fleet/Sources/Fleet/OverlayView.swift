@@ -1011,7 +1011,6 @@ struct GroupTile: View {
         var body: some View {
             let parts = GroupTile.parts(sessions)
             let card = GroupTile.card(holding: parts.map(\.count), across: across, in: width, spacing: spacing)
-            let oneRow = parts.count == 1 && sessions.count <= across
             VStack(alignment: .leading, spacing: GroupTile.inset) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { p, part in
                     if p > 0, let first = part.first {
@@ -1034,7 +1033,7 @@ struct GroupTile: View {
                                 // what these sessions have in common, and a row of cards all
                                 // saying "portfolio" is a row you cannot choose from.
                                 SessionTile(session: session, heading: session.label ?? session.topic,
-                                            grouped: true, underPill: oneRow) {
+                                            grouped: true) {
                                     onActivate(session)
                                 }
                                 .frame(width: card.width, height: card.height)
@@ -1064,15 +1063,7 @@ struct SessionTile: View {
     /// Inside a group, whose heading already names the directory: no folder in the
     /// corner, unless the session's repo is one inside it.
     var grouped = false
-    /// In a group one card tall, the name is centred under the pill line rather than on the
-    /// whole card (asked 2026-11-08).
-    var underPill = false
     let onSelect: () -> Void
-
-    /// Sub-agent work gets its own colour rather than the state tint, and it is the same purple
-    /// the border wears when the agents are the only thing running: one colour, one meaning —
-    /// work happening on a thread that is not the one you would be talking to.
-    static let subagentTint = SessionState.delegated.tint
 
     @State private var hovering = false
 
@@ -1106,11 +1097,9 @@ struct SessionTile: View {
             ZStack(alignment: .top) {
                 // The name alone, in the middle of the card, and no line of what it last ran or
                 // is running — inside a group since 2026-10-12, on the grid since 2026-10-15:
-                // the border and the pill say its state.
+                // the border says its state.
                 name
                     .padding(.horizontal, 12)
-                    // 11 pt inset plus a 9 pt pill's height.
-                    .padding(.top, underPill ? 28 : 0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Jarvis's mark in its icon's colours (asked 2026-11-01).
@@ -1123,29 +1112,6 @@ struct SessionTile: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .padding(9)
                 }
-
-                // Pills side by side while the two of them fit the tile, stacked in the corner
-                // when they don't — never shrunk: every pill is the same size on every tile. A
-                // long workflow pill beside a sub-agent count used to shrink one and break the
-                // other over two lines, and eat the folder name.
-                HStack(alignment: .top, spacing: 5) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 5) { subagentPill("SUB-AGENTS"); statePill }.fixedSize()
-                        HStack(spacing: 5) { subagentPill("AGENTS"); statePill }.fixedSize()
-                        // A 16:9 card has one line of pills to give: stacked, the second sat
-                        // on the name. A group's card has no room for the count beside
-                        // "BACKGROUND-TASK", and both are purple: the count says more.
-                        if state == .delegated, !session.subagents.isEmpty, session.workflow == nil {
-                            subagentPill("SUB-AGENTS")
-                        } else {
-                            statePill
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-                // Clear of Jarvis's mark: on a group's narrower card two pills ran over it.
-                .padding(.horizontal, session.qwen != nil ? 24 : 0)
-                .padding(11)
 
                 // Bottom left, the top line left to the pills (asked 2026-10-26). In a group, only
                 // a repo inside the group's repo: s14's card names scientcapital's sessions.
@@ -1201,51 +1167,6 @@ struct SessionTile: View {
             .foregroundStyle(.white.opacity(0.4))
             .lineLimit(1)
             .truncationMode(.tail)
-    }
-
-    /// Sits next to the state pill while sub-agents are out. The pill says the session is
-    /// working; this says who is actually doing the work.
-    @ViewBuilder private func subagentPill(_ word: String) -> some View {
-        let running = session.subagents.count
-        if running > 0, session.workflow == nil {
-            Text("\(word): \(running)")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.8)
-                .lineLimit(1)
-                .foregroundStyle(Self.subagentTint)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Self.subagentTint.opacity(0.14), in: Capsule())
-        }
-    }
-
-    private var statePill: some View {
-        // A workflow's progress rides in the pill that says the session is waiting on it.
-        let label = state.label
-        let text = session.workflow.map { Text("\(label): \($0.pill())") }
-            ?? (session.delegatedSince
-                ?? (state == .delegated ? session.subagents.map(\.startedAt).min() : nil)).map {
-                let age = WorkflowProgress.duration(Date().timeIntervalSince($0))
-                // Under any state but its own the shell is named, in its colour: a bare
-                // "WORKING · 28m in" read as a turn 28 minutes long (asked 2026-10-13). And no
-                // "in" after the age: with it, a group's card cut the label from an hour on.
-                return state == .delegated
-                    ? Text("\(label) · \(age)")
-                    : Text("\(label) · ") + Text("BG-TASK \(age)").foregroundStyle(Self.subagentTint)
-            }
-            ?? Text(label)
-        return text
-            .font(.system(size: 9, weight: .bold))
-            .tracking(0.8)
-            // Never broken over two lines: "BACKGROUN / D" beside a sub-agent pill is what a
-            // header short of room did to it. Never shrunk either (asked 2026-09-28): a
-            // workflow's progress too long even alone on its line is cut, not scaled.
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .foregroundStyle(state.tint)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(state.tint.opacity(0.14), in: Capsule())
     }
 }
 
