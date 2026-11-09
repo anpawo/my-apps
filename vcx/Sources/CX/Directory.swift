@@ -1,6 +1,6 @@
 import Foundation
 
-func shellDirectory(_ item: JSON, current: String, initial: String) -> String? {
+func shellDirectory(_ item: JSON, current: String, initial: String, added: [String] = addedDirectories()) -> String? {
     guard item["type"] as? String == "commandExecution", item["status"] as? String == "completed",
           (item["exitCode"] as? Int ?? 0) == 0 else { return nil }
     let base = item["cwd"] as? String ?? current
@@ -15,7 +15,15 @@ func shellDirectory(_ item: JSON, current: String, initial: String) -> String? {
         target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath,
                      relativeTo: URL(fileURLWithPath: base, isDirectory: true)).standardized.path
     } else { return nil }
-    return workingDirectory(target, within: initial)
+    return ([initial] + added).lazy.compactMap { workingDirectory(target, within: $0) }.first
+}
+
+/// Claude Code keeps a cd that ends in one of these too (~/self): a session launched in
+/// ai-research that cd'd to s14 kept ai-research in its bar while Fleet filed it under s14 (asked 2026-11-09).
+func addedDirectories() -> [String] {
+    guard let data = FileManager.default.contents(atPath: NSHomeDirectory() + "/.claude/settings.json"),
+          let settings = try? JSONSerialization.jsonObject(with: data) as? JSON else { return [] }
+    return (settings["permissions"] as? JSON)?["additionalDirectories"] as? [String] ?? []
 }
 
 func workingDirectory(_ target: String, within initial: String) -> String? {

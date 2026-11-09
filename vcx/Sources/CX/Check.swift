@@ -456,6 +456,8 @@ enum Check {
                 check(shellDirectory(item("cd '\(target)'", exit: 1), current: repoPath, initial: directory.path) == nil, "failed cd does not change directory")
                 check(shellDirectory(item("cd '\(target)'", status: "inProgress"), current: repoPath, initial: directory.path) == nil, "unfinished cd does not change directory")
                 check(shellDirectory(item("pwd"), current: repoPath, initial: directory.path) == nil, "default shell directories cannot undo an explicit project selection")
+                check(shellDirectory(item("cd '\(target)'"), current: repoPath, initial: repoPath, added: []) == nil
+                      && shellDirectory(item("cd '\(target)'"), current: repoPath, initial: repoPath, added: [directory.path]) == target, "a cd into an added directory moves the session")
                 let snapshotDirectory = fleetSession.nativeDirectory
                 fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(target)'").merging(["id": "cd-project"]) { _, new in new }]])
                 presence.publish(fleetSession)
