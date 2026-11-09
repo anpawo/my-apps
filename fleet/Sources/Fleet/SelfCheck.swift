@@ -287,20 +287,18 @@ enum SelfCheck {
         let cell = GroupTile.cell(926, spacing: 26)
         expect(cell == CGSize(width: 212, height: SessionTile.height)
                && size(2).width == 212 && size(5).width == 212
-               && near(size(3).height, 3 * (cell.height - GroupTile.inset) + GroupTile.inset + GroupTile.nameBand), true,
+               && near(size(3).height, 3 * (GroupTile.card(holding: [3], in: 926, spacing: 26).height + GroupTile.inset) + GroupTile.inset + GroupTile.nameBand), true,
                "grid: a directory stands in one of the grid's columns, a card down for each session, its name's band on top")
         expect(Set([[1], [2], [3], [5]].map { GroupTile.card(holding: $0, in: 926, spacing: 26).height })
                    .union([GroupTile.card(holding: [5], across: 2, in: 926, spacing: 26).height,
                            GroupTile.card(holding: [1, 2], in: 926, spacing: 26).height]).count == 1, true,
                "grid: every group's cards are one height, so rows side by side line up (2026-11-09)")
-        expect(GroupTile.card(holding: [1], in: 926, spacing: 26).height >= 0.75 * SessionTile.height, true,
-               "grid: a directory of one keeps its card most of a session's height (2026-11-07: 59 of 97)")
+        expect(GroupTile.card(holding: [1], in: 926, spacing: 26).height >= 0.5 * SessionTile.height, true,
+               "grid: a group's card keeps at least half a session's height (shorter asked 2026-11-09)")
         let card = GroupTile.card(holding: [3], in: 926, spacing: 26)
         expect(near(card.width + 2 * GroupTile.inset, 212)
                && near(3 * card.height + 4 * GroupTile.inset + GroupTile.nameBand, size(3).height), true,
                "grid: its cards inside its border, the one gap all round, its name in a band over them")
-        expect(GroupTile.card(holding: [2], in: 926, spacing: 26).height >= 0.75 * SessionTile.height, true,
-               "grid: a directory of two keeps its cards most of a session's height (2026-10-22: 60 of 119 two to a row)")
         var grid = FleetLayout(tile: CGSize(width: 212, height: SessionTile.height), spacing: 26, columns: 3)
         // Five and two, three sessions: all three in the column right of both, none under the
         // two (asked 2026-10-16).
@@ -357,8 +355,8 @@ enum SelfCheck {
                "grid: a repo inside the group's adds its line and name to the group, its cards keep their height")
         let pair = GroupTile.card(holding: [5], across: 2, in: 926, spacing: 26)
         expect(near(2 * pair.width + 3 * GroupTile.inset, size(5, across: 2).width)
-               && pair.height >= 0.75 * SessionTile.height, true,
-               "grid: two across, its cards keep most of a session's height")
+               && pair.height >= 0.5 * SessionTile.height, true,
+               "grid: two across, its cards keep half a session's height")
     }
 
     // MARK: - Projects

@@ -861,7 +861,7 @@ struct GroupTile: View {
     static func size(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
         let cell = cell(width, spacing: spacing)
         return CGSize(width: CGFloat(across) * (cell.width + spacing) - spacing,
-                      height: nameBand + inset + CGFloat(rows(parts, across)) * (cell.height - inset)
+                      height: nameBand + inset + CGFloat(rows(parts, across)) * (cardHeight(cell) + inset)
                           + CGFloat(parts.count - 1) * (subBand + inset))
     }
     private static func rows(_ parts: [Int], _ across: Int) -> Int {
@@ -906,8 +906,10 @@ struct GroupTile: View {
         let outer = size(holding: parts, across: across, in: width, spacing: spacing)
         let across = CGFloat(across)
         return CGSize(width: (outer.width - (across + 1) * inset) / across,
-                      height: cell(width, spacing: spacing).height - 2 * inset)
+                      height: cardHeight(cell(width, spacing: spacing)))
     }
+    /// Shorter than a grid cell, now the state fills the card rather than lining it (asked 2026-11-09).
+    private static func cardHeight(_ cell: CGSize) -> CGFloat { (cell.height - 2 * inset) * 0.65 }
 
     var body: some View {
         GeometryReader { box in
@@ -1027,7 +1029,8 @@ struct SessionTile: View {
 
     private func ground(_ shape: some Shape) -> some View {
         shape
-            .fill(Color(red: 0.07, green: 0.07, blue: 0.09))
+            // Inside a group the state fills the card (asked 2026-11-09).
+            .fill(grouped ? state.tint : Color(red: 0.07, green: 0.07, blue: 0.09))
             // A shadow fades out about twice its radius away. At 16 the hover glow ran past the
             // room it is given, and was cut in a straight line: by the scroll view over the top
             // row, by a group's border, and over the card beside it in a group (2026-10-20).
@@ -1104,9 +1107,10 @@ struct SessionTile: View {
         Text(title ?? session.displayName)
             // Smaller on 2026-10-15: 0.9 of what it was, then on the grid 0.75 of that; on a
             // group's smaller cards bigger again the same day.
-            .font(.system(size: grouped ? 16 : (title == nil ? 31 : 22) * 0.9 * 0.75,
+            .font(.system(size: grouped ? 19 : (title == nil ? 31 : 22) * 0.9 * 0.75,
                           weight: .semibold))
-            .foregroundStyle(.white)
+            // Dark on a filled card: white on the green, yellow or blank-state fill did not read.
+            .foregroundStyle(grouped ? .black.opacity(0.85) : .white)
             .lineLimit(title == nil ? 1 : 2)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
@@ -1116,7 +1120,7 @@ struct SessionTile: View {
     private var folder: some View {
         Text(session.qwen != nil ? "qwen" : session.folder)
             .font(.system(size: 10.5, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.4))
+            .foregroundStyle(grouped ? .black.opacity(0.5) : .white.opacity(0.4))
             .lineLimit(1)
             .truncationMode(.tail)
     }
