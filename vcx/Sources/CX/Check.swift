@@ -619,6 +619,9 @@ enum Check {
                     aliases.model = claude.model
                     aliases.showCommands("/model " + aliases.account.provider + " ", preserveDraft: false)
                     check(aliases.commandOptions.map(\.name) == ["fixture-claude"] && aliases.commandOptions[aliases.commandSelection].isCurrent, "the model menu highlights the alias of the resolved default model")
+                    check(aliases.commandOptions.first?.detail == "fixture-claude-1", "the model menu names the model an alias runs")
+                    aliases.showCommands("/model " + aliases.account.provider + " claude-1", preserveDraft: false)
+                    check(aliases.commandOptions.map(\.name) == ["fixture-claude"], "the model menu finds an alias by the model it runs")
                 }
                 let previousModel = claude.model
                 do {

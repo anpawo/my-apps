@@ -120,8 +120,10 @@ extension Session {
                 let provider = args[0]
                 guard provider == account.provider || provider == "auto" else { return [] }
                 if args.count == 2 {
-                    return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) }.map {
-                        option(provider + " " + $0 + ((modelEfforts[$0] ?? []).isEmpty ? "" : " "), "Choose model", label: $0, isCurrent: $0 == model || modelAliases[$0] == model)
+                    // Claude lists its newest models only as aliases ("opus" → claude-opus-5-5), so the row names what the alias runs.
+                    return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) || (modelAliases[$0]?.localizedCaseInsensitiveContains(args[1]) ?? false) }.map {
+                        let id = $0, resolved = modelAliases[id].flatMap { $0 == id ? nil : $0 }
+                        return option(provider + " " + id + ((modelEfforts[id] ?? []).isEmpty ? "" : " "), resolved ?? "Choose model", label: id, isCurrent: id == model || modelAliases[id] == model)
                     }
                 }
                 choices = (modelEfforts[args[1]] ?? []).filter { args[2].isEmpty || $0.contains(args[2]) }.map {
