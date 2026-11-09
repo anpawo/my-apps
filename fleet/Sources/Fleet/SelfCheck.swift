@@ -324,6 +324,10 @@ enum SelfCheck {
         let risen = grid.rest(4).frames
         expect(near(risen[2].minY, size(4, across: 2).height + 26) && near(risen[3].minY, size(6).height + 26), true,
                "grid: a directory stands at the foot of its own columns, not under a taller one beside them")
+        grid.wide = [size(4), size(2), size(2), size(2)]
+        let filled = grid.rest(4).frames
+        expect(near(filled[3].minX, tileW + 26) && near(filled[3].minY, size(2).height + 26), true,
+               "grid: a directory takes the shallowest column, rows fill before one column grows")
 
         // Two across (asked 2026-10-28): only where one column runs past the room.
         func standing(_ counts: [Int], room: CGFloat) -> [Int] {

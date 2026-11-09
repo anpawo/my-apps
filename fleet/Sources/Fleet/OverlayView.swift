@@ -741,10 +741,14 @@ struct FleetLayout: Layout {
             placed.insert(i)
             let size = wide[i]!
             let taken = min(columns, taken(size.width))
-            let y = floor[..<taken].max()!
-            frames[i] = CGRect(origin: CGPoint(x: 0, y: y), size: size)
-            for c in 0 ..< taken { floor[c] = y + size.height + spacing }
-            for (column, j) in zip(taken ..< columns, narrow.filter { !placed.contains($0) }) {
+            // The shallowest columns, the leftmost of a tie: rows fill before a column grows
+            // (asked 2026-11-09: fleet under /, the row beside / empty).
+            let top = { (c: Int) in floor[c ..< c + taken].max()! }
+            let start = (0 ... columns - taken).min { (top($0), $0) < (top($1), $1) }!
+            let y = top(start)
+            frames[i] = CGRect(origin: CGPoint(x: CGFloat(start) * step.width, y: y), size: size)
+            for c in start ..< start + taken { floor[c] = y + size.height + spacing }
+            for (column, j) in zip(start + taken ..< columns, narrow.filter { !placed.contains($0) }) {
                 placed.insert(j)
                 frames[j] = CGRect(origin: CGPoint(x: CGFloat(column) * step.width, y: floor[column]), size: wide[j]!)
                 floor[column] += wide[j]!.height + spacing
