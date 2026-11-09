@@ -769,14 +769,22 @@ struct FleetLayout: Layout {
             // From the top right corner down (asked 2026-10-15), not dropped to its foot: in the
             // columns right of every directory first, under a shorter one after (asked 2026-10-16).
             let slots = (0 ..< depth.max()!).flatMap { row in
-                (0 ..< columns).filter { row >= depth[$0] }.map { (row: row, column: $0) }
+                (0 ..< columns).filter { depth[$0] == 0 }.map { (row: row, column: $0) }
             }
-            let free = slots.filter { depth[$0.column] == 0 } + slots.filter { depth[$0.column] > 0 }
-            for slot in free {
+            for slot in slots {
                 guard let t = queue.popFirst() else { break }
                 frames[t] = CGRect(x: CGFloat(slot.column) * step.width, y: y + CGFloat(slot.row) * step.height,
                                    width: tile.width, height: tile.height)
                 floor[slot.column] = max(floor[slot.column], frames[t].maxY + spacing)
+            }
+            // Under a directory, at its own foot: directories are no longer whole rows tall, and
+            // two of them rounded to one row count (2026-11-09).
+            let foot = floor.max()!
+            while let c = (0 ..< columns).filter({ depth[$0] > 0 && floor[$0] < foot })
+                    .min(by: { (floor[$0], $0) < (floor[$1], $1) }),
+                  let t = queue.popFirst() {
+                frames[t] = CGRect(x: CGFloat(c) * step.width, y: floor[c], width: tile.width, height: tile.height)
+                floor[c] += step.height
             }
         }
         let y = floor.max()!
@@ -894,13 +902,15 @@ struct GroupTile: View {
     /// and a card that borrowed one of those would read as a session in that state.
     static let tint = Color(red: 0.16, green: 0.82, blue: 0.80)
 
-    /// What the card takes: `across` of the grid's cells, a row of them down for each
-    /// `across` sessions of each of its parts, and its name's band on top: a group of one
-    /// had its card squeezed to half a session's height under it (2026-11-07).
+    /// What the card takes: `across` of the grid's cells, its name's band on top, then a card
+    /// of one fixed height down for each `across` sessions of each of its parts. Sized in whole
+    /// grid rows, each card took a share of the grid's gaps, so a group of three had taller
+    /// cards than one of two beside it and their rows did not line up (2026-11-09).
     static func size(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
         let cell = cell(width, spacing: spacing)
         return CGSize(width: CGFloat(across) * (cell.width + spacing) - spacing,
-                      height: CGFloat(rows(parts, across)) * (cell.height + spacing) - spacing + nameBand)
+                      height: nameBand + inset + CGFloat(rows(parts, across)) * (cell.height - inset)
+                          + CGFloat(parts.count - 1) * (subBand + inset))
     }
     private static func rows(_ parts: [Int], _ across: Int) -> Int {
         parts.reduce(0) { $0 + ($1 + across - 1) / across }
@@ -939,14 +949,12 @@ struct GroupTile: View {
     static let nameBand = nameAir + nameLine + nameFoot
     /// A repo inside the group's: its name, with the line on either side of it.
     static let subBand: CGFloat = 20
-    /// One of its cards: the group's cells less the gaps and the names' bands.
+    /// One of its cards: a grid cell less the gap on either side, as tall in every group.
     static func card(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
         let outer = size(holding: parts, across: across, in: width, spacing: spacing)
-        let rows = CGFloat(rows(parts, across))
         let across = CGFloat(across)
         return CGSize(width: (outer.width - (across + 1) * inset) / across,
-                      height: (outer.height - (rows + 1) * inset - nameBand
-                               - CGFloat(parts.count - 1) * (subBand + inset)) / rows)
+                      height: cell(width, spacing: spacing).height - 2 * inset)
     }
 
     var body: some View {
