@@ -10,18 +10,11 @@ import SwiftUI
 /// a click anywhere in these columns dismisses the panel, like any other empty space.
 struct MailColumn: View {
     @ObservedObject var hub: HubStore
-    /// ⌘ is held: the card under the pointer unfolds and shows its four buttons. The same deal
-    /// as the TODO column: without ⌘ there is nothing to aim at and nothing to miss.
-    var commandHeld = false
     /// The whole pile rather than the brief: ⌘ was pressed over this block — see `OverlayView.expanded`.
     var full = false
     /// Off for an offscreen render, like the two columns below it: `ImageRenderer` draws
     /// nothing inside a `ScrollView`.
     var scrolling = true
-
-    /// The card under the pointer. Kept on the column, not on the card: a card is rebuilt on
-    /// every tick.
-    @State private var hovered: String?
 
     /// The tallest the block may be: it is as tall as its mails, up to this, and scrolls past it.
     var limit: CGFloat = .infinity
@@ -72,9 +65,6 @@ struct MailColumn: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        // ⌘ pressed with the pointer already on a card: the change comes from the controller,
-        // not from the hover, so it needs an animation of its own.
-        .animation(TodoColumn.unroll, value: commandHeld)
         .animation(TodoColumn.unroll, value: full)
     }
 
@@ -84,15 +74,7 @@ struct MailColumn: View {
         }
         // A brief: the three that most need him, the whole pile under ⌘ (asked 2026-11-10).
         ForEach(full ? hub.mail : Array(hub.mail.prefix(Self.brief))) { mail in
-            MailCard(hub: hub, mail: mail,
-                     expanded: commandHeld && hovered == mail.id,
-                     // A transaction: without it the card unfolds at once and
-                     // the mails below jump to their new place.
-                     onHover: { inside in
-                         withAnimation(TodoColumn.unroll) {
-                             if inside { hovered = mail.id } else if hovered == mail.id { hovered = nil }
-                         }
-                     })
+            MailCard(mail: mail)
         }
         if !full, hub.mail.count > Self.brief {
             HubEmptyLine(text: "\(hub.mail.count - Self.brief) more · ⌘ for all")
@@ -513,11 +495,8 @@ struct HubEmptyLine: View {
 /// this column is to be *counted*, not read. The name and the subject answer the only question
 /// a glance is asking, which is whether any of this needs you before the sessions do.
 struct MailCard: View {
-    @ObservedObject var hub: HubStore
     let mail: Mail
-    /// ⌘ is held and the pointer is here.
-    var expanded = false
-    var onHover: (Bool) -> Void = { _ in }
+    @State private var lit = false
 
     /// The one mark on a card, and it is four points wide.
     ///
@@ -530,116 +509,43 @@ struct MailCard: View {
     /// because this is not a state and should not answer to the same reflex.
     private static let starTint = Color(red: 0.78, green: 0.65, blue: 0.40)
 
-    /// How much room a given number of these takes, gaps included — what MAIL and EPITECH
-    /// keep clear whether or not they have that much to put in it. Neither line wraps, so
-    /// this is the two line heights and the padding round them.
+    /// How much room a given number of these takes, gaps included — what MAIL keeps clear
+    /// whether or not it has that much to put in it. One line, as tall as a plugin card.
     static func room(forRows rows: Int) -> CGFloat {
         guard rows > 0 else { return 0 }
-        let card = FirstLine.lineHeight(size: 12) + 3 + FirstLine.lineHeight(size: 9.5) + 16
-        return CGFloat(rows) * card + CGFloat(rows - 1) * 8
+        return CGFloat(rows) * (PluginCard.height + 14) + CGFloat(rows - 1) * 8
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if mail.starred {
-                    Text("\u{2605}")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Self.starTint)
-                }
-                // What to do about it when the engine said, else its headline (not the Gmail
-                // subject: see the note in `Mail`).
-                Text((mail.action.isEmpty ? mail.gist : mail.action).firstWords())
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(shortAge(since: mail.receivedAt))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.28))
+        // One line (asked 2026-11-10): star, what to do, who from, how old.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if mail.starred {
+                Text("\u{2605}")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Self.starTint)
+                    .fixedSize()
             }
-
+            // What to do about it when the engine said, else its headline (not the Gmail
+            // subject: see the note in `Mail`).
+            Text((mail.action.isEmpty ? mail.gist : mail.action).firstWords())
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(lit ? 1 : 0.92))
+                .lineLimit(1)
+                .layoutPriority(1)
             Text(mail.sender)
                 .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.42))
+                .foregroundStyle(.white.opacity(lit ? 0.6 : 0.42))
                 .lineLimit(1)
-
-            if expanded {
-                // What the engine understood, then what can be done about it. The summary
-                // first: the four buttons mean nothing until the mail has been read.
-                if !mail.summary.isEmpty {
-                    Text(mail.summary)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
-                // Two to a line: four buttons on one line in a fifth of the panel are four
-                // twenty-point targets.
-                VStack(spacing: 4) {
-                    HStack(spacing: 4) {
-                        MailActionButton(.seen) { hub.act(.seen, on: mail) }
-                        MailActionButton(.done) { hub.act(.done, on: mail) }
-                    }
-                    HStack(spacing: 4) {
-                        MailActionButton(.trash) { hub.act(.trash, on: mail) }
-                        MailActionButton(.later) { hub.act(.later, on: mail) }
-                    }
-                }
-                .padding(.top, 6)
-            }
+            Spacer(minLength: 4)
+            Text(shortAge(since: mail.receivedAt))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.28))
+                .fixedSize()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
-        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(.white.opacity(expanded ? 0.2 : 0.07), lineWidth: 1)
-        )
+        .frame(minHeight: PluginCard.height)
+        .panelCard(lit: lit)
         .contentShape(Rectangle())
-        .onHover { onHover($0) }
-    }
-}
-
-/// One of the four buttons at the bottom of an unfolded card.
-///
-/// The colours are the phone's, to the point: my-hub shows the same verdict as the card is
-/// swiped, and a green gesture there must not be a grey button here.
-struct MailActionButton: View {
-    let action: HubStore.MailAction
-    let run: () -> Void
-    @State private var hovering = false
-
-    init(_ action: HubStore.MailAction, run: @escaping () -> Void) {
-        self.action = action
-        self.run = run
-    }
-
-    /// `MailUi.kt` : HintAnswer, HintDone, HintBanned, HintLater.
-    private var tint: Color {
-        switch action {
-        case .seen: return Color(red: 0.039, green: 0.518, blue: 1.0)    // #0A84FF
-        case .done: return Color(red: 0.188, green: 0.820, blue: 0.345)  // #30D158
-        case .trash: return Color(red: 1.0, green: 0.271, blue: 0.227)   // #FF453A
-        case .later: return Color(red: 0.749, green: 0.353, blue: 0.949) // #BF5AF2
-        }
-    }
-
-    var body: some View {
-        Button(action: run) {
-            Text(action.label)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(tint.opacity(hovering ? 1 : 0.75))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(tint.opacity(hovering ? 0.22 : 0.10)))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.2)) { lit = inside } }
     }
 }
 

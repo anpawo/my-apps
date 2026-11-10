@@ -466,53 +466,6 @@ final class HubStore: ObservableObject {
         return true
     }
 
-    /// What the panel can do with a mail: the phone's vocabulary, word for word, except
-    /// `later`, which exists on Fleet's side only.
-    enum MailAction: String, CaseIterable {
-        case seen, done, trash, later
-
-        var label: String {
-            switch self {
-            case .seen: return "SEEN"
-            case .done: return "DONE"
-            case .trash: return "TRASH"
-            case .later: return "LATER"
-            }
-        }
-    }
-
-    /// How long "later" hides a mail: one night. It comes back at the top of the `new` pile,
-    /// where it was, rather than in the trash.
-    private static let snooze: TimeInterval = 20 * 3600
-
-    /// Acts on a mail from the panel. The card goes at once (the phone does the same), and a
-    /// refusal from Firestore brings it back at the next fetch.
-    func act(_ action: MailAction, on mail: Mail) {
-        self.mail.removeAll { $0.id == mail.id }
-        Task {
-            let fields: [String: Any]
-            switch action {
-            case .seen:
-                fields = ["state": ["stringValue": "ongoing"],
-                          "ongoingAt": Firestore.timestamp(Date())]
-            case .done:
-                fields = ["state": ["stringValue": "done"],
-                          "doneAt": Firestore.timestamp(Date())]
-            case .trash:
-                fields = ["trashRequested": ["booleanValue": true]]
-            case .later:
-                fields = ["snoozedUntil":
-                            Firestore.timestamp(Date().addingTimeInterval(Self.snooze))]
-            }
-            do {
-                try await Firestore.patch("mail/\(mail.id)", fields: fields)
-            } catch {
-                NSLog("Fleet: could not \(action.rawValue) mail \(mail.id) — \(error.localizedDescription)")
-                refresh()
-            }
-        }
-    }
-
     func markDone(_ todo: Todo) {
         todos.removeAll { $0.id == todo.id }
         Task {

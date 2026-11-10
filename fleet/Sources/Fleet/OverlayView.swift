@@ -212,7 +212,7 @@ struct OverlayView: View {
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
                         .onHover { side("spending", $0) }
-                    MailColumn(hub: hub, commandHeld: held, full: expanded == "mail", scrolling: !eagerLayout,
+                    MailColumn(hub: hub, full: expanded == "mail", scrolling: !eagerLayout,
                                limit: free, open: true)
                         .onHover { side("mail", $0) }
                     TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
