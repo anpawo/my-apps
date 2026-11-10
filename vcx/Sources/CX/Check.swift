@@ -2240,9 +2240,19 @@ enum Render {
         precondition(animation.flight == nil, "Send animation did not finish")
     }
     static func write(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat] = []) {
+        // Drained per render: a window left to the next one keeps its transcript writing the shared session's geometry.
+        autoreleasepool { draw(view, size: size, path: path, scrollOffsets: scrollOffsets) }
+    }
+
+    private static func draw(_ view: some View, size: CGSize, path: String, scrollOffsets: [CGFloat]) {
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: .aqua)
+        host.sizingOptions = []
         host.frame = CGRect(origin: .zero, size: size)
+        // Never shown: the transcript's table lays out and draws its rows only inside a window.
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.close() }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
         let offsets: [CGFloat?] = scrollOffsets.isEmpty ? [nil] : scrollOffsets.map { $0 }
@@ -2253,8 +2263,8 @@ enum Render {
                     return view.subviews.lazy.compactMap { findScroll($0) }.first
                 }
                 guard let scroll = findScroll(host) else { fatalError("Transcript scroll view not found") }
-                scroll.contentView.scroll(to: NSPoint(x: 0, y: scrollOffset))
-                scroll.reflectScrolledClipView(scroll.contentView)
+                // As a user's scroll is: within the document.
+                scroll.documentView?.scroll(NSPoint(x: 0, y: scrollOffset))
                 RunLoop.main.run(until: Date().addingTimeInterval(0.2)); host.layoutSubtreeIfNeeded()
                 print("Offscreen transcript offset: \(scroll.contentView.bounds.origin.y)")
             }

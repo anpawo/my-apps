@@ -726,7 +726,9 @@ enum BugCheck {
 @MainActor func pointer(_ view: NSView, at point: NSPoint, entering: Bool = false) {
     let event = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: point.x, y: view.bounds.height - point.y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                    windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
-    entering ? view.mouseEntered(with: event) : view.mouseMoved(with: event)
+    // As the window's tracking areas do, to the transcript rows' own hosting views too.
+    func hosts(_ view: NSView) -> [NSView] { (view is NSHostingView<AnyView> ? [view] : []) + view.subviews.flatMap(hosts) }
+    for host in [view] + hosts(view) { entering ? host.mouseEntered(with: event) : host.mouseMoved(with: event) }
 }
 
 // A shut question's arrow, in points: the lowest run of coloured rows at its bubble's left, above `below`.
