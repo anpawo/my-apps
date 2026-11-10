@@ -174,6 +174,7 @@ extension Session {
         let word = slashWord(text, caret: caret)
         commandToken = nil
         if let word, word.location > 0 || next == nil { next = (text as NSString).substring(with: word); commandToken = word }
+        next = next?.droppingDictatedPunctuation
         if next != commandQuery {
             commandQuery = next; commandSelection = commandOptions.firstIndex(where: \.isCurrent) ?? 0
             if next?.contains(" ") == true || commandToken != nil, commandOptions.isEmpty { commandQuery = nil }

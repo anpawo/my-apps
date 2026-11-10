@@ -87,6 +87,14 @@ extension NSAttributedString {
     }
 }
 
+extension String {
+    // Dictation ends a lone "/sm" with a period ("/sm."), which matched no command.
+    var droppingDictatedPunctuation: String {
+        guard hasPrefix("/"), !contains(" "), !contains("\n") else { return self }
+        return replacingOccurrences(of: "[.,!?;:]+$", with: "", options: .regularExpression)
+    }
+}
+
 private final class ChipCell: NSTextAttachmentCell {
     var padding: CGFloat = 0
     override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).descender) }

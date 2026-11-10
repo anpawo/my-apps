@@ -750,7 +750,7 @@ final class Session: ObservableObject {
     func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil, displayText: String? = nil) async {
         guard !frontendReplacing else { return }
         recalled = nil
-        var text = text
+        var text = text.droppingDictatedPunctuation
         if !retry, !text.hasPrefix("/") { text = codeEdits.attach(to: text) }
         if runtimeClient != nil {
             if text.hasPrefix("/"), images.isEmpty, !commandHandled { await command(text); return }

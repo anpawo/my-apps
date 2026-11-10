@@ -1263,6 +1263,9 @@ enum Check {
                 commands.updateCommands(typed, caret: typed.count)
                 check(commands.commandOptions.first?.name == "/model" && !commands.commandOptions.contains { $0.name == "/perms" }, "typing toward /model offers /model first, never /perms")
             }
+            commands.updateCommands("/perms.", caret: 7)
+            check(commands.commandOptions.first?.name == "/perms", "a dictated period after a command still matches it")
+            check("/sm.".droppingDictatedPunctuation == "/sm" && "/tmp/a.txt b".droppingDictatedPunctuation == "/tmp/a.txt b", "dictated punctuation is dropped from a lone command only")
             commands.updateCommands("/answer yes", caret: 11)
             check(commands.commandQuery == nil, "freeform command arguments hide empty completion popup")
             commands.updateCommands("/qwen ", caret: 6)
