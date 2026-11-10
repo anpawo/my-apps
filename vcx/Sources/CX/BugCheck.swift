@@ -706,13 +706,15 @@ enum BugCheck {
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             check(files().isEmpty, "a main thread blocked without using the CPU writes no freeze report")
             FreezeTrace.shape(FreezeTrace.Shape(window: "fixture#1", sections: 3, headerOnly: 1, pinned: "abcd1234", viewport: 612, composer: 24, drawn: 5))
-            spin(12)
+            // 16 s: the graph dump after the first sample holds the watchdog 3 s before it samples again.
+            spin(16)
             let reports = files()
             let report = reports.first { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             print("Freeze report files: " + reports.map(\.lastPathComponent).sorted().joined(separator: ", "))
             check(report.contains("\tstuck callback") && report.contains("fixture#1\t3\t1\tabcd1234\t612\t24\t5") && reports.contains { $0.path.hasSuffix(".sample.txt") },
                   "a main thread spinning in place leaves a report of the callbacks that kept firing, the windows' shapes, and a sample")
             check(reports.contains { $0.path.hasSuffix(".sample-2.txt") }, "a main thread still spinning is sampled again")
+            check(reports.contains { $0.path.hasSuffix(".graph.txt") }, "a main thread spinning in place leaves a dump of the SwiftUI attributes it keeps updating")
         }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }

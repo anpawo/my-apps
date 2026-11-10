@@ -98,6 +98,7 @@ enum FreezeTrace {
                     return String(format: "%.1f", beat - entry.time) + "\t\(s.window)\t\(s.sections)\t\(s.headerOnly)\t\(s.pinned)\t\(Int(s.viewport))\t\(Int(s.composer))\t\(s.drawn)\n"
                 }.joined()
                 try? report.write(to: folder.appendingPathComponent("\(stamp).txt"), atomically: true, encoding: .utf8)
+                GraphDump.capture(folder: folder, stamp: stamp)
             }
         }
     }
