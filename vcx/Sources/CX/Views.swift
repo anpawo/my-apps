@@ -48,8 +48,8 @@ extension View {
     // The lazy stack sizes rows it never placed from the ones it did: below one long exchange, the transcript ran thousands of
     // points past its last row, and a jump there drew no row at all. Nothing drawn a moment later lands on the end.
     func drawnRow(_ session: Session) -> some View {
-        onAppear { session.drawnRows += 1 }.onDisappear {
-            session.drawnRows -= 1
+        onAppear { session.drawnRows += 1; FreezeTrace.shape(of: session) }.onDisappear {
+            session.drawnRows -= 1; FreezeTrace.shape(of: session)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { if session.drawnRows == 0, !session.rows.isEmpty { session.landOnEnd?() } }
         }
     }
@@ -82,7 +82,7 @@ struct HoverPress: ViewModifier {
         content
             .overlay(shape.fill(.black.opacity(!enabled ? 0 : pressed ? 0.1 : hovering ? 0.05 : 0)).padding(-outset).allowsHitTesting(false))
             .visualEffect { content, geometry in content.scaleEffect(shrink ? max(0.94, 1 - 6 / max(geometry.size.width, 1)) : 1) }
-            .onHover { hovering = $0 }
+            .onHover { FreezeTrace.note("hover button"); hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
             .animation(.easeOut(duration: 0.08), value: pressed)
     }
@@ -312,6 +312,7 @@ struct CXView: View {
         .environmentObject(sending)
         .onPreferenceChange(MessageFrames.self) { frames in
             FreezeTrace.note("MessageFrames")
+            if let transcript = frames["transcript"] { session.viewportHeight = transcript.height }
             sending.receive(frames, rows: { session.rows }, reduceMotion: reduceMotion)
         }
         .overlay(alignment: .topLeading) {
@@ -338,6 +339,7 @@ struct CXView: View {
             }
         }
         .disabled(session.frontendReplacing)
+        .onChange(of: session.editorHeight) { FreezeTrace.shape(of: session) }
         .onExitCommand {
             guard !session.frontendReplacing else { return }
             if session.preview != nil { session.preview = nil }
@@ -461,6 +463,7 @@ struct CXView: View {
                     }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.top, 28)
                 }
                 .onScrollPhaseChange { _, phase, context in
+                    FreezeTrace.note("transcript scroll phase")
                     userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
                     if userScrolling { session.userScroll(distance: context.geometry.contentSize.height - context.geometry.contentOffset.y - context.geometry.containerSize.height) }
                 }
@@ -913,7 +916,7 @@ struct WorkBlock: View {
                     // The tinted segment is the hover target that opens the block.
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
                         .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0.09))
-                        .onHover { inside in if inside, !hovering { animate { hovering = true } } }
+                        .onHover { inside in FreezeTrace.note("work block edge hover"); if inside, !hovering { animate { hovering = true } } }
                     Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")", sent == 0 ? nil : "\(sent) \(sent == 1 ? "message" : "messages") sent"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
@@ -933,6 +936,7 @@ struct WorkBlock: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("work block top"); top = $0 }
             .onHover { inside in
+                FreezeTrace.note("work block hover")
                 guard !inside, hovering else { return }
                 // Scrolled inside it, the transcript rises to its header first, then it shuts: shut at once under that offset, the view went blank until the scroll caught up.
                 if top < 0, !pinned, !details, !reduceMotion {
@@ -1010,7 +1014,7 @@ struct UserBubble: View {
                             .foregroundStyle(message == nil ? accent : agentPink)
                             .frame(width: 28, height: CollapsibleText.line, alignment: .leading)
                             .contentShape(Rectangle())
-                            .onHover { inside in if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
+                            .onHover { inside in FreezeTrace.note("question arrow hover " + item.id); if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
                             .transition(.opacity)
                     }
                 }.padding(16)
@@ -1033,7 +1037,7 @@ struct UserBubble: View {
                     .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { FreezeTrace.note("question stuck " + item.id); stuck = $0 }
                     .onGeometryChange(for: CGFloat.self) { collapsible ? $0.bounds(of: .scrollView)?.height ?? .infinity : .infinity } action: { FreezeTrace.note("question room " + item.id); room = $0 }
                     .animation(.easeOut(duration: 0.2), value: stuck)
-                    .onHover { inside in if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
+                    .onHover { inside in FreezeTrace.note("question hover " + item.id); if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
@@ -1257,7 +1261,7 @@ struct CodeBlock: View {
         }.background(.black.opacity(editing ? 0.02 : 0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(editing ? accent.opacity(0.4) : .black.opacity(0.06)))
         .animation(.easeOut(duration: 0.25), value: editing)
         .onAppear { edited = edits?.text[block.text] }
-        .onHover { inside in if !inside, copied { reset?.cancel(); copied = false } }
+        .onHover { inside in FreezeTrace.note("code block hover"); if !inside, copied { reset?.cancel(); copied = false } }
     }
 }
 

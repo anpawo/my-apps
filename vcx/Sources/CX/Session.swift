@@ -195,6 +195,7 @@ final class Session: ObservableObject {
     }
     // Each drawn exchange's top in the transcript's viewport; not published, scrolling rewrites it every frame.
     var exchangeTops: [UUID: CGFloat] = [:]
+    var viewportHeight: CGFloat = 0
     var scrollToExchange: ((UUID) -> Void)?
     var landOnEnd: (() -> Void)?
     var drawnRows = 0

@@ -676,14 +676,34 @@ enum BugCheck {
         } catch { check(false, "Claude withdrawal: " + error.localizedDescription) }
         do {
             // A main thread that stops answering leaves a report of the callbacks it kept running, as the 11-08 freeze did not.
+            // The first eight reports were the Mac's sleep: a wall clock jumps across it, uptime does not. A sleep is simulated by an
+            // uptime that stops while the main thread is held, then goes on from where it stopped.
+            let real = FreezeTrace.uptime
+            nonisolated(unsafe) var frozen: TimeInterval?, lost: TimeInterval = 0
+            let clock = NSLock()
+            FreezeTrace.uptime = { clock.withLock { frozen ?? real() - lost } }
+            defer { FreezeTrace.uptime = real }
             FreezeTrace.folder = directory.appendingPathComponent("freezes")
-            FreezeTrace.start(stall: 2)
+            FreezeTrace.start(stall: 2, resample: 3)
+            func spin(_ seconds: TimeInterval) { let end = Date().addingTimeInterval(seconds); while Date() < end { FreezeTrace.note("stuck callback") } }
+            func files() -> [URL] { (try? FileManager.default.contentsOfDirectory(at: FreezeTrace.folder, includingPropertiesForKeys: nil)) ?? [] }
             RunLoop.main.run(until: Date().addingTimeInterval(1))
-            let end = Date().addingTimeInterval(7)
-            while Date() < end { FreezeTrace.note("stuck callback"); usleep(1000) }
-            let reports = (try? FileManager.default.contentsOfDirectory(at: FreezeTrace.folder, includingPropertiesForKeys: nil)) ?? []
-            let report = reports.first { $0.pathExtension == "txt" && !$0.path.hasSuffix(".sample.txt") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-            check(report.contains("\tstuck callback") && reports.contains { $0.path.hasSuffix(".sample.txt") }, "a frozen main thread leaves a report of the callbacks that kept firing, and a sample")
+            clock.withLock { frozen = real() - lost }
+            spin(5)
+            clock.withLock { lost += real() - lost - frozen!; frozen = nil }
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            check(files().isEmpty, "a main thread held across a sleep (uptime stopped) writes no freeze report")
+            Thread.sleep(forTimeInterval: 5)
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            check(files().isEmpty, "a main thread blocked without using the CPU writes no freeze report")
+            FreezeTrace.shape(FreezeTrace.Shape(window: "fixture#1", sections: 3, headerOnly: 1, pinned: "abcd1234", viewport: 612, composer: 24, drawn: 5))
+            spin(12)
+            let reports = files()
+            let report = reports.first { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            print("Freeze report files: " + reports.map(\.lastPathComponent).sorted().joined(separator: ", "))
+            check(report.contains("\tstuck callback") && report.contains("fixture#1\t3\t1\tabcd1234\t612\t24\t5") && reports.contains { $0.path.hasSuffix(".sample.txt") },
+                  "a main thread spinning in place leaves a report of the callbacks that kept firing, the windows' shapes, and a sample")
+            check(reports.contains { $0.path.hasSuffix(".sample-2.txt") }, "a main thread still spinning is sampled again")
         }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
