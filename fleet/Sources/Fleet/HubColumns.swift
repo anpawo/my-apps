@@ -25,9 +25,9 @@ struct MailColumn: View {
     var limit: CGFloat = .infinity
     /// Folded to its heading until the pointer is on it — see `OverlayView.sideOpen`.
     var open = false
-    /// What the mails actually need, measured — see `CronColumn.natural`.
+    /// What the mails actually need, measured.
     @State private var natural: CGFloat = 0
-    /// The heading line, the gap under it and the frame's padding — see `CronColumn.chrome`.
+    /// The heading line, the gap under it and the frame's padding.
     private static let chrome: CGFloat = 56
 
     var body: some View {
@@ -83,7 +83,7 @@ struct MailColumn: View {
         ForEach(commandHeld ? hub.mail : Array(hub.mail.prefix(Self.brief))) { mail in
             MailCard(hub: hub, mail: mail,
                      expanded: commandHeld && hovered == mail.id,
-                     // A transaction, as in CronColumn: without it the card unfolds at once and
+                     // A transaction: without it the card unfolds at once and
                      // the mails below jump to their new place.
                      onHover: { inside in
                          withAnimation(TodoColumn.unroll) {
@@ -98,351 +98,6 @@ struct MailColumn: View {
 
     static let brief = 3
 }
-
-/// What this machine does on its own: one line per LaunchAgent of his, and what it is for
-/// under ⌘.
-///
-/// Over the todos rather than beside them, and half the column each. These are the jobs that
-/// run whether or not anyone is looking — the reason a deadline appears in the block below
-/// without anybody typing it — and the only time you think about one is the day it stops.
-///
-/// Blue, off the RAM's own blue: the two blocks that report on the machine rather than on
-/// what you owe anyone.
-struct CronColumn: View {
-    /// What the block is called.
-    let title: String
-    /// Every agent launchd has — see `LaunchdStore`.
-    let jobs: [Launchd.Job]
-    /// Whether ⌘ is down. A wall of names at rest; the one under the pointer says what it is
-    /// for and how often it runs while it is held.
-    let commandHeld: Bool
-    /// Off for an offscreen render, like every other scrolling block.
-    var scrolling = true
-    /// The tallest the block may be. It takes what its cards need up to this, and no more —
-    /// what it does not take goes to the list underneath.
-    var limit: CGFloat = .infinity
-
-    /// The card under the pointer — the only one ⌘ unfolds. On the column rather than the
-    /// card, like the two grids above it: a card is rebuilt every tick.
-    /// Seeded from `FLEET_HOVER` so a render can show the box, which nothing else opens
-    /// without a pointer.
-    @State private var hovered: String? = ProcessInfo.processInfo.environment["FLEET_HOVER"]
-    /// Where the pointer is right now — on a card, on the box — as against `hovered`, which
-    /// is what the box is showing. Leaving the card for its own box must not take the box
-    /// away on the way: the clear waits a beat and looks at these before it goes through.
-    @State private var overCard: String?
-    @State private var overDetail = false
-    /// The families whose line runs on past the block's right edge from where it is scrolled.
-    @State private var runsOn: Set<String> = []
-    /// Unfolded while the pointer is on it, no ⌘ needed (asked 2026-10-16; ⌘ was needed from
-    /// 2026-10-07). Folded to its heading otherwise: fifteen healthy
-    /// routines are wallpaper, and the verdict on the heading says whether any of them is not.
-    var open = false
-
-    /// What the cards actually need, measured. The block is that tall, up to the height it has
-    /// been given: five agents must not leave a third of the column empty under them, and a
-    /// scroll view left to itself takes everything it is offered.
-    @State private var natural: CGFloat = 0
-
-    /// The RAM block's blue, which is the one the panel already uses for "the machine is
-    /// speaking". Not `BlockTint.memory` — that is the grey the heading chip wears.
-    static let tint = SessionState.awaitingAnswer.tint
-
-    var body: some View {
-        // The healthy ones first. Fourteen green borders are wallpaper; what the block is for
-        // is the two that are not, and they have to be in the same place every time.
-        let all = jobs.sorted { $0.name < $1.name }
-        let failed = all.filter { !$0.ok }.count
-        HubColumn(title: title,
-                  count: all.count,
-                  showsZero: true,
-                  tint: Self.tint,
-                  fill: Self.tint.darkened(0.48),
-                  // The failed ones over the total, in red, and no verdict mark (asked 2026-11-09).
-                  badgeText: failed == 0 ? nil
-                      : Text("\(failed)").foregroundStyle(SessionState.running.tint)
-                        + Text("/\(all.count)").foregroundStyle(.white.opacity(0.45)),
-                  minRows: 0,
-                  fills: false,
-                  topInset: 5,
-                  collapsed: all.isEmpty || !open) {
-            if scrolling {
-                ScrollView(.vertical) {
-                    VStack(spacing: 5) { rows(all) }
-                        .background(
-                            GeometryReader { inside in
-                                Color.clear.onAppear { natural = inside.size.height }
-                                    // Inside the animation, not beside it: the measurement
-                                    // lands a frame after the card has begun to unfold, and a
-                                    // plain assignment there made the block snap to its new
-                                    // height while the card was still opening.
-                                    .onChange(of: inside.size.height) { _, height in
-                                        withAnimation(TodoColumn.unroll) { natural = height }
-                                    }
-                            }
-                        )
-                }
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.basedOnSize)
-                // The cap is what the block was given; the floor is what the cards need. The
-                // scroll only ever appears when the second is the larger.
-                .frame(maxHeight: min(natural > 0 ? natural : .infinity,
-                                      max(40, limit - Self.chrome)), alignment: .top)
-            } else {
-                VStack(spacing: 5) { rows(all) }
-                    .frame(maxHeight: max(40, limit - Self.chrome), alignment: .top)
-                    .clipped()
-            }
-        }
-        .animation(TodoColumn.unroll, value: commandHeld)
-        .animation(TodoColumn.unroll, value: natural)
-        // Its own height, not the slot's. A `maxHeight` alone reads as "flexible up to", so
-        // the stack handed it the whole third and the block sat centred in the empty half.
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// What the block costs around its cards: the heading line, the gap under it, and the
-    /// frame's own padding. Measured once rather than laid out, because the cap has to be
-    /// decided before the content is asked how tall it is.
-    private static let chrome: CGFloat = 52
-
-    @ViewBuilder private func rows(_ all: [Launchd.Job]) -> some View {
-        if all.isEmpty {
-            HubEmptyLine(text: "No agent installed")
-        }
-        let good = all.filter(\.ok)
-        let bad = all.filter { !$0.ok }
-        // Only the halves that have anything: an empty stack is nothing tall, but the stack
-        // round it still leaves its spacing round nothing.
-        if !good.isEmpty { half(good) }
-        // The two halves are the whole point of the block, and a border colour alone made you
-        // read every card to find where one ended. Drawn short of the edges: a rule that touches the block's sides reads as the end of the block.
-        if !good.isEmpty && !bad.isEmpty { rule }
-        // One BROKEN line, whole names, rather than the families again: a failing agent that
-        // was alone in its half landed under a second OTHER (asked 2026-09-28).
-        if !bad.isEmpty { group(bad, family: Self.broken) }
-    }
-
-    private var rule: some View {
-        Rectangle()
-            .fill(.white.opacity(0.6))
-            .frame(height: 1)
-            .scaleEffect(x: 0.85)
-            .padding(.vertical, 3)
-    }
-
-    /// Agents that share a prefix go under its name, and the cards drop the prefix. Six cards
-    /// reading `s14.` and `mac.` spent most of their width saying which machine they belong
-    /// to, and the longest label did not fit at all. The ones with no family of two
-    /// or more go under OTHER, at the end, with their whole name. A rule closes each family
-    /// off from what follows — the same rule that parts the working agents from the failing —
-    /// rather than a box: a frame inside a block is a block inside a block.
-    @ViewBuilder private func half(_ jobs: [Launchd.Job]) -> some View {
-        let groups = groups(jobs)
-        VStack(spacing: 5) {
-            ForEach(Array(groups.enumerated()), id: \.element.key) { index, entry in
-                group(entry.value, family: entry.key)
-                // Only when something follows: a rule under the last thing in the block is a
-                // rule under nothing.
-                if index < groups.count - 1 { rule }
-            }
-        }
-    }
-
-    /// The group the cards with no family of their own go in.
-    private static let other = "other"
-    private static let broken = "broken"
-
-    private func groups(_ jobs: [Launchd.Job]) -> [(key: String, value: [Launchd.Job])] {
-        let families = Dictionary(grouping: jobs, by: familyName)
-        var groups = families.filter { $0.value.count > 1 }.sorted { $0.key < $1.key }
-        let loose = jobs.filter { families[familyName($0)]?.count == 1 }
-        if !loose.isEmpty { groups.append((key: Self.other, value: loose)) }
-        return groups
-    }
-
-    /// A family's name and its cards on one line, scrolled sideways past the block's edge —
-    /// a family is a line, never a paragraph (asked again on 2026-09-27). The box of the card
-    /// ⌘ is on goes under the line.
-    @ViewBuilder private func group(_ jobs: [Launchd.Job], family: String) -> some View {
-        let cards = HStack(alignment: .top, spacing: 4) {
-            Text(family == "app" ? "APPS" : family.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(1.1)
-                .foregroundStyle(Self.tint.lightened(0.65))
-                .fixedSize()
-                .padding(.leading, 7)
-                .padding(.trailing, 2)
-                // On the pills' own line, which sits under their padding.
-                .padding(.top, 5)
-            ForEach(jobs) { job in
-                card(job, family: family == Self.other || family == Self.broken ? nil : family)
-            }
-        }
-        VStack(alignment: .leading, spacing: 5) {
-            if scrolling {
-                ScrollView(.horizontal) { cards }
-                    .scrollIndicators(.hidden)
-                    .scrollBounceBehavior(.basedOnSize)
-                    // The card the edge cuts fades out rather than stopping mid-letter
-                    // ("screensh"), which read as a clipped name, not as more to scroll to.
-                    .onScrollGeometryChange(for: Bool.self) {
-                        $0.contentOffset.x + $0.containerSize.width < $0.contentSize.width - 1
-                    } action: { _, more in
-                        if more { runsOn.insert(family) } else { runsOn.remove(family) }
-                    }
-                    .mask {
-                        HStack(spacing: 0) {
-                            Rectangle()
-                            if runsOn.contains(family) {
-                                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                                    .frame(width: 36)
-                            }
-                        }
-                    }
-            } else {
-                // At their own widths, as the scroll view keeps them: a frame of no width
-                // reports none, and the line clips what spills past the block's edge.
-                cards.fixedSize(horizontal: true, vertical: false)
-                    .frame(width: 0, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
-            }
-            detail(of: jobs)
-        }
-    }
-
-    /// What comes before the first dot — `mac` for `mac.guard`. An agent with no dot is
-    /// its own family of one, which is to say OTHER.
-    private func familyName(_ job: Launchd.Job) -> String {
-        String(job.name.prefix { $0 != "." })
-    }
-
-    /// What the card under ⌘ and the pointer does, where it answers and when, in a box under
-    /// its line rather than in the card: a card that grew to its sentence moved every card
-    /// beside it. Nearly the block's width, like the rule, and short of the edges for the
-    /// same reason.
-    @ViewBuilder private func detail(of jobs: [Launchd.Job], inset: Bool = true) -> some View {
-        if commandHeld, let job = jobs.first(where: { $0.id == hovered }) {
-            VStack(alignment: .leading, spacing: 3) {
-                // A note of several lines is a list (see `Launchd.ownNote`): a line that opens
-                // on a dot hangs under it when it wraps.
-                ForEach(Array(job.note.split(separator: "\n").enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        if line.hasPrefix("• ") { Text("•") }
-                        Text(line.hasPrefix("• ") ? line.dropFirst(2) : line)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.55))
-                if let state = job.hung.map({ "hung — running for \(Launchd.span($0))" })
-                    ?? (job.deferred ? "deferred — no network" : nil) {
-                    Text(state)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle((job.deferred ? SessionState.apiError : SessionState.running).tint)
-                }
-                if let address = job.address {
-                    let link = address.hasPrefix("http://") ? URL(string: address) : nil
-                    // Only a web address opens. A SOCKS port shows as itself, because a
-                    // browser sent there hangs on a page that will never arrive. In the
-                    // note's own type, not the schedule's: the grey line under the box is
-                    // the one that says when, and nothing else wears it.
-                    Text(address)
-                        .font(.system(size: 10))
-                        .foregroundStyle(link == nil ? .white.opacity(0.55) : CronCard.tint.opacity(0.9))
-                        .underline(link != nil)
-                        .onTapGesture { if let link { NSWorkspace.shared.open(link) } }
-                }
-                // "always on" for a resident: routines and residents share the block, so the
-                // box is the only place that says which this one is.
-                Text(job.schedule)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.32))
-            }
-            .padding(.vertical, 7)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(red: 0.07, green: 0.07, blue: 0.09))
-            .clipShape(RoundedRectangle(cornerRadius: CronCard.radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: CronCard.radius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-            )
-            .padding(.horizontal, inset ? 6 : 0)
-            .transition(.opacity)
-            .onHover { inside in
-                overDetail = inside
-                if !inside { settle() }
-            }
-        }
-    }
-
-    private func card(_ job: Launchd.Job, family: String?) -> some View {
-        CronCard(job: job, family: family)
-            // `withAnimation` rather than the `.animation(value: hovered)` this used
-            // to lean on: that modifier only reaches this column's own subtree, and
-            // what the unfolding card pushes is the TODO block *below* the column.
-            // Growing, the block's height came from a measurement that is already
-            // wrapped in an animation, so TODO slid down; shrinking, it did not, and
-            // TODO jumped back up. A transaction covers the whole update, both ways.
-            .onHover { inside in
-                overCard = inside ? job.id : nil
-                if inside { withAnimation(TodoColumn.unroll) { hovered = job.id } } else { settle() }
-            }
-    }
-
-    /// Clears the box once the pointer has had a moment to land somewhere — on the box
-    /// itself, or on another card, in which case there is nothing to clear.
-    private func settle() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            guard overCard == nil, !overDetail else { return }
-            withAnimation(TodoColumn.unroll) { hovered = nil }
-        }
-    }
-}
-
-/// One agent, half the block wide. A name and a border: green for one launchd has loaded and
-/// whose last run was clean, red for one that is unloaded or came back on an error. What it
-/// does, where it answers and when is in a box under its line while ⌘ and the pointer are
-/// on it — see `CronColumn.detail`.
-struct CronCard: View {
-    let job: Launchd.Job
-    /// The box this card sits in, when it sits in one — its name is already written above.
-    var family: String?
-    /// What the card writes: `guard` inside the MAC box, `mac.guard` on its own.
-    private var label: String {
-        guard let family, job.name.hasPrefix(family + ".") else { return job.name }
-        return String(job.name.dropFirst(family.count + 1))
-    }
-
-    /// The card's corner, and the box's.
-    static let radius: CGFloat = 5
-
-    var body: some View {
-        // Amber for a run put off for want of network: the machine's colour for something
-        // going wrong that is not the routine's, and not a thing to go and fix. Not for a slot
-        // made up late: the run happened and went well, which is nothing to show.
-        let border: Color = !job.ok ? SessionState.running.tint.opacity(0.5)
-            : job.deferred ? SessionState.apiError.tint.opacity(0.5) : .white.opacity(0.07)
-        // Set like the state pills on the session cards: small, and no wider than the name.
-        Text(label).foregroundColor(.white.opacity(0.92))
-            .font(.system(size: 10, weight: .semibold))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
-            // One ground for routines and residents alike: the kind is in the ⌘ box's schedule
-            // line, and two grounds in one block read as two meanings (asked 2026-09-28).
-            .background(Color(red: 0.07, green: 0.07, blue: 0.09))
-            .clipShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-                .strokeBorder(border, lineWidth: 1))
-    }
-
-    static let tint = SessionState.awaitingAnswer.tint
-}
-
 
 /// The panel's right column: the todo list, oldest first — the one that has been sitting there
 /// longest is the one worth being reminded of.
@@ -822,6 +477,15 @@ extension View {
     func blinking(_ active: Bool) -> some View { modifier(Blinking(active: active)) }
 }
 
+extension String {
+    /// A line of a brief: its first `count` words (asked 2026-11-10: "few words only, max 5").
+    func firstWords(_ count: Int = 5) -> String {
+        let words = split(whereSeparator: \.isWhitespace)
+        return words.count <= count ? words.joined(separator: " ")
+            : words.prefix(count).joined(separator: " ") + "…"
+    }
+}
+
 /// A column with nothing in it — either because there is nothing, or because the first fetch
 /// has not come back yet. Which of the two it is matters, so the two say different things.
 struct HubEmptyLine: View {
@@ -880,7 +544,7 @@ struct MailCard: View {
                 }
                 // What to do about it when the engine said, else its headline (not the Gmail
                 // subject: see the note in `Mail`).
-                Text(mail.action.isEmpty ? mail.gist : mail.action)
+                Text((mail.action.isEmpty ? mail.gist : mail.action).firstWords())
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
@@ -890,7 +554,7 @@ struct MailCard: View {
                     .foregroundStyle(.white.opacity(0.28))
             }
 
-            Text(mail.action.isEmpty ? mail.sender : "\(mail.sender) · \(mail.gist)")
+            Text(mail.sender)
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.42))
                 .lineLimit(1)
@@ -1199,11 +863,10 @@ struct TodoPick: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(todo.title)
+            Text(todo.title.firstWords())
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
             HStack(spacing: 6) {
                 if let due = todo.due {
                     Circle().fill(TodoCard.tint(todo)).frame(width: 5, height: 5)
@@ -1435,254 +1098,8 @@ enum FirstLine {
     }
 }
 
-/// The school, under the mail: the modules you are in the middle of and when each one closes.
-///
-/// The number on the heading is not the number of modules — it is how many projects still want
-/// a rendu, which is the only figure here that is a size of work rather than a list of names.
-struct EpitechColumn: View {
-    @ObservedObject var hub: HubStore
-    /// Whether ⌘ is down. The cards are a list while it is not, and every one of them opens
-    /// what it is about while it is — the mail itself, the module's page on the intra. The
-    /// same bargain the todo column makes.
-    let commandHeld: Bool
-    /// A plain click puts the panel away, like everywhere else on it.
-    let onDismiss: () -> Void
-    /// Off for an offscreen render, like the todo column's: `ImageRenderer` draws nothing
-    /// inside a `ScrollView`.
-    var scrolling = true
-
-    /// The card under the pointer, which is the one ⌘ would open. On the column rather than
-    /// the card, for the same reason the todo column keeps it here: a card is rebuilt every tick.
-    /// Seeded from `FLEET_HOVER`, like CRONS', so a render can show one card's details.
-    @State private var hovered: String? = ProcessInfo.processInfo.environment["FLEET_HOVER"]
-    /// Folded to its heading — the name and the credits — until the pointer is on it (asked
-    /// 2026-10-15). On the panel rather than here: one block of the column opens at a time.
-    var open = false
-
-    var body: some View {
-        HubColumn(title: "EPITECH",
-                  count: hub.epitech?.projectsDue ?? 0,
-                  showsZero: true,
-                  tint: BlockTint.epitech,
-                  fill: BlockTint.epitech.darkened(0.62),
-                  badge: credits,
-                  badgeText: ledger,
-                  minRows: 3,
-                  fills: true,
-                  collapsed: hub.schoolEmpty || !open) {
-            // The todo column's block, down to the scroll: a term of modules and a fortnight
-            // of mail is longer than any screen, and the block is as tall as what is left of
-            // the left column either way.
-            if scrolling {
-                ScrollView(.vertical) {
-                    VStack(spacing: 8) { rows }
-                }
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: .infinity, alignment: .top)
-            } else {
-                GeometryReader { slot in
-                    VStack(spacing: 8) { rows }
-                        .frame(width: slot.size.width, height: slot.size.height, alignment: .top)
-                        .clipped()
-                }
-            }
-        }
-        .animation(TodoColumn.unroll, value: commandHeld)
-    }
-
-    /// Two to a row. The card is three facts wide — a name, what it pays, when it closes —
-    /// and a term of twelve modules in one column of full-width cards was a scroll where a
-    /// grid is a glance.
-    private static let pair = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
-
-    @ViewBuilder private var rows: some View {
-        if let snapshot = hub.epitech, let plan = snapshot.plan {
-            // One grid, in the order the heading adds up: under way, planned, the modules still
-            // to open, and last what is banked — it asks nothing more of you.
-            let loose = plan.todo.filter { line in !snapshot.modules.contains { $0.code == line.id } }
-            LazyVGrid(columns: Self.pair, spacing: 8) {
-                ForEach(loose.filter(\.started)) { creditCard($0, banked: false) }
-                moduleCards(snapshot.modules.filter(\.started))
-                ForEach(loose.filter { !$0.started }) { creditCard($0, banked: false) }
-                moduleCards(snapshot.modules.filter { !$0.started })
-                ForEach(plan.done) { creditCard($0, banked: true) }
-            }
-        } else if let snapshot = hub.epitech, !snapshot.modules.isEmpty {
-            LazyVGrid(columns: Self.pair, spacing: 8) { moduleCards(snapshot.modules) }
-        } else {
-            HubEmptyLine(text: hub.epitech == nil ? "No scan" : "No module open")
-        }
-    }
-
-    private func moduleCards(_ modules: [Epitech.Module]) -> some View {
-        ForEach(modules) { module in
-            ModuleCard(module: module, lit: lit(module.id), detailed: lit(module.id))
-                .epitechOpen(commandHeld: commandHeld, url: module.url,
-                             onHover: { hover(module.id, $0) }, onDismiss: onDismiss)
-        }
-    }
-
-    /// The details of a card's name show on that card alone, ⌘ held and the pointer on it.
-    private func creditCard(_ line: Epitech.CreditLine, banked: Bool) -> some View {
-        CreditCard(line: line, banked: banked, detailed: lit(line.id))
-            .onHover { hover(line.id, $0) }
-    }
-
-    private func lit(_ id: String) -> Bool { commandHeld && hovered == id }
-
-    private func hover(_ id: String, _ inside: Bool) {
-        if inside { hovered = id } else if hovered == id { hovered = nil }
-    }
-
-    /// `banked + under way + still to open = reachable / target`, each figure in its pile's
-    /// colour: green banked, orange under way, the plain grey for what has not begun.
-    private var ledger: Text? {
-        guard let plan = hub.epitech?.plan else { return nil }
-        let grey = Color.white.opacity(0.45)
-        let plus = Text(" + ").foregroundColor(grey)
-        var text = Text("\(plan.banked)").foregroundColor(LedgerTint.banked)
-            + plus + Text("\(plan.ongoing)").foregroundColor(LedgerTint.ongoing)
-            + plus + Text("\(plan.upcoming)").foregroundColor(grey)
-        // The total in red while it falls short of the target: that is the one thing to see.
-        text = text + Text(" = ").foregroundColor(grey)
-            + Text("\(plan.reachable)")
-                .foregroundColor(plan.missing > 0 ? LedgerTint.missing : .white.opacity(0.85))
-        return text + Text(" / \(plan.target)").foregroundColor(grey)
-    }
-
-    /// Banked apart from still to earn, both out of the target; what doing all of it still
-    /// leaves short is the heading's alarm. Without a plan, banked and what is left of the
-    /// year's sixty.
-    private var credits: String? {
-        if let plan = hub.epitech?.plan {
-            // The target is left out: "2 missing" beside the name already says how it stands.
-            return "\(plan.banked) ✓ · \(plan.pending) left"
-        }
-        guard let credits = hub.epitech?.credits else { return nil }
-        return "\(credits)+\(max(0, Epitech.creditsPerYear - credits))/\(Epitech.creditsPerYear)"
-    }
-
-}
-
-/// A line of the ledger that is not a module under way: one the intra signed off, or a credit
-/// the school counts that no my.epitech page carries.
-struct CreditCard: View {
-    let line: Epitech.CreditLine
-    let banked: Bool
-    let detailed: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LedgerTitle(name: line.name, ongoing: !banked && line.started, detailed: detailed,
-                        dimmed: banked)
-            Spacer(minLength: 2)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(line.credits) CR")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-                Spacer(minLength: 4)
-                if banked {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(SessionState.ready.tint)
-                } else {
-                    Text(line.awaitingGrade ? "grading" : "planned")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.28))
-                }
-            }
-        }
-        .frame(maxHeight: .infinity, alignment: .topLeading)
-        .panelCard(tint: banked ? LedgerTint.banked : nil)
-    }
-}
-
-/// A card's name in the EPITECH block. At rest only what comes before " - ", so "EIP Seminar"
-/// holds on its line; the rest ("Open Source…", "AWS") shows on the card under the pointer
-/// while ⌘ is held, wrapping if it must. A white dot before it says the module is under way.
-struct LedgerTitle: View {
-    let name: String
-    var ongoing = false
-    let detailed: Bool
-    var dimmed = false
-
-    var body: some View {
-        let short = name.components(separatedBy: " - ")[0]
-        let wraps = detailed && short != name
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if ongoing {
-                // Held on the first line's baseline, a little above it: level with the letters
-                // whether the name shrank to fit or wrapped with ⌘.
-                Circle().fill(.white).frame(width: 5, height: 5)
-                    .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 3.5 }
-            }
-            Text(wraps ? name : short)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(dimmed ? 0.55 : 0.92))
-                .lineLimit(wraps ? 3 : 1)
-                // 0.7, not 0.8: the dot's 11pt cut "Administrative Meetings" at 0.8.
-                .minimumScaleFactor(0.7)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-/// The ledger's colours, shared by the heading's figures and the cards they count.
-enum LedgerTint {
-    static let banked = SessionState.ready.tint
-    static let ongoing = SessionState.apiError.tint
-    static let missing = Color(red: 1.00, green: 0.50, blue: 0.47)
-}
-
-/// What a card in the EPITECH block is, said in a word.
-///
-/// The panel's own pill, the one the tiles wear: 9pt bold on a wash of its own colour.
-struct KindPill: View {
-    let text: String
-    let tint: Color
-
-    /// Grey for a module — it is the block's own subject, and a colour on every card is a
-    /// colour that means nothing.
-    static let module = Color(white: 0.55)
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold))
-            .tracking(0.8)
-            .fixedSize()
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.16), in: Capsule())
-    }
-}
-
 extension View {
-    /// What ⌘ does to a card in the EPITECH block: it opens what the card is about. Without
-    /// ⌘ a click is a click anywhere else on the panel — it puts the panel away.
-    ///
-    /// The cards used to unroll under ⌘ instead, which answered a question the card had
-    /// already answered: how many rendus, and when. What it could not do is show you the mail.
-    func epitechOpen(commandHeld: Bool, url: URL? = nil, open: (() -> Void)? = nil,
-                     onHover: @escaping (Bool) -> Void,
-                     onDismiss: @escaping () -> Void) -> some View {
-        contentShape(Rectangle())
-            .onHover { onHover($0) }
-            .onTapGesture {
-                // The panel goes away either way. Opening a mail means reading it, and a
-                // notification board still standing over what you opened is in the way.
-                if commandHeld {
-                    if let open { open() } else if let url { NSWorkspace.shared.open(url) }
-                }
-                onDismiss()
-            }
-    }
-
-    /// The card every row of the EPITECH block sits on. `tint` washes it in the colour of the
-    /// pile its credits are counted in on the heading — dark, so the heading's figure stays the
-    /// bright one.
+    /// The card a TODO pick sits on, washed dark in `tint`.
     func panelCard(lit: Bool = false, tint: Color? = nil) -> some View {
         frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 7)
@@ -1694,51 +1111,6 @@ extension View {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(.white.opacity(lit ? 0.2 : 0.07), lineWidth: 1)
             )
-    }
-}
-
-/// One module, half the block wide: what it is called on my.epitech, what it pays in ECTS,
-/// and the day it closes. Written exactly as the school writes it — "G5 - Blockchain & dApps"
-/// is the module's name, and a card that title-cases or shouts it is showing a different word.
-struct ModuleCard: View {
-    let module: Epitech.Module
-    /// ⌘ is down and the pointer is here: this is the card that would open.
-    let lit: Bool
-    /// ⌘ is down and the pointer is here: the whole name, not only what comes before " - ".
-    let detailed: Bool
-
-    private static let day: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "d MMM"
-        return formatter
-    }()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // One line at rest: twelve cards of equal height read as a term, and a name that
-            // wraps makes its card taller than the one beside it.
-            LedgerTitle(name: module.name, ongoing: module.started, detailed: detailed)
-
-            Spacer(minLength: 2)
-
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // my.epitech does not publish what a module is worth — the figures come from
-                // the term's opening amphi, kept by hand in ~/self/epitech/scanner/credits.json. A module
-                // missing from that table says nothing rather than a made-up number.
-                if let credits = module.credits {
-                    Text("\(credits) CR")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                Spacer(minLength: 4)
-                Text("due \(Self.day.string(from: module.end))")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.28))
-            }
-        }
-        .frame(maxHeight: .infinity, alignment: .topLeading)
-        .panelCard(lit: lit)
     }
 }
 
@@ -1795,8 +1167,7 @@ struct AlertsBlock: View {
         return out
     }
 
-    /// A routine whose last run ended badly, by name. The CRONS block says so too, in a
-    /// red card among fifteen; this is the line you read without looking for it. Only the
+    /// A routine whose last run ended badly, by name: the only place the panel says so. Only the
     /// routines: a resident's last exit is history, not health — see `Job.ok`.
     /// Not while Fleet's own retry of it is running: most failed runs pass the second time.
     /// A hung run is named whatever its last exit said: that exit is the run before. A deferred
@@ -1887,164 +1258,5 @@ struct AlertsBlock: View {
         .blinking(!Self.alerts(hub, crons: crons).allSatisfy {
             Self.networkLines.contains($0) || fixer.fixing($0)
         })
-    }
-}
-
-
-/// The first block of the left column, on the ALERT line: the name and how many Reels were
-/// read today, and a spinner in the middle while one is being read. Under the pointer it opens
-/// — a third of the column at most, the blocks under it giving way — on the Reels read so far,
-/// a card each; ⌘ on a card shows the verdict and a field to correct the reading.
-struct ReelBlock: View {
-    @ObservedObject var hub: HubStore
-    let commandHeld: Bool
-    /// The tallest the whole block may be under the pointer, pane included.
-    let limit: CGFloat
-    /// The same at rest: what MAIL leaves of the column, the school folded. Open on all of it
-    /// whenever half a card fits (asked 2026-10-16: a column ending short of its height left
-    /// that room empty), the heading alone when not.
-    var room: CGFloat = 0
-
-    /// Under the pointer — see `OverlayView.sideOpen`.
-    var open = false
-    @State private var hovered: String?
-    /// What the cards need, measured: the list is that tall up to the limit.
-    @State private var natural: CGFloat = 0
-
-    private static let tint = Color(red: 1.00, green: 0.45, blue: 0.72)
-    /// The heading line and the gap under it, and the pane over and under.
-    private static let chrome: CGFloat = 14 + 9 + 26
-
-    var body: some View {
-        let pointed = open || hub.contextReelID != nil
-        let roomy = room - Self.chrome >= MailCard.room(forRows: 1) / 2
-        let listing = (pointed || roomy) && !hub.readReels.isEmpty
-        Block(title: "REELS", tint: Self.tint, fill: Self.tint.darkened(0.58)) {
-            if hub.checkingReel != nil || hub.reinterpreting {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.mini)
-                    // `.tint` is ignored by the macOS spinner; its light grey multiplied is pink.
-                    .colorMultiply(Self.tint)
-            }
-        } trailing: {
-            Text("\(hub.reelsReadToday)")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.45))
-                .titleGround()
-        } content: {
-            if listing {
-                let height = min(natural > 0 ? natural : 60,
-                                 pointed ? max(40, max(limit, room) - Self.chrome) : room - Self.chrome)
-                ScrollView(.vertical) {
-                    VStack(spacing: 8) {
-                        ForEach(hub.readReels) { reel in
-                            ReelCard(hub: hub, reel: reel,
-                                     expanded: (commandHeld && hovered == reel.id)
-                                        || hub.contextReelID == reel.id,
-                                     onHover: { inside in
-                                         withAnimation(TodoColumn.unroll) {
-                                             if inside { hovered = reel.id }
-                                             else if hovered == reel.id { hovered = nil }
-                                         }
-                                     })
-                        }
-                    }
-                    .background(GeometryReader { inside in
-                        Color.clear
-                            .onAppear { natural = inside.size.height }
-                            .onChange(of: inside.size.height) { _, height in
-                                withAnimation(TodoColumn.unroll) { natural = height }
-                            }
-                    })
-                }
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.basedOnSize)
-                // Held, not flexible: beside MAIL's greedy reader a flexible list is offered half
-                // of what is left, not what is left.
-                .frame(height: height)
-                .transition(.opacity)
-            }
-        }
-        .animation(TodoColumn.unroll, value: commandHeld)
-    }
-}
-
-/// One Reel read: what it was about, and what the read did with it — a mail card's two lines.
-/// ⌘ adds the verdict's summary and a field to correct the reading.
-struct ReelCard: View {
-    @ObservedObject var hub: HubStore
-    let reel: Reel
-    let expanded: Bool
-    let onHover: (Bool) -> Void
-
-    @FocusState private var typing: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // Reels read before the note was kept on the document have only the summary.
-                Text([reel.reminder, reel.summary, reel.label].first { !$0.isEmpty } ?? reel.id)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if let read = reel.digestedAt {
-                    Text(shortAge(since: read))
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.28))
-                }
-            }
-            Text(reel.outcome.isEmpty ? (reel.author.isEmpty ? " " : "@" + reel.author) : reel.outcome)
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.42))
-                .lineLimit(1)
-
-            if expanded {
-                if !reel.summary.isEmpty {
-                    Text(reel.summary)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
-                // The hint drawn by hand, dimmed: the field paints its own placeholder in its
-                // text colour, whatever `prompt` is given, so it read as written.
-                TextField("", text: $hub.reelContext, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .tint(.white.opacity(0.8))
-                    .lineLimit(1 ... 3)
-                    .focused($typing)
-                    .background(alignment: .leading) {
-                        if hub.reelContext.isEmpty || hub.contextReelID != reel.id {
-                            Text("Add context to correct the reading")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.white.opacity(0.3))
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .padding(.top, 6)
-                    .onChange(of: typing) {
-                        if typing {
-                            if hub.contextReelID != reel.id { hub.reelContext = "" }
-                            hub.contextReelID = reel.id
-                        }
-                        hub.reelContextFocused = typing
-                    }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
-        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(.white.opacity(expanded ? 0.2 : 0.07), lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onHover { onHover($0) }
     }
 }

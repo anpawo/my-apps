@@ -337,7 +337,7 @@ final class MoneyStore: ObservableObject {
 /// a pie of what each kind took of it — see `MoneyMonth`.
 struct MoneyColumn: View {
     @ObservedObject var store: MoneyStore
-    /// Off for a render that draws no scroll view — see `CronColumn`.
+    /// Off for a render that draws no scroll view: `ImageRenderer` leaves a ScrollView empty.
     var scrolling = true
     /// The most the block takes of its column: a month taller than this scrolls under it
     /// rather than push TODO off the panel.

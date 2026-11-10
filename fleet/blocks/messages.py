@@ -13,6 +13,8 @@ import json, os, shutil, sqlite3, sys, tempfile, time
 SRC = os.path.expanduser("~/.beeper/profiles/server/background/index.db")
 OUT = os.path.expanduser("~/.local/state/fleet/blocks/messages.json")
 CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
+# Each network's icon, copied beside the block: Fleet reads pictures from its blocks folder.
+ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 SHOWN = 3
 SKIP = ("HIDDEN", "REACTION", "MEMBERSHIP", "NOTICE")
 
@@ -82,7 +84,8 @@ def build(db, after, now):
         name, net = title(chat["title"]), network(chat["protocol"], chat["account"])
         items.append({
             "text": f"{name} · {last[chat['id']]}"[:90],
-            "detail": f"{net} · {ago(chat['ts'], now)}",
+            "detail": ago(chat['ts'], now),
+            "image": f"icons/{net}.png",
             "help": f"{chat['unread']} unread on {net}. Click: a VCX session reads the chat with you.",
             "open": {"cwd": os.path.expanduser("~/self"),
                      "prompt": f"Read my {net} chat \"{name}\" on Beeper (/messages), tell me in a few "
@@ -147,6 +150,11 @@ def main():
             previous = json.load(f)
     except (OSError, ValueError):
         pass
+    icons = os.path.join(os.path.dirname(OUT), "icons")
+    os.makedirs(icons, exist_ok=True)
+    for name in os.listdir(ICONS):
+        if not os.path.exists(os.path.join(icons, name)):
+            shutil.copy2(os.path.join(ICONS, name), icons)
     if block != previous:
         write(OUT, block)
     write(CURSOR, {"after": cursor})
@@ -182,7 +190,9 @@ def test():
     items = block["groups"][0]["items"]
     assert block["groups"][0]["title"] == "2 unread chats", block
     assert items[0]["text"] == "Mat · are you there?", items[0]
-    assert items[0]["detail"] == "whatsapp · 2 min", items[0]
+    assert items[0]["detail"] == "2 min", items[0]
+    assert items[0]["image"] == "icons/whatsapp.png", items[0]
+    assert all(os.path.exists(os.path.join(ICONS, i["image"][6:])) for i in items), "an icon per network"
     assert items[1]["text"].startswith("Note to self"), "a phone number never shows"
     assert "Mat" in items[0]["open"]["prompt"]
 

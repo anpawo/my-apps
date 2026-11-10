@@ -821,10 +821,9 @@ final class HubStore: ObservableObject {
     }
 
     /// A block with nothing in it folds to its heading line, like MEMORY, and gives its room to
-    /// the prioritized block under it (EPITECH, TODO). Only once loaded: a column that has not
+    /// the block under it. Only once loaded: a column that has not
     /// answered yet is not an empty one.
     var mailEmpty: Bool { loaded && mail.isEmpty }
-    var schoolEmpty: Bool { loaded && (epitech?.modules.isEmpty ?? true) }
     var todoEmpty: Bool { loaded && todos.isEmpty && !composing }
 
     /// What an empty column says before its first fetch has landed: waiting, or that the first

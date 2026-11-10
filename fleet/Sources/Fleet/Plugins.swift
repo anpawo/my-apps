@@ -181,7 +181,7 @@ final class PluginStore: ObservableObject {
 struct PluginColumns: View {
     @ObservedObject var store: PluginStore
     var commandHeld = false
-    /// Off for a render that draws no scroll view — see `CronColumn`.
+    /// Off for a render that draws no scroll view: `ImageRenderer` leaves a ScrollView empty.
     var scrolling = true
     /// The most each block takes of its column, past which its list scrolls.
     var limit: CGFloat = .infinity
@@ -189,6 +189,8 @@ struct PluginColumns: View {
     var opened: String?
     /// These files' blocks before the others, in this order; the rest by file name.
     var first: [String] = []
+    /// These files' blocks open whatever the pointer does.
+    var pinned: Set<String> = []
     var onHover: (String, Bool) -> Void = { _, _ in }
     /// A click on an item that names a session to start.
     var onOpen: (PluginBlock.Launch) -> Void = { _ in }
@@ -198,7 +200,8 @@ struct PluginColumns: View {
         ForEach(store.blocks.enumerated().sorted { (rank($0.1.id), $0.0) < (rank($1.1.id), $1.0) }.map(\.1)) { block in
             PluginColumn(block: block, store: store, commandHeld: commandHeld,
                          scrolling: scrolling, limit: limit,
-                         open: opened == block.id || opened == "plugins", onOpen: onOpen)
+                         open: opened == block.id || opened == "plugins" || pinned.contains(block.id),
+                         onOpen: onOpen)
                 .onHover { onHover(block.id, $0) }
         }
     }
@@ -245,7 +248,17 @@ struct PluginColumn: View {
     /// The groups drawn, by their place in the file: the empty ones too while an item can be
     /// carried, as somewhere to put it down.
     private var shown: [Int] {
-        block.groups.indices.filter { armed || carried != nil || !block.groups[$0].items.isEmpty }
+        block.groups.indices.filter { armed || carried != nil || !items(in: $0).isEmpty }
+    }
+
+    /// A brief: the first five of the block, every one under ⌘ (asked 2026-11-10).
+    private static let brief = 5
+
+    private func items(in group: Int) -> [PluginBlock.Item] {
+        let all = block.groups[group].items
+        guard !commandHeld else { return all }
+        let before = block.groups[..<group].reduce(0) { $0 + $1.items.count }
+        return Array(all.prefix(max(0, Self.brief - before)))
     }
 
     var body: some View {
@@ -293,6 +306,7 @@ struct PluginColumn: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(shown.enumerated()), id: \.element) { position, index in
                 let group = block.groups[index]
+                let items = items(in: index)
                 if position > 0 { rule }
                 VStack(alignment: .leading, spacing: 3) {
                     if let title = group.title {
@@ -301,7 +315,7 @@ struct PluginColumn: View {
                             .tracking(1.1)
                             .foregroundStyle(block.color.lightened(0.65))
                     }
-                    if group.items.isEmpty {
+                    if items.isEmpty {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(.white.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                             .frame(height: 30)
@@ -310,7 +324,7 @@ struct PluginColumn: View {
                         // Three to a line, the picture over the name.
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3),
                                   spacing: 8) {
-                            ForEach(Array(group.items.enumerated()), id: \.offset) { slot, item in
+                            ForEach(Array(items.enumerated()), id: \.offset) { slot, item in
                                 carriable(VStack(spacing: 4) {
                                     face(item)
                                     Text(item.text)
@@ -324,18 +338,22 @@ struct PluginColumn: View {
                         .padding(.top, 4)
                     } else if block.layout == "board" {
                         // A card each, washed in its state's colour: the S14 board.
-                        ForEach(Array(group.items.enumerated()), id: \.offset) { slot, item in
+                        ForEach(Array(items.enumerated()), id: \.offset) { slot, item in
                             carriable(clickable(boardCard(item), item), group: index, slot: slot,
                                       item: item, live: live)
                         }
                         .padding(.top, 2)
                     } else {
-                        ForEach(Array(group.items.enumerated()), id: \.offset) { slot, item in
+                        ForEach(Array(items.enumerated()), id: \.offset) { slot, item in
                             carriable(clickable(HStack(spacing: 8) {
-                                if let dot = PluginBlock.color(item.tint) {
+                                if let icon = item.image.flatMap({ store.pictures[$0] }) {
+                                    Image(nsImage: icon).resizable().scaledToFit()
+                                        .frame(width: 14, height: 14)
+                                        .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                                } else if let dot = PluginBlock.color(item.tint) {
                                     Circle().fill(dot).frame(width: 6, height: 6)
                                 }
-                                Text(item.text)
+                                Text(item.text.firstWords())
                                     .foregroundStyle(.white.opacity(0.9))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
@@ -379,11 +397,10 @@ struct PluginColumn: View {
     private func boardCard(_ item: PluginBlock.Item) -> some View {
         let tint = PluginBlock.color(item.tint) ?? block.color
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(item.text)
+            Text(item.text.firstWords())
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
             Spacer(minLength: 0)
             if let detail = item.detail {
                 Text(detail)

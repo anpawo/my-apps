@@ -402,8 +402,9 @@ Prints every session it can see, with the transcript it bound, the state it deri
 ## Blocks from other programs
 
 Any program can put a block on the panel without touching Fleet: it writes
-`~/.local/state/fleet/blocks/<name>.json`, and the block shows under SPENDING, folded to its
-title until the pointer is on it. Whatever gathers the data runs on its own schedule, and if it
+`~/.local/state/fleet/blocks/<name>.json`, and the block shows in the right column, folded to its
+title until the pointer is on it (S14 and MESSAGES stay open, on their first five items, five
+words each; ⌘ shows them all). Whatever gathers the data runs on its own schedule, and if it
 dies the block keeps its last state.
 
 ```json
@@ -419,7 +420,8 @@ dies the block keeps its last state.
 
 `layout` is `rows` (one line per item, `detail` at the right), `board` (a card per item, washed
 in the item's `tint`) or `faces` (three to a line, a
-round `image` over the `text`; `image` is a path relative to the blocks folder). `help` shows
+round `image` over the `text`; `image` is a path relative to the blocks folder, and a 14pt
+icon before the line in `rows`). `help` shows
 under the pointer. An item's `tint` (`#RRGGBB`) is a dot before it in `rows`; its `open`
 (`{"cwd": …, "prompt": …}`) makes a click start a Vibe Code X session there, the prompt as its
 first message. A top-level `notify` (`[{"id", "title", "body"}]`) is posted as a banner, each id
@@ -427,7 +429,7 @@ once; those already in the folder when Fleet starts are not.
 
 Two such programs ship with Fleet (`blocks/`, installed by `install.sh` with their agents):
 `fleet.messages` writes MESSAGES every minute from Beeper's local index (the three unread chats
-heard from last, and a banner for what came in), `fleet.s14` writes S14 every 15 minutes from the
+heard from last, each after its app's icon from `blocks/icons/`, and a banner for what came in), `fleet.s14` writes S14 every 15 minutes from the
 recon site's digest of the MO mailbox (to answer, maybe missed, waiting on them, settled). A group with no items is drawn only while ⌘ is held over the block, a block
 with none is not drawn, and a file that does not parse is logged to `/tmp/fleet.log`. Blocks are
 ordered by file name.

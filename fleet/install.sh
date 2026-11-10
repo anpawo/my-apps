@@ -181,6 +181,7 @@ launchctl bootstrap "gui/$UID" "$REELS_PLIST" 2>/dev/null || true
 SHARE="$HOME/.local/share/fleet"
 mkdir -p "$SHARE"
 cp blocks/messages.py blocks/s14.py "$SHARE/"
+cp -R blocks/icons "$SHARE/"
 block_agent() { # <label> <seconds> <script>
 	local label=$1 plist="$HOME/Library/LaunchAgents/$1.plist"
 	ln -sf /usr/bin/env "$BIN/agents/$label"

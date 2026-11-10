@@ -46,8 +46,7 @@ struct OverlayView: View {
     /// leaves it (asked 2026-11-09: every block folded unless hovered). Seeded from the `-open`
     /// flags so a render can show one.
     @State private var sideOpen: String? = [
-        ("--reels-open", "reels"), ("--mail-open", "mail"), ("--school-open", "epitech"),
-        ("--crons-open", "crons"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
+        ("--mail-open", "mail"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
         ("--todo-open", "todo"),
     ].first { CommandLine.arguments.contains($0.0) }?.1
     /// How tall the grid's own area is, measured: the heading above it is laid out, not
@@ -199,33 +198,25 @@ struct OverlayView: View {
         HStack(alignment: .top, spacing: 0) {
             gap(Self.edgeWeight)
             if controller.hub.isConfigured {
-                // Left (asked 2026-11-09): the memory standing on top, the crons under it, then
-                // a gap, then the mail and the todos; the school and the Reels last.
+                // Left (asked 2026-11-10): the memory standing on top, the spending under it, then
+                // the mail and the todos, both open.
                 let hub = controller.hub
                 let held = controller.commandHeld
-                sideColumn(keys: ["crons", "mail", "todo", "epitech", "reels"], gap: Self.blockGap) {
+                sideColumn(keys: ["spending", "mail", "todo"]) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
                 } blocks: { free in
-                    CronColumn(title: "CRONS", jobs: controller.launchd.jobs, commandHeld: held,
-                               scrolling: !eagerLayout, limit: free, open: sideOpen == "crons")
-                        .onHover { side("crons", $0) }
-                        .padding(.bottom, Self.blockGap)
+                    MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
+                                open: sideOpen == "spending")
+                        .onHover { side("spending", $0) }
                     MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
-                               limit: free, open: sideOpen == "mail")
+                               limit: free, open: true)
                         .onHover { side("mail", $0) }
                     TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                               scrolling: !eagerLayout, open: sideOpen == "todo")
+                               scrolling: !eagerLayout, open: true)
                         // The whole list only under ⌘: open, it is three picks — see `TodoColumn.listing`.
                         .frame(maxHeight: !hub.todoEmpty && ((sideOpen == "todo" && held) || hub.composing)
                                ? .infinity : nil)
                         .onHover { side("todo", $0) }
-                    EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                                  scrolling: !eagerLayout, open: sideOpen == "epitech")
-                        .frame(maxHeight: sideOpen == "epitech" && !hub.schoolEmpty ? .infinity : nil,
-                               alignment: .top)
-                        .onHover { side("epitech", $0) }
-                    ReelBlock(hub: hub, commandHeld: held, limit: free, open: sideOpen == "reels")
-                        .onHover { side("reels", $0) }
                 }
                 Spacer(minLength: 0).frame(width: Self.innerGap)
             }
@@ -253,19 +244,17 @@ struct OverlayView: View {
                             .offset(y: -Self.overLine)
                     }
                 }
-            // Right (asked 2026-11-09): the spending, then the plugins, nutrition first.
+            // Right: S14 and the messages, open (asked 2026-11-10), then any other plugin.
             if controller.hub.isConfigured {
                 let held = controller.commandHeld
                 Spacer(minLength: 0).frame(width: Self.innerGap)
-                sideColumn(keys: ["spending"] + controller.plugins.blocks.map(\.id)) {
+                sideColumn(keys: controller.plugins.blocks.map(\.id)) {
                     EmptyView()
                 } blocks: { free in
-                    MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
-                                open: sideOpen == "spending")
-                        .onHover { side("spending", $0) }
                     PluginColumns(store: controller.plugins, commandHeld: held,
                                   scrolling: !eagerLayout, limit: free, opened: sideOpen,
-                                  first: ["s14.json", "messages.json", "nutrition.json"], onHover: side,
+                                  first: ["s14.json", "messages.json"], pinned: ["s14.json", "messages.json"],
+                                  onHover: side,
                                   onOpen: { launch in
                                       controller.dismiss()
                                       VCX.launch(cwd: launch.cwd, prompt: launch.prompt)
@@ -294,13 +283,12 @@ struct OverlayView: View {
             top()
             GeometryReader { space in
                 VStack(alignment: .leading, spacing: Self.blockGap) { blocks(space.size.height) }
-                    .frame(height: space.size.height + CGFloat(keys.count - 1) * Self.overLine + gap,
+                    .frame(height: space.size.height + CGFloat(max(keys.count - 1, 0)) * Self.overLine + gap,
                            alignment: .top)
             }
         }
         .onHover { if !$0 { side(nil, true) } }
         .animation(Self.fold, value: hub.mailEmpty)
-        .animation(Self.fold, value: hub.schoolEmpty)
         .animation(Self.fold, value: hub.todoEmpty)
         // A panel put away with the pointer on a block brings no hover-out back.
         .onChange(of: controller.isPanelVisible) { _, shown in
