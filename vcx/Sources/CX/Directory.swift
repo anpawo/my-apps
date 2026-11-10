@@ -142,7 +142,8 @@ func routeProject(_ prompt: String, account: Account?) async -> String? {
     guard (try? process.run()) != nil else { return nil }
     let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }
     DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
-    let data = await Task.detached { let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); return data }.value
+    // No waitUntilExit: on 2026-11-10 it never returned for a Haiku already reaped, and the first prompt waited an hour unsent.
+    let data = await Task.detached { output.fileHandleForReading.readDataToEndOfFile() }.value
     timeout.cancel()
     let answer = String(decoding: data, as: UTF8.self).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "`'\"/.")))
     guard !answer.isEmpty, answer.lowercased() != "none", !answer.contains("..") else { return nil }

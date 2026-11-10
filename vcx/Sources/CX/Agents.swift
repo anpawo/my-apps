@@ -133,9 +133,7 @@ final class ClaudeConnection: Connection {
         try process.run()
         let timeout = DispatchWorkItem { if process.isRunning { endProcess(process, signal: SIGKILL) } }
         DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
-        let data = await Task.detached {
-            let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); return data
-        }.value
+        let data = await Task.detached { output.fileHandleForReading.readDataToEndOfFile() }.value
         timeout.cancel()
         guard let status = try? JSONSerialization.jsonObject(with: data) as? JSON,
               status["loggedIn"] as? Bool == true, status["authMethod"] as? String == "claude.ai" else {
