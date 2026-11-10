@@ -610,8 +610,43 @@ enum BugCheck {
                     }
                 }
                 print("Jumped to the estimated end at \(Int(estimated)) pt: now \(Int(scroll.contentView.bounds.origin.y)) pt of \(Int(scroll.documentView?.bounds.height ?? 0)), \(ink) ink samples in the transcript")
-                check(ink > 5000 && new.follow.attached, "a jump past the transcript's last row lands on its end, not on a blank page")
+                check(ink > 5000, "a jump past the transcript's last row lands on its end, not on a blank page")
             }
+        }
+        do {
+            // The transcript is an eager stack over its last 40 exchanges: a lazy one spun at 11-10 18:27, its edge row in and out.
+            let long = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("earlier"))
+            long.ready = true; long.status = "Ready"
+            for n in 1...45 {
+                long.show(["id": "earlier-q\(n)", "type": "userMessage", "content": [["type": "text", "text": "Question \(n)"]]])
+                long.show(["id": "earlier-a\(n)", "type": "agentMessage", "provider": "Claude", "text": "Answer \(n)."])
+            }
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(long)
+            defer { window.close(); long.close() }
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            // At the top, the first drawn question sits under the Show earlier row, or right at the transcript's top padding.
+            func firstTop() async -> CGFloat {
+                if let scroll = RuntimeUpdate.scrollView(in: window.contentView) { scroll.contentView.scroll(to: .zero); scroll.reflectScrolledClipView(scroll.contentView) }
+                await settle(); window.contentView?.layoutSubtreeIfNeeded()
+                let sections = conversationSections(long.rows)
+                return long.questionTops[sections[sections.count - long.exchangeTops.count].id] ?? -1
+            }
+            let drawn = long.exchangeTops.count, under = await firstTop()
+            let kept = conversationSections(long.rows)[5].id
+            func shot(_ name: String) {
+                guard let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent(name))
+            }
+            shot("reveal-before.png")
+            long.showEarlier()
+            await settle(); await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            shot("reveal-after.png")
+            let stayed = long.questionTops[kept] ?? -1
+            let top = await firstTop()
+            print("45 exchanges: \(drawn) drawn, the first at \(Int(under)) pt from the top; after Show earlier it stays at \(stayed) pt, \(long.exchangeTops.count) drawn, the first at \(Int(top)) pt")
+            check(drawn == 40 && abs(stayed - under) <= 1 && long.exchangeTops.count == 45 && top >= 0 && top < 40, "a long transcript draws its last 40 exchanges under a Show earlier row that shows the rest above the row he was reading")
         }
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()

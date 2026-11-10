@@ -2165,6 +2165,8 @@ enum Render {
         // A runtime snapshot delivers the rows and the ready state together, as when a headless session is resumed.
         show(session)
         session.ready = true; session.status = "Ready"; session.revision += 1
+        // Laid out first: a debug build takes over a second on 21 long exchanges, and the landing comes after that.
+        host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.6)); host.layoutSubtreeIfNeeded()
         func scrolls(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrolls) }
         guard let scroll = scrolls(host).filter({ !($0.documentView is ComposerText) }).max(by: { $0.frame.width < $1.frame.width }),

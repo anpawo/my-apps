@@ -40,7 +40,7 @@ enum FreezeTrace {
         if open { headerOnly += 1 }
         let pinned = session.pinnedQuestion.map { String($0.uuidString.prefix(8)) } ?? "none"
         let window = URL(fileURLWithPath: session.cwd).lastPathComponent + "#" + String(UInt(bitPattern: ObjectIdentifier(session).hashValue), radix: 16).suffix(6)
-        shape(Shape(window: window, sections: sections, headerOnly: headerOnly, pinned: pinned, viewport: session.viewportHeight, composer: session.editorHeight, drawn: session.drawnRows))
+        shape(Shape(window: window, sections: sections, headerOnly: headerOnly, pinned: pinned, viewport: session.viewportHeight, composer: session.editorHeight, drawn: min(sections, session.shownSections)))
     }
 
     // A stall is a freeze only if the main thread spent most of it on the CPU: blocked or idle, it is something else.

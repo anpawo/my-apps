@@ -204,8 +204,9 @@ final class Session: ObservableObject {
         if next != pinnedQuestion { pinnedQuestion = next }
     }
     var scrollToExchange: ((UUID) -> Void)?
-    var landOnEnd: (() -> Void)?
-    var drawnRows = 0
+    // Sections the transcript draws, counted from its end; "Show earlier" raises it.
+    @Published var shownSections = 40
+    var showEarlier: () -> Void = {}
     @Published var permissions: [Permission] = [] {
         didSet { if questionFlow?.request.id != permissions.first?.id { questionFlow = permissions.first.flatMap(QuestionFlow.init) } }
     }
