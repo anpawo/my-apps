@@ -614,6 +614,7 @@ final class Session: ObservableObject {
                 if method == "item/completed" {
                     deltas.removeValue(forKey: data["id"] as? String ?? "")
                     if data["type"] as? String == "commandExecution", let command = data["command"] as? String { turnCommands.append(command) }
+                    if data["type"] as? String == "fileChange" { turnCommands += (data["changes"] as? [JSON] ?? []).compactMap { $0["path"] as? String }.map { "Edit\n" + pretty(["file_path": $0]) } }
                     if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd { moveDirectory(directory) }
                 }
             }

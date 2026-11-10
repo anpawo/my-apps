@@ -26,12 +26,13 @@ func addedDirectories() -> [String] {
     return (settings["permissions"] as? JSON)?["additionalDirectories"] as? [String] ?? []
 }
 
-/// The project a turn worked in, from the absolute paths its tool calls named: the git root (or the `.fleet`
-/// sub-folder) named most, the latest on a tie. nil when none, or when the session already stands in it. A session
-/// launched in m3-labs that worked in s14 through `( cd … )` stayed under m3-labs in Fleet (asked 2026-11-10).
+/// The project a turn edited files in: the git root (or the `.fleet` sub-folder) edited most, the latest on a tie.
+/// nil when none, or when the session already stands in it. A session launched in m3-labs that worked in s14 stayed
+/// under m3-labs in Fleet (asked 2026-11-10); reads and commands do not count, a cer session that read Fleet's code
+/// to answer a question moved to my-apps (same day: "it shouldn't change that much the current focused dir").
 func turnDirectory(_ commands: [String], current: String, initial: String, added: [String] = addedDirectories()) -> String? {
     var counts: [String: (count: Int, last: Int)] = [:], roots: [String: String?] = [:]
-    for (n, path) in commands.flatMap(namedPaths).enumerated() {
+    for (n, path) in commands.compactMap(editedPath).enumerated() {
         let parent = (path as NSString).deletingLastPathComponent
         if roots[parent] == nil { roots[parent] = projectRoot(path) }
         guard let root = roots[parent] ?? nil, ([initial] + added).contains(where: { workingDirectory(root, within: $0) != nil })
@@ -43,10 +44,12 @@ func turnDirectory(_ commands: [String], current: String, initial: String, added
     return best
 }
 
-private func namedPaths(_ command: String) -> [String] {
-    command.split(whereSeparator: { $0.isWhitespace || "\"'`;|&()<>=,{}[]$".contains($0) }).compactMap { word in
-        word.hasPrefix("/") ? String(word) : word.hasPrefix("~/") ? NSHomeDirectory() + word.dropFirst() : nil
-    }
+/// The file of a Claude Edit/Write call, shown as its tool name over its JSON input (`Agents.swift`).
+func editedPath(_ command: String) -> String? {
+    let parts = command.split(separator: "\n", maxSplits: 1)
+    guard parts.count == 2, ["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(String(parts[0])),
+          let input = try? JSONSerialization.jsonObject(with: Data(parts[1].utf8)) as? JSON else { return nil }
+    return (input["file_path"] ?? input["notebook_path"]) as? String
 }
 
 /// The nearest folder above path holding `.git`, or its `.fleet` sub-folder path is in (an empty `.fleet` names the root).

@@ -473,6 +473,7 @@ enum Check {
                 check(turnDirectory(worked, current: app + "/src", initial: directory.path) == nil
                       && turnDirectory(worked, current: repoPath, initial: target, added: []) == nil
                       && turnDirectory(["pwd", "/usr/bin/true"], current: target, initial: directory.path) == nil, "a turn inside its project, outside the allowed folders or naming no project leaves the session alone")
+                check(turnDirectory(worked.filter { editedPath($0) == nil }, current: target, initial: directory.path) == nil, "a turn that only read or ran commands in another project leaves the session alone")
                 for (n, command) in worked.enumerated() {
                     fleetSession.event(["method": "item/completed", "params": ["item": item(command).merging(["id": "turn-\(n)"]) { _, new in new }]])
                 }
