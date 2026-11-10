@@ -615,7 +615,9 @@ final class Session: ObservableObject {
                     deltas.removeValue(forKey: data["id"] as? String ?? "")
                     if data["type"] as? String == "commandExecution", let command = data["command"] as? String { turnCommands.append(command) }
                     if data["type"] as? String == "fileChange" { turnCommands += (data["changes"] as? [JSON] ?? []).compactMap { $0["path"] as? String }.map { "Edit\n" + pretty(["file_path": $0]) } }
-                    if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd { moveDirectory(directory) }
+                    // A cd places the window during its first prompt only; later, only edits move it (asked 2026-11-10).
+                    if rows.filter({ $0.kind == "user" }).count <= 1,
+                       let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd { moveDirectory(directory) }
                 }
             }
         case "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta":

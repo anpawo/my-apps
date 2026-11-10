@@ -463,6 +463,9 @@ enum Check {
                 presence.publish(fleetSession)
                 check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
                 check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
+                for n in 1...2 { fleetSession.show(["id": "cd-user-\(n)", "type": "userMessage", "sentAt": Double(n), "content": [["type": "text", "text": "prompt \(n)"]]]) }
+                fleetSession.event(["method": "item/completed", "params": ["item": item("cd '\(directory.path)'").merging(["id": "cd-later"]) { _, new in new }]])
+                check(fleetSession.cwd == target, "a standalone cd after the first prompt leaves the window's folder alone")
                 let beta = directory.appendingPathComponent("beta").path, app = beta + "/app"
                 try! FileManager.default.createDirectory(atPath: app + "/src", withIntermediateDirectories: true)
                 try! FileManager.default.createDirectory(atPath: beta + "/.git", withIntermediateDirectories: true)
