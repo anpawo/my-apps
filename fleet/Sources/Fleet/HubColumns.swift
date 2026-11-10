@@ -862,27 +862,16 @@ struct TodoPick: View {
     @State private var lit = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(todo.title.firstWords())
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(1)
-            HStack(spacing: 6) {
-                if let due = todo.due {
-                    Circle().fill(TodoCard.tint(todo)).frame(width: 5, height: 5)
-                    Text(Self.when(due))
-                }
-                Spacer(minLength: 0)
-                Text(lit ? "Start in VCX ›" : "› " + (VCX.folder(for: todo.name) as NSString).lastPathComponent)
-            }
-            .font(.system(size: 9.5, design: .monospaced))
-            .foregroundStyle(.white.opacity(lit ? 0.75 : 0.42))
-        }
-        .panelCard(lit: lit, tint: todo.due == nil ? nil : TodoCard.tint(todo))
-        .contentShape(Rectangle())
-        .onHover { inside in withAnimation(TodoColumn.unroll) { lit = inside } }
-        .onTapGesture(perform: start)
-        .help(todo.name)
+        Text(todo.title.firstWords())
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(.white.opacity(lit ? 1 : 0.92))
+            .lineLimit(2)
+            .frame(minHeight: PluginCard.height, alignment: .leading)
+            .panelCard(lit: lit, tint: todo.due == nil ? nil : TodoCard.tint(todo))
+            .contentShape(Rectangle())
+            .onHover { inside in withAnimation(TodoColumn.unroll) { lit = inside } }
+            .onTapGesture(perform: start)
+            .help(todo.name)
     }
 
     static func when(_ due: Date) -> String {

@@ -345,26 +345,8 @@ struct PluginColumn: View {
                         .padding(.top, 2)
                     } else {
                         ForEach(Array(items.enumerated()), id: \.offset) { slot, item in
-                            carriable(clickable(HStack(spacing: 8) {
-                                if let icon = item.image.flatMap({ store.pictures[$0] }) {
-                                    Image(nsImage: icon).resizable().scaledToFit()
-                                        .frame(width: 14, height: 14)
-                                        .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
-                                } else if let dot = PluginBlock.color(item.tint) {
-                                    Circle().fill(dot).frame(width: 6, height: 6)
-                                }
-                                Text(item.text.firstWords())
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                                if let detail = item.detail {
-                                    Text(detail)
-                                        .foregroundStyle(.white.opacity(0.55))
-                                        .lineLimit(1)
-                                }
-                            }
-                            .font(.system(size: 11))
-                            .padding(.vertical, item.open == nil ? 0 : 2), item)
+                            carriable(clickable(PluginCard(item: item, icon: item.image.flatMap { store.pictures[$0] },
+                                                           wash: nil), item)
                             .help(item.help ?? ""), group: index, slot: slot, item: item, live: live)
                         }
                     }
@@ -395,31 +377,7 @@ struct PluginColumn: View {
     }
 
     private func boardCard(_ item: PluginBlock.Item) -> some View {
-        let tint = PluginBlock.color(item.tint) ?? block.color
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(item.text.firstWords())
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if let detail = item.detail {
-                Text(detail)
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 9)
-        .background(tint.opacity(0.32))
-        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(tint.opacity(0.85), lineWidth: 1)
-        )
-        .help(item.help ?? "")
+        PluginCard(item: item, icon: nil, wash: PluginBlock.color(item.tint) ?? block.color)
     }
 
     /// An item that names a session starts it on a click, ⌘ up; the panel goes either way.
@@ -492,4 +450,54 @@ struct PluginColumn: View {
             .scaleEffect(x: 0.85)
             .padding(.vertical, 3)
     }
+}
+
+/// One item as a full-width card that lights under the pointer. `wash`: the board's state
+/// colour over the whole card; without it the item's tint is a dot before its words.
+struct PluginCard: View {
+    let item: PluginBlock.Item
+    let icon: NSImage?
+    let wash: Color?
+    @State private var lit = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let icon {
+                Image(nsImage: icon).resizable().scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            } else if wash == nil, let dot = PluginBlock.color(item.tint) {
+                Circle().fill(dot).frame(width: 7, height: 7)
+            }
+            Text(item.text.firstWords())
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(lit ? 1 : 0.9))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if let detail = item.detail {
+                Text(detail)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.white.opacity(lit ? 0.8 : 0.55))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: PluginCard.height, alignment: .leading)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .background(.white.opacity(lit ? 0.07 : 0))
+        .background((wash ?? .clear).opacity(lit ? 0.45 : 0.3))
+        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(wash.map { $0.opacity(lit ? 1 : 0.75) } ?? .white.opacity(lit ? 0.25 : 0.08),
+                              lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onHover { inside in withAnimation(.easeOut(duration: 0.2)) { lit = inside } }
+        .help(item.help ?? "")
+    }
+
+    /// The line's room inside its padding: a card 40pt tall, the same as a TODO pick.
+    static let height: CGFloat = 26
 }
