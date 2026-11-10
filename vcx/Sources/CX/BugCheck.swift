@@ -709,7 +709,7 @@ enum BugCheck {
             // 16 s: the graph dump after the first sample holds the watchdog 3 s before it samples again.
             spin(16)
             let reports = files()
-            let report = reports.first { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            let report = reports.first { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") && !$0.lastPathComponent.contains(".graph") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             print("Freeze report files: " + reports.map(\.lastPathComponent).sorted().joined(separator: ", "))
             check(report.contains("\tstuck callback") && report.contains("fixture#1\t3\t1\tabcd1234\t612\t24\t5") && reports.contains { $0.path.hasSuffix(".sample.txt") },
                   "a main thread spinning in place leaves a report of the callbacks that kept firing, the windows' shapes, and a sample")
