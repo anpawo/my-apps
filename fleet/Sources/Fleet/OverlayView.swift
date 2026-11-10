@@ -931,7 +931,7 @@ struct GroupTile: View {
     /// The name stands centred over the cards, in a band of its own.
     static let nameBand = nameAir + nameLine + nameFoot
     /// A repo inside the group's: its name, with the line on either side of it.
-    static let subBand: CGFloat = 24
+    static let subBand: CGFloat = 28
     /// One of its cards: a grid cell less the gap on either side, as tall in every group.
     static func card(holding parts: [Int], across: Int = 1, in width: CGFloat, spacing: CGFloat) -> CGSize {
         let outer = size(holding: parts, across: across, in: width, spacing: spacing)
@@ -1002,7 +1002,7 @@ struct GroupTile: View {
                         HStack(spacing: 8) {
                             Rectangle().fill(GroupTile.tint).frame(height: 1)
                             Text(first.dirName)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.85))
                                 .lineLimit(1)
                                 .fixedSize()
