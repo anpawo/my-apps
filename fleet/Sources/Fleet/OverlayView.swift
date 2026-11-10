@@ -338,7 +338,7 @@ struct OverlayView: View {
         // Tighter tracking than the side headings, which are one short word each: at theirs
         // this one runs into the key beside it.
         Block(title: "CLAUDE CODE FLEET", tracking: 2.6, tint: BlockTint.fleet,
-              fill: .black.opacity(0.71), spread: Self.fleetSpread, bottomSpread: 13,
+              fill: .black.opacity(0.825), spread: Self.fleetSpread, bottomSpread: 13,
               // The grid brings 18pt of glow room over its first row and the frame starts 13pt
               // over the block: five back leaves the tiles their 26pt under the line too.
               titleInset: Self.fleetSpread, titleOnLine: true, bodyGap: -5) {

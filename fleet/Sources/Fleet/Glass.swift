@@ -11,7 +11,7 @@ final class Glass: NSVisualEffectView {
     /// behind it.
     static let dim = 0.6
     /// How much of a block's colour lies over its glass: the rest is the blur.
-    static let wash = 0.72
+    static let wash = 0.62
     static let radius: CGFloat = 12
 
     /// CSS `saturate(200%) brightness(1.15)` on sRGB values, rows R, G, B. Times the veil's
