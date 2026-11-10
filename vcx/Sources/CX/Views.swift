@@ -445,13 +445,14 @@ struct CXView: View {
                 ScrollView {
                     // No pinned headers: both 11-10 freezes spun in SwiftUI's lazy stack while it placed a pinned question. The current
                     // question is drawn above the scroll view instead (pinnedQuestion).
-                    LazyVStack(alignment: .leading, spacing: 24) {
+                    // Spacing as bottom paddings: a header-only question sits 8 pt above the next one without a negative padding.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if session.rows.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: "sparkle").font(.system(size: 40, weight: .light)).foregroundStyle(accent)
                                 Text("A clear space to build.").font(.system(size: 28, weight: .semibold))
                                 Text("Your code, your agents, one conversation.").font(.system(size: 14)).foregroundStyle(.black.opacity(0.6))
-                            }.frame(maxWidth: .infinity).padding(.vertical, 100)
+                            }.frame(maxWidth: .infinity).padding(.vertical, 100).padding(.bottom, 24)
                         }
                         let sections = conversationSections(session.rows)
                         ForEach(sections) { section in
@@ -466,6 +467,7 @@ struct CXView: View {
                                         if !sent.isEmpty { WorkBlock(rows: sent, details: session.details) { if let last = parts.last { proxy.scrollTo(last.id, anchor: .bottom) } else { proxy.scrollTo("exchange-\(section.id)", anchor: .top) } }.id("sent-\(section.id)") }
                                         ForEach(parts.notices.filter { $0.kind == "notice" }) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
+                                    .padding(.bottom, 24)
                                     .id("exchange-\(section.id)")
                                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("exchange top"); session.exchangeTops[section.id] = $0; session.pinQuestion() }
                                     .onDisappear { session.exchangeTops[section.id] = nil; session.pinQuestion() }
@@ -527,7 +529,7 @@ struct CXView: View {
 
     private func questionRow(_ question: Row, closesUp: Bool) -> some View {
         ConversationRow(row: question, session: session, collapsible: true).equatable()
-            .padding(.bottom, closesUp ? -16 : 0)
+            .padding(.bottom, closesUp ? 8 : 24)
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("question top"); session.questionTops[question.id] = $0; session.pinQuestion() }
             .onDisappear { session.questionTops[question.id] = nil; session.pinQuestion() }
             .anchorPreference(key: QuestionTops.self, value: .bounds) { [question.id: $0] }
@@ -1078,17 +1080,20 @@ struct UserBubble: View {
                 let content = VStack(alignment: .leading, spacing: 6) {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
-                    // Only the arrow opens it: the pointer crossing the text to read the answer under it leaves it shut.
-                    // A question of fifteen lines or less shows whole, with no arrow; open, the arrow is gone until the pointer leaves.
-                    if edge && !hovering {
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(message == nil ? accent : agentPink)
-                            .frame(width: 28, height: CollapsibleText.line, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onHover { inside in FreezeTrace.note("question arrow hover " + item.id); if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
-                            .transition(.opacity)
-                    }
-                }.padding(16)
+                }
+                // Only the arrow opens it: the pointer crossing the text to read the answer under it leaves it shut.
+                // A question of fifteen lines or less shows whole, with no arrow; open, the arrow is gone until the pointer leaves.
+                // The arrow is an overlay on a reserved row, not a row of its own coming and going in the stack.
+                .padding(.bottom, edge && !hovering ? 6 + CollapsibleText.line : 0)
+                .overlay(alignment: .bottomLeading) {
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(message == nil ? accent : agentPink)
+                        .frame(width: 28, height: CollapsibleText.line, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onHover { inside in FreezeTrace.note("question arrow hover " + item.id); if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
+                        .opacity(edge && !hovering ? 1 : 0).allowsHitTesting(edge && !hovering)
+                }
+                .padding(16)
                 Group {
                     // At the width it had unscrolled, the text wraps as it did and keeps the height that made it scroll.
                     if scrolls { ScrollView { content }.frame(width: size.width, height: cap) }
