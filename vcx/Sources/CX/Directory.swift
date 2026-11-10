@@ -26,6 +26,44 @@ func addedDirectories() -> [String] {
     return (settings["permissions"] as? JSON)?["additionalDirectories"] as? [String] ?? []
 }
 
+/// The project a turn worked in, from the absolute paths its tool calls named: the git root (or the `.fleet`
+/// sub-folder) named most, the latest on a tie. nil when none, or when the session already stands in it. A session
+/// launched in m3-labs that worked in s14 through `( cd … )` stayed under m3-labs in Fleet (asked 2026-11-10).
+func turnDirectory(_ commands: [String], current: String, initial: String, added: [String] = addedDirectories()) -> String? {
+    var counts: [String: (count: Int, last: Int)] = [:], roots: [String: String?] = [:]
+    for (n, path) in commands.flatMap(namedPaths).enumerated() {
+        let parent = (path as NSString).deletingLastPathComponent
+        if roots[parent] == nil { roots[parent] = projectRoot(path) }
+        guard let root = roots[parent] ?? nil, ([initial] + added).contains(where: { workingDirectory(root, within: $0) != nil })
+        else { continue }
+        counts[root] = ((counts[root]?.count ?? 0) + 1, n)
+    }
+    guard let best = counts.max(by: { ($0.value.count, $0.value.last) < ($1.value.count, $1.value.last) })?.key,
+          current != best, !current.hasPrefix(best + "/") else { return nil }
+    return best
+}
+
+private func namedPaths(_ command: String) -> [String] {
+    command.split(whereSeparator: { $0.isWhitespace || "\"'`;|&()<>=,{}[]$".contains($0) }).compactMap { word in
+        word.hasPrefix("/") ? String(word) : word.hasPrefix("~/") ? NSHomeDirectory() + word.dropFirst() : nil
+    }
+}
+
+/// The nearest folder above path holding `.git`, or its `.fleet` sub-folder path is in (an empty `.fleet` names the root).
+private func projectRoot(_ path: String) -> String? {
+    let home = NSHomeDirectory(), files = FileManager.default
+    var folder = URL(fileURLWithPath: path).standardized.path
+    while folder != "/" && folder != home {
+        if files.fileExists(atPath: folder + "/.git") {
+            let subs = ((try? String(contentsOfFile: folder + "/.fleet", encoding: .utf8)) ?? "").split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return subs.map { folder + "/" + $0 }.first { path == $0 || path.hasPrefix($0 + "/") } ?? folder
+        }
+        folder = (folder as NSString).deletingLastPathComponent
+    }
+    return nil
+}
+
 func workingDirectory(_ target: String, within initial: String) -> String? {
     guard target.hasPrefix("/") else { return nil }
     let path = URL(fileURLWithPath: target).standardized.path

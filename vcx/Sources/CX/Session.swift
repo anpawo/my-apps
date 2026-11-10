@@ -179,6 +179,7 @@ final class Session: ObservableObject {
     @Published var needsAttention = false
     private var stopSource: String?
     private var turnPrompt: String?
+    private var turnCommands: [String] = []
     @Published private var activeActions: Set<String> = []
     @Published var changing = false
     @Published var details = false
@@ -604,13 +605,8 @@ final class Session: ObservableObject {
                 show(data)
                 if method == "item/completed" {
                     deltas.removeValue(forKey: data["id"] as? String ?? "")
-                    if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd {
-                        cwd = directory
-                        repositoryDirectory = nil; branch = ""; repositoryStatus = ""; repositoryChanges = []; pullRequest = ""
-                        (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
-                        Task { await refreshRepository() }
-                        save()
-                    }
+                    if data["type"] as? String == "commandExecution", let command = data["command"] as? String { turnCommands.append(command) }
+                    if let directory = shellDirectory(data, current: cwd, initial: conversationDirectory), directory != cwd { moveDirectory(directory) }
                 }
             }
         case "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta":
@@ -627,6 +623,8 @@ final class Session: ObservableObject {
                 queueLimit(turn); return
             }
             flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll()
+            if let directory = turnDirectory(turnCommands, current: cwd, initial: conversationDirectory) { moveDirectory(directory) }
+            turnCommands = []
             pendingInput = nil
             permissions.removeAll()
             let turn = p["turn"] as? JSON ?? [:]
@@ -678,6 +676,14 @@ final class Session: ObservableObject {
         default: return
         }
         revision += 1
+    }
+
+    func moveDirectory(_ directory: String) {
+        cwd = directory
+        repositoryDirectory = nil; branch = ""; repositoryStatus = ""; repositoryChanges = []; pullRequest = ""
+        (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
+        Task { await refreshRepository() }
+        save()
     }
 
     private func scheduleFlush() {

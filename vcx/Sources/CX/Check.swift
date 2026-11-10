@@ -463,6 +463,22 @@ enum Check {
                 presence.publish(fleetSession)
                 check(fleetSession.cwd == target && fleetRecord()["cwd"] as? String == target, "Fleet follows a completed standalone cd")
                 check(fleetSession.nativeDirectory == snapshotDirectory, "shell directory changes retain the conversation storage location")
+                let beta = directory.appendingPathComponent("beta").path, app = beta + "/app"
+                try! FileManager.default.createDirectory(atPath: app + "/src", withIntermediateDirectories: true)
+                try! FileManager.default.createDirectory(atPath: beta + "/.git", withIntermediateDirectories: true)
+                try! "app\n".write(toFile: beta + "/.fleet", atomically: true, encoding: .utf8)
+                let worked = ["git -C \(repoPath) status", "Read\n{\n  \"file_path\" : \"\(app)/src/main.swift\"\n}", "( cd \(app)/src && ls )",
+                              "Edit\n{\n  \"file_path\" : \"\(app)/src/new.swift\"\n}", "/usr/bin/grep -rn x /tmp"]
+                check(turnDirectory(worked, current: target, initial: directory.path) == app, "a turn moves the session to the project its tools named most, a .fleet sub-folder included")
+                check(turnDirectory(worked, current: app + "/src", initial: directory.path) == nil
+                      && turnDirectory(worked, current: repoPath, initial: target, added: []) == nil
+                      && turnDirectory(["pwd", "/usr/bin/true"], current: target, initial: directory.path) == nil, "a turn inside its project, outside the allowed folders or naming no project leaves the session alone")
+                for (n, command) in worked.enumerated() {
+                    fleetSession.event(["method": "item/completed", "params": ["item": item(command).merging(["id": "turn-\(n)"]) { _, new in new }]])
+                }
+                fleetSession.event(["method": "turn/completed", "params": ["turn": ["id": "turn", "status": "completed"]]])
+                presence.publish(fleetSession)
+                check(fleetSession.cwd == app && fleetRecord()["cwd"] as? String == app, "Fleet follows the project a finished turn worked in")
                 presence.close(); fleetSession.close()
             }
             fleetSession.show(["id": "fleet-user", "type": "userMessage", "sentAt": 123.0, "content": [["type": "text", "text": "Fix the layout"]]])
