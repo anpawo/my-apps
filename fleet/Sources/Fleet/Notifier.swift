@@ -75,8 +75,19 @@ final class Notifier: NSObject {
         if let opening { content.userInfo = ["open": opening.path] }
         let request = UNNotificationRequest(identifier: "fleet.notice.\(UUID().uuidString)",
                                             content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error { NSLog("Fleet: could not post notification — \(error)") }
+        deliver(request)
+    }
+
+    /// Fleet's style is Alerts, which stay until dismissed; a banner's ~5 s is fixed by macOS.
+    /// Removing the alert after 30 s is the only way to get a 30 s banner.
+    private func deliver(_ request: UNNotificationRequest) {
+        let center = UNUserNotificationCenter.current()
+        let id = request.identifier
+        center.add(request) { error in
+            if let error { NSLog("Fleet: could not post notification — \(error)"); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+            }
         }
     }
 
@@ -93,9 +104,7 @@ final class Notifier: NSObject {
             content: content,
             trigger: nil            // deliver now
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error { NSLog("Fleet: could not post notification — \(error)") }
-        }
+        deliver(request)
     }
 }
 
