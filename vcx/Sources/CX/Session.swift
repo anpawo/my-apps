@@ -196,6 +196,13 @@ final class Session: ObservableObject {
     // Each drawn exchange's top in the transcript's viewport; not published, scrolling rewrites it every frame.
     var exchangeTops: [UUID: CGFloat] = [:]
     var viewportHeight: CGFloat = 0
+    // Each drawn question's top, beside its exchange's; the question they pick is published only when it changes.
+    var questionTops: [UUID: CGFloat] = [:]
+    @Published private(set) var pinnedQuestion: UUID?
+    func pinQuestion() {
+        let next = pinnedQuestionID(questions: questionTops, exchanges: exchangeTops)
+        if next != pinnedQuestion { pinnedQuestion = next }
+    }
     var scrollToExchange: ((UUID) -> Void)?
     var landOnEnd: (() -> Void)?
     var drawnRows = 0

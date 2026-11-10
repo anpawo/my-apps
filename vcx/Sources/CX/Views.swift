@@ -13,11 +13,13 @@ struct ConversationSection: Identifiable {
     var rows: [Row] = []
 }
 
+// A message from another session starts a turn like a prompt does, so it heads its own section.
+func headsSection(_ row: Row) -> Bool { row.kind == "user" || (row.kind == "peer" && row.items.first?.data["direction"] as? String == "received") }
+
 func conversationSections(_ rows: [Row]) -> [ConversationSection] {
     var sections: [ConversationSection] = []
     for row in rows {
-        // A message from another session starts a turn like a prompt does, so it heads its own section.
-        if row.kind == "user" || (row.kind == "peer" && row.items.first?.data["direction"] as? String == "received") {
+        if headsSection(row) {
             sections.append(ConversationSection(id: row.id, question: row))
         } else {
             if sections.isEmpty { sections.append(ConversationSection(id: row.id)) }
@@ -129,6 +131,18 @@ struct ImagePreview: View {
 struct HidesText: PreferenceKey {
     static var defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+struct QuestionTops: PreferenceKey {
+    static var defaultValue: [UUID: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) { value.merge(nextValue(), uniquingKeysWith: { _, next in next }) }
+}
+
+// The question to keep at the transcript's top: the last one scrolled above the top edge, or, when it is no longer drawn,
+// the one whose exchange crosses the edge. A question with no exchange under it scrolls away, as a header-only section did.
+func pinnedQuestionID(questions: [UUID: CGFloat], exchanges: [UUID: CGFloat]) -> UUID? {
+    if let above = questions.filter({ $0.value < 0 }).max(by: { $0.value < $1.value }) { return exchanges[above.key] != nil ? above.key : nil }
+    return exchanges.filter { $0.value <= 0 && questions[$0.key] == nil }.max { $0.value < $1.value }?.key
 }
 
 struct MessageFrames: PreferenceKey {
@@ -274,6 +288,7 @@ struct CXView: View {
     @ObservedObject private var settings = Settings.shared
     @State private var userScrolling = false
     @State private var landed: UUID?
+    @State private var unpinning: UUID?
     @State private var openCapability: String?
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -428,7 +443,9 @@ struct CXView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .bottom) {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24, pinnedViews: [.sectionHeaders]) {
+                    // No pinned headers: both 11-10 freezes spun in SwiftUI's lazy stack while it placed a pinned question. The current
+                    // question is drawn above the scroll view instead (pinnedQuestion).
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         if session.rows.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: "sparkle").font(.system(size: 40, weight: .light)).foregroundStyle(accent)
@@ -450,8 +467,8 @@ struct CXView: View {
                                         ForEach(parts.notices.filter { $0.kind == "notice" }) { row in ConversationRow(row: row, session: session).equatable().id(row.id) }
                                     }
                                     .id("exchange-\(section.id)")
-                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("exchange top"); session.exchangeTops[section.id] = $0 }
-                                    .onDisappear { session.exchangeTops[section.id] = nil }
+                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("exchange top"); session.exchangeTops[section.id] = $0; session.pinQuestion() }
+                                    .onDisappear { session.exchangeTops[section.id] = nil; session.pinQuestion() }
                                     .drawnRow(session)
                                 }
                             } header: {
@@ -462,6 +479,7 @@ struct CXView: View {
                         Color.clear.frame(height: 29).drawnRow(session).id("bottom")
                     }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.top, 28)
                 }
+                .overlayPreferenceValue(QuestionTops.self, alignment: .top) { tops in pinnedQuestion(tops) }
                 .onScrollPhaseChange { _, phase, context in
                     FreezeTrace.note("transcript scroll phase")
                     userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
@@ -510,8 +528,37 @@ struct CXView: View {
     private func questionRow(_ question: Row, closesUp: Bool) -> some View {
         ConversationRow(row: question, session: session, collapsible: true).equatable()
             .padding(.bottom, closesUp ? -16 : 0)
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { FreezeTrace.note("question top"); session.questionTops[question.id] = $0; session.pinQuestion() }
+            .onDisappear { session.questionTops[question.id] = nil; session.pinQuestion() }
+            .anchorPreference(key: QuestionTops.self, value: .bounds) { [question.id: $0] }
             .drawnRow(session)
             .id(question.id)
+    }
+
+    // The question whose exchange runs under the top edge stays there, as a pinned header did: same place, width and look,
+    // and the next question pushes it up. Only its id is published; its place is read from the questions' anchors.
+    // Unpinned, it follows its own row back down while its shadow fades, as the header did.
+    private func pinnedQuestion(_ tops: [UUID: Anchor<CGRect>]) -> some View {
+        GeometryReader { geometry in
+            let ids = [unpinning, session.pinnedQuestion].compactMap { $0 }.reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
+            ZStack(alignment: .top) {
+                ForEach(ids, id: \.self) { id in
+                    if let row = session.rows.last(where: { $0.id == id }), headsSection(row) {
+                        let own = tops[id].map { geometry[$0].minY } ?? -.infinity
+                        let next = tops.values.map { geometry[$0].minY }.filter { $0 > own }.min() ?? .infinity
+                        ConversationRow(row: row, session: session, collapsible: true, pinnedIn: geometry.size, lifted: id == session.pinnedQuestion).equatable()
+                            .padding(.horizontal, 24)
+                            .alignmentGuide(.top) { own >= 0 ? -own : max(0, $0.height - (next - 24)) }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
+                }
+            }
+        }
+        .onChange(of: session.pinnedQuestion) { old, _ in
+            guard let old else { return }
+            unpinning = old
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if unpinning == old { unpinning = nil } }
+        }
     }
 
     private var composer: some View {
@@ -596,7 +643,26 @@ extension CXView {
     static func host(_ session: Session) -> NSHostingView<CXView> {
         let host = NSHostingView(rootView: CXView(session: session))
         host.sizingOptions = []
+        _ = TranscriptWheel.monitor
         return host
+    }
+}
+
+// The pinned question is drawn above the transcript, not in it: the wheel over it found no scroll view and went nowhere.
+// A wheel over the transcript's area that no scroll view takes goes to the transcript.
+@MainActor enum TranscriptWheel {
+    static func stray(in window: NSWindow, at point: NSPoint) -> NSScrollView? {
+        guard let content = window.contentView, let transcript = RuntimeUpdate.scrollView(in: content) else { return nil }
+        var hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        while let view = hit, !(view is NSScrollView) { hit = view.superview }
+        return hit == nil && transcript.convert(transcript.bounds, to: nil).contains(point) ? transcript : nil
+    }
+    static let monitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+        MainActor.assumeIsolated {
+            guard let window = event.window, let transcript = stray(in: window, at: event.locationInWindow) else { return event }
+            transcript.scrollWheel(with: event)
+            return nil
+        }
     }
 }
 
@@ -860,10 +926,12 @@ struct ConversationRow: View, Equatable {
     @ObservedObject var row: Row
     let session: Session
     var collapsible = false
-    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id }
+    var pinnedIn: CGSize?
+    var lifted = false
+    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id && left.pinnedIn == right.pinnedIn && left.lifted == right.lifted }
     var body: some View {
         if let item = row.items.first {
-            if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible) }
+            if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible, pinnedIn: pinnedIn, lifted: lifted) }
             else if row.kind == "notice" { NoticeLine(item: item) }
             else if row.kind == "peer" { PeerLine(item: item).background(Color.white) }
             else { AssistantBubble(item: item).environment(\.codeEdits, session.codeEdits) }
@@ -988,6 +1056,9 @@ struct UserBubble: View {
     @ObservedObject var item: Item
     let session: Session
     var collapsible = false
+    // Drawn above the transcript as its current question: the transcript's size, since no scroll view holds it.
+    var pinnedIn: CGSize?
+    var lifted = false
     @State private var hovering = false
     @State private var stuck = false
     @State private var hides = false
@@ -1000,7 +1071,7 @@ struct UserBubble: View {
         let unread = item.data["queued"] as? Bool == true, collapsed = collapsible && !hovering, edge = collapsible && hides
         let message = AgentMessages.parse(((item.data["content"] as? [JSON]) ?? []).compactMap { $0["text"] as? String }.joined())
         // Pinned, the question never scrolls with the transcript: open and taller than most of it, it scrolls on its own or its end stays out of reach.
-        let cap = room * 0.6, scrolls = collapsible && hovering && size.height > cap
+        let cap = (pinnedIn?.height ?? room) * 0.6, scrolls = collapsible && hovering && size.height > cap
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
@@ -1028,20 +1099,29 @@ struct UserBubble: View {
                     // A send flight lands on this frame, which leaves the edge out.
                     .background(GeometryReader { geometry in
                         let frame = geometry.frame(in: .named("conversation"))
-                        Color.clear.preference(key: MessageFrames.self, value: collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
+                        Color.clear.preference(key: MessageFrames.self, value: pinnedIn != nil ? [:] : collapsed ? [item.id: frame, "collapsed:" + item.id: .zero] : [item.id: frame])
                     })
                     .clipShape(RoundedRectangle(cornerRadius: 17))
                     .background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
                     .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
-                    .onGeometryChange(for: Bool.self) { collapsible && $0.frame(in: .scrollView).minY < 1 } action: { FreezeTrace.note("question stuck " + item.id); stuck = $0 }
+                    .onAppear { if pinnedIn != nil { stuck = lifted } }
+                    .onChange(of: lifted) { _, now in stuck = now }
                     .onGeometryChange(for: CGFloat.self) { collapsible ? $0.bounds(of: .scrollView)?.height ?? .infinity : .infinity } action: { FreezeTrace.note("question room " + item.id); room = $0 }
                     .animation(.easeOut(duration: 0.2), value: stuck)
                     .onHover { inside in FreezeTrace.note("question hover " + item.id); if !inside, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
-            }.containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 }
+            }.column(pinnedIn.map { $0.width * 0.85 })
         }
+    }
+}
+
+extension View {
+    // 85 % of the scroll view's width; above the scroll view, its width is passed in.
+    @ViewBuilder func column(_ width: CGFloat?) -> some View {
+        if let width { frame(width: width, alignment: .trailing) }
+        else { containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.85 } }
     }
 }
 

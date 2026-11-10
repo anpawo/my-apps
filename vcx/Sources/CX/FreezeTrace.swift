@@ -33,12 +33,12 @@ enum FreezeTrace {
     @MainActor static func shape(of session: Session) {
         var sections = 0, headerOnly = 0, open = false
         for row in session.rows {
-            let head = row.kind == "user" || (row.kind == "peer" && row.items.first?.data["direction"] as? String == "received")
+            let head = headsSection(row)
             if head { if open { headerOnly += 1 }; sections += 1 }
             open = head
         }
         if open { headerOnly += 1 }
-        let pinned = session.exchangeTops.filter { $0.value <= 0 }.max { $0.value < $1.value }.map { String($0.key.uuidString.prefix(8)) } ?? "none"
+        let pinned = session.pinnedQuestion.map { String($0.uuidString.prefix(8)) } ?? "none"
         let window = URL(fileURLWithPath: session.cwd).lastPathComponent + "#" + String(UInt(bitPattern: ObjectIdentifier(session).hashValue), radix: 16).suffix(6)
         shape(Shape(window: window, sections: sections, headerOnly: headerOnly, pinned: pinned, viewport: session.viewportHeight, composer: session.editorHeight, drawn: session.drawnRows))
     }

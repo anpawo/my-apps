@@ -316,6 +316,15 @@ enum BugCheck {
                 let x = Int(1100 * CGFloat(bitmap.pixelsWide) / content.bounds.width), top = Int(120 * CGFloat(bitmap.pixelsHigh) / content.bounds.height)
                 let tinted = (0..<top).filter { y in bitmap.colorAt(x: x, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
                 check(tinted > 10, "a question taller than half the transcript stays pinned above its answer")
+                // The wheel over the pinned question goes to the transcript, as it did when the question was a header inside it.
+                if let transcript = RuntimeUpdate.scrollView(in: content) {
+                    let point = content.convert(NSPoint(x: 1100, y: 60), to: nil)
+                    var hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+                    while let view = hit, !(view is NSScrollView) { hit = view.superview }
+                    let target = hit ?? TranscriptWheel.stray(in: window, at: point)
+                    print("Wheel over the pinned question goes to: " + (hit != nil ? "the scroll view under it" : target === transcript ? "the transcript, forwarded" : "nothing"))
+                    check(target === transcript, "the wheel over a pinned question scrolls the transcript")
+                } else { check(false, "the wheel over a pinned question: no transcript or event") }
                 // In the transcript too, the pinned question's edge opens it: the open question's tint runs past the top 120 pt.
                 let edge = tintStart(content, y: 20, from: 200)
                 func rows(after wait: Double = 0.5) -> Int {
@@ -339,7 +348,7 @@ enum BugCheck {
                       "in the transcript, a question opening into its own scroll view grows in one smooth motion")
                 // Open and taller than the transcript, the pinned question had its end below the window: the wheel scrolled only the answer under it.
                 func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
-                if let inner = scrollViews(content).first(where: { $0.enclosingScrollView != nil }), let outer = inner.enclosingScrollView, let document = inner.documentView {
+                if let outer = RuntimeUpdate.scrollView(in: content), let inner = scrollViews(content).first(where: { $0 !== outer && outer.convert(outer.bounds, to: nil).contains($0.convert($0.bounds, to: nil)) }), let document = inner.documentView {
                     let box = inner.convert(inner.bounds, to: nil), visible = outer.convert(outer.bounds, to: nil)
                     let middle = NSPoint(x: box.midX, y: box.midY)
                     var hit = content.hitTest(content.superview?.convert(middle, from: nil) ?? middle)
