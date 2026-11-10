@@ -729,7 +729,10 @@ struct FleetLayout: Layout {
             let y = top(start)
             frames[i] = CGRect(origin: CGPoint(x: CGFloat(start) * step.width, y: y), size: size)
             for c in start ..< start + taken { floor[c] = y + size.height + spacing }
-            for (column, j) in zip(start + taken ..< columns, narrow.filter { !placed.contains($0) }) {
+            // Only the columns level with it: a taller one to its right waits for its turn, or the
+            // next one lands lower there than in a shallower column to its left (2026-11-10).
+            for (column, j) in zip((start + taken ..< columns).filter { floor[$0] <= y },
+                                   narrow.filter { !placed.contains($0) }) {
                 placed.insert(j)
                 frames[j] = CGRect(origin: CGPoint(x: CGFloat(column) * step.width, y: floor[column]), size: wide[j]!)
                 floor[column] += wide[j]!.height + spacing

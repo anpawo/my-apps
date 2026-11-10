@@ -322,12 +322,20 @@ enum SelfCheck {
         // Two across beside a taller one, then two across again: it rises to the first one's foot.
         grid.wide = [size(4, across: 2), size(6), size(4, across: 2), size(2)]
         let risen = grid.rest(4).frames
-        expect(near(risen[2].minY, size(4, across: 2).height + 26) && near(risen[3].minY, size(6).height + 26), true,
+        expect(near(risen[2].minY, size(4, across: 2).height + 26) && near(risen[3].minY, risen[2].maxY + 26)
+               && risen[3].minY < size(6).height + 26, true,
                "grid: a directory stands at the foot of its own columns, not under a taller one beside them")
         grid.wide = [size(4), size(2), size(2), size(2)]
         let filled = grid.rest(4).frames
         expect(near(filled[3].minX, tileW + 26) && near(filled[3].minY, size(2).height + 26), true,
                "grid: a directory takes the shallowest column, rows fill before one column grows")
+        grid.wide = [size(6), size(3), size(2), size(2), size(1), size(1), size(1), size(1)]
+        let packed = grid.rest(8).frames
+        let feet = (0 ..< 3).map { c in
+            packed.dropLast().filter { near($0.minX, CGFloat(c) * (tileW + 26)) }.map(\.maxY).max()! + 26
+        }
+        expect(near(packed.last!.minY, feet.min()!), true,
+               "grid: the last directory takes the shallowest column (2026-11-10: fleet under mr, not under the left one)")
 
         // Two across (asked 2026-10-28): only where one column runs past the room.
         func standing(_ counts: [Int], room: CGFloat) -> [Int] {
