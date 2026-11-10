@@ -1395,7 +1395,7 @@ struct ProseView: View {
                     prose(String(title), weight: .semibold)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
                     prose(paragraph.replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines), weight: .medium, lineSpacing: 5).fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.contains("Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.hasPrefix("⟶ Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     prose(paragraph, lineSpacing: 6).tint(accent).fixedSize(horizontal: false, vertical: true)
                 }
