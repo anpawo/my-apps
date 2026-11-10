@@ -10,9 +10,17 @@ English: hermitdave/FrequencyWords, 2018 OpenSubtitles counts (CC BY-SA 4.0). Sp
 closer to chat than books are. Its tokenizer cuts at the apostrophe ("c'est" counts as "est",
 "don't" as "don"), so those forms are added back below.
 
-    ./make-words.py            downloads the three sources
-    ./make-words.py <dir>      reads Lexique383.tsv, fr_full.txt and en_full.txt from <dir>
+Also rebuilds Resources/pairs.tsv: how likely each word is right after another (je vais à, il a),
+counted on the first lines of the OpenSubtitles 2018 text (OPUS). Only for a word
+that shares its unaccented spelling with another (a/à, ou/où, vérifie/vérifié): the others are
+never chosen between by context, and the file stays small.
+
+    ./make-words.py            downloads the sources (the subtitle text is streamed, not saved)
+    ./make-words.py <dir>      reads Lexique383.tsv, fr_full.txt, en_full.txt, fr.txt.gz and
+                               en.txt.gz from <dir>
 """
+import gzip
+import re
 import sys
 import tempfile
 import unicodedata
@@ -20,6 +28,15 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+TEXT = "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/{0}.txt.gz"
+# About 130 million words per language: enough for the frequent pairs, a few minutes to count.
+LINES = 20_000_000
+# A pair seen fewer times is noise; a word seen fewer times before others has no reliable context.
+# Each pair kept costs the app about 100 bytes of memory.
+PAIR_FLOOR = 10
+PREV_FLOOR = 500
+# A word, with its apostrophes and hyphens (j'ai, peut-être), or one punctuation mark.
+TOKEN = re.compile(r"[^\W\d_]+(?:['-][^\W\d_]+)*|\S")
 URL = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{0}/{0}_full.txt"
 LEXIQUE = "https://www.lexique.org/databases/Lexique383/Lexique383.zip"
 # Below these counts the subtitle lists are mostly typos and names.
@@ -86,6 +103,29 @@ def read(folder, lang):
     return {w: n / total * 1e6 for w, n in counts.items()}
 
 
+def pairs(folder, lang, lexicon, ambiguous):
+    """P(word | the word before it), for the words in `ambiguous`; only words of `lexicon` (that
+    language's) next to each other, with no punctuation between them: French subtitles often
+    write coeur, an English word, which must not outweigh cœur."""
+    path = folder / f"{lang}.txt.gz"
+    source = open(path, "rb") if path.exists() else urllib.request.urlopen(TEXT.format(lang))
+    single, double = {}, {}
+    with source, gzip.open(source, "rt", encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f):
+            if i >= LINES:
+                break
+            prev = None
+            for token in TOKEN.findall(line.lower().replace("’", "'")):
+                if not token[0].isalpha() or token not in lexicon:
+                    prev = None
+                    continue
+                single[token] = single.get(token, 0) + 1
+                if prev and token in ambiguous:
+                    double[prev, token] = double.get((prev, token), 0) + 1
+                prev = token
+    return {(a, b): n / single[a] for (a, b), n in double.items() if n >= PAIR_FLOOR and single[a] >= PREV_FLOOR}
+
+
 def lexique(folder):
     freq = {}
     with open(folder / "Lexique383.tsv", encoding="utf-8") as f:
@@ -137,6 +177,18 @@ def main():
         for word in sorted(fr.keys() | en.keys()):
             f.write(f"{word}\t{fr.get(word, 0):.4g}\t{en.get(word, 0):.4g}\n")
     print(f"{out}: {len(fr | en)} words ({len(fr)} French, {len(en)} English)")
+
+    # Words.swift folds apostrophes and hyphens away too: dont and don't are one spelling.
+    spellings = {}
+    for word in fr.keys() | en.keys():
+        spellings.setdefault(fold(word).replace("'", "").replace("-", ""), set()).add(word.lower())
+    ambiguous = {w for group in spellings.values() if len(group) > 1 for w in group}
+    both = {lang: pairs(folder, lang, {w.lower() for w in words}, ambiguous) for lang, words in (("fr", fr), ("en", en))}
+    out = out.with_name("pairs.tsv")
+    with open(out, "w", encoding="utf-8") as f:
+        for a, b in sorted(both["fr"].keys() | both["en"].keys()):
+            f.write(f"{a}\t{b}\t{both['fr'].get((a, b), 0):.3g}\t{both['en'].get((a, b), 0):.3g}\n")
+    print(f"{out}: {len(both['fr'])} French pairs, {len(both['en'])} English")
 
 
 main()

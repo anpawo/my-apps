@@ -18,7 +18,9 @@ Each spelling the word could be gets a score: how often it is said (French and E
 how French the sentence is so far, plus how often you use it) times how likely you typed it that way when you
 meant it (as is, without its accents or apostrophe, one letter off, two pairs swapped). The best one replaces the word only when
 it scores five times higher, and three times higher than the next best: `verifie` could be `vérifie` or
-`vérifié`, so it is left as typed. Mixed sentences work: `dont` is `don't` after `i`, and stays `dont` after
+`vérifié`, so it is left as typed. Between spellings of one word, the word right before counts too:
+`j'ai verifie` becomes `j'ai vérifié`, `il verifie` `il vérifie`, `je vais a` `je vais à` while `il a`
+stays. Mixed sentences work: `dont` is `don't` after `i`, and stays `dont` after
 `la maison`.
 
 It never changes a word it knows into another one (`chat`, `scan` stay), a word typed with its accents
@@ -65,3 +67,6 @@ from what `--fix` does.
 `./make-words.py` rebuilds `Resources/words.tsv` (268,000 words, how often each is said per million):
 French from [Lexique 3.83](https://www.lexique.org), English from the 2018 OpenSubtitles counts of
 [FrequencyWords](https://github.com/hermitdave/FrequencyWords), both CC BY-SA 4.0, as is `words.tsv`.
+It also rebuilds `Resources/pairs.tsv`, how often each word follows another, counted on the first 20 million
+lines of the OpenSubtitles 2018 text from [OPUS](https://opus.nlpl.eu/)
+and kept only for words with several spellings (`a`/`à`, `ou`/`où`).

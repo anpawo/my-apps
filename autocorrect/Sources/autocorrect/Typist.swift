@@ -32,6 +32,8 @@ struct Typist {
     /// The word began where this process saw a break.
     var clean = false
     var fr = 0.5
+    /// The word before, as it stands, when only spaces follow it.
+    var prev: String?
     private var undo: (delete: Int, type: String, typed: String, fixed: String)?
     /// The last word, counted as his once the next key shows he kept it, with what he had typed
     /// when it was a fix.
@@ -49,17 +51,17 @@ struct Typist {
         }
         switch key {
         case .reset, .focus:
-            word = []; tail = []; clean = key == .focus; fr = 0.5
+            word = []; tail = []; clean = key == .focus; fr = 0.5; prev = nil
             return .pass
         case .backspace:
             if let u = last {
                 words.reject(u.typed, u.fixed)
                 kept = (u.typed, nil)
-                word = []; tail = []; clean = true
+                word = []; tail = []; clean = true; prev = nil
                 return .edit(delete: u.delete, type: u.type, thenKey: false)
             }
             kept = nil
-            if !tail.isEmpty { tail.removeLast() } else if !word.isEmpty { word.removeLast() } else { clean = false }
+            if !tail.isEmpty { tail.removeLast() } else if !word.isEmpty { word.removeLast() } else { clean = false; prev = nil }
             return .pass
         case .char(let c):
             if tail.isEmpty, c.isLetter || (!word.isEmpty && (c == "'" || c == "’" || c == "-")) {
@@ -70,7 +72,10 @@ struct Typist {
                 word.append(c)
                 return .pass
             }
-            if word.isEmpty, Self.before.contains(c) || Self.after.contains(c) { return .pass }
+            if word.isEmpty, Self.before.contains(c) || Self.after.contains(c) {
+                prev = nil
+                return .pass
+            }
             if Self.after.contains(c) {
                 guard tail.count < Words.maxLength else {
                     word = []; tail = []; clean = false
@@ -81,16 +86,20 @@ struct Typist {
             }
             guard Self.ends.contains(c) else {
                 // A digit, @, /, _, or a letter after a dot: not prose (a link, an address).
-                word = []; tail = []; clean = false
+                word = []; tail = []; clean = false; prev = nil
                 return .pass
             }
             let typed = String(word), punctuation = String(tail)
             let eligible = clean && !word.isEmpty
             let ended = tail.contains(where: Self.sentenceEnds.contains) || Self.sentenceEnds.contains(c)
             word = []; tail = []; clean = true
-            guard eligible else { return .pass }
-            let fixed = words.correct(typed, fr: fr) ?? typed
+            guard eligible else {
+                if !typed.isEmpty || ended { prev = nil }
+                return .pass
+            }
+            let fixed = words.correct(typed, fr: fr, after: prev) ?? typed
             fr = ended ? 0.5 : words.nextFr(fr, after: fixed)
+            prev = ended || !punctuation.isEmpty ? nil : fixed.lowercased().replacingOccurrences(of: "’", with: "'")
             kept = (fixed, fixed == typed ? nil : typed)
             guard fixed != typed else { return .pass }
             let same = zip(typed, fixed).prefix { $0 == $1 }.count

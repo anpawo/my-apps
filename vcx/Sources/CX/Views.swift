@@ -314,7 +314,7 @@ struct CXView: View {
         .environmentObject(sending)
         .onPreferenceChange(MessageFrames.self) { frames in
             FreezeTrace.note("MessageFrames")
-            if let transcript = frames["transcript"] { session.viewportHeight = transcript.height }
+            if let transcript = frames["transcript"], transcript.height != session.viewportHeight { session.viewportHeight = transcript.height; FreezeTrace.shape(of: session) }
             sending.receive(frames, rows: { session.rows }, reduceMotion: reduceMotion)
         }
         .overlay(alignment: .topLeading) {
@@ -1379,6 +1379,8 @@ struct LinkText: NSViewRepresentable {
     static var open: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     // NSTextView's own fallback opens nothing: a click on a file link reached no LaunchServices call.
     final class Coordinator: NSObject, NSTextViewDelegate {
+        // Measured once per width: layout asks every row again on each pass, a new layout manager each time.
+        var sizes: [CGFloat: CGSize] = [:]
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
             return LinkText.open(url)
@@ -1406,15 +1408,18 @@ struct LinkText: NSViewRepresentable {
             if let link = run.link { attributes[.link] = link }
             string.append(NSAttributedString(string: String(text[run.range].characters), attributes: attributes))
         }
-        if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string) }
+        if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string); context.coordinator.sizes = [:] }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        if let size = context.coordinator.sizes[width ?? .infinity] { return size }
         let storage = NSTextStorage(attributedString: view.textStorage ?? NSAttributedString()), manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: width ?? .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container); manager.ensureLayout(for: container)
-        let used = manager.usedRect(for: container).size
-        return CGSize(width: width ?? ceil(used.width), height: ceil(used.height))
+        let used = manager.usedRect(for: container).size, size = CGSize(width: width ?? ceil(used.width), height: ceil(used.height))
+        if context.coordinator.sizes.count > 8 { context.coordinator.sizes = [:] }
+        context.coordinator.sizes[width ?? .infinity] = size
+        return size
     }
 }
 

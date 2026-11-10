@@ -91,8 +91,8 @@ struct ChecksView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             logo(check.logo).help(check.watching)
-            // every waiting check is read in the checker's one run, at :10 of every hour (Hourly.swift)
-            pill("Hourly").opacity(check.state == .waiting ? 1 : 0)
+            // mail and WhatsApp are read within the minute of a new message; a command waits for :10 (Hourly.swift)
+            pill(check.channel == .command ? "Hourly" : "Live").opacity(check.state == .waiting ? 1 : 0)
             pill(Store.when(check.at, day: true))
                 .monospacedDigit()
                 .overlay {

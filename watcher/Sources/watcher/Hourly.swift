@@ -26,7 +26,23 @@ enum Hourly {
         return slot <= now ? slot : slot.addingTimeInterval(-3600)
     }
 
+    /// `checker.mjs sweep`, every minute: a new mail sends the checks it concerns to `check` at once.
+    private static var sweeping = false
+
+    private static func sweep() {
+        guard !sweeping else { return }
+        sweeping = true
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
+        task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "sweep"]
+        task.qualityOfService = .utility
+        task.standardOutput = FileHandle.standardError
+        task.terminationHandler = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { sweeping = false } } }
+        do { try task.run() } catch { sweeping = false }
+    }
+
     private static func tick() {
+        sweep()
         let now = Date()
         let done = (try? log.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         // Ten minutes between two starts: a run that dies before writing its line must not start again every minute.

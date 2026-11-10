@@ -26,55 +26,43 @@ enum GraphDump {
         return clock.string(from: Date()).replacingOccurrences(of: ":", with: "-")
     }
 
-    /// Profiles every graph for `seconds`, archives it at both ends and writes `<stamp>.graph.txt`: the most updated
-    /// attributes, their types, the views they belong to and whether their value moved. Returns the summary's URL.
+    /// Profiles every graph for `seconds`, archives it once and writes `<stamp>.graph.txt`: the most updated attributes,
+    /// their types and the views they belong to. Returns the summary's URL. One archive, not one at each end: each takes
+    /// 3 to 4 s of a spinning frontend's graph, and mac-guard restarts that frontend after 10 s.
     @discardableResult
-    static func capture(folder: URL, stamp: String, seconds: TimeInterval = 3) -> URL? {
+    static func capture(folder: URL, stamp: String, seconds: TimeInterval = 1.5) -> URL? {
         guard busy.try() else { return nil }
         defer { busy.unlock() }
         guard let archive = symbol("AGGraphArchiveJSON", Archive.self), let start = symbol("AGGraphStartProfiling", Graph.self),
               let stop = symbol("AGGraphStopProfiling", Graph.self), let reset = symbol("AGGraphResetProfile", Graph.self) else { return nil }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        func write(_ suffix: String) -> URL? {
-            let name = "vcx-graph-\(getpid())-\(suffix)", target = folder.appendingPathComponent("\(stamp).graph-\(suffix).json")
-            archive(name)
-            let written = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
-            try? FileManager.default.removeItem(at: target)
-            guard (try? FileManager.default.moveItem(at: written, to: target)) != nil else { return nil }
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
-            return target
-        }
         reset(nil); start(nil)
-        let first = write("a")
         Thread.sleep(forTimeInterval: seconds)
-        let second = write("b")
+        let name = "vcx-graph-\(getpid())-\(stamp)", target = folder.appendingPathComponent("\(stamp).graph.json")
+        archive(name)
         stop(nil)
-        guard let first, let second else { return nil }
+        let written = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: target)
+        guard (try? FileManager.default.moveItem(at: written, to: target)) != nil else { return nil }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
         let report = folder.appendingPathComponent("\(stamp).graph.txt")
-        try? summary(first, second, seconds: seconds).write(to: report, atomically: true, encoding: .utf8)
+        try? summary(target, seconds: seconds).write(to: report, atomically: true, encoding: .utf8)
         return report
     }
 
-    static func summary(_ first: URL, _ second: URL, seconds: TimeInterval) -> String {
-        func graphs(_ url: URL) -> [JSON] {
-            guard let data = try? Data(contentsOf: url), let root = (try? JSONSerialization.jsonObject(with: data)) as? JSON else { return [] }
-            return root["graphs"] as? [JSON] ?? []
-        }
-        let before = Dictionary(graphs(first).compactMap { graph in (graph["id"] as? Int).map { ($0, graph) } }, uniquingKeysWith: { a, _ in a })
-        var lines = ["AttributeGraph over \(seconds) s while profiling (counts are updates in that window)."]
-        for graph in graphs(second) {
+    static func summary(_ url: URL, seconds: TimeInterval) -> String {
+        guard let data = try? Data(contentsOf: url), let root = (try? JSONSerialization.jsonObject(with: data)) as? JSON else { return "" }
+        var lines = ["AttributeGraph profiled from \(seconds) s before its archive to its end (counts are updates in that window)."]
+        for graph in root["graphs"] as? [JSON] ?? [] {
             let id = graph["id"] as? Int ?? -1
-            let counters = graph["counters"] as? JSON ?? [:], old = before[id]?["counters"] as? JSON ?? [:]
-            func delta(_ key: String) -> Int { (counters[key] as? Int ?? 0) - (old[key] as? Int ?? 0) }
             let nodes = graph["nodes"] as? [JSON] ?? []
             let profiled = nodes.compactMap { node -> (Int, JSON)? in
                 guard let count = (node["profile"] as? JSON)?["update_count"] as? Int, count > 0 else { return nil }
                 return (count, node)
             }
-            guard delta("transactions") > 0 || !profiled.isEmpty else { continue }
+            guard !profiled.isEmpty else { continue }
             lines.append("")
-            lines.append("graph \(id): \(delta("transactions")) transactions, \(delta("updates")) updates, \(delta("changes")) changes, \(nodes.count) nodes")
-            let earlier = Dictionary((before[id]?["nodes"] as? [JSON] ?? []).compactMap { node in (node["id"] as? Int).map { ($0, String(describing: node["value"] ?? "")) } }, uniquingKeysWith: { a, _ in a })
+            lines.append("graph \(id): \(profiled.reduce(0) { $0 + $1.0 }) updates, \(nodes.count) nodes")
             // A node's view: the VCX types named in its subgraph's attribute types, most frequent first.
             var owner: [Int: String] = [:], known: [String: Bool] = [:]
             func ours(_ word: String) -> Bool {
@@ -91,11 +79,11 @@ enum GraphDump {
                 let name = counts.sorted { $0.value > $1.value }.prefix(2).map(\.key).joined(separator: "/")
                 for member in members { owner[member] = name.isEmpty ? "-" : name }
             }
-            lines.append("most updated attributes (count, type, view, value moved):")
+            let position = Dictionary(nodes.enumerated().compactMap { index, node in (node["id"] as? Int).map { ($0, index) } }, uniquingKeysWith: { a, _ in a })
+            lines.append("most updated attributes (count, type, view):")
             for (count, node) in profiled.sorted(by: { $0.0 > $1.0 }).prefix(40) {
-                let position = nodes.firstIndex { ($0["id"] as? Int) == (node["id"] as? Int) } ?? -1
-                let moved = (node["id"] as? Int).flatMap { earlier[$0] }.map { $0 != String(describing: node["value"] ?? "") } ?? false
-                lines.append("\(count)\t\((node["desc"] as? String ?? "?").prefix(160))\t\(owner[position] ?? "?")\t\(moved ? "moved" : "same")")
+                let view = (node["id"] as? Int).flatMap { position[$0] }.flatMap { owner[$0] } ?? "?"
+                lines.append("\(count)\t\((node["desc"] as? String ?? "?").prefix(160))\t\(view)")
             }
             var byType: [String: Int] = [:]
             for (count, node) in profiled { byType[node["desc"] as? String ?? "?", default: 0] += count }
@@ -132,12 +120,12 @@ enum GraphDump {
         }
         window.close(); session.close()
         guard let report = result.withLock({ $0 }) ?? nil, let text = try? String(contentsOf: report, encoding: .utf8) else { print("FAIL: no graph summary"); return 1 }
-        let transactions = text.split(separator: "\n").compactMap { line -> Int? in
+        let updates = text.split(separator: "\n").compactMap { line -> Int? in
             guard line.hasPrefix("graph "), let part = line.split(separator: ":").dropFirst().first else { return nil }
             return Int(part.split(separator: " ").first ?? "")
         }.max() ?? 0
         let named = text.contains("CXView") || text.contains("ConversationRow") || text.contains("UserBubble")
-        print("\(transactions > 10 && named ? "PASS" : "FAIL"): graph summary at \(report.path), \(transactions) transactions, VCX views named: \(named)")
-        return transactions > 10 && named ? 0 : 1
+        print("\(updates > 10 && named ? "PASS" : "FAIL"): graph summary at \(report.path), \(updates) updates, VCX views named: \(named)")
+        return updates > 10 && named ? 0 : 1
     }
 }

@@ -25,9 +25,11 @@ struct Mine: Codable {
 /// A spelling's score is how likely the word is (French and English frequencies, weighed by
 /// the language of the sentence so far, plus his own use) times how likely he typed it that way
 /// when he meant it: as is 1, without its accents or apostrophe 0.7 (the U.S. layout has no
-/// accent keys), one letter off 0.01. The best spelling replaces the typed one only when it
-/// scores five times higher, and three times higher than the next best. A word of his own
-/// (typed and kept) is never fixed, but is not a spelling to fix others into: his typos are too.
+/// accent keys), one letter off 0.01. Between spellings of one word (a/à, ou/où, vérifie/vérifié),
+/// how likely each is is read after the word before it too (je vais à, il a). The best
+/// spelling replaces the typed one only when it scores five times higher, and three times higher
+/// than the next best. A word of his own (typed and kept) is never fixed, but is not a spelling
+/// to fix others into: his typos are too.
 final class Words {
     private struct Entry { var fr: Float; var en: Float }
     private var entries: [String: Entry] = [:]
@@ -35,6 +37,9 @@ final class Words {
     private var capital: [String: String] = [:]
     /// Every known word, under its accent-, apostrophe- and hyphen-free form.
     private var byBase: [String: [String]] = [:]
+    /// P(word | the word before), keyed "before\tword" (pairs.tsv). A pair it lacks was seen
+    /// fewer than ten times: 0, in each language.
+    private var pairs: [String: Entry] = [:]
     private(set) var mine = Mine()
     private let learned: URL?
     private var dirty = false
@@ -54,6 +59,12 @@ final class Words {
             entries[key] = Entry(fr: fr / 1e6, en: en / 1e6)
             byBase[Self.fold(key), default: []].append(key)
         }
+        let pairText = (try? String(contentsOf: file.deletingLastPathComponent().appendingPathComponent("pairs.tsv"), encoding: .utf8)) ?? ""
+        for line in pairText.split(separator: "\n") {
+            let cols = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard cols.count == 4, let fr = Float(cols[2]), let en = Float(cols[3]) else { continue }
+            pairs[cols[0] + "\t" + cols[1]] = Entry(fr: fr, en: en)
+        }
         if let learned, let data = try? Data(contentsOf: learned), let saved = try? JSONDecoder().decode(Mine.self, from: data) {
             mine = saved
         }
@@ -71,14 +82,22 @@ final class Words {
         return out
     }
 
-    private func prior(_ key: String, fr: Double) -> Double {
+    // High: after a frequent word the pair counts are reliable, and after a rare one every
+    // spelling is scaled alike (no pairs), which changes no choice.
+    static let contextWeight = 0.95
+
+    private func prior(_ key: String, fr: Double, after prev: String? = nil) -> Double {
         let e = entries[key]
-        return fr * Double(e?.fr ?? 0) + (1 - fr) * Double(e?.en ?? 0) + Double(mine.counts[key] ?? 0) * 1e-6
+        let alone = fr * Double(e?.fr ?? 0) + (1 - fr) * Double(e?.en ?? 0) + Double(mine.counts[key] ?? 0) * 1e-6
+        guard let prev else { return alone }
+        let p = pairs[prev + "\t" + key], w = Self.contextWeight
+        return (1 - w) * alone + w * (fr * Double(p?.fr ?? 0) + (1 - fr) * Double(p?.en ?? 0))
     }
 
     /// The spelling to put in place of `typed`, or nil to leave it. `fr`: how French the
-    /// sentence is so far, 0 to 1.
-    func correct(_ typed: String, fr: Double) -> String? {
+    /// sentence is so far, 0 to 1; `prev`: the word right before, lower case, if nothing
+    /// (punctuation, a sentence end) came between.
+    func correct(_ typed: String, fr: Double, after prev: String? = nil) -> String? {
         guard typed.utf8.count <= Self.maxLength * 4, typed.count <= Self.maxLength,
               let last = typed.last, last.isLetter, !typed.contains(where: \.isNumber),
               // A capital inside the word: a name or an acronym (GitHub, macOS, NEPH).
@@ -107,6 +126,9 @@ final class Words {
         // gets fixed into a different word; a real one (chat, scan, width) is left alone.
         let rare = max(entries[lower]?.fr ?? 0, entries[lower]?.en ?? 0) < 2e-7 && mine.counts[lower] == nil
         var scores: [String: Double] = [:]
+        // Only spellings of the typed word are weighed by context: pairs.tsv has no others, and a
+        // word it lacks would lose to one it has.
+        var inContext: Set<String> = []
         func consider(_ key: String, _ score: Double) {
             // Taken back: held off ten minutes, then a little weaker for each time it was.
             let pair = lower + "\t" + key
@@ -120,7 +142,8 @@ final class Words {
             let m = marks(key)
             guard m.0 >= typedMarks.0, m.1 >= typedMarks.1, m.2 >= typedMarks.2 else { continue }
             if m.1 > typedMarks.1, (entries[key]?.fr ?? 0) <= (entries[key]?.en ?? 0) { continue }
-            consider(key, prior(key, fr: fr) * (Self.stripped(lower, of: key) ? 0.7 : 0.1))
+            consider(key, prior(key, fr: fr, after: prev) * (Self.stripped(lower, of: key) ? 0.7 : 0.1))
+            inContext.insert(key)
         }
         if rare, typedMarks.0 + typedMarks.1 == 0 {
             // l'homme, d'arriver: an elision the lexicon has no entry for, made of a French word
@@ -162,7 +185,8 @@ final class Words {
         // times: vérifie and vérifié are as likely for "verifie", so neither is picked.
         let ranked = scores.sorted { $0.value > $1.value }
         var chosen = lower
-        if let best = ranked.first, best.value > 0, best.value >= bar * prior(lower, fr: fr),
+        if let best = ranked.first, best.value > 0,
+           best.value >= bar * prior(lower, fr: fr, after: inContext.contains(best.key) ? prev : nil),
            ranked.count < 2 || best.value >= 3 * ranked[1].value {
             chosen = best.key
         }

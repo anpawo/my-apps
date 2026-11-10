@@ -706,9 +706,20 @@ enum BugCheck {
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             check(files().isEmpty, "a main thread blocked without using the CPU writes no freeze report")
             FreezeTrace.shape(FreezeTrace.Shape(window: "fixture#1", sections: 3, headerOnly: 1, pinned: "abcd1234", viewport: 612, composer: 24, drawn: 5))
-            // 16 s: the graph dump after the first sample holds the watchdog 3 s before it samples again.
+            // 16 s: the first report holds the watchdog until its graph dump ends, then it samples again every 3 s.
+            let spun = Date()
             spin(16)
             let reports = files()
+            func written(_ suffix: String) -> TimeInterval? {
+                reports.first { $0.lastPathComponent.hasSuffix(suffix) && !$0.lastPathComponent.contains("-usr1") }
+                    .flatMap { try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate }.map { $0.timeIntervalSince(spun) }
+            }
+            let firstReport = reports.filter { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") && !$0.lastPathComponent.contains(".graph") }
+                .compactMap { try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate }.min().map { $0.timeIntervalSince(spun) }
+            let timings = [firstReport, written(".sample.txt"), written(".graph.txt")]
+            print("Freeze report written after " + timings.map { $0.map { String(format: "%.1f s", $0) } ?? "never" }.joined(separator: ", ") + " (report, sample, graph)")
+            // mac-guard restarts a spinning frontend after 10 s: the whole report must be on disk before, here with a 2 s stall.
+            check(timings.allSatisfy { ($0 ?? .infinity) < 7 }, "a freeze report, its sample and its graph dump are written within 7 s of the spin")
             let report = reports.first { $0.pathExtension == "txt" && !$0.lastPathComponent.contains(".sample") && !$0.lastPathComponent.contains(".graph") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             print("Freeze report files: " + reports.map(\.lastPathComponent).sorted().joined(separator: ", "))
             check(report.contains("\tstuck callback") && report.contains("fixture#1\t3\t1\tabcd1234\t612\t24\t5") && reports.contains { $0.path.hasSuffix(".sample.txt") },
