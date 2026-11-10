@@ -119,7 +119,7 @@ final class Inbox: NSObject, ObservableObject {
     func key(_ code: UInt16, flags: NSEvent.ModifierFlags = []) -> Bool {
         // The chord sometimes reaches the panel as a plain key instead of the hot key, which went unanswered: AppKit beeped.
         if flags.contains(.command), code == Self.chord.keyCode {
-            NSLog("watcher: \(Self.chord.label) came in as a key\(flags.contains(.option) ? "" : " without ⌥"), not as the hot key")
+            NSLog("%@", "watcher: \(Self.chord.label) came in as a key\(flags.contains(.option) ? "" : " without ⌥"), not as the hot key")
             hide()
             return true
         }
@@ -179,14 +179,14 @@ final class Inbox: NSObject, ObservableObject {
         task.standardOutput = FileHandle.nullDevice
         let state = folder.deletingLastPathComponent()
         task.terminationHandler = { [weak self] task in
-            if task.terminationStatus != 0 { NSLog("watcher: could not watch \(check.id) again (\(task.terminationStatus))") }
+            if task.terminationStatus != 0 { NSLog("%@", "watcher: could not watch \(check.id) again (\(task.terminationStatus))") }
             DispatchQueue.main.async {
                 guard let self, self.settings else { return }
                 (self.checks, self.lastCheck) = CheckEntry.load(state: state)
             }
         }
         do { try task.run() } catch {
-            NSLog("watcher: could not watch \(check.id) again — \(error)")
+            NSLog("%@", "watcher: could not watch \(check.id) again — \(error)")
             (checks, lastCheck) = CheckEntry.load(state: state)
         }
     }
@@ -196,12 +196,12 @@ final class Inbox: NSObject, ObservableObject {
     func open(_ check: CheckEntry) {
         let lines = Store.lines(in: folder) + Store.lines(in: folder.appending(path: "done"))
         let line = lines.filter { $0.entries?.contains(check.id) == true && $0.session != nil }.max { $0.at < $1.at }
-        guard let session = line?.session ?? check.session else { return NSLog("watcher: \(check.id) names no session") }
+        guard let session = line?.session ?? check.session else { return NSLog("%@", "watcher: \(check.id) names no session") }
         if let pid = Store.pid(of: session) {
             hide()
             return focus(pid)
         }
-        guard let dir = Store.folder(of: session) else { return NSLog("watcher: no transcript of \(session)") }
+        guard let dir = Store.folder(of: session) else { return NSLog("%@", "watcher: no transcript of \(session)") }
         hide()
         _ = launch(InboxItem(id: check.id, at: 0, kind: "", subject: "", line: "", dir: dir, options: ["--resume", session], prompt: nil))
     }
@@ -212,7 +212,7 @@ final class Inbox: NSObject, ObservableObject {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["-n", NSHomeDirectory() + "/Applications/Fleet.app", "--args", "--focus", "\(pid)"]
-        do { try task.run() } catch { NSLog("watcher: could not raise \(pid) — \(error)") }
+        do { try task.run() } catch { NSLog("%@", "watcher: could not raise \(pid) — \(error)") }
     }
 
     private func step(_ by: Int) {
@@ -254,11 +254,11 @@ final class Inbox: NSObject, ObservableObject {
     private static func resume(_ item: InboxItem) -> Bool {
         let task: Process
         do { task = try launchProcess(item) } catch {
-            NSLog("watcher: could not read follow-up: \(error)")
+            NSLog("%@", "watcher: could not read follow-up: \(error)")
             return false
         }
         do { try task.run() } catch {
-            NSLog("watcher: could not resume \(item.id) — \(error)")
+            NSLog("%@", "watcher: could not resume \(item.id) — \(error)")
             return false
         }
         task.waitUntilExit()

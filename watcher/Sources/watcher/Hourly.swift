@@ -42,7 +42,7 @@ enum Hourly {
         task.terminationHandler = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { running = false } } }
         do { try task.run() } catch {
             running = false
-            NSLog("watcher: could not start the hourly check — \(error)")
+            NSLog("%@", "watcher: could not start the hourly check — \(error)")
         }
     }
 }

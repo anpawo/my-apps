@@ -16,7 +16,7 @@ func registerChord() {
     let status = RegisterEventHotKey(UInt32(Inbox.chord.keyCode), Inbox.chord.modifiers,
                                      EventHotKeyID(signature: OSType(0x4543_484F), id: 1),
                                      GetEventDispatcherTarget(), 0, &ref)
-    if status != noErr { NSLog("watcher: could not register \(Inbox.chord.label) (\(status)) — another app likely owns it") }
+    if status != noErr { NSLog("%@", "watcher: could not register \(Inbox.chord.label) (\(status)) — another app likely owns it") }
 }
 
 let args = CommandLine.arguments
