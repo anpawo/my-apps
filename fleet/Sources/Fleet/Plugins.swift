@@ -15,6 +15,14 @@ struct PluginBlock: Decodable, Identifiable {
     /// at the left and its detail at the right.
     var layout: String?
     var groups: [Group]
+    /// Banners for what just happened: each id is posted once — see `PluginStore.onNotice`.
+    var notify: [Notice]?
+
+    struct Notice: Decodable, Equatable {
+        let id: String
+        let title: String
+        var body: String?
+    }
 
     struct Group: Decodable {
         var title: String?
@@ -28,13 +36,24 @@ struct PluginBlock: Decodable, Identifiable {
         var image: String?
         /// Under the pointer.
         var help: String?
+        /// `#RRGGBB`: the item's state on a `board`, a dot before it in `rows`.
+        var tint: String?
+        /// A click starts a VCX session there, `prompt` its first message.
+        var open: Launch?
     }
 
-    private enum CodingKeys: String, CodingKey { case title, tint, layout, groups }
+    struct Launch: Decodable, Equatable {
+        let cwd: String
+        let prompt: String
+    }
 
-    var color: Color {
+    private enum CodingKeys: String, CodingKey { case title, tint, layout, groups, notify }
+
+    var color: Color { Self.color(tint) ?? Color(white: 0.4) }
+
+    static func color(_ tint: String?) -> Color? {
         let hex = tint.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
-        guard let value = hex.flatMap({ UInt32($0, radix: 16) }) else { return Color(white: 0.4) }
+        guard let value = hex.flatMap({ UInt32($0, radix: 16) }) else { return nil }
         return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255,
                      blue: Double(value & 0xFF) / 255)
     }
@@ -54,6 +73,10 @@ final class PluginStore: ObservableObject {
     /// Pointed elsewhere by a picture meant to be published — see `DemoFleet.fill`.
     var folder = PluginStore.folder { didSet { written = nil; rereadIfWritten() } }
     private var written: [String: Date]?
+    /// Each block's `notify` entry handed here once. The ones already in the folder at launch
+    /// are taken as heard: a restart repeats nothing.
+    var onNotice: ((PluginBlock.Notice) -> Void)?
+    private var noticed: Set<String>?
 
     init() { rereadIfWritten() }
 
@@ -77,6 +100,11 @@ final class PluginStore: ObservableObject {
             NSImage(contentsOf: folder.appending(path: path)).map { (path, $0) }
         })
         blocks = read
+        let notices = read.flatMap { $0.notify ?? [] }
+        if noticed != nil {
+            for notice in notices where !noticed!.contains(notice.id) { onNotice?(notice) }
+        }
+        noticed = (noticed ?? []).union(notices.map(\.id))
     }
 
     /// A block with nothing in it is not drawn. Its empty groups are kept: they are where a
@@ -162,13 +190,15 @@ struct PluginColumns: View {
     /// These files' blocks before the others, in this order; the rest by file name.
     var first: [String] = []
     var onHover: (String, Bool) -> Void = { _, _ in }
+    /// A click on an item that names a session to start.
+    var onOpen: (PluginBlock.Launch) -> Void = { _ in }
 
     var body: some View {
         let rank = { (id: String) in first.firstIndex(of: id) ?? first.count }
         ForEach(store.blocks.enumerated().sorted { (rank($0.1.id), $0.0) < (rank($1.1.id), $1.0) }.map(\.1)) { block in
             PluginColumn(block: block, store: store, commandHeld: commandHeld,
                          scrolling: scrolling, limit: limit,
-                         open: opened == block.id || opened == "plugins")
+                         open: opened == block.id || opened == "plugins", onOpen: onOpen)
                 .onHover { onHover(block.id, $0) }
         }
     }
@@ -188,6 +218,7 @@ struct PluginColumn: View {
     var limit: CGFloat = .infinity
 
     var open = false
+    var onOpen: (PluginBlock.Launch) -> Void = { _ in }
     /// Whether the lower edge cuts a line.
     @State private var runsOn = false
     /// The item in the pointer's hand. Gone with the gesture, however it ends.
@@ -291,9 +322,19 @@ struct PluginColumn: View {
                             }
                         }
                         .padding(.top, 4)
+                    } else if block.layout == "board" {
+                        // A card each, washed in its state's colour: the S14 board.
+                        ForEach(Array(group.items.enumerated()), id: \.offset) { slot, item in
+                            carriable(clickable(boardCard(item), item), group: index, slot: slot,
+                                      item: item, live: live)
+                        }
+                        .padding(.top, 2)
                     } else {
                         ForEach(Array(group.items.enumerated()), id: \.offset) { slot, item in
-                            carriable(HStack(spacing: 8) {
+                            carriable(clickable(HStack(spacing: 8) {
+                                if let dot = PluginBlock.color(item.tint) {
+                                    Circle().fill(dot).frame(width: 6, height: 6)
+                                }
                                 Text(item.text)
                                     .foregroundStyle(.white.opacity(0.9))
                                     .lineLimit(1)
@@ -305,6 +346,7 @@ struct PluginColumn: View {
                                 }
                             }
                             .font(.system(size: 11))
+                            .padding(.vertical, item.open == nil ? 0 : 2), item)
                             .help(item.help ?? ""), group: index, slot: slot, item: item, live: live)
                         }
                     }
@@ -331,6 +373,45 @@ struct PluginColumn: View {
                 .position(carried.at)
                 .allowsHitTesting(false)
             }
+        }
+    }
+
+    private func boardCard(_ item: PluginBlock.Item) -> some View {
+        let tint = PluginBlock.color(item.tint) ?? block.color
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(item.text)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if let detail = item.detail {
+                Text(detail)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .background(tint.opacity(0.32))
+        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(tint.opacity(0.85), lineWidth: 1)
+        )
+        .help(item.help ?? "")
+    }
+
+    /// An item that names a session starts it on a click, ⌘ up; the panel goes either way.
+    @ViewBuilder
+    private func clickable(_ view: some View, _ item: PluginBlock.Item) -> some View {
+        if let launch = item.open, !armed {
+            view.contentShape(Rectangle()).onTapGesture { onOpen(launch) }
+        } else {
+            view
         }
     }
 

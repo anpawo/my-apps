@@ -259,6 +259,10 @@ final class AppController: ObservableObject {
         fixer.report = { [weak self] title, verdict in
             self?.notifier.announce(title: title, body: verdict, opening: Fixer.log)
         }
+        // What a block's program says just happened: a message in, from MESSAGES.
+        plugins.onNotice = { [weak self] notice in
+            self?.notifier.announce(title: notice.title, body: notice.body ?? "")
+        }
         // The machine has stopped keeping up: the sessions hear about it, you do not — see
         // `fluidityChanged`.
         reaper.onFluidity = { [weak self] struggling, reason in

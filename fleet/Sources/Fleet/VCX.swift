@@ -119,6 +119,33 @@ enum VCX {
                        transcript: info, state: state, cpuPercent: 0, context: context.flatMap { $0.isEmpty ? nil : $0 } ?? (runtimeID == nil ? nil : info.title))
     }
 
+    /// A new VCX window in `cwd`, `prompt` as its first message — Watcher's ↵ (Inbox.swift).
+    /// The launching process's Claude variables stay behind: a child session keeps no transcript.
+    static func launch(cwd: String, prompt: String) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
+        task.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        task.arguments = ["--cwd", cwd, "--focus", "--", prompt]
+        task.environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CLAUDE") && !$0.key.hasPrefix("CODEX")
+        }
+        task.standardOutput = FileHandle.nullDevice
+        do { try task.run() } catch { NSLog("Fleet: vcx not started in \(cwd) — \(error)") }
+    }
+
+    /// The folder under ~/self whose name the text says, else ~/self: a todo about Fleet opens
+    /// in Fleet.
+    static func folder(for text: String) -> String {
+        let root = NSHomeDirectory() + "/self"
+        let words = Set(text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "-" }.map(String.init))
+        let dirs = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+        if let hit = dirs.first(where: { $0.count >= 3 && words.contains($0.lowercased()) }) { return root + "/" + hit }
+        let apps = root + "/my-apps"
+        let sub = (try? FileManager.default.contentsOfDirectory(atPath: apps)) ?? []
+        if let hit = sub.first(where: { $0.count >= 3 && words.contains($0.lowercased()) }) { return apps + "/" + hit }
+        return root
+    }
+
     static func shortTitle(_ text: String) -> String {
         let text = String(text.prefix(2000))
         let tagger = NLTagger(tagSchemes: [.lexicalClass])

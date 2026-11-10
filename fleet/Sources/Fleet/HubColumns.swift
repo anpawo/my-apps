@@ -79,7 +79,8 @@ struct MailColumn: View {
         if !hub.loaded {
             HubEmptyLine(text: hub.pending)
         }
-        ForEach(hub.mail) { mail in
+        // A brief: the three that most need him, the whole pile under ⌘ (asked 2026-11-10).
+        ForEach(commandHeld ? hub.mail : Array(hub.mail.prefix(Self.brief))) { mail in
             MailCard(hub: hub, mail: mail,
                      expanded: commandHeld && hovered == mail.id,
                      // A transaction, as in CronColumn: without it the card unfolds at once and
@@ -90,7 +91,12 @@ struct MailColumn: View {
                          }
                      })
         }
+        if !commandHeld, hub.mail.count > Self.brief {
+            HubEmptyLine(text: "\(hub.mail.count - Self.brief) more · ⌘ for all")
+        }
     }
+
+    static let brief = 3
 }
 
 /// What this machine does on its own: one line per LaunchAgent of his, and what it is for
@@ -499,13 +505,15 @@ struct TodoColumn: View {
                   onAdd: { withAnimation(Self.unroll) { hub.compose() } },
                   tint: BlockTint.todo,
                   fill: BlockTint.todo.darkened(0.44),
-                  fills: true,
+                  fills: listing,
                   collapsed: hub.todoEmpty || !(open || hub.composing)) {
+            if !listing {
+                VStack(spacing: 8) { picks }
+            } else if scrolling {
             // The list scrolls, the heading does not, and the rest of the panel does not
             // move at all — the fleet either side has its own scroll for the same reason.
             // The horizontal padding is the room a lifted card's shadow needs, taken inside
             // and given back outside, so the clip lands out of its reach.
-            if scrolling {
                 ScrollView(.vertical) {
                     // Lazy: the rows are built each time the block opens, and 64 of them built
                     // whole held the opening 160 ms (measured 2026-11-09, `--bench-panel`).
@@ -543,6 +551,35 @@ struct TodoColumn: View {
     /// How far a lifted card's shadow reaches past the column, and the room the scroll view
     /// has to give it back.
     private static let glowRoom: CGFloat = 16
+
+    /// The whole list, to work it: ⌘ held, or a todo being written. Otherwise three picks
+    /// (asked 2026-11-10: "a few recommendations (max 3)").
+    private var listing: Bool { armed || hub.composing }
+
+    /// The two due soonest (the list's own order), and the spotlit one, which turns over at
+    /// every opening so an undated todo gets its day too.
+    static func picks(_ todos: [Todo], spotlight: String?) -> [Todo] {
+        var out = Array(todos.prefix(2))
+        if let lit = todos.first(where: { $0.id == spotlight }), !out.contains(where: { $0.id == lit.id }) {
+            out.append(lit)
+        } else if todos.count > 2 {
+            out.append(todos[2])
+        }
+        return out
+    }
+
+    @ViewBuilder private var picks: some View {
+        let shown = Self.picks(hub.todos, spotlight: hub.spotlightID)
+        ForEach(shown) { todo in
+            TodoPick(todo: todo) {
+                onDismiss()
+                VCX.launch(cwd: VCX.folder(for: todo.name), prompt: TodoPick.prompt(todo))
+            }
+        }
+        if hub.todos.count > shown.count {
+            HubEmptyLine(text: "\(hub.todos.count - shown.count) more · ⌘ for all")
+        }
+    }
 
     @ViewBuilder private var rows: some View {
             if hub.composing {
@@ -841,9 +878,9 @@ struct MailCard: View {
                         .font(.system(size: 9))
                         .foregroundStyle(Self.starTint)
                 }
-                // The engine's headline, not the Gmail subject — there is no subject stored on
-                // the document. See the note in `Mail`.
-                Text(mail.gist)
+                // What to do about it when the engine said, else its headline (not the Gmail
+                // subject: see the note in `Mail`).
+                Text(mail.action.isEmpty ? mail.gist : mail.action)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
@@ -853,7 +890,7 @@ struct MailCard: View {
                     .foregroundStyle(.white.opacity(0.28))
             }
 
-            Text(mail.sender)
+            Text(mail.action.isEmpty ? mail.sender : "\(mail.sender) · \(mail.gist)")
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.42))
                 .lineLimit(1)
@@ -979,7 +1016,9 @@ struct TodoCard: View {
     /// How soon, in the panel's own four colours: red for today or already past, amber for
     /// this week, blue for next week, green beyond. Grey for a line with no day in it — most
     /// of the list, and the point of the colour is that the dated ones stand out of it.
-    private var dueTint: Color {
+    private var dueTint: Color { Self.tint(todo) }
+
+    static func tint(_ todo: Todo) -> Color {
         guard let due = todo.due else { return .white.opacity(0.32) }
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: Date()),
@@ -1152,6 +1191,59 @@ struct TodoCard: View {
 
 /// The + on a column heading. Sized and shaded like the ✕ on a todo, because it is the same
 /// kind of thing: a small target that appears on a heading and does one thing to the list.
+/// One recommended todo: a click starts a VCX session on it, in the folder it names.
+struct TodoPick: View {
+    let todo: Todo
+    let start: () -> Void
+    @State private var lit = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(todo.title)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                if let due = todo.due {
+                    Circle().fill(TodoCard.tint(todo)).frame(width: 5, height: 5)
+                    Text(Self.when(due))
+                }
+                Spacer(minLength: 0)
+                Text(lit ? "Start in VCX ›" : "› " + (VCX.folder(for: todo.name) as NSString).lastPathComponent)
+            }
+            .font(.system(size: 9.5, design: .monospaced))
+            .foregroundStyle(.white.opacity(lit ? 0.75 : 0.42))
+        }
+        .panelCard(lit: lit, tint: todo.due == nil ? nil : TodoCard.tint(todo))
+        .contentShape(Rectangle())
+        .onHover { inside in withAnimation(TodoColumn.unroll) { lit = inside } }
+        .onTapGesture(perform: start)
+        .help(todo.name)
+    }
+
+    static func when(_ due: Date) -> String {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: Date()),
+                                           to: calendar.startOfDay(for: due)).day ?? 0
+        switch days {
+        case ..<0: return "overdue"
+        case 0: return "today"
+        case 1: return "tomorrow"
+        case ..<7: return due.formatted(.dateTime.weekday(.wide))
+        default: return due.formatted(.dateTime.day().month(.abbreviated))
+        }
+    }
+
+    static func prompt(_ todo: Todo) -> String {
+        let due = todo.due.map { " (due \(when($0)))" } ?? ""
+        return """
+        Todo from my phone list\(due): "\(todo.name)"
+        Help me get it done: find what it needs (mails, messages, files), do what you can, and tell me in a few lines what is left for me. Once it is done, tick it: node ~/.claude/skills/todo/done.mjs \(todo.id)
+        """
+    }
+}
+
 struct AddButton: View {
     let action: () -> Void
     /// The column's own figure, on the same chip as the +. Two grounds a few points apart,

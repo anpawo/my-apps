@@ -13,6 +13,9 @@ struct Mail: Identifiable {
     /// What the engine understood of the mail, in a sentence or two. Off the card at rest (the
     /// column is counted at a glance), and it is what ⌘ unfolds.
     var summary: String = ""
+    /// What he has to do about it, in a few words, by the engine; empty when nothing, and on
+    /// everything triaged before it wrote one (2026-11-10).
+    var action: String = ""
     /// 1–3, the engine's score. 3 is the mail you would be annoyed to have missed.
     var importance: Int
     var receivedAt: Date
@@ -41,6 +44,7 @@ struct Mail: Identifiable {
         id = doc.id
         gist = doc.string("gist")
         summary = doc.string("summary")
+        action = doc.string("action")
         // A forward carries the name of the mailbox that forwarded it, not the sender's: all the
         // @epitech.eu mail arrived here signed "Marius Rousset". The engine files the real sender
         // apart, and the phone already reads that pair, to recognise a favourite too, hence the

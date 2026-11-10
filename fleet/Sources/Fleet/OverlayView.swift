@@ -215,7 +215,8 @@ struct OverlayView: View {
                         .onHover { side("mail", $0) }
                     TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
                                scrolling: !eagerLayout, open: sideOpen == "todo")
-                        .frame(maxHeight: !hub.todoEmpty && (sideOpen == "todo" || hub.composing)
+                        // The whole list only under ⌘: open, it is three picks — see `TodoColumn.listing`.
+                        .frame(maxHeight: !hub.todoEmpty && ((sideOpen == "todo" && held) || hub.composing)
                                ? .infinity : nil)
                         .onHover { side("todo", $0) }
                     EpitechColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
@@ -264,7 +265,11 @@ struct OverlayView: View {
                         .onHover { side("spending", $0) }
                     PluginColumns(store: controller.plugins, commandHeld: held,
                                   scrolling: !eagerLayout, limit: free, opened: sideOpen,
-                                  first: ["nutrition.json"], onHover: side)
+                                  first: ["s14.json", "messages.json", "nutrition.json"], onHover: side,
+                                  onOpen: { launch in
+                                      controller.dismiss()
+                                      VCX.launch(cwd: launch.cwd, prompt: launch.prompt)
+                                  })
                 }
             }
             gap(Self.edgeWeight)

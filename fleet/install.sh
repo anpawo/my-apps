@@ -176,6 +176,55 @@ else
 fi
 launchctl bootstrap "gui/$UID" "$REELS_PLIST" 2>/dev/null || true
 
+# The programs behind MESSAGES and S14 (blocks/): each writes its block's JSON on its own clock,
+# from a copy beside the app, so an edit in the checkout runs once installed and not before.
+SHARE="$HOME/.local/share/fleet"
+mkdir -p "$SHARE"
+cp blocks/messages.py blocks/s14.py "$SHARE/"
+block_agent() { # <label> <seconds> <script>
+	local label=$1 plist="$HOME/Library/LaunchAgents/$1.plist"
+	ln -sf /usr/bin/env "$BIN/agents/$label"
+	cat > "$plist.new" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$label</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$BIN/agents/$label</string>
+		<string>/usr/bin/python3</string>
+		<string>-I</string>
+		<string>$SHARE/$3</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>$2</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/$label.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/$label.log</string>
+</dict>
+</plist>
+PLIST_EOF
+	if cmp -s "$plist.new" "$plist"; then
+		rm -f "$plist.new"
+	else
+		mv "$plist.new" "$plist"
+		launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+	fi
+	launchctl bootstrap "gui/$UID" "$plist" 2>/dev/null || true
+}
+# A message is told within the minute (asked 2026-11-10); the MO digest moves once a day.
+block_agent fleet.messages 60 messages.py
+block_agent fleet.s14 900 s14.py
+
 echo "==> Installing the fleet command to $BIN/fleet"
 mkdir -p "$BIN"
 cat > "$BIN/fleet" <<SHIM_EOF

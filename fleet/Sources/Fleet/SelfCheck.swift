@@ -457,6 +457,28 @@ enum SelfCheck {
                "plugins: an item no longer where it was seen is left alone")
         let root = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
         expect(root?["by"] as? String == "p", true, "plugins: a key Fleet does not know survives the write")
+
+        let item = PluginStore.decode(Data(##"{"title":"T","groups":[{"items":[{"text":"x","tint":"#3C9A5F","open":{"cwd":"/tmp","prompt":"p"}}]}]}"##.utf8), id: "o")?
+            .groups.first?.items.first
+        expect(item?.open == PluginBlock.Launch(cwd: "/tmp", prompt: "p") && PluginBlock.color(item?.tint) != nil, true,
+               "plugins: an item carries its colour and the session a click starts")
+        var heard: [String] = []
+        store.onNotice = { heard.append($0.id) }
+        let noticed = #"{"title":"M","notify":[{"id":"n1","title":"Mat","body":"hi"}],"groups":[{"items":[{"text":"m"}]}]}"#
+        try? Data(noticed.utf8).write(to: folder.appending(path: "m.json"))
+        store.rereadIfWritten()
+        try? Data(noticed.replacingOccurrences(of: "\"m\"", with: "\"m2\"").utf8).write(to: folder.appending(path: "m.json"))
+        store.rereadIfWritten()
+        expect(heard == ["n1"], true, "plugins: a notice is posted once, however often its file is written")
+
+        let todos = (1 ... 4).map { Todo(pending: "t\($0)", order: Double($0)) }
+        expect(TodoColumn.picks(todos, spotlight: todos[3].id).map(\.name) == ["t1", "t2", "t4"], true,
+               "todo: the two first and the spotlit one")
+        expect(TodoColumn.picks(todos, spotlight: todos[0].id).map(\.name) == ["t1", "t2", "t3"], true,
+               "todo: three picks when the spotlit one is already in")
+        expect(TodoColumn.picks(Array(todos.prefix(1)), spotlight: nil).count == 1, true, "todo: a short list picks what it has")
+        expect(VCX.folder(for: "zz qq nothing here") == NSHomeDirectory() + "/self", true, "todo: no folder named, ~/self")
+        expect(VCX.folder(for: "Fix the Fleet panel").hasSuffix("/fleet"), true, "todo: a folder named, that folder")
     }
 
     // MARK: - Money
