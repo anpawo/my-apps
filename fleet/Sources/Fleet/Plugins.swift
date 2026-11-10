@@ -187,6 +187,8 @@ struct PluginColumns: View {
     var limit: CGFloat = .infinity
     /// The side block open under the pointer — see `OverlayView.sideOpen`; "plugins" opens all.
     var opened: String?
+    /// The block ⌘ expanded — see `OverlayView.expanded`.
+    var expanded: String?
     /// These files' blocks before the others, in this order; the rest by file name.
     var first: [String] = []
     /// These files' blocks open whatever the pointer does.
@@ -198,7 +200,7 @@ struct PluginColumns: View {
     var body: some View {
         let rank = { (id: String) in first.firstIndex(of: id) ?? first.count }
         ForEach(store.blocks.enumerated().sorted { (rank($0.1.id), $0.0) < (rank($1.1.id), $1.0) }.map(\.1)) { block in
-            PluginColumn(block: block, store: store, commandHeld: commandHeld,
+            PluginColumn(block: block, store: store, commandHeld: commandHeld, full: expanded == block.id,
                          scrolling: scrolling, limit: limit,
                          open: opened == block.id || opened == "plugins" || pinned.contains(block.id),
                          onOpen: onOpen)
@@ -217,6 +219,8 @@ struct PluginColumn: View {
     let block: PluginBlock
     let store: PluginStore
     var commandHeld = false
+    /// Every item rather than the brief — see `OverlayView.expanded`.
+    var full = false
     var scrolling = true
     var limit: CGFloat = .infinity
 
@@ -242,8 +246,8 @@ struct PluginColumn: View {
     private static let chrome: CGFloat = 56
     private static let space = "plugin-list"
 
-    /// ⌘ over the open block: its items can be picked up.
-    private var armed: Bool { commandHeld && open }
+    /// ⌘ over the expanded block: its items can be picked up.
+    private var armed: Bool { commandHeld && full }
 
     /// The groups drawn, by their place in the file: the empty ones too while an item can be
     /// carried, as somewhere to put it down.
@@ -256,7 +260,7 @@ struct PluginColumn: View {
 
     private func items(in group: Int) -> [PluginBlock.Item] {
         let all = block.groups[group].items
-        guard !commandHeld else { return all }
+        guard !full else { return all }
         let before = block.groups[..<group].reduce(0) { $0 + $1.items.count }
         return Array(all.prefix(max(0, Self.brief - before)))
     }

@@ -49,6 +49,10 @@ struct OverlayView: View {
         ("--mail-open", "mail"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
         ("--todo-open", "todo"),
     ].first { CommandLine.arguments.contains($0.0) }?.1
+    /// The side block showing its whole list: the one under the pointer when ⌘ goes down, kept
+    /// while ⌘ is held or the pointer stays on it (asked 2026-11-10), so it can be scrolled
+    /// with ⌘ let go. See `settle`. `FLEET_EXPAND=<key>` seeds it for a render.
+    @State private var expanded: String? = ProcessInfo.processInfo.environment["FLEET_EXPAND"]
     /// How tall the grid's own area is, measured: the heading above it is laid out, not
     /// arithmetic. See `room`.
     @State private var gridSpace: CGFloat = 0
@@ -208,13 +212,13 @@ struct OverlayView: View {
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
                         .onHover { side("spending", $0) }
-                    MailColumn(hub: hub, commandHeld: held, scrolling: !eagerLayout,
+                    MailColumn(hub: hub, commandHeld: held, full: expanded == "mail", scrolling: !eagerLayout,
                                limit: free, open: true)
                         .onHover { side("mail", $0) }
                     TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                               scrolling: !eagerLayout, open: true)
+                               scrolling: !eagerLayout, open: true, full: expanded == "todo")
                         // The whole list only under ⌘: open, it is three picks — see `TodoColumn.listing`.
-                        .frame(maxHeight: !hub.todoEmpty && ((sideOpen == "todo" && held) || hub.composing)
+                        .frame(maxHeight: !hub.todoEmpty && (expanded == "todo" || hub.composing)
                                ? .infinity : nil)
                         .onHover { side("todo", $0) }
                 }
@@ -252,7 +256,7 @@ struct OverlayView: View {
                     EmptyView()
                 } blocks: { free in
                     PluginColumns(store: controller.plugins, commandHeld: held,
-                                  scrolling: !eagerLayout, limit: free, opened: sideOpen,
+                                  scrolling: !eagerLayout, limit: free, opened: sideOpen, expanded: expanded,
                                   first: ["s14.json", "messages.json"], pinned: ["s14.json", "messages.json"],
                                   onHover: side,
                                   onOpen: { launch in
@@ -268,6 +272,7 @@ struct OverlayView: View {
         // shadow reaches 16pt out on hover.
         .padding(.top, 26)
         .background(dismissLayer)
+        .onChange(of: controller.commandHeld) { settle() }
     }
 
     /// A side column: `top` standing, then its blocks, each folded to its heading but the one
@@ -292,7 +297,7 @@ struct OverlayView: View {
         .animation(Self.fold, value: hub.todoEmpty)
         // A panel put away with the pointer on a block brings no hover-out back.
         .onChange(of: controller.isPanelVisible) { _, shown in
-            if !shown { sideOpen = nil }
+            if !shown { sideOpen = nil; expanded = nil }
         }
         .frame(height: Self.blockHeight, alignment: .top)
         // Cut off at the panel's own bottom gap rather than run off the screen. The
@@ -321,6 +326,19 @@ struct OverlayView: View {
         let next = inside ? key : (sideOpen == key ? nil : sideOpen)
         guard sideOpen != next else { return }
         withAnimation(Self.fold) { sideOpen = next }
+        settle()
+    }
+
+    /// ⌘ down with nothing expanded expands the block under the pointer; with ⌘ up, the pointer
+    /// off the expanded block folds it back to its brief.
+    private func settle() {
+        let next = Self.expansion(held: controller.commandHeld, expanded: expanded, under: sideOpen)
+        guard expanded != next else { return }
+        withAnimation(Self.fold) { expanded = next }
+    }
+
+    static func expansion(held: Bool, expanded: String?, under: String?) -> String? {
+        held ? expanded ?? under : under == expanded ? expanded : nil
     }
 
     /// The tiles with the prompt bubble immediately under them, as one block. The bubble rides

@@ -479,6 +479,11 @@ enum SelfCheck {
         expect(TodoColumn.picks(Array(todos.prefix(1)), spotlight: nil).count == 1, true, "todo: a short list picks what it has")
         expect(VCX.folder(for: "zz qq nothing here") == NSHomeDirectory() + "/self", true, "todo: no folder named, ~/self")
         expect(VCX.folder(for: "Fix the Fleet panel").hasSuffix("/fleet"), true, "todo: a folder named, that folder")
+        expect(OverlayView.expansion(held: true, expanded: nil, under: "mail") == "mail", true, "⌘: expands the block under the pointer")
+        expect(OverlayView.expansion(held: true, expanded: "mail", under: "todo") == "mail", true, "⌘ held: the expanded block stays")
+        expect(OverlayView.expansion(held: false, expanded: "mail", under: "mail") == "mail", true, "⌘ up: stays while the pointer is on it")
+        expect(OverlayView.expansion(held: false, expanded: "mail", under: "todo") == nil, true, "⌘ up, pointer off: folds back")
+        expect(OverlayView.expansion(held: false, expanded: nil, under: "mail") == nil, true, "no ⌘: nothing expands")
     }
 
     // MARK: - Money

@@ -13,6 +13,8 @@ struct MailColumn: View {
     /// ⌘ is held: the card under the pointer unfolds and shows its four buttons. The same deal
     /// as the TODO column: without ⌘ there is nothing to aim at and nothing to miss.
     var commandHeld = false
+    /// The whole pile rather than the brief: ⌘ was pressed over this block — see `OverlayView.expanded`.
+    var full = false
     /// Off for an offscreen render, like the two columns below it: `ImageRenderer` draws
     /// nothing inside a `ScrollView`.
     var scrolling = true
@@ -73,6 +75,7 @@ struct MailColumn: View {
         // ⌘ pressed with the pointer already on a card: the change comes from the controller,
         // not from the hover, so it needs an animation of its own.
         .animation(TodoColumn.unroll, value: commandHeld)
+        .animation(TodoColumn.unroll, value: full)
     }
 
     @ViewBuilder private var rows: some View {
@@ -80,7 +83,7 @@ struct MailColumn: View {
             HubEmptyLine(text: hub.pending)
         }
         // A brief: the three that most need him, the whole pile under ⌘ (asked 2026-11-10).
-        ForEach(commandHeld ? hub.mail : Array(hub.mail.prefix(Self.brief))) { mail in
+        ForEach(full ? hub.mail : Array(hub.mail.prefix(Self.brief))) { mail in
             MailCard(hub: hub, mail: mail,
                      expanded: commandHeld && hovered == mail.id,
                      // A transaction: without it the card unfolds at once and
@@ -91,7 +94,7 @@ struct MailColumn: View {
                          }
                      })
         }
-        if !commandHeld, hub.mail.count > Self.brief {
+        if !full, hub.mail.count > Self.brief {
             HubEmptyLine(text: "\(hub.mail.count - Self.brief) more · ⌘ for all")
         }
     }
@@ -114,6 +117,8 @@ struct TodoColumn: View {
     var scrolling = true
     /// Folded to its heading until the pointer is on it, or a todo is being written.
     var open = false
+    /// The whole list rather than the picks — see `OverlayView.expanded`.
+    var full = false
 
     /// The row under the pointer, which is the only one that opens. Held here rather than on
     /// the row, because a row is rebuilt from scratch every time the fleet refreshes — once a
@@ -207,9 +212,9 @@ struct TodoColumn: View {
     /// has to give it back.
     private static let glowRoom: CGFloat = 16
 
-    /// The whole list, to work it: ⌘ held, or a todo being written. Otherwise three picks
+    /// The whole list, to work it: expanded by ⌘, or a todo being written. Otherwise three picks
     /// (asked 2026-11-10: "a few recommendations (max 3)").
-    private var listing: Bool { armed || hub.composing }
+    private var listing: Bool { full || hub.composing }
 
     /// The two due soonest (the list's own order), and the spotlit one, which turns over at
     /// every opening so an undated todo gets its day too.
