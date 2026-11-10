@@ -54,7 +54,7 @@ enum FreezeTrace {
         return Double(info.user_time.seconds + info.system_time.seconds) + Double(info.user_time.microseconds + info.system_time.microseconds) / 1_000_000
     }
 
-    @MainActor static func start(stall: TimeInterval = 5, resample: TimeInterval = 60) {
+    @MainActor static func start(stall: TimeInterval = 3, resample: TimeInterval = 60) {
         let main = mach_thread_self()
         state.withLock { $0.beat = uptime() }
         let timer = Timer(timeInterval: 0.5, repeats: true) { _ in let now = uptime(); state.withLock { $0.beat = now } }
@@ -63,12 +63,12 @@ enum FreezeTrace {
             var fresh = (beat: state.withLock { $0.beat }, at: uptime(), cpu: cpuTime(main))
             var stuck: (stamp: String, samples: Int, last: TimeInterval)?
             let clock = ISO8601DateFormatter(); clock.timeZone = .current
-            func sample(_ name: String) {
+            func sample(_ name: String) -> Process {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-                process.arguments = ["\(getpid())", "3", "-file", folder.appendingPathComponent(name).path]
+                process.arguments = ["\(getpid())", "2", "-file", folder.appendingPathComponent(name).path]
                 process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-                try? process.run(); process.waitUntilExit()
+                try? process.run(); return process
             }
             while true {
                 Thread.sleep(forTimeInterval: 1)
@@ -78,7 +78,7 @@ enum FreezeTrace {
                 if var current = stuck {
                     guard now - current.last >= resample else { continue }
                     current.samples += 1; current.last = now; stuck = current
-                    sample("\(current.stamp).sample-\(current.samples).txt")
+                    sample("\(current.stamp).sample-\(current.samples).txt").waitUntilExit()
                     continue
                 }
                 // CPU from the first check that saw the last beat, so a beat seen late does not count as idle time.
@@ -86,11 +86,15 @@ enum FreezeTrace {
                 let stamp = clock.string(from: Date()).replacingOccurrences(of: ":", with: "-")
                 stuck = (stamp, 1, now)
                 try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                sample("\(stamp).sample.txt")
+                // Sample, report and graph dump run together, the report written first: mac-guard restarts a spinning frontend
+                // after 10 s, and the dump's archive alone takes 3 to 4 s of a big graph.
+                let dumped = DispatchSemaphore(value: 0)
+                Thread.detachNewThread { GraphDump.capture(folder: folder, stamp: stamp); dumped.signal() }
+                sample("\(stamp).sample.txt").waitUntilExit()
                 let (after, shapes) = state.withLock { ($0.counts, $0.shapes) }
                 let fired = after.map { ($0.key, $0.value - (before[$0.key] ?? 0)) }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
                 let since = clock.string(from: Date().addingTimeInterval(beat - now))
-                var report = "Main thread busy since \(since): \(String(format: "%.1f", cpu - fresh.cpu)) s of CPU in \(String(format: "%.1f", now - beat)) s; callbacks fired in the 3 s after:\n"
+                var report = "Main thread busy since \(since): \(String(format: "%.1f", cpu - fresh.cpu)) s of CPU in \(String(format: "%.1f", now - beat)) s; callbacks fired in the \(String(format: "%.1f", uptime() - now)) s after:\n"
                 report += fired.isEmpty ? "none\n" : fired.map { "\($0.1)\t\($0.0)\n" }.joined()
                 report += "Window shapes, oldest first (seconds before the stall, window, sections, header-only, pinned, viewport, composer, drawn rows):\n"
                 report += shapes.map { entry in
@@ -98,7 +102,7 @@ enum FreezeTrace {
                     return String(format: "%.1f", beat - entry.time) + "\t\(s.window)\t\(s.sections)\t\(s.headerOnly)\t\(s.pinned)\t\(Int(s.viewport))\t\(Int(s.composer))\t\(s.drawn)\n"
                 }.joined()
                 try? report.write(to: folder.appendingPathComponent("\(stamp).txt"), atomically: true, encoding: .utf8)
-                GraphDump.capture(folder: folder, stamp: stamp)
+                dumped.wait()
             }
         }
     }
