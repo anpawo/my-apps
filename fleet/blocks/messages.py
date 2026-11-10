@@ -39,7 +39,7 @@ def network(protocol, account):
     p = (protocol or account or "?").split("/")[-1].split("mautrix-")[-1]
     p = p.split(".")[0].split("_")[0]
     p = p[:-2] if p.endswith("go") else p
-    return {"hungryserv": "beeper", "gmessages": "sms", "": "?"}.get(p, p)
+    return "sms" if p.startswith("gmessages") else {"hungryserv": "beeper", "": "?"}.get(p, p)
 
 
 def title(raw):
