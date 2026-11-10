@@ -1031,8 +1031,7 @@ struct SessionTile: View {
     /// What the card is called, when the directory name it defaults to would say nothing —
     /// inside a group, where every card shares that directory.
     var heading: String?
-    /// Inside a group, whose heading already names the directory: no folder in the
-    /// corner, unless the session's repo is one inside it.
+    /// Inside a group, whose heading already names the directory: no folder in the corner.
     var grouped = false
     let onSelect: () -> Void
 
@@ -1098,9 +1097,9 @@ struct SessionTile: View {
                         .padding(9)
                 }
 
-                // Bottom left, the top line left to the pills (asked 2026-10-26). In a group, only
-                // a repo inside the group's repo: s14's card names scientcapital's sessions.
-                if session.qwen != nil || !grouped || session.dirName != session.groupKey {
+                // Bottom left, the top line left to the pills (asked 2026-10-26). Never in a group:
+                // a repo inside it already has its divider (asked 2026-11-10).
+                if session.qwen != nil || !grouped {
                     folder
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .padding(11)
