@@ -354,6 +354,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: sender, session: entry.session))
                     _ = try await entry.session.runtimeClient?.perform("close")
                     closing.insert(ObjectIdentifier(sender)); sender.close()
+                } catch let error where entry.session.runtimeClient.map({ !$0.isAttached }) ?? false {
+                    // A dead worker can neither save nor close: the draft stays in the recovery file, marked closed so no launch reopens it.
+                    if let client = entry.session.runtimeClient { try? RuntimeRecovery.requestClose(sessionID: client.sessionID) }
+                    NSLog("VCX closed a window whose runtime is gone: %@", error.localizedDescription)
+                    closing.insert(ObjectIdentifier(sender)); sender.close()
                 } catch { entry.session.frontendReplacing = false; entry.session.notice("Cannot close before saving the draft: " + error.localizedDescription) }
             }
         }
