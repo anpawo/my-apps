@@ -93,8 +93,8 @@ enum BugCheck {
             Settings.shared.updateLimit(account: claude.id, reset: Date().timeIntervalSince1970 + 3600)
             frontend.editDraft(runtimeDraft([["type": "text", "text": "Keep failed switch"], ["type": "localImage", "path": "/fixture.png"]]))
             _ = try await backend.perform(action: "send", params: ["text": "Keep failed switch", "images": ["/fixture.png"], "draft": draftContent(frontend.draft), "generation": frontend.draftGeneration])
-            check(!switching.busy && !switching.ready && frontend.draft.string.contains("Keep failed switch") && draftContent(frontend.draft).contains { $0["path"] as? String == "/fixture.png" },
-                  "a failed provider switch restores the submitted text and attachment")
+            check(!switching.busy && switching.ready && frontend.draft.string.contains("Keep failed switch") && draftContent(frontend.draft).contains { $0["path"] as? String == "/fixture.png" },
+                  "a failed provider switch keeps its connection and restores the submitted text and attachment")
             check(!frontend.rows.contains { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "Keep failed switch" } && connections.last?.sent.isEmpty == true,
                   "a failed provider switch removes the unsent bubble")
         }

@@ -347,14 +347,17 @@ extension Session {
                 if providers.contains(args[0]) {
                     let provider = args[0], previousProvider = providerChoice
                     providerChoice = provider
-                    guard let next = available.first, provider == "auto" || next.provider == provider else {
+                    let candidates = provider == "auto" ? available : settings.candidates(provider).filter { $0.provider == provider }
+                    guard let next = candidates.first(where: { provider != "auto" && $0.id == accountChoice }) ?? candidates.first else {
                         providerChoice = previousProvider
                         throw CXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
                     }
                     if next.id != account.id || !ready {
-                        try await activate(next, resume: nil, keepRows: true, reason: "provider changed")
+                        do { try await activate(next, resume: nil, keepRows: true, reason: "provider changed") }
+                        catch { providerChoice = previousProvider; throw error }
                         await refreshCatalog()
                     }
+                    if provider != "auto", (settings.value.limits[next.id] ?? 0) > Date().timeIntervalSince1970 { settings.updateLimit(account: next.id, reset: 0) }
                     if args.count == 1 { showCommands("/model " + provider + " ", preserveDraft: false); return }
                     guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
                     let efforts = modelEfforts[args[1]] ?? []

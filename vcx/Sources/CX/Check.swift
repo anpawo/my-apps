@@ -1215,7 +1215,7 @@ enum Check {
             Settings.shared.updateLimit(account: "codex-default", reset: 0)
             transactional.draft = NSAttributedString(string: "Keep my work")
             await transactional.send(text: "Keep my work", images: [])
-            check(!transactional.ready && transactional.account.provider == "claude" && transactional.threadID == originalID, "failed activation preserves account and thread ownership")
+            check(transactional.ready && transactional.account.provider == "claude" && transactional.threadID == originalID, "failed activation preserves the working connection, account and thread ownership")
             check(transactional.fleetContext == "Keep task", "failed activation preserves the session's Fleet context")
             transactional.save()
         }
@@ -1830,7 +1830,7 @@ enum Check {
                 let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
                 transitions.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: source))
                 let pendingTransition = Task { await transitions.command(source) }
-                for _ in 0..<100 where (transitions.rpc as? FixtureConnection)?.startDelay != transitionDelay { try? await Task.sleep(nanoseconds: 1_000_000) }
+                for _ in 0..<100 where !transitions.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 check(transitions.changing, "connection startup keeps transitions serialized")
                 let connection = transitions.rpc
