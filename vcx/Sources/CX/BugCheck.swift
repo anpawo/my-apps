@@ -486,6 +486,58 @@ enum BugCheck {
                       "a vertical wheel over a wide table scrolls the transcript, a sideways one the table")
             } else { check(false, "a vertical wheel over a wide table: no table scroll view in the transcript") }
         }
+        for columns in [3, 5] {
+            // The rule above held, yet a wheel sent over a table did not move the transcript.
+            let tabled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("table-route-\(columns)"))
+            tabled.ready = true; tabled.status = "Ready"
+            let head = "| " + (1...columns).map { "H\($0)" }.joined(separator: " | ") + " |\n|" + String(repeating: "---|", count: columns)
+            let body = (1...12).map { r in "\n| " + (1...columns).map { "r\(r)c\($0)" }.joined(separator: " | ") + " |" }.joined()
+            for n in 0..<6 {
+                tabled.show(["id": "q\(n)", "type": "userMessage", "content": [["type": "text", "text": "question \(n)"]]])
+                tabled.show(["id": "a\(n)", "type": "agentMessage", "text": "Answer \(n):\n\n" + head + body + "\n\nAfter."])
+            }
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
+            defer { window.close() }
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
+            guard let content = window.contentView, let outer = RuntimeUpdate.scrollView(in: content),
+                  let table = scrollViews(outer).filter({ $0 !== outer }).first(where: { t in
+                      let r = t.convert(t.bounds, to: outer.contentView)
+                      return outer.contentView.bounds.insetBy(dx: 0, dy: 40).contains(CGPoint(x: r.midX, y: r.midY))
+                  }) else { check(false, "\(columns)-column table: none on screen"); continue }
+            let frame = table.convert(table.bounds, to: nil)
+            var point = NSPoint(x: frame.midX, y: frame.midY)
+            func send(_ dy: Int32, _ dx: Int32 = 0, phase: CGScrollPhase? = nil) {
+                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { return }
+                if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+                guard let event = NSEvent(cgEvent: cg) else { return }
+                if let passed = TranscriptWheel.route(event, in: window, at: point) { window.sendEvent(passed) }
+                content.layoutSubtreeIfNeeded()
+            }
+            // Headless, a swipe moves no scroll view at all; what is checked is where the monitor sends it.
+            func swipe(_ moves: [(Int32, Int32)]) -> Bool? {
+                send(0, phase: .mayBegin); send(0, phase: .began)
+                for (dy, dx) in moves { send(dy, dx, phase: .changed) }
+                let went = TranscriptWheel.chained
+                send(0, phase: .ended)
+                return went
+            }
+            let start = outer.contentView.bounds.minY
+            send(30)
+            let wheel = outer.contentView.bounds.minY
+            let up = swipe([(10, 0), (10, 0)]), leaning = swipe([(0, -2), (6, -1), (10, 0)]), sideways = swipe([(0, -10), (0, -10)])
+            point = NSPoint(x: outer.convert(outer.bounds, to: nil).minX + 4, y: frame.midY)
+            send(0, phase: .began)
+            point = NSPoint(x: frame.midX, y: frame.midY)
+            send(0, -10, phase: .changed)
+            let slid = TranscriptWheel.chained
+            send(0, phase: .ended)
+            let wide = columns == 5
+            print("\(columns)-column table (\(Int(table.frame.width)) over \(Int(table.documentView?.frame.width ?? 0)) pt): transcript at \(Int(start)), \(Int(wheel)) after a mouse wheel up; swipe to the transcript: up \(String(describing: up)), leaning \(String(describing: leaning)), sideways \(String(describing: sideways)), begun beside it \(String(describing: slid))")
+            check(wheel < start - 1 && up == true && leaning == true && sideways == !wide && slid == true,
+                  "a wheel or a swipe over a \(columns)-column table scrolls the transcript, a sideways swipe \(wide ? "the table" : "too")")
+        }
         do {
             // Opened by hover, scrolled into and left by the pointer, a tall work block shut under a scroll offset past the new end: the transcript went blank.
             let working = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("work-shut"))
