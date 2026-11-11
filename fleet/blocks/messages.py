@@ -22,8 +22,6 @@ CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
 ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 SHOWN = 3
 SKIP = ("HIDDEN", "REACTION", "MEMBERSHIP", "NOTICE")
-# A message read within this many seconds (Beeper, or his phone through the read receipt) gets no banner.
-GRACE = 30
 
 THREADS = """
 select threadID id, accountID account, timestamp ts,
@@ -40,8 +38,8 @@ select m.eventID id, m.roomID room, m.timestamp ts, m.type, m.senderContactID se
        json_extract(m.message,'$.text') text
 from mx_room_messages m
 where m.isSentByMe = 0 and m.shouldNotify = 1 and not m.isDeleted
-  and m.seenByMeAt is null
-  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ? and m.timestamp <= ?
+  and m.seenByMeAt is null -- already read, on Beeper or on the phone (its read receipt)
+  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ?
 order by m.timestamp"""
 
 
@@ -128,8 +126,7 @@ def build(db, after, now, covered=frozenset()):
     newest = db.execute("select max(timestamp) from mx_room_messages").fetchone()[0] or 0
     if after is None:
         return block, newest
-    cutoff = int((now - GRACE) * 1000)
-    fresh = db.execute(INCOMING, (*SKIP, after, cutoff)).fetchall()
+    fresh = db.execute(INCOMING, (*SKIP, after)).fetchall()
     if covered:
         kinds = {}
         for r in fresh:
@@ -157,7 +154,7 @@ def build(db, after, now, covered=frozenset()):
             body = ", ".join(dict.fromkeys(where(room)[0] or sender(room, rows[-1]["sender"])
                                            for room, rows in reversed(list(by_room.items()))))
         block["notify"] = [{"id": fresh[-1]["id"], "title": head, "body": body[:200]}]
-    return block, max(after, min(newest, cutoff))
+    return block, max(newest, after)
 
 
 def write(path, value):
@@ -249,10 +246,8 @@ def test():
     block, _ = build(db, (now - 80) * 1000, now)
     assert "notify" not in block, "a message he read elsewhere says nothing"
     msg("e7", "!a", (now - 10) * 1000, "just now")
-    block, cursor = build(db, (now - 80) * 1000, now)
-    assert "notify" not in block and cursor == (now - GRACE) * 1000, "a message within the grace waits"
-    block, _ = build(db, cursor, now + GRACE)
-    assert block["notify"][0]["id"] == "e7", "still unread after the grace: the banner comes"
+    block, _ = build(db, (now - 80) * 1000, now)
+    assert block["notify"][0]["id"] == "e7", "an unread message bannered at once"
     print("messages.py: all good")
 
 
