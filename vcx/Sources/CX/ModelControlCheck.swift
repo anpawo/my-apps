@@ -13,6 +13,7 @@ enum ModelControlCheck {
         session.models = ["fixture-model", "other-model"]
         session.modelEfforts["other-model"] = ["low", "high"]
         session.effort = "high"
+        connection.resumeModel = session.model
         session.draft = NSAttributedString(string: "/model unfinished draft")
         session.show(["id": "existing", "type": "agentMessage", "text": "Existing answer"])
         let thread = session.threadID, record = session.runtimeMetadata()["recordID"] as? String, rows = session.rows.map(\.id), draft = session.draft, generation = session.draftGeneration
@@ -34,6 +35,11 @@ enum ModelControlCheck {
         } catch let error as CXError where !error.message.hasPrefix("FAIL:") {}
         _ = try await backend.perform(action: "setModel", params: ["model": "other-model", "effort": "low"])
         guard session.effort == "low" else { throw CXError(message: "FAIL: model control ignored explicit effort") }
+        await session.send(text: "Use the selected model", images: [], retry: true)
+        let settings = (connection.sent.last?["collaborationMode"] as? JSON)?["settings"] as? JSON
+        guard settings?["model"] as? String == "other-model", settings?["reasoning_effort"] as? String == "low" else {
+            throw CXError(message: "FAIL: the next turn must use the selected model and effort")
+        }
         print("Model control checks passed: model and effort change without a prompt or draft change")
     }
 }

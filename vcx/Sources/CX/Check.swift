@@ -2349,6 +2349,7 @@ final class FixtureConnection: Connection {
     var logFile: String?
     var modes: [String] = []
     var failMode = false
+    var resumeModel: String?
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
     func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
@@ -2364,7 +2365,7 @@ final class FixtureConnection: Connection {
                 if failResume { throw CXError(message: "Expected resume failure") }
                 if let contextDuringResume { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringResume]]]) }
             }
-            opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
+            opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": (method == "thread/resume" ? resumeModel : nil) ?? params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
         case "thread/list":
             catalogRequests += 1
             if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }

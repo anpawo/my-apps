@@ -948,7 +948,8 @@ final class Session: ObservableObject {
             params["developerInstructions"] = developerInstructions
             params["effort"] = selectedEffort as Any? ?? NSNull()
             let result = try await rpc.request("thread/resume", params)
-            model = result["model"] as? String ?? value
+            // An already loaded Codex thread returns its old model; turn/start applies the selection.
+            model = account.provider == "codex" ? value : result["model"] as? String ?? value
             defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : modelDefaultEfforts[model])
             effort = selectedEffort
             if contextLimit == nil { await refreshContextLimit() }
