@@ -163,7 +163,7 @@ final class Session: ObservableObject {
     @Published var rows: [Row] = []
     @Published var recent: [Recent] = []
     @Published var models: [String] = []
-    @Published var model = "Codex"
+    @Published var model = ""
     @Published var effort: String?
     @Published var defaultEffort: String?
     @Published var showingSettings = false
@@ -332,7 +332,10 @@ final class Session: ObservableObject {
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(conversationDirectory.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
-    var modelLabel: String { modelName(modelAliases[model] ?? model) }
+    var modelLabel: String { model.isEmpty ? "Not connected" : modelName(modelAliases[model] ?? model) }
+    var activityLabel: String {
+        busy ? "Thinking" : !ready ? "Not connected" : needsAttention || status == "Stopped" ? status : backgroundTasks > 0 ? "Pending action" : "Ready"
+    }
     func modelName(_ id: String) -> String {
         id.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: "-(\\d+)-(\\d+)$", with: " $1.$2", options: .regularExpression)
@@ -466,7 +469,13 @@ final class Session: ObservableObject {
         if account.provider == "codex", resume == nil { params["dynamicTools"] = [ClaudeCompatibility.questionTool] }
         if let selectedModel { params["model"] = selectedModel }
         if let resume { params["threadId"] = resume; params["excludeTurns"] = true }
-        let result = try await rpc.request(resume == nil ? "thread/start" : "thread/resume", params)
+        let method = resume == nil ? "thread/start" : "thread/resume"
+        let result: JSON
+        do { result = try await rpc.request(method, params) }
+        catch {
+            guard error.localizedDescription == "workspace routing discovery timed out" else { throw error }
+            result = try await rpc.request(method, params)
+        }
         guard let thread = result["thread"] as? JSON, let id = thread["id"] as? String else { throw CXError(message: "Codex did not return a conversation.") }
         var history: [JSON] = []
         if resume != nil && !keepRows {
@@ -486,7 +495,7 @@ final class Session: ObservableObject {
         threadID = id
         if !keepRows { planning = false; conversationName = thread["name"] as? String }
         turnID = nil; busy = false; stopRequested = false; backgroundTasks = 0
-        model = result["model"] as? String ?? "Codex"
+        model = result["model"] as? String ?? providerLabel
         defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : nil)
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""

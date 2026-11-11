@@ -463,8 +463,8 @@ struct CXView: View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 let pending = !session.busy && !session.needsAttention && session.backgroundTasks > 0
-                ActivityDot(busy: session.busy, pending: pending).frame(width: 12, height: 10).accessibilityLabel(session.busy ? "Thinking" : pending ? "Pending action" : "Ready")
-                Text(session.busy ? "Thinking" : session.needsAttention || session.status == "Stopped" ? session.status : pending ? "Pending action" : "Ready").font(.system(size: 12)).foregroundStyle(session.busy ? accent : pending ? pendingColor : readyColor)
+                ActivityDot(busy: session.busy, pending: pending).frame(width: 12, height: 10).opacity(session.ready || session.busy ? 1 : 0.35).accessibilityLabel(session.activityLabel)
+                Text(session.activityLabel).font(.system(size: 12)).foregroundStyle(session.busy ? accent : !session.ready ? .gray : pending ? pendingColor : readyColor)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 5).opacity(sending.flight == nil ? 1 : 0)
             if (!session.permissions.isEmpty && session.questionFlow == nil) || (!session.ready && !session.status.isEmpty) {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 12)).lineLimit(1).foregroundStyle(.black.opacity(0.6))

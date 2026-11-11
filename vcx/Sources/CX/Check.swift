@@ -2379,6 +2379,7 @@ final class FixtureConnection: Connection {
     var contextDuringResume: Int?
     var failResume = false
     var failStart = false
+    var routingFailures = 0
     var failSend = false
     var limit = false
     var hold = false
@@ -2400,6 +2401,10 @@ final class FixtureConnection: Connection {
             if let contextDuringConfig { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringConfig]]]) }
             return [:]
         case "thread/start", "thread/resume":
+            if routingFailures > 0 {
+                routingFailures -= 1; opened.append(params)
+                throw CXError(message: "workspace routing discovery timed out")
+            }
             if method == "thread/resume" {
                 if failResume { throw CXError(message: "Expected resume failure") }
                 if let contextDuringResume { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringResume]]]) }
