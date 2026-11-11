@@ -769,12 +769,10 @@ final class Session: ObservableObject {
             await switchMode()
             guard ready else { return }
         }
+        var nextAccount: Account?
         if !testing, !busy, !retry {
             guard let next = available.first else { notice("All enabled accounts have reached their limits. Check Settings or wait for a reset."); return }
-            if next.id != account.id {
-                do { try await activate(next, resume: nil, keepRows: true, reason: "switched to " + next.name); await refreshCatalog() }
-                catch { notice(error.localizedDescription); return }
-            }
+            if next.id != account.id { nextAccount = next }
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
         // A window opened at / or ~ starts its first task in the task's project.
@@ -799,22 +797,27 @@ final class Session: ObservableObject {
         if !retry, draftGeneration == submissionGeneration, NSArray(array: draftContent(draft)).isEqual(to: draftContent(submissionDraft)) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
         if !wasBusy { activeActions.removeAll(); turnPrompt = retry ? nil : id }
         busy = true; stopRequested = false; stopSource = nil; needsAttention = false; status = wasBusy ? "Sending guidance…" : "Working…"
-        var outgoing = content
-        if let skill { outgoing.append(skill) }
-        if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
-        var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
-        if !wasBusy { params["cwd"] = cwd }
-        if !wasBusy, let effort { params["effort"] = effort }
-        if !wasBusy, account.provider == "codex" {
-            params["collaborationMode"] = ["mode": planning ? "plan" : "default", "settings": ["model": model, "reasoning_effort": (effort ?? defaultEffort) as Any? ?? NSNull(), "developer_instructions": NSNull()]]
-            // Codex takes a new mode with a turn and keeps it for the turns after.
-            if modeOverride {
-                params["approvalPolicy"] = activeMode == "bypass" ? "never" : "on-request"
-                params["sandboxPolicy"] = activeMode == "bypass" ? ["type": "dangerFullAccess"] : ["type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false] as JSON
-            }
-        }
-        if wasBusy { params["expectedTurnId"] = turnID }
         do {
+            if let nextAccount {
+                try await activate(nextAccount, resume: nil, keepRows: true, reason: "switched to " + nextAccount.name)
+                busy = true; status = "Working…"
+                await refreshCatalog()
+            }
+            var outgoing = content
+            if let skill { outgoing.append(skill) }
+            if !injectedContext.isEmpty { outgoing.insert(["type": "text", "text": injectedContext], at: 0) }
+            var params: JSON = ["threadId": threadID ?? "", "input": outgoing, "clientUserMessageId": id]
+            if !wasBusy { params["cwd"] = cwd }
+            if !wasBusy, let effort { params["effort"] = effort }
+            if !wasBusy, account.provider == "codex" {
+                params["collaborationMode"] = ["mode": planning ? "plan" : "default", "settings": ["model": model, "reasoning_effort": (effort ?? defaultEffort) as Any? ?? NSNull(), "developer_instructions": NSNull()]]
+                // Codex takes a new mode with a turn and keeps it for the turns after.
+                if modeOverride {
+                    params["approvalPolicy"] = activeMode == "bypass" ? "never" : "on-request"
+                    params["sandboxPolicy"] = activeMode == "bypass" ? ["type": "dangerFullAccess"] : ["type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false] as JSON
+                }
+            }
+            if wasBusy { params["expectedTurnId"] = turnID }
             // The prompt is already in the chat; the agent moves to its project behind it.
             if routes {
                 status = "Choosing the project…"
@@ -835,7 +838,7 @@ final class Session: ObservableObject {
             save()
             if stopRequested { await stop() }
         } catch {
-            if usageLimit(["error": error.localizedDescription]), !stopRequested {
+            if ready, usageLimit(["error": error.localizedDescription]), !stopRequested {
                 pendingLimit = [:]; return
             }
             rows.removeAll { $0.id == optimistic.id }; seen.remove(id)

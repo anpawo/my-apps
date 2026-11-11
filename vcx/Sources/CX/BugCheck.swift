@@ -39,6 +39,65 @@ enum BugCheck {
         let preferences = Settings.shared.value
         defer { Settings.shared.value = preferences; Settings.shared.save() }
         Settings.shared.value.provider = "codex"; Settings.shared.save()
+        do {
+            let claude = Settings.shared.value.accounts.first { $0.provider == "claude" }!
+            let switching = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("provider-switch"))
+            switching.providerChoice = "claude"
+            var connections: [FixtureConnection] = []
+            var failSwitch = false
+            switching.connectionFactory = { account, _ in
+                let connection = FixtureConnection(account)
+                if !connections.isEmpty { connection.startDelay = 400_000_000 }
+                connection.failStart = failSwitch
+                connections.append(connection)
+                return connection
+            }
+            try await switching.activate(claude, resume: nil, keepRows: false)
+            let backend = SessionBackend(session: switching)
+            let frontend = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("provider-switch-frontend"))
+            backend.onChange = { frontend.applyRuntimePatch($0) }
+            frontend.applyRuntimeSnapshot(backend.snapshot())
+            let host = NSHostingView(rootView: Composer(session: frontend))
+            host.frame = NSRect(x: 0, y: 0, width: 600, height: 150); host.layoutSubtreeIfNeeded()
+            defer {
+                backend.close(); frontend.close()
+                Settings.shared.updateLimit(account: claude.id, reset: 0)
+            }
+            Settings.shared.updateLimit(account: claude.id, reset: Date().timeIntervalSince1970 + 3600)
+            for provider in ["codex", "claude"] {
+                if provider == "claude" { Settings.shared.updateLimit(account: claude.id, reset: Date().timeIntervalSince1970 - 1) }
+                let prompt = "Continue with " + provider
+                frontend.editDraft(NSAttributedString(string: prompt))
+                let params: JSON = ["text": prompt, "images": [String](), "draft": draftContent(frontend.draft), "generation": frontend.draftGeneration]
+                let send = Task { try await backend.perform(action: "send", params: params) }
+                for _ in 0..<100 where !switching.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                host.layoutSubtreeIfNeeded()
+                check(switching.changing, "\(provider) switch fixture waits on its connection")
+                check(frontend.rows.last?.kind == "user" && (frontend.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == prompt,
+                      "\(provider) switch shows the submitted bubble before connecting")
+                check(frontend.draft.length == 0 && RuntimeUpdate.composer(in: host)?.string.isEmpty == true,
+                      "\(provider) switch clears the visible composer before connecting")
+                if provider == "codex" { frontend.editDraft(NSAttributedString(string: "Next draft")) }
+                _ = try await send.value
+                await settle(); host.layoutSubtreeIfNeeded()
+                let userIndex = frontend.rows.firstIndex { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == prompt }
+                let noticeIndex = frontend.rows.lastIndex { $0.kind == "notice" }
+                check(switching.account.provider == provider && switching.preferredProvider == "claude", "\(provider) switch keeps Claude as the preferred provider")
+                check(userIndex != nil && noticeIndex != nil && userIndex! < noticeIndex!, "\(provider) switch notice follows the submitted bubble")
+                check(connections.last?.sent.count == 1 && frontend.rows.filter { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == prompt }.count == 1,
+                      "\(provider) switch sends once and keeps one bubble")
+                check(frontend.draft.string == (provider == "codex" ? "Next draft" : ""), "\(provider) switch preserves new typing while connecting")
+            }
+            failSwitch = true
+            Settings.shared.updateLimit(account: claude.id, reset: Date().timeIntervalSince1970 + 3600)
+            frontend.editDraft(runtimeDraft([["type": "text", "text": "Keep failed switch"], ["type": "localImage", "path": "/fixture.png"]]))
+            _ = try await backend.perform(action: "send", params: ["text": "Keep failed switch", "images": ["/fixture.png"], "draft": draftContent(frontend.draft), "generation": frontend.draftGeneration])
+            check(!switching.busy && !switching.ready && frontend.draft.string.contains("Keep failed switch") && draftContent(frontend.draft).contains { $0["path"] as? String == "/fixture.png" },
+                  "a failed provider switch restores the submitted text and attachment")
+            check(!frontend.rows.contains { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "Keep failed switch" } && connections.last?.sent.isEmpty == true,
+                  "a failed provider switch removes the unsent bubble")
+        }
         let backendSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("backend"))
         let connection = FixtureConnection(account); connection.hold = true
         backendSession.connectionFactory = { _, _ in connection }
