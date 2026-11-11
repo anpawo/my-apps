@@ -3,7 +3,8 @@
 
 Writes ~/.local/state/fleet/blocks/messages.json: the three chats with unread messages heard from
 last, each a click away from a VCX session that reads it, and a notice for what came in since the
-last run, which Fleet posts as a banner. Run every 10 s by the fleet.messages LaunchAgent.
+last run, still unread after 30 seconds, which Fleet posts as a banner.
+Run every 10 s by the fleet.messages LaunchAgent.
 
   messages.py            one run
   messages.py --test     the self-check, on a made-up index
@@ -21,6 +22,7 @@ CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
 # Each network's icon, copied beside the block: Fleet reads pictures from its blocks folder.
 ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 SHOWN = 3
+NOTIFY_DELAY = 30
 SKIP = ("HIDDEN", "REACTION", "MEMBERSHIP", "NOTICE")
 
 THREADS = """
@@ -39,7 +41,7 @@ select m.eventID id, m.roomID room, m.timestamp ts, m.type, m.senderContactID se
 from mx_room_messages m
 where m.isSentByMe = 0 and m.shouldNotify = 1 and not m.isDeleted
   and m.seenByMeAt is null -- already read, on Beeper or on the phone (its read receipt)
-  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ?
+  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ? and m.timestamp <= ?
 order by m.timestamp"""
 
 
@@ -102,17 +104,21 @@ def build(db, after, now, covered=frozenset()):
 
     chats = db.execute(THREADS).fetchall()
     last = {}
-    for chat in chats[:SHOWN]:
-        row = db.execute(f"select type, json_extract(message,'$.text') text from mx_room_messages "
-                         f"where roomID=? and isSentByMe=0 and type not in ({','.join('?' * len(SKIP))}) "
+    for chat in chats:
+        row = db.execute(f"select type, timestamp ts, json_extract(message,'$.text') text from mx_room_messages "
+                         f"where roomID=? and isSentByMe=0 and seenByMeAt is null and not isDeleted "
+                         f"and type not in ({','.join('?' * len(SKIP))}) "
                          f"order by timestamp desc limit 1", (chat["id"], *SKIP)).fetchone()
-        last[chat["id"]] = words(row) if row else ""
+        if row:
+            last[chat["id"]] = row
+    chats = sorted((chat for chat in chats if chat["id"] in last),
+                   key=lambda chat: last[chat["id"]]["ts"], reverse=True)
     items = []
     for chat in chats[:SHOWN]:
         name, net = title(chat["title"]), network(chat["protocol"], chat["account"])
         items.append({
-            "text": f"{name} · {last[chat['id']]}"[:90],
-            "detail": ago(chat['ts'], now),
+            "text": f"{name} · {words(last[chat['id']])}"[:90],
+            "detail": ago(last[chat['id']]['ts'], now),
             "image": f"icons/{net}.png",
             "help": f"{chat['unread']} unread on {net}. Click: a VCX session reads the chat with you.",
             "open": {"cwd": os.path.expanduser("~/self"),
@@ -126,7 +132,9 @@ def build(db, after, now, covered=frozenset()):
     newest = db.execute("select max(timestamp) from mx_room_messages").fetchone()[0] or 0
     if after is None:
         return block, newest
-    fresh = db.execute(INCOMING, (*SKIP, after)).fetchall()
+    cutoff = (now - NOTIFY_DELAY) * 1000
+    rooms = {r["id"]: r for r in chats}
+    fresh = [r for r in db.execute(INCOMING, (*SKIP, after, cutoff)) if r["room"] in rooms]
     if covered:
         kinds = {}
         for r in fresh:
@@ -136,7 +144,6 @@ def build(db, after, now, covered=frozenset()):
                 kinds[r["room"]] = row[0] if row else None
         fresh = [r for r in fresh if kinds[r["room"]] not in covered]
     if fresh:
-        rooms = {r["id"]: r for r in chats}
         def where(room):
             r = rooms.get(room)
             return (title(r["title"]), network(r["protocol"], r["account"])) if r else (None, None)
@@ -154,7 +161,7 @@ def build(db, after, now, covered=frozenset()):
             body = ", ".join(dict.fromkeys(where(room)[0] or sender(room, rows[-1]["sender"])
                                            for room, rows in reversed(list(by_room.items()))))
         block["notify"] = [{"id": fresh[-1]["id"], "title": head, "body": body[:200]}]
-    return block, max(newest, after)
+    return block, max(min(newest, cutoff), after)
 
 
 def write(path, value):
@@ -179,7 +186,7 @@ def main():
         db = sqlite3.connect(os.path.join(tmp, "index.db"))
         block, cursor = build(db, after, time.time(), beeper_covers())
         db.close()
-    # The notice goes once: a block rewritten next minute without it is what Fleet expects.
+    # The notice goes once: the next poll clears it after the cursor advances.
     previous = None
     try:
         with open(OUT) as f:
@@ -246,8 +253,36 @@ def test():
     block, _ = build(db, (now - 80) * 1000, now)
     assert "notify" not in block, "a message he read elsewhere says nothing"
     msg("e7", "!a", (now - 10) * 1000, "just now")
-    block, _ = build(db, (now - 80) * 1000, now)
-    assert block["notify"][0]["id"] == "e7", "an unread message bannered at once"
+    block, pending = build(db, (now - 80) * 1000, now)
+    assert "notify" not in block, "a new message waits 30 seconds for read receipts"
+    block, _ = build(db, pending, now + 19)
+    assert "notify" not in block, "the full delay applies"
+    block, delivered = build(db, pending, now + 20)
+    assert block["notify"][0]["id"] == "e7", "an unread message is announced after the delay"
+    block, _ = build(db, delivered, now + 30)
+    assert "notify" not in block, "a delayed message is announced once"
+    db.execute("update mx_room_messages set seenByMeAt=? where eventID='e7'", (now * 1000,))
+    block, _ = build(db, pending, now + 20)
+    assert "notify" not in block, "reading during the delay cancels the banner"
+    assert block["groups"][0]["items"][0]["text"] == "Mat · are you there?", "preview skips read messages"
+    db.execute("update mx_room_messages set isDeleted=1 where eventID='e2'")
+    block, _ = build(db, pending, now + 20)
+    assert block["groups"][0]["items"][0]["text"] == "Mat · hello", "preview skips deleted messages"
+    for i in range(4):
+        room = f"!read{i}"
+        thread(room, "Read chat", 1, now * 1000, "instagram")
+        msg(f"read{i}", room, now * 1000, "already read", seen=now * 1000)
+    thread("!d", "Unread", 1, (now - 8000) * 1000, "instagram")
+    msg("e8", "!d", (now - 300) * 1000, "still unread")
+    block, _ = build(db, pending, now + 20)
+    assert [i["text"] for i in block["groups"][0]["items"]] == [
+        "Mat · hello", "Unread · still unread", "Note to self · note"], "three latest unread messages, not stale chat timestamps"
+    assert block["groups"][0]["title"] == "3 unread chats", "read-only chats do not count"
+    db.execute("update threads set thread=json_set(thread,'$.unreadCount',0) where threadID='!a'")
+    db.execute("update mx_room_messages set seenByMeAt=null where eventID='e7'")
+    block, _ = build(db, pending, now + 20)
+    assert "notify" not in block, "a read chat cancels the banner even before message receipts sync"
+    assert all(not i["text"].startswith("Mat") for i in block["groups"][0]["items"])
     print("messages.py: all good")
 
 
