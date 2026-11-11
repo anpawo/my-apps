@@ -656,7 +656,8 @@ final class Session: ObservableObject {
             // A stop the user asked for (Escape, Stop button, /stop) leaves the session ready, as Claude Code does after Esc;
             // closing mid-turn or a stop nobody asked for still needs attention.
             let asked = stopSource != nil && stopSource != "Close Session"
-            needsAttention = (outcome == "interrupted" && !asked) || outcome == "failed" || turn["error"] is JSON
+            // Claude ends a turn cut by Esc with is_error, so the error must not override a stop the user asked for.
+            needsAttention = outcome == "interrupted" ? !asked : outcome == "failed" || turn["error"] is JSON
             // Escape before the agent showed anything takes the prompt back into the composer, as Claude Code does.
             // ponytail: the agent's own history keeps the withdrawn prompt; rewind it (Codex thread/rollback) if that misleads it.
             let prompt = rows.last?.kind == "user" ? rows.last?.items.first : nil

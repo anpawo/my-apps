@@ -511,6 +511,11 @@ enum Check {
         fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted"]]])
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "waiting", "Fleet still asks for attention after an interrupted turn")
+        fleetSession.busy = true
+        await fleetSession.stop(source: "Escape")
+        fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted", "error": ["message": "Claude did not finish the turn."]]]])
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "ready", "Fleet shows an Escape stop as ready even when Claude ends the turn with an error")
         fleetSession.needsAttention = false
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "ready" && fleetRecord()["lastPromptAt"] as? Double == promptTime, "Fleet completion keeps the prompt timestamp")
