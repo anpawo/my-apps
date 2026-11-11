@@ -172,7 +172,7 @@ final class Inbox: NSObject, ObservableObject {
     /// under Done, then read back from disk once the checker is done, which drops the waiting one if it failed.
     func again(_ check: CheckEntry) {
         checks = [CheckEntry(id: check.id, name: check.name, who: check.who, watching: check.watching, channel: check.channel, state: .waiting,
-                             at: Date().timeIntervalSince1970 * 1000, session: check.session)] + checks
+                             at: Date().timeIntervalSince1970 * 1000, session: check.session, live: check.live)] + checks
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
         task.arguments = [NSHomeDirectory() + "/.claude/skills/checker/checker.mjs", "again", check.id, "--keep"]

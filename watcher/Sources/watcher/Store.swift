@@ -126,6 +126,8 @@ struct CheckEntry: Equatable {
     let at: Double
     /// The session that asked.
     var session: String? = nil
+    /// Read on each new mail or Beeper message it pairs to, within the minute; else only at :10 of every hour.
+    var live = false
 
     /// The name split around the one it is awaited from, matched in any case; not in the name, in front of it.
     var parts: (before: String, who: String, after: String)? {
@@ -174,7 +176,8 @@ struct CheckEntry: Equatable {
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
             return CheckEntry(id: id, name: name, who: json["who"] as? String ?? json["chat"] as? String, watching: watching,
-                              channel: channel, state: state, at: at ?? 0, session: json["session"] as? String)
+                              channel: channel, state: state, at: at ?? 0, session: json["session"] as? String,
+                              live: channel != .command || json["beeper"] != nil)
         }
         let all = (read(state) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
