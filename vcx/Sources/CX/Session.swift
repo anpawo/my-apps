@@ -198,7 +198,8 @@ final class Session: ObservableObject {
     var viewportHeight: CGFloat = 0
     // Each drawn question's top, beside its exchange's; the question they pick is published only when it changes.
     var questionTops: [UUID: CGFloat] = [:]
-    @Published private(set) var pinnedQuestion: UUID?
+    // Not published: the window observes the session, and each change rebuilt all of it; PinnedQuestion reads TranscriptGeometry's copy.
+    private(set) var pinnedQuestion: UUID?
     func pinQuestion() {
         let next = pinnedQuestionID(questions: questionTops, exchanges: exchangeTops)
         if next != pinnedQuestion { pinnedQuestion = next }

@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-// The transcript is an NSTableView, as Mail's message list is: one row per question, per exchange and per spacer, each an
-// NSHostingView of the SwiftUI row. SwiftUI's LazyVStack spun the main thread in its own prefetch (11-10: 17,000 layout
+// The transcript is a stack of AppKit rows: one row per question, per exchange and per spacer, each an NSHostingView of the
+// SwiftUI row. SwiftUI's LazyVStack spun the main thread in its own prefetch (11-10: 17,000 layout
 // transactions a second with no VCX callback in them); a List measured every row up front (1 s to open 21 exchanges).
 // Rows are measured once they come near the viewport; the others keep an estimate, and the rows above the viewport absorb
 // the difference so what is shown stays put.
@@ -10,6 +10,7 @@ import AppKit
 @MainActor final class TranscriptGeometry: ObservableObject {
     // Each shown question's top in the viewport, for the question pinned above the transcript.
     @Published var questionTops: [UUID: CGFloat] = [:]
+    @Published var pinned: UUID?
 }
 
 // Read live by the rows, so the toggle's animation reaches every block it opens: a new root view would show them open at once.
@@ -43,6 +44,11 @@ struct TranscriptTable: NSViewRepresentable {
         context.coordinator.update()
     }
     static func dismantleNSView(_ view: NSScrollView, coordinator: TranscriptController) { coordinator.detach() }
+    // Takes what it is offered: without this SwiftUI asks the scroll view's Auto Layout fitting size on every window layout,
+    // which measured the table and its rows on each scrolled frame.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by: CGSize(width: 400, height: 300))
+    }
 }
 
 final class TranscriptScrollView: NSScrollView {
@@ -52,10 +58,31 @@ final class TranscriptScrollView: NSScrollView {
     // TranscriptWheel's monitor sees the wheel instead.
 }
 
-final class TranscriptTableView: NSTableView {
+// Rows stacked at fixed tops. An NSTableView took each row out of the window once it left the viewport and put it back when
+// it returned, and SwiftUI then redrew the whole row's text on the main thread: every exchange coming back into view hitched.
+final class TranscriptDocument: NSView {
+    override var isFlipped: Bool { true }
     // Clicking the transcript leaves the composer focused, as the SwiftUI scroll view did; selectable text still takes focus.
     override var acceptsFirstResponder: Bool { false }
-    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool { true }
+    // tops[row] is the row's top, tops.last the content's height.
+    var tops: [CGFloat] = [0]
+    var numberOfRows: Int { tops.count - 1 }
+    func rect(ofRow row: Int) -> CGRect {
+        guard numberOfRows > 0 else { return .zero }
+        let row = min(max(0, row), numberOfRows - 1)
+        return CGRect(x: 0, y: tops[row], width: bounds.width, height: tops[row + 1] - tops[row])
+    }
+    func rows(in rect: CGRect) -> NSRange {
+        guard numberOfRows > 0, rect.maxY > 0, rect.minY < tops[numberOfRows] else { return NSRange(location: 0, length: 0) }
+        // The last row whose top is at or above y.
+        func row(at y: CGFloat) -> Int {
+            var low = 0, high = numberOfRows - 1
+            while low < high { let mid = (low + high + 1) / 2; if tops[mid] <= y { low = mid } else { high = mid - 1 } }
+            return low
+        }
+        let first = row(at: rect.minY), last = row(at: max(rect.minY, rect.maxY - 0.001))
+        return NSRange(location: first, length: last - first + 1)
+    }
 }
 
 final class TranscriptCell: NSView {
@@ -68,6 +95,7 @@ final class TranscriptCell: NSView {
         super.init(frame: .zero)
         // Growing content shows as its row opens, not over the rows below.
         clipsToBounds = true
+        wantsLayer = true
         addSubview(host.view)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -84,10 +112,10 @@ final class TranscriptCell: NSView {
 }
 
 @MainActor
-final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class TranscriptController: NSObject {
     var parent: TranscriptTable!
     let scroll = TranscriptScrollView()
-    let table = TranscriptTableView()
+    let table = TranscriptDocument()
     private var clip: NSClipView { scroll.contentView }
     private var keys: [TranscriptKey] = []
     private var index: [TranscriptKey: Int] = [:]
@@ -114,18 +142,8 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
     func attach(_ parent: TranscriptTable) -> NSScrollView {
         self.parent = parent
         details.on = parent.details
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("transcript"))
-        column.resizingMask = .autoresizingMask
-        table.addTableColumn(column)
-        table.headerView = nil
-        table.style = .plain
-        table.intercellSpacing = .zero
-        table.selectionHighlightStyle = .none
-        table.backgroundColor = .clear
-        table.gridStyleMask = []
-        table.focusRingType = .none
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        table.dataSource = self; table.delegate = self
+        // Its own layer: drawn into the clip view's, the transcript repainted the whole viewport on every scrolled frame.
+        table.wantsLayer = true
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = false; scroll.autohidesScrollers = true
@@ -143,16 +161,40 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
 
     func detach() {
         detached = true
+        NSObject.cancelPreviousPerformRequests(withTarget: self)
         NotificationCenter.default.removeObserver(self)
         scroll.controller = nil
     }
 
-    // MARK: Table
+    // MARK: Rows
 
-    func numberOfRows(in tableView: NSTableView) -> Int { keys.count }
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { height(keys[row]) }
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? { cell(keys[row]) ?? NSView() }
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+    // Stacks the rows at their heights; the rows' views move with them, over `duration` when a row opens.
+    private func relayout(duration: Double = 0) {
+        var tops: [CGFloat] = [0]
+        tops.reserveCapacity(keys.count + 1)
+        for key in keys { tops.append(tops[tops.count - 1] + height(key)) }
+        table.tops = tops
+        let size = NSSize(width: clip.bounds.width, height: tops[tops.count - 1])
+        if table.frame.size != size { table.setFrameSize(size) }
+        placeCells(duration: duration)
+    }
+
+    // Rows within a screen of the viewport are in the window, and stay there until three screens away: a row put back in the
+    // window has its whole text drawn again, and a scroll back and forth must not pay that on every pass.
+    private func placeCells(duration: Double = 0) {
+        let visible = clip.bounds, near = table.rows(in: visible.insetBy(dx: 0, dy: -visible.height)), keep = visible.insetBy(dx: 0, dy: -3 * visible.height)
+        for row in near.location..<NSMaxRange(near) { place(row) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.allowsImplicitAnimation = false
+            for (key, cell) in cells where cell.superview === table {
+                guard let row = index[key] else { cell.removeFromSuperview(); continue }
+                let rect = table.rect(ofRow: row)
+                if !rect.intersects(keep) { cell.removeFromSuperview() }
+                else if cell.frame != rect { if duration > 0 { cell.animator().frame = rect } else { cell.frame = rect } }
+            }
+        }
+    }
 
     private func height(_ key: TranscriptKey) -> CGFloat {
         switch key {
@@ -239,6 +281,33 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
             .environment(\.colorScheme, .light))
     }
 
+    private func place(_ row: Int) {
+        guard keys.indices.contains(row), let cell = cell(keys[row]), cell.superview !== table else { return }
+        cell.frame = table.rect(ofRow: row); table.addSubview(cell)
+    }
+
+    // Once scrolling rests, the rows within two screens are built, measured and drawn, nearest first and one per turn: built
+    // while scrolling, a long answer cost a frame or two as it came in.
+    private func schedulePrefetch() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(prefetch), object: nil)
+        perform(#selector(prefetch), with: nil, afterDelay: 0.25)
+    }
+
+    @objc private func prefetch() {
+        guard !detached, width > 50 else { return }
+        let visible = clip.bounds, range = table.rows(in: visible.insetBy(dx: 0, dy: -2 * visible.height))
+        let rows = (range.location..<NSMaxRange(range)).sorted { abs(table.rect(ofRow: $0).midY - visible.midY) < abs(table.rect(ofRow: $1).midY - visible.midY) }
+        for row in rows {
+            let key = keys[row]
+            guard heights[key] == nil || stale.contains(key) || cells[key]?.superview !== table, cell(key) != nil else { continue }
+            apply(remeasure([row]), crossing: true)
+            place(row)
+            updateGeometry()
+            perform(#selector(prefetch), with: nil, afterDelay: 0)
+            return
+        }
+    }
+
     // MARK: Updates
 
     // In SwiftUI's update, so a sent message has its row, and its flight, in the frame that clears the composer: one turn
@@ -279,16 +348,17 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
         self.signatures = signatures
         if next != keys {
             let kept = Set(next)
-            for key in Set(keys).subtracting(kept) { cells[key] = nil; heights[key] = nil; localFrames[key] = nil; stale.remove(key) }
+            for key in Set(keys).subtracting(kept) { cells[key]?.removeFromSuperview(); cells[key] = nil; heights[key] = nil; localFrames[key] = nil; stale.remove(key) }
             keys = next
             index = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
-            adjusting = true; table.reloadData(); adjusting = false
+            adjusting = true; relayout(); adjusting = false
         }
         let follow = revision != session.revision
         revision = session.revision
         if follow && session.follow.attached { followUntil = Date() + 0.5; scrollToEnd(animated: !parent.reduceMotion && (parent.sending.hasPending || parent.sending.flight != nil)) }
         else { measure(near: clip.bounds) }
         updateGeometry()
+        schedulePrefetch()
     }
 
     // MARK: Measuring
@@ -319,11 +389,7 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
         }
         let wasAdjusting = adjusting
         adjusting = true
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animated && !atEnd && shift == 0 ? (parent.reduceMotion ? 0.1 : 0.25) : 0
-            context.allowsImplicitAnimation = false
-            table.noteHeightOfRows(withIndexesChanged: rows)
-        }
+        relayout(duration: animated && !atEnd && shift == 0 ? (parent.reduceMotion ? 0.1 : 0.25) : 0)
         // Rows shorter than their estimate can leave the origin past the new end: setOrigin brings it back.
         if atEnd { setOrigin(end, duration: endAnimating ? 0.25 : 0) } else if shift != 0 || visible.minY > end { setOrigin(visible.minY + shift) }
         adjusting = wasAdjusting
@@ -356,17 +422,13 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
         width = new
         stale = Set(heights.keys)
         adjusting = true
-        table.sizeLastColumnToFit()
         let follow = parent.session.follow.attached
         // The rows that will show: from the last one up when following, else from the one at the top edge down.
         var covered: CGFloat = 0, row = follow ? keys.count - 1 : anchor?.row ?? 0
         while keys.indices.contains(row), covered < visible.height {
             _ = remeasure([row]); covered += height(keys[row]); row += follow ? -1 : 1
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<keys.count))
-        }
+        relayout()
         if follow { setOrigin(end) }
         else if let anchor { setOrigin(table.rect(ofRow: anchor.row).minY - anchor.offset) }
         adjusting = false
@@ -421,11 +483,13 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
     @objc private func scrolled() {
         guard !adjusting else { return }
         FreezeTrace.note("transcript scroll")
+        placeCells()
         measure(near: clip.bounds)
         // However it got there (the scroller, End, a restored offset), the end follows again; only the user's scroll leaves it.
         if !parent.session.follow.attached, !updating, contentHeight - clip.bounds.maxY < 40 { userScrolled() }
         updateGeometry()
         if parent.sending.hasPending || parent.sending.flight != nil { publishFrames() }
+        schedulePrefetch()
     }
 
     @objc func userScrolled() {
@@ -458,6 +522,7 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
             let session = self.parent.session
             session.pinQuestion()
             if self.parent.geometry.questionTops != session.questionTops { self.parent.geometry.questionTops = session.questionTops }
+            if self.parent.geometry.pinned != session.pinnedQuestion { self.parent.geometry.pinned = session.pinnedQuestion }
         }
     }
 
@@ -492,13 +557,13 @@ struct PinnedQuestion: View {
     @State private var unpinning: UUID?
     var body: some View {
         GeometryReader { proxy in
-            let ids = [unpinning, session.pinnedQuestion].compactMap { $0 }.reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
+            let ids = [unpinning, geometry.pinned].compactMap { $0 }.reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
             ZStack(alignment: .top) {
                 ForEach(ids, id: \.self) { id in
                     if let row = session.rows.last(where: { $0.id == id }), headsSection(row) {
                         let own = geometry.questionTops[id] ?? -.infinity
                         let next = geometry.questionTops.values.filter { $0 > own }.min() ?? .infinity
-                        ConversationRow(row: row, session: session, collapsible: true, pinnedIn: proxy.size, lifted: id == session.pinnedQuestion).equatable()
+                        ConversationRow(row: row, session: session, collapsible: true, pinnedIn: proxy.size, lifted: id == geometry.pinned).equatable()
                             .padding(.horizontal, 24)
                             .alignmentGuide(.top) { own >= 0 ? -own : max(0, $0.height - (next - 24)) }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -506,7 +571,7 @@ struct PinnedQuestion: View {
                 }
             }
         }
-        .onChange(of: session.pinnedQuestion) { old, _ in
+        .onChange(of: geometry.pinned) { old, _ in
             guard let old else { return }
             unpinning = old
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if unpinning == old { unpinning = nil } }
