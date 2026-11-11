@@ -441,7 +441,7 @@ if args.first == "--route-project" {
     dispatchMain()
 }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }
-if args.contains(where: { ["--check", "--qwen-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--icon", "--graph-dump-check"].contains($0) }) {
+if args.contains(where: { ["--check", "--qwen-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
@@ -535,6 +535,10 @@ if let index = args.firstIndex(of: "--icon"), index + 1 < args.count {
 if let index = args.firstIndex(of: "--render"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     Render.run(directory: args[index + 1]); exit(0)
+}
+if let index = args.firstIndex(of: "--scroll-bench"), index + 1 < args.count {
+    app.setActivationPolicy(.prohibited)
+    Render.scrollBench(directory: args[index + 1]); exit(0)
 }
 if let index = args.firstIndex(of: "--render-demo"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)

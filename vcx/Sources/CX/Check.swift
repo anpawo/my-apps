@@ -2149,6 +2149,48 @@ enum Render {
         // ponytail: known failure since the 12 pt text (the lazy list overestimates the unrealized rows, so the landing scroll leaves the view blank); back to a precondition once land() handles it.
         if differing * 100 >= total { print("KNOWN FAILURE: a long session does not open on the end of its last answer"); fflush(stdout) }
     }
+    // Scrolls a long transcript from its end to its top in wheel-sized steps, each laid out and drawn, and prints frame times.
+    static func scrollBench(directory: String) {
+        print("Transcript responsive scrolling: \(TranscriptScrollView.isCompatibleWithResponsiveScrolling)")
+        precondition(TranscriptScrollView.isCompatibleWithResponsiveScrolling, "The transcript scroll view lost responsive scrolling (a scrollWheel override?)")
+        let table = "| Item | What | Where |\n|---|---|---|\n" + (1...12).map { "| Item \($0) | a cell long enough to wrap onto a second line | source line \($0) |" }.joined(separator: "\n")
+        let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/scroll"))
+        session.status = "Starting"
+        let host = NSHostingView(rootView: CXView(session: session))
+        host.appearance = NSAppearance(named: .aqua)
+        host.sizingOptions = []
+        host.frame = CGRect(x: 0, y: 0, width: 1176, height: 803)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        for turn in 0..<20 {
+            session.show(["id": "t\(turn)-question", "type": "userMessage", "content": [["type": "text", "text": (1...6).map { "\($0): a short numbered question line." }.joined(separator: "\n")]]])
+            for step in 0..<4 { session.show(["id": "t\(turn)-action\(step)", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0]) }
+            session.show(["id": "t\(turn)-answer", "type": "agentMessage", "provider": "Claude", "text": table + "\n\n" + (1...30).map { "- **Line \($0)** of turn \(turn), with [its link](https://example.com/\(turn)/\($0)) and `code`." }.joined(separator: "\n")])
+        }
+        session.ready = true; session.status = "Ready"; session.revision += 1
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6)); host.layoutSubtreeIfNeeded()
+        func scrolls(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrolls) }
+        guard let scroll = scrolls(host).filter({ !($0.documentView is ComposerText) }).max(by: { $0.frame.width < $1.frame.width }) else { fatalError("Transcript not found") }
+        let step = CGFloat(ProcessInfo.processInfo.environment["STEP"].flatMap(Double.init) ?? 40)
+        for pass in 0..<(ProcessInfo.processInfo.environment["PASSES"].flatMap(Int.init) ?? 2) {
+            var times: [Double] = []
+            let up = pass % 2 == 0
+            var y = scroll.contentView.bounds.origin.y
+            while up ? y > 0 : y < (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height {
+                y += up ? -step : step
+                let start = CACurrentMediaTime()
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y))); scroll.reflectScrolledClipView(scroll.contentView)
+                RunLoop.main.run(until: Date())
+                host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
+                times.append((CACurrentMediaTime() - start) * 1000)
+            }
+            let sorted = times.sorted()
+            print(String(format: "%@: %d frames, median %.2f ms, p95 %.2f ms, max %.2f ms, total %.0f ms, over 16 ms: %d", pass == 0 ? "up (first)" : up ? "up (again)" : "down (again)", times.count, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0, times.reduce(0, +), times.filter { $0 > 16 }.count))
+        }
+    }
     // Opens a session as a runtime snapshot does and returns its picture with the transcript's frame in it.
     static func opening(directory: String, name: String, show: (Session) -> Void) -> (NSBitmapImageRep, CGRect) {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/" + name))

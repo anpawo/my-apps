@@ -48,7 +48,8 @@ struct TranscriptTable: NSViewRepresentable {
 final class TranscriptScrollView: NSScrollView {
     weak var controller: TranscriptController?
     override func tile() { super.tile(); controller?.resized() }
-    override func scrollWheel(with event: NSEvent) { super.scrollWheel(with: event); controller?.userScrolled() }
+    // No scrollWheel override: AppKit then turns off responsive scrolling (momentum on the main thread, no rows drawn ahead).
+    // TranscriptWheel's monitor sees the wheel instead.
 }
 
 final class TranscriptTableView: NSTableView {

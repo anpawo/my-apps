@@ -277,6 +277,7 @@ struct CXView: View {
     // Not observed here: the table publishes it on every scroll, for the pinned question alone.
     @State private var geometry = TranscriptGeometry()
     @State private var openCapability: String?
+    @State private var copiedID = false
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -372,6 +373,24 @@ struct CXView: View {
                     capability("Instructions")
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
+            Divider().overlay(.black.opacity(0.04))
+            // The session's ID to hand another agent, which reads its transcript, instead of a screenshot.
+            Button {
+                guard let id = session.threadID else { return }
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(id, forType: .string)
+                withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.25)) { copiedID = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.25)) { copiedID = false } }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(copiedID ? "COPIED" : "SESSION ID").tracking(1.2).lineLimit(1).fixedSize().contentTransition(.opacity)
+                    Spacer(minLength: 0)
+                    Image(systemName: copiedID ? "checkmark" : "doc.on.doc").font(.system(size: 9, weight: .bold)).contentTransition(.opacity)
+                }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
+                    .padding(12).frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
+                    .contentShape(Rectangle())
+            }.buttonStyle(.reactive).padding(10).help(session.threadID.map { "Copy " + $0 } ?? "No session yet").accessibilityLabel("Copy session ID")
         }.background(Color.black.opacity(0.025))
     }
 
@@ -531,15 +550,30 @@ extension CXView {
 // A wheel over the transcript's area that no scroll view takes goes to the transcript.
 @MainActor enum TranscriptWheel {
     static func stray(in window: NSWindow, at point: NSPoint) -> NSScrollView? {
-        guard let content = window.contentView, let transcript = RuntimeUpdate.scrollView(in: content) else { return nil }
+        guard let content = window.contentView, scrollView(at: point, in: content) == nil else { return nil }
+        return transcript(under: point, in: content)
+    }
+    private static func scrollView(at point: NSPoint, in content: NSView) -> NSScrollView? {
         var hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
         while let view = hit, !(view is NSScrollView) { hit = view.superview }
-        return hit == nil && transcript.convert(transcript.bounds, to: nil).contains(point) ? transcript : nil
+        return hit as? NSScrollView
+    }
+    // Walks the whole window: only for a wheel no scroll view takes, never for every event.
+    private static func transcript(under point: NSPoint, in content: NSView) -> NSScrollView? {
+        guard let transcript = RuntimeUpdate.scrollView(in: content), transcript.convert(transcript.bounds, to: nil).contains(point) else { return nil }
+        return transcript
     }
     static let monitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
         MainActor.assumeIsolated {
-            guard let window = event.window, let transcript = stray(in: window, at: event.locationInWindow) else { return event }
-            transcript.scrollWheel(with: event)
+            guard let window = event.window, let content = window.contentView else { return event }
+            let hit = scrollView(at: event.locationInWindow, in: content)
+            let target = hit ?? transcript(under: event.locationInWindow, in: content)
+            // A wheel that moves the transcript leaves its end; read once the event has scrolled it.
+            var owner: NSView? = target
+            while let view = owner, !(view is TranscriptScrollView) { owner = view.superview }
+            if let owner = owner as? TranscriptScrollView { DispatchQueue.main.async { owner.controller?.userScrolled() } }
+            guard hit == nil, let target else { return event }
+            target.scrollWheel(with: event)
             return nil
         }
     }
