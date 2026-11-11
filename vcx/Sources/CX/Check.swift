@@ -406,6 +406,8 @@ enum Check {
             check(effortSession.effort == nil && effortSession.modelStatusLabel.hasSuffix(" - high"), "fresh Claude sessions display their configured effort without a manual selection")
             try! FileManager.default.createDirectory(at: directory.appendingPathComponent("effort-state"), withIntermediateDirectories: true)
             try! JSONSerialization.data(withJSONObject: ["claude-opus-5-5": 1000000]).write(to: directory.appendingPathComponent("effort-state/claude-context-windows.json"))
+            effortSession.model = effortSession.providerLabel
+            check(effortSession.modelLoading && effortSession.modelStatusLabel == "Loading…", "an unresolved Claude model shows loading, not the provider name with another model's effort")
             effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
             check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
             check(effortSession.contextLabel == "0% token - 1M", "a new Claude session shows its model's remembered window before the first reply, like Claude Code")

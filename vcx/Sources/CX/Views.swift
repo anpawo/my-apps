@@ -512,7 +512,7 @@ struct CXView: View {
         HStack(spacing: 8) {
             setting("Directory", value: session.directoryLabel, command: "/dir ", color: Color(red: 0.28, green: 0.36, blue: 0.7))
             separator
-            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 0.68, green: 0.18, blue: 0.45))
+            setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 0.68, green: 0.18, blue: 0.45), loading: session.modelLoading)
             separator
             setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/perms ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
         }

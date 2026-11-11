@@ -329,7 +329,9 @@ final class Session: ObservableObject {
     var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
     var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }
-    var modelStatusLabel: String { modelLabel + (effectiveEffort.map { " - " + $0 } ?? "") }
+    // Until the provider reports its model, the effort read from settings may belong to another model.
+    var modelLoading: Bool { ready && model == providerLabel }
+    var modelStatusLabel: String { modelLoading ? "Loading…" : modelLabel + (effectiveEffort.map { " - " + $0 } ?? "") }
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(conversationDirectory.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
