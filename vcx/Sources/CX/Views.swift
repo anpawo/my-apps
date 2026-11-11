@@ -563,10 +563,37 @@ extension CXView {
         guard let transcript = RuntimeUpdate.scrollView(in: content), transcript.convert(transcript.bounds, to: nil).contains(point) else { return nil }
         return transcript
     }
+    // A scroll view inside the transcript (a wide table, an open question) took every vertical wheel over it, even with nowhere to go.
+    // Up or down where it cannot move, the wheel goes on to the transcript; a trackpad gesture goes whole to the view its first move picks.
+    static func passes(_ event: NSEvent, over inner: NSScrollView) -> Bool {
+        let dy = event.scrollingDeltaY
+        guard abs(dy) > abs(event.scrollingDeltaX), let document = inner.documentView else { return false }
+        let seen = inner.documentVisibleRect, whole = document.bounds
+        let top = document.isFlipped ? seen.minY <= whole.minY + 0.5 : seen.maxY >= whole.maxY - 0.5
+        let bottom = document.isFlipped ? seen.maxY >= whole.maxY - 0.5 : seen.minY <= whole.minY + 0.5
+        return dy > 0 ? top : bottom
+    }
+    private static var chained: Bool?
+    private static var held: [NSEvent] = []
     static let monitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
         MainActor.assumeIsolated {
             guard let window = event.window, let content = window.contentView else { return event }
-            let hit = scrollView(at: event.locationInWindow, in: content)
+            var hit = scrollView(at: event.locationInWindow, in: content)
+            if event.phase.contains(.began) || event.phase.contains(.mayBegin) { chained = nil }
+            var outer = hit?.superview
+            while let view = outer, !(view is TranscriptScrollView) { outer = view.superview }
+            if let inner = hit, let outer = outer as? TranscriptScrollView {
+                let chain: Bool
+                if event.phase.isEmpty && event.momentumPhase.isEmpty { chain = passes(event, over: inner) }
+                else {
+                    let moved = event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0
+                    if chained == nil, moved || event.phase.contains(.ended) || event.phase.contains(.cancelled) { chained = moved && passes(event, over: inner) }
+                    guard let decided = chained else { held.append(event); return nil }
+                    chain = decided
+                }
+                let replay = held; held = []
+                if chain { hit = nil; replay.forEach(outer.scrollWheel) } else { replay.forEach(inner.scrollWheel) }
+            }
             let target = hit ?? transcript(under: event.locationInWindow, in: content)
             // A wheel that moves the transcript leaves its end; read once the event has scrolled it.
             var owner: NSView? = target

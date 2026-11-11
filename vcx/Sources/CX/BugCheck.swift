@@ -464,6 +464,28 @@ enum BugCheck {
             }
         }
         do {
+            // A wide table's horizontal scroll view took every vertical wheel over it: the transcript stopped scrolling under the pointer.
+            let tabled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("table-wheel"))
+            tabled.ready = true; tabled.status = "Ready"
+            tabled.show(["id": "table-q", "type": "userMessage", "content": [["type": "text", "text": "compare"]]])
+            tabled.show(["id": "table-a", "type": "agentMessage", "text": "Here:\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n| one | two | three | four | five |\n| six | seven | eight | nine | ten |"])
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
+            defer { window.close() }
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
+            func wheel(_ dy: Int32, _ dx: Int32 = 0) -> NSEvent? {
+                CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0).flatMap(NSEvent.init(cgEvent:))
+            }
+            if let content = window.contentView, let outer = RuntimeUpdate.scrollView(in: content),
+               let table = scrollViews(outer).first(where: { $0 !== outer && ($0.documentView?.frame.width ?? 0) > $0.frame.width + 1 }),
+               let up = wheel(10), let down = wheel(-10), let side = wheel(0, -10) {
+                print("Table scroll view \(Int(table.frame.width)) pt wide over \(Int(table.documentView?.frame.width ?? 0)) pt; wheel up/down/sideways passes on: \(TranscriptWheel.passes(up, over: table)) \(TranscriptWheel.passes(down, over: table)) \(TranscriptWheel.passes(side, over: table))")
+                check(TranscriptWheel.passes(up, over: table) && TranscriptWheel.passes(down, over: table) && !TranscriptWheel.passes(side, over: table),
+                      "a vertical wheel over a wide table scrolls the transcript, a sideways one the table")
+            } else { check(false, "a vertical wheel over a wide table: no table scroll view in the transcript") }
+        }
+        do {
             // Opened by hover, scrolled into and left by the pointer, a tall work block shut under a scroll offset past the new end: the transcript went blank.
             let working = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("work-shut"))
             working.ready = true; working.status = "Ready"
