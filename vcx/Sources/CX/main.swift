@@ -249,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             } catch { NSLog("VCX open request: %@", error.localizedDescription) }
         }
         AgentMessages.drain(windows)
+        ModelControl.drain(windows)
     }
 
     func replaceFrontend() {
@@ -434,6 +435,7 @@ if args.contains(where: { ["-p", "--print", "--headless", "--ensure-qwen"].conta
 }
 if args.first == "--sessions" { exit(AgentMessages.list()) }
 if args.first == "--send" { exit(AgentMessages.send(Array(args.dropFirst()))) }
+if args.first == "--set-model" { exit(ModelControl.request(Array(args.dropFirst()))) }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.first == "--route-project" {
     let prompt = args.dropFirst().joined(separator: " ")

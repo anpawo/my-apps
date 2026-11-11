@@ -243,6 +243,14 @@ final class SessionBackend: RuntimeBackend {
                 publish()
                 return ["commandQuery": query]
             }
+        case "setModel":
+            guard session.account.provider == "codex", !session.disabled,
+                  let model = params["model"] as? String, session.models.contains(model) else { throw CXError(message: "Codex session is busy or the model is unavailable.") }
+            let effort = params["effort"] as? String ?? session.effectiveEffort
+            guard effort.map({ session.modelEfforts[model, default: []].contains($0) }) ?? true else { throw CXError(message: "Reasoning effort is unavailable for this model.") }
+            await session.changeModel(model, effort: effort)
+            guard session.model == model, session.effectiveEffort == effort else { throw CXError(message: "Model change did not complete.") }
+            session.save()
         case "refreshCatalog": await session.refreshCatalog()
         case "refreshUsage": await session.refreshUsage(force: params["force"] as? Bool ?? true)
         case "refreshRepository": await session.refreshRepository()

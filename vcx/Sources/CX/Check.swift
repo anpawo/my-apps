@@ -53,6 +53,8 @@ enum Check {
         catch { fputs(error.localizedDescription + "\n", stderr); return false }
         do { print(try await RuntimeSwapCheck.run()) }
         catch { fputs(error.localizedDescription + "\n", stderr); return false }
+        do { try await ModelControlCheck.run() }
+        catch { fputs(error.localizedDescription + "\n", stderr); return false }
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) { count += 1; if !value() { fputs("FAIL: \(message)\n", stderr); exit(1) } }
         // One async function this long took 17 GB to compile (LLVM copies it at every await), so its checks run in closures of their own.
