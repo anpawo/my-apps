@@ -35,6 +35,8 @@ enum ProviderCheck {
         var routingErrors: [String] = []
         if session.modelLabel != "Not connected" { routingErrors.append("a failed startup displays a model that never connected") }
         if session.activityLabel != "Not connected" { routingErrors.append("a failed startup displays Ready") }
+        session.model = "Codex"
+        if session.modelLabel != "Not connected" { routingErrors.append("a disconnected worker from an older build displays its placeholder model") }
 
         let routing = Session(cwd: "/", stateDirectory: folder.appendingPathComponent("routing"))
         defer { routing.close() }

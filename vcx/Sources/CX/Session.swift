@@ -333,7 +333,7 @@ final class Session: ObservableObject {
     var pointer: URL { stateDirectory.appendingPathComponent(SHA256.hash(data: Data(conversationDirectory.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24) + ".json") }
     var disabled: Bool { !ready || busy || changing }
     var performingAction: Bool { busy && !activeActions.isEmpty }
-    var modelLabel: String { model.isEmpty ? "Not connected" : modelName(modelAliases[model] ?? model) }
+    var modelLabel: String { model.isEmpty || (!ready && model == "Codex") ? "Not connected" : modelName(modelAliases[model] ?? model) }
     var activityLabel: String {
         busy ? "Thinking" : !ready ? "Not connected" : needsAttention || status == "Stopped" ? status : backgroundTasks > 0 ? "Pending action" : "Ready"
     }
