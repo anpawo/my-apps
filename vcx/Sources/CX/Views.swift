@@ -1022,7 +1022,7 @@ struct UserBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 17))
                     .background(message == nil ? accent.opacity(0.08) : agentPink.opacity(0.2), in: RoundedRectangle(cornerRadius: 17))
                     // Pinned, only the bubble hides what scrolls under it, and its shadow sets it above the transcript once it sticks to the top.
-                    .background(.white.shadow(.drop(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4)), in: RoundedRectangle(cornerRadius: 17))
+                    .background { RoundedRectangle(cornerRadius: 17).fill(.white).shadow(color: .black.opacity(stuck ? 0.22 : 0), radius: 12, y: 4) }
                     .onAppear { if pinnedIn != nil { stuck = lifted } }
                     .onChange(of: lifted) { _, now in stuck = now }
                     .animation(.easeOut(duration: 0.2), value: stuck)
@@ -1061,7 +1061,11 @@ struct AgentMessageContent: View {
 struct CollapsibleText: View {
     let text: String
     let collapsed: Bool
-    @State private var open = CGSize.zero
+    @State private var open: CGSize
+    // The new pinned view starts with the size already measured in the transcript.
+    // shortcut: shared text at different widths remeasures next frame; key by width if those views need independent initial sizes.
+    private static var measured: [String: CGSize] = [:]
+    init(text: String, collapsed: Bool) { self.text = text; self.collapsed = collapsed; _open = State(initialValue: Self.measured[text] ?? .zero) }
     static let size: CGFloat = 12
     static let line = NSLayoutManager().defaultLineHeight(for: .monospacedSystemFont(ofSize: size, weight: .regular))
     var body: some View {
@@ -1069,7 +1073,7 @@ struct CollapsibleText: View {
             // ponytail: width from the first 10,000 characters; measured whole, a 520,000-character paste held the window 45 s.
             // A wider line past them widens the bubble only once opened.
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { FreezeTrace.note("text open size"); open = $0 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { FreezeTrace.note("text open size"); open = $0; if Self.measured.count > 500 { Self.measured = [:] }; Self.measured[text] = $0 }
                 .hidden().frame(height: 0, alignment: .top)
             // Up to fifteen lines, it stays whole.
             let shown = collapsed && open.width > 0 && open.height > Self.line * 15.5 ? firstLine(text, width: open.width) : text

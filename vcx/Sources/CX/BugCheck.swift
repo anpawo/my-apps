@@ -727,6 +727,39 @@ enum BugCheck {
             check(reports.contains { $0.path.hasSuffix(".sample-2.txt") }, "a main thread still spinning is sampled again")
             check(reports.contains { $0.path.hasSuffix(".graph.txt") }, "a main thread spinning in place leaves a dump of the SwiftUI attributes it keeps updating")
         }
+        do {
+            // A question that gets pinned is a new view above the transcript: its first frame already has its settled height.
+            for (name, lines) in [("five", 5), ("twenty", 20)] {
+                let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("newly-pinned-" + name))
+                asking.show(["id": "newly-pinned-" + name, "type": "userMessage", "content": [["type": "text", "text": (1...lines).map { "Line \($0) of a question just pinned" }.joined(separator: "\n")]]])
+                guard let item = asking.rows.first?.items.first else { check(false, "a newly pinned question: no item"); continue }
+                // Its row in the transcript is drawn first, as it is before it scrolls under the top edge.
+                let row = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).frame(width: 1060))
+                row.frame = NSRect(x: 0, y: 0, width: 1060, height: 300); row.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true, pinnedIn: CGSize(width: 1060, height: 800), lifted: true)
+                    .environmentObject(SendAnimation()).padding(40).frame(maxHeight: .infinity, alignment: .top).background(Color.white).environment(\.colorScheme, .light))
+                host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 1140, height: 420)
+                let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host
+                defer { window.close() }
+                func tinted() -> Int {
+                    host.layoutSubtreeIfNeeded()
+                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let column = Int((tintStart(host, y: 60) + 40) * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+                    return (0..<bitmap.pixelsHigh).filter { y in bitmap.colorAt(x: column, y: y).map { $0.blueComponent - $0.greenComponent > 0.02 } ?? false }.count
+                }
+                let first = tinted()
+                await settle()
+                let settled = tinted()
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("newly-pinned-\(name).png"))
+                }
+                print("Newly pinned \(name)-line question: \(first) tinted rows on its first frame, \(settled) settled")
+                check(first > 0 && abs(first - settled) <= 2, "a newly pinned \(name)-line question keeps its height from its first frame")
+            }
+        }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
         if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }
