@@ -8,9 +8,14 @@ last run, which Fleet posts as a banner. Run every 10 s by the fleet.messages La
   messages.py            one run
   messages.py --test     the self-check, on a made-up index
 """
-import json, os, shutil, sqlite3, sys, tempfile, time
+import json, os, plistlib, shutil, sqlite3, subprocess, sys, tempfile, time
 
 SRC = os.path.expanduser("~/.beeper/profiles/server/background/index.db")
+BEEPER_ID = "com.automattic.beeper.desktop"
+BEEPER_PREFS = os.path.expanduser("~/Library/Application Support/BeeperTexts/account.db")
+# macOS 26 keeps per-app notification settings here, not in com.apple.ncprefs.
+NC_PREFS = os.path.expanduser("~/Library/Group Containers/group.com.apple.usernoted/Library/"
+                              "Preferences/group.com.apple.usernoted.plist")
 OUT = os.path.expanduser("~/.local/state/fleet/blocks/messages.json")
 CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
 # Each network's icon, copied beside the block: Fleet reads pictures from its blocks folder.
@@ -56,13 +61,35 @@ def words(row):
             "STICKER": "sticker"}.get(row["type"], row["type"].lower())
 
 
+def beeper_covers():
+    """The chat types ("single", "group") whose banner Beeper Desktop shows itself, so Fleet stays quiet."""
+    try:
+        if subprocess.run(["pgrep", "-xq", "Beeper Desktop"]).returncode:
+            return set()
+        with open(NC_PREFS, "rb") as f:
+            flags = next((a.get("flags", 0) for a in plistlib.load(f).get("apps", [])
+                          if a.get("bundle-id") == BEEPER_ID), 0)
+        # Alert style None, or the "Desktop" box unticked (bit 31): macOS shows Beeper nothing.
+        if not (flags >> 3) & 7 or flags >> 31 & 1:
+            return set()
+        db = sqlite3.connect(f"file:{BEEPER_PREFS}?mode=ro", uri=True)
+        row = db.execute("select value from store where key='ad:com.beeper.desktop.prefs'").fetchone()
+        db.close()
+        prefs = json.loads(row[0]) if row else {}
+        return {kind for kind, key in (("single", "message_notifications"), ("group", "group_message_notifications"))
+                if prefs.get(key, True)}
+    except (OSError, ValueError, sqlite3.Error):
+        return set()
+
+
 def ago(ms, now):
     s = max(0, now - ms / 1000)
     return f"{int(s // 60)} min" if s < 3600 else f"{int(s // 3600)} h" if s < 86400 else f"{int(s // 86400)} d"
 
 
-def build(db, after, now):
-    """The block and the cursor to keep. `after` None: a first run, which announces nothing."""
+def build(db, after, now, covered=frozenset()):
+    """The block and the cursor to keep. `after` None: a first run, which announces nothing.
+    `covered`: the chat types Beeper Desktop already banners."""
     db.row_factory = sqlite3.Row
     names = {}
 
@@ -99,6 +126,14 @@ def build(db, after, now):
     if after is None:
         return block, newest
     fresh = db.execute(INCOMING, (*SKIP, after)).fetchall()
+    if covered:
+        kinds = {}
+        for r in fresh:
+            if r["room"] not in kinds:
+                row = db.execute("select json_extract(thread,'$.type') from threads where threadID=?",
+                                 (r["room"],)).fetchone()
+                kinds[r["room"]] = row[0] if row else None
+        fresh = [r for r in fresh if kinds[r["room"]] not in covered]
     if fresh:
         rooms = {r["id"]: r for r in chats}
         def where(room):
@@ -141,7 +176,7 @@ def main():
             if os.path.exists(SRC + ext):
                 shutil.copy2(SRC + ext, os.path.join(tmp, "index.db" + ext))
         db = sqlite3.connect(os.path.join(tmp, "index.db"))
-        block, cursor = build(db, after, time.time())
+        block, cursor = build(db, after, time.time(), beeper_covers())
         db.close()
     # The notice goes once: a block rewritten next minute without it is what Fleet expects.
     previous = None
@@ -168,9 +203,9 @@ def test():
         create table mx_room_messages (eventID, roomID, timestamp, type, senderContactID, isSentByMe,
                                        shouldNotify, isDeleted, message);""")
     now = 1_800_000_000
-    def thread(room, name, unread, ts, proto):
+    def thread(room, name, unread, ts, proto, kind="single"):
         db.execute("insert into threads values (?,?,?,?)", (room, "whatsapp", json.dumps(
-            {"title": name, "unreadCount": unread, "extra": {"protocol": proto}}), ts))
+            {"title": name, "unreadCount": unread, "type": kind, "extra": {"protocol": proto}}), ts))
     def msg(eid, room, ts, text, me=0, notify=1, kind="TEXT"):
         db.execute("insert into mx_room_messages values (?,?,?,?,?,?,?,?,?)",
                    (eid, room, ts, kind, "c1", me, notify, 0, json.dumps({"text": text})))
@@ -202,6 +237,10 @@ def test():
     assert block["notify"][0]["body"] == "2 messages, last: are you there?", block["notify"]
     block, _ = build(db, (now - 50) * 1000, now)
     assert "notify" not in block, "mine and muted ones say nothing"
+    block, _ = build(db, (now - 150) * 1000, now, {"single", "group"})
+    assert "notify" not in block, "Beeper Desktop banners it, Fleet does not"
+    block, _ = build(db, (now - 150) * 1000, now, {"group"})
+    assert block["notify"][0]["id"] == "e2", "Beeper's DM banners are off, Fleet speaks"
     print("messages.py: all good")
 
 
