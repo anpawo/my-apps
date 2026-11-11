@@ -221,7 +221,7 @@ enum SelfCheck {
         try? Data(#"{"type":"summary"}\#n{"cwd":"/tmp/a \"b\"","sessionId":"asked"}"#.utf8).write(to: claude.appending(path: "projects/p/asked.jsonl"))
         try? Data(#"{"pid":\#(getpid()),"sessionId":"live"}"#.utf8).write(to: claude.appending(path: "sessions/\(getpid()).json"))
         Store.claude = claude
-        var resumed: [String] = [], raised: [pid_t] = []
+        var resumed: [String] = [], raised: [Store.Open] = []
         watcher.launch = { resumed = [$0.dir] + $0.options; return true }
         watcher.focus = { raised.append($0) }
         try? Data(#"{"id":"c","name":"C","cmd":"x","since":1,"fired":{"at":7},"session":"asked"}"#.utf8).write(to: state.appending(path: "fired/c.json"))
@@ -231,7 +231,30 @@ enum SelfCheck {
         try? Data(#"{"id":"f","at":9,"kind":"done","subject":"C","line":"L","dir":"/","options":["--resume","live"],"entries":["c"]}"#.utf8)
             .write(to: state.appending(path: "inbox/done/f.json"))
         watcher.open(c)
-        expect(raised == [getpid()] && resumed.count == 3, true, "checks: a click raises the session its follow-up ended in, still running")
+        expect(raised == [.pid(getpid())] && resumed.count == 3, true, "checks: a click raises the session its follow-up ended in, still running")
+        // The same session open in a VCX window: that window comes up, from its check or its line, and no second one opens.
+        let (vcx, frontends) = (Store.vcx, Store.vcxFrontends)
+        Store.vcx = claude
+        Store.vcxFrontends = { [getpid()] }
+        try? Data(#"{"sessions":[{"pid":\#(getpid()),"sessionId":"W","threadId":"claude:live"}]}"#.utf8).write(to: claude.appending(path: "\(getpid()).json"))
+        raised = []
+        watcher.open(c)
+        expect(raised == [.vcx("W")] && resumed.count == 3, true, "checks: a click raises the VCX window holding its session")
+        let lines = state.appending(path: "lines")
+        try? FileManager.default.createDirectory(at: lines, withIntermediateDirectories: true)
+        try? Data(#"{"id":"g","at":1,"kind":"done","subject":"G","line":"L","dir":"/","options":["--resume","live"]}"#.utf8).write(to: lines.appending(path: "g.json"))
+        try? Data(#"{"id":"h","at":2,"kind":"done","subject":"H","line":"L","dir":"/","options":["--resume","other"]}"#.utf8).write(to: lines.appending(path: "h.json"))
+        let lineInbox = Inbox(folder: lines)
+        var lineOpened: [String] = []
+        lineInbox.launch = { lineOpened.append($0.id); return true }
+        lineInbox.focus = { raised.append($0) }
+        lineInbox.refresh()
+        _ = lineInbox.key(UInt16(kVK_Return))
+        expect(raised == [.vcx("W"), .vcx("W")] && lineOpened.isEmpty && lineInbox.items.map(\.id) == ["h"], true,
+               "inbox: ↵ on a line whose session is open raises its window and sets the line aside")
+        _ = lineInbox.key(UInt16(kVK_Return))
+        expect(lineOpened == ["h"] && raised.count == 2, true, "inbox: ↵ on a line whose session is not open resumes it in a new window")
+        (Store.vcx, Store.vcxFrontends) = (vcx, frontends)
         Store.claude = real
         press(kVK_DownArrow)
         press(kVK_Return)

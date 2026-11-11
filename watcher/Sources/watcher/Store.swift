@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The state the checker (`~/.claude/skills/checker`) keeps on disk. The app reads it here; nothing talks to a
 /// running app.
@@ -78,6 +78,32 @@ enum Store {
             guard let json = (try? Data(contentsOf: file)).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
                   json["sessionId"] as? String == session, let pid = (json["pid"] as? NSNumber)?.int32Value, kill(pid, 0) == 0 else { continue }
             return pid
+        }
+        return nil
+    }
+
+    /// Where a session is open right now: a VCX window (its runtime id), else Claude Code in a terminal (its pid).
+    enum Open: Equatable { case vcx(String), pid(pid_t) }
+
+    static func open(_ session: String) -> Open? {
+        let raw = session.hasPrefix("claude:") ? String(session.dropFirst(7)) : session
+        return vcxWindow([raw, "claude:" + raw]).map(Open.vcx) ?? pid(of: raw).map(Open.pid)
+    }
+
+    /// The records VCX frontends keep for Fleet, one per process. Moved aside in the selftest.
+    nonisolated(unsafe) static var vcx = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/cx/fleet")
+    nonisolated(unsafe) static var vcxFrontends: () -> [pid_t] = {
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
+            .filter { $0.activationPolicy != .prohibited }.map(\.processIdentifier)
+    }
+
+    private static func vcxWindow(_ threads: Set<String>) -> String? {
+        for pid in vcxFrontends() {
+            guard let data = try? Data(contentsOf: vcx.appending(path: "\(pid).json")),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            for record in root["sessions"] as? [[String: Any]] ?? [] where (record["pid"] as? NSNumber)?.int32Value == pid {
+                if let thread = record["threadId"] as? String, threads.contains(thread), let id = record["sessionId"] as? String { return id }
+            }
         }
         return nil
     }

@@ -32,7 +32,7 @@ final class Inbox: NSObject, ObservableObject {
     /// What opening does. A stand-in in the selftest, which must not start a terminal.
     var launch: (InboxItem) -> Bool = Inbox.resume
     /// What opening a session still running does. A stand-in in the selftest, which must not raise one.
-    var focus: (pid_t) -> Void = Inbox.raise
+    var focus: (Store.Open) -> Void = Inbox.raise
     /// What a new mac-guard line does: the panel comes up on it. A stand-in in the selftest, which must not show one.
     var popUp: (Inbox) -> Void = { $0.show() }
     private let folder: URL
@@ -197,9 +197,9 @@ final class Inbox: NSObject, ObservableObject {
         let lines = Store.lines(in: folder) + Store.lines(in: folder.appending(path: "done"))
         let line = lines.filter { $0.entries?.contains(check.id) == true && $0.session != nil }.max { $0.at < $1.at }
         guard let session = line?.session ?? check.session else { return NSLog("%@", "watcher: \(check.id) names no session") }
-        if let pid = Store.pid(of: session) {
+        if let open = Store.open(session) {
             hide()
-            return focus(pid)
+            return focus(open)
         }
         guard let dir = Store.folder(of: session) else { return NSLog("%@", "watcher: no transcript of \(session)") }
         hide()
@@ -208,7 +208,15 @@ final class Inbox: NSObject, ObservableObject {
 
     /// Fleet's own raise, as a click on the session's tile does it. Launched as an app of its own, not as a child: its
     /// Accessibility grant, which takes it across desktops, is then its own and not asked of Watcher.
-    private static func raise(_ pid: pid_t) {
+    private static func raise(_ open: Store.Open) {
+        let pid: pid_t
+        switch open {
+        case .pid(let value): pid = value
+        case .vcx(let id):
+            // What Fleet's tile click sends a VCX window (TerminalFocus.swift).
+            return DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.mr.vcx.focus"), object: nil,
+                                                                                userInfo: ["sessionId": id], deliverImmediately: true)
+        }
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["-n", NSHomeDirectory() + "/Applications/Fleet.app", "--args", "--focus", "\(pid)"]
@@ -225,6 +233,11 @@ final class Inbox: NSObject, ObservableObject {
         guard let item = current else { return }
         if !item.opens { return take(item) }
         hide()
+        // A follow-up whose session is already open in a window brings that window up instead of a second one on it.
+        if item.prompt == nil, let session = item.session, let open = Store.open(session) {
+            focus(open)
+            return take(item)
+        }
         if launch(item) { take(item) }
     }
 
