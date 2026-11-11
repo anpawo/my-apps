@@ -8,6 +8,7 @@ enum ProviderCheck {
         let settings = Settings.shared, previous = settings.value
         defer {
             settings.updateLimit(account: "claude-default", reset: previous.limits["claude-default"] ?? 0)
+            settings.updateLimit(account: "codex-default", reset: previous.limits["codex-default"] ?? 0)
             settings.value = previous; settings.save()
         }
         settings.value.provider = "auto"
@@ -31,5 +32,51 @@ enum ProviderCheck {
             throw CXError(message: "FAIL: a Codex connection failure tried another provider or recorded a false usage limit; attempted: " + attempted.joined(separator: ", "))
         }
         print("Provider failure checks passed: Codex errors stay on Codex without false limits or lost drafts")
+
+        let switching = Session(cwd: folder.path, stateDirectory: folder.appendingPathComponent("switching"))
+        defer { switching.close() }
+        var connections: [FixtureConnection] = []
+        switching.connectionFactory = { account, _ in
+            let connection = FixtureConnection(account)
+            connection.failStart = account.provider == "qwen"
+            connections.append(connection)
+            return connection
+        }
+        switching.providerChoice = "claude"
+        try await switching.activate(previous.accounts.first { $0.id == "claude-default" }!, resume: nil, keepRows: false)
+        await switching.refreshCatalog()
+        switching.draft = NSAttributedString(string: "Keep my draft while switching")
+        let original = switching.rpc, thread = switching.threadID, models = switching.models
+        let backend = SessionBackend(session: switching)
+        _ = try await backend.perform(action: "command", params: ["text": "/model qwen"])
+        var failures: [String] = []
+        if !switching.ready || switching.rpc !== original || connections[0].closed || switching.providerChoice != "claude" || switching.threadID != thread || switching.models != models || switching.changing || switching.draft.string != "Keep my draft while switching" {
+            failures.append("a failed provider switch must keep the current connection, selection, models and draft")
+        }
+        Settings.shared.updateLimit(account: "codex-default", reset: Date().timeIntervalSince1970 + 3600)
+        _ = try await backend.perform(action: "command", params: ["text": "/model codex"])
+        if !switching.ready || switching.account.provider != "codex" || switching.providerChoice != "codex" {
+            failures.append("an explicit provider selection must retry enabled accounts despite cached usage limits")
+        }
+        await switching.send(text: "Use the explicitly selected provider", images: [])
+        if switching.account.provider != "codex" || connections.last?.sent.count != 1 {
+            failures.append("the next prompt must stay on the explicitly selected provider")
+        }
+        if !failures.isEmpty { throw CXError(message: "FAIL: " + failures.joined(separator: "; ")) }
+        print("Provider switch checks passed: failed switches preserve the working session and explicit selections retry enabled accounts")
+
+        let closing = Session(cwd: folder.path, stateDirectory: folder.appendingPathComponent("closing"))
+        let pending = FixtureConnection(previous.accounts.first { $0.id == "codex-default" }!)
+        pending.startDelay = 100_000_000
+        closing.connectionFactory = { _, _ in pending }
+        let start = Task { try await closing.activate(pending.account, resume: nil, keepRows: false) }
+        for _ in 0..<100 where !closing.changing { try await Task.sleep(nanoseconds: 1_000_000) }
+        closing.close()
+        do {
+            try await start.value
+            throw CXError(message: "FAIL: a closed session finished connecting")
+        } catch let error as CXError where !error.message.hasPrefix("FAIL:") {}
+        guard pending.closed, !closing.ready, !closing.changing else { throw CXError(message: "FAIL: closing a session must close its pending connection") }
+        print("Provider close checks passed: closing during startup cancels the pending connection")
     }
 }

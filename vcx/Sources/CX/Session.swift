@@ -291,6 +291,7 @@ final class Session: ObservableObject {
     private var resumeWhenBack = false
     var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
+    private var startingConnection: (any Connection)?
     static var testConnectionFactory: ((Account, String) -> any Connection)?
     static var router: (String, Account?) async -> String? = { await routeProject($0, account: $1) }
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
@@ -984,6 +985,36 @@ final class Session: ObservableObject {
         Connectivity.watch(self)
         // The shared default picks a session's provider once; a later change to it (an older VCX build still writes it) must not move this session.
         if providerChoice == nil { providerChoice = preferredProvider }
+        // Claude always starts in the conversation's folder: a project cd changes what VCX shows, not where Claude loads its settings.
+        let folder = next.provider == "claude" ? conversationDirectory : cwd
+        let connection: any Connection
+        if let connectionFactory = connectionFactory ?? Session.testConnectionFactory { connection = connectionFactory(next, folder) } else { switch next.provider {
+        case "claude": connection = ClaudeConnection(account: next, cwd: folder)
+        case "qwen":
+            var preferences = Settings.shared.value; preferences.mode = preferredMode
+            connection = QwenConnection(preferences: preferences, cwd: cwd)
+        default:
+            let codex = RPC(); codex.account = next; codex.cwd = cwd; connection = codex
+        }
+        }
+        connection.fleetFile = fleetContextFile.path; connection.logFile = agentLogFile
+        startingConnection = connection
+        defer { startingConnection = nil }
+        var startupEvents: [JSON] = []
+        connection.event = { startupEvents.append($0) }
+        do {
+            try await connection.start(command: nil)
+            guard startingConnection === connection else { throw CXError(message: "Connection change was cancelled.") }
+        }
+        catch {
+            connection.event = { _ in }; connection.close()
+            if startingConnection === connection, !ready {
+                pendingActivation = (next, resume, keepRows, recordID)
+                usageLoading = false; status = "Connection failed"
+                if !usageLimit(["error": error.localizedDescription]) { lostConnection = true; Connectivity.lost("a failed connection") }
+            }
+            throw error
+        }
         let previous = (account, threadID, model, context, usage, injectedContext, contextUsed, contextLimit, defaultEffort)
         let previousUsagePercent = usagePercent
         flush()
@@ -997,21 +1028,10 @@ final class Session: ObservableObject {
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
         activeMode = preferredMode
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
-        // Claude always starts in the conversation's folder: a project cd changes what VCX shows, not where Claude loads its settings.
-        let folder = next.provider == "claude" ? conversationDirectory : cwd
-        if let connectionFactory = connectionFactory ?? Session.testConnectionFactory { rpc = connectionFactory(next, folder) } else { switch next.provider {
-        case "claude": rpc = ClaudeConnection(account: next, cwd: folder)
-        case "qwen":
-            var preferences = Settings.shared.value; preferences.mode = activeMode
-            rpc = QwenConnection(preferences: preferences, cwd: cwd)
-        default:
-            let connection = RPC(); connection.account = next; connection.cwd = cwd; rpc = connection
-        }
-        }
-        rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile
+        rpc = connection
         rpc.event = { [weak self] message in self?.event(message) }
+        for message in startupEvents { event(message) }
         do {
-            try await rpc.start(command: nil)
             changing = false
             try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
             if previous.0.id != next.id { effort = nil; save() }
@@ -1600,5 +1620,6 @@ final class Session: ObservableObject {
             notice("Work interrupted because the session runtime closed. Send a message to continue.")
         }
         Connectivity.unwatch(self)
+        startingConnection?.event = { _ in }; startingConnection?.close(); startingConnection = nil
         flush(); save(); releaseRecord(); flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }
