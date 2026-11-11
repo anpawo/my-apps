@@ -272,6 +272,11 @@ final class AppController: ObservableObject {
             guard let self, !suspended, pretendFleet == nil else { return }
             sessions = registry.refresh()
         }
+        VCX.onNewWaiting { [weak self] in
+            guard let self, !suspended, pretendFleet == nil else { return }
+            NSLog("Fleet: a VCX session started waiting, refreshing now")
+            sessions = registry.refresh()
+        }
         // Whatever the last run left behind is not evidence about this one.
         Hooks.writeMachineState(struggling: false, reason: "", hogs: [])
         observeSleepWake()

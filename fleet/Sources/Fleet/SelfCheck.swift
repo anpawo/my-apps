@@ -24,6 +24,7 @@ enum SelfCheck {
         rescuedBinding(expect)
         twinBinding(expect)
         twinStates(expect)
+        vcxWaiting(expect)
         heldPrompt(expect)
         ghosts(expect)
         ports(expect)
@@ -1011,6 +1012,26 @@ enum SelfCheck {
         expect(states[1] == .ready && states[2] == .awaitingAnswer, true,
                "twins on one conversation: only the one asking needs you")
         expect(states[3] == nil, true, "a session alone on its file keeps the hook's state")
+    }
+
+    private static func vcxWaiting(_ expect: (Bool, Bool, String) -> Void) {
+        let dir = NSTemporaryDirectory() + "fleet-selftest-vcx-\(getpid())"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func write(_ states: [String], at second: TimeInterval) {
+            let path = dir + "/1.json"
+            let body = #"{"sessions":["# + states.map { #"{"state":"\#($0)"}"# }.joined(separator: ",") + "]}"
+            try? body.write(toFile: path, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: second)], ofItemAtPath: path)
+        }
+        write(["working"], at: 1)
+        _ = VCX.newlyWaiting(in: dir)
+        write(["waiting"], at: 2)
+        expect(VCX.newlyWaiting(in: dir), true, "a VCX session that starts waiting refreshes at once")
+        write(["waiting", "working"], at: 3)
+        expect(VCX.newlyWaiting(in: dir), false, "one already waiting does not refresh again")
+        write(["waiting", "waiting"], at: 4)
+        expect(VCX.newlyWaiting(in: dir), true, "a second window waiting in the same process does")
     }
 
     private static func freshSession(_ expect: (Int, Int, String) -> Void) {

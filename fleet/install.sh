@@ -222,8 +222,8 @@ PLIST_EOF
 	fi
 	launchctl bootstrap "gui/$UID" "$plist" 2>/dev/null || true
 }
-# A message is told within the minute (asked 2026-11-10); the MO digest moves once a day.
-block_agent fleet.messages 60 messages.py
+# A message is told within 10 s plus a Fleet tick (asked 2026-11-10, "delay" 2026-11-11): one run is 0.1 s. The MO digest moves once a day.
+block_agent fleet.messages 10 messages.py
 block_agent fleet.s14 900 s14.py
 
 echo "==> Installing the fleet command to $BIN/fleet"

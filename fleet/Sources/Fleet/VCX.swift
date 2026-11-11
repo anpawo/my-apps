@@ -193,4 +193,60 @@ enum VCX {
         }
         return nil
     }
+
+    // A question in a VCX window waited for Fleet's next tick (5 s ± 50 %), though VCX writes it
+    // within 0.5 s (asked 2026-11-11): its folder is watched, and a new `waiting` refreshes now.
+    private static var watcher: DispatchSourceFileSystemObject?
+    private static var checking = false
+    private static var waitingIn: [String: Int] = [:]
+    private static var stamps: [String: Date] = [:]
+
+    static func onNewWaiting(_ action: @escaping @MainActor () -> Void) {
+        let fd = open(root + "/fleet", O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated {
+                // Streaming windows rewrite their record four times a second.
+                guard !checking else { return }
+                checking = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    MainActor.assumeIsolated {
+                        checking = false
+                        if newlyWaiting(in: root + "/fleet") { action() }
+                    }
+                }
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        watcher = source
+    }
+
+    /// Whether a record in `dir` holds more `waiting` sessions than at the last call; only files
+    /// written since are read.
+    static func newlyWaiting(in dir: String) -> Bool {
+        let marker = Data(#""state":"waiting""#.utf8)
+        var counts: [String: Int] = [:]
+        var rose = false
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where name.hasSuffix(".json") {
+            let path = dir + "/" + name
+            let stamp = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+            var count = waitingIn[name] ?? 0
+            if stamp != stamps[name], let data = FileManager.default.contents(atPath: path) {
+                stamps[name] = stamp
+                count = 0
+                var from = data.startIndex
+                while let hit = data.range(of: marker, in: from..<data.endIndex) {
+                    count += 1
+                    from = hit.upperBound
+                }
+            }
+            if count > waitingIn[name] ?? 0 { rose = true }
+            counts[name] = count
+        }
+        waitingIn = counts
+        stamps = stamps.filter { counts[$0.key] != nil }
+        return rose
+    }
 }

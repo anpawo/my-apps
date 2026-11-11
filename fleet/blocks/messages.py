@@ -3,7 +3,7 @@
 
 Writes ~/.local/state/fleet/blocks/messages.json: the three chats with unread messages heard from
 last, each a click away from a VCX session that reads it, and a notice for what came in since the
-last run, which Fleet posts as a banner. Run every minute by the fleet.messages LaunchAgent.
+last run, which Fleet posts as a banner. Run every 10 s by the fleet.messages LaunchAgent.
 
   messages.py            one run
   messages.py --test     the self-check, on a made-up index

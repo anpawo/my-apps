@@ -53,7 +53,10 @@ final class SessionRegistry {
             // only one reached purely by inference — from silence, which is also what a failed
             // request and a long thinking turn look like. Nothing else is re-examined; the
             // terminal costs a round trip to read.
+            // Claude Code's own status turns `waiting` about 2 s into a question; the
+            // Notification hook comes 9 s after that, and the silence rule needs 25 s (11-11).
             var state = twins[proc.pid]
+                ?? (!proc.codex && Self.ownStatus(proc.pid) == "waiting" ? SessionState.awaitingAnswer : nil)
                 ?? state(for: bindings[proc.pid], info: info, cpu: cpu, startedAt: proc.startedAt, now: now)
             // An async agent leaves the session looking finished: its call was answered the
             // moment it launched, the turn closed, and the hook said `ready` — all true of the
