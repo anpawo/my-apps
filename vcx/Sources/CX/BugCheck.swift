@@ -85,7 +85,7 @@ enum BugCheck {
             var failSwitch = false
             switching.connectionFactory = { account, _ in
                 let connection = FixtureConnection(account)
-                if !connections.isEmpty { connection.startDelay = 400_000_000 }
+                if !connections.isEmpty { connection.startDelay = 1_000_000_000 }
                 connection.failStart = failSwitch
                 connections.append(connection)
                 return connection
@@ -109,13 +109,14 @@ enum BugCheck {
                 let params: JSON = ["text": prompt, "images": [String](), "draft": draftContent(frontend.draft), "generation": frontend.draftGeneration]
                 let send = Task { try await backend.perform(action: "send", params: params) }
                 for _ in 0..<100 where !switching.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                host.layoutSubtreeIfNeeded()
+                let shown = { frontend.rows.last?.kind == "user" && (frontend.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == prompt }
+                let cleared = { frontend.draft.length == 0 && RuntimeUpdate.composer(in: host)?.string.isEmpty == true }
+                // A fixed 150 ms wait failed under mac.vcx-update (a launchd daemon spawn) and passed from a shell: wait while connecting.
+                let deadline = Date().addingTimeInterval(0.9)
+                repeat { try? await Task.sleep(nanoseconds: 10_000_000); host.layoutSubtreeIfNeeded() } while switching.changing && !(shown() && cleared()) && Date() < deadline
                 check(switching.changing, "\(provider) switch fixture waits on its connection")
-                check(frontend.rows.last?.kind == "user" && (frontend.rows.last?.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == prompt,
-                      "\(provider) switch shows the submitted bubble before connecting")
-                check(frontend.draft.length == 0 && RuntimeUpdate.composer(in: host)?.string.isEmpty == true,
-                      "\(provider) switch clears the visible composer before connecting")
+                check(shown(), "\(provider) switch shows the submitted bubble before connecting")
+                check(cleared(), "\(provider) switch clears the visible composer before connecting")
                 if provider == "codex" { frontend.editDraft(NSAttributedString(string: "Next draft")) }
                 _ = try await send.value
                 await settle(); host.layoutSubtreeIfNeeded()
