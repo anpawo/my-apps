@@ -443,7 +443,7 @@ if args.first == "--route-project" {
     dispatchMain()
 }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }
-if args.contains(where: { ["--check", "--qwen-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--icon", "--graph-dump-check"].contains($0) }) {
+if args.contains(where: { ["--check", "--provider-check", "--qwen-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
@@ -604,6 +604,13 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     Task { let ok = await Check.qwenLoop(); exit(ok ? 0 : 1) }
     RunLoop.main.run()
+} else if args.contains("--provider-check") {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        do { try await ProviderCheck.run(); exit(0) }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    }
+    RunLoop.main.run()
 } else if args.contains("--bug-check") {
     app.setActivationPolicy(.prohibited)
     Task {
@@ -613,7 +620,11 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
     RunLoop.main.run()
 } else if args.contains("--check") {
     app.setActivationPolicy(.prohibited)
-    Task { let ok = await Check.run(); exit(ok ? 0 : 1) }
+    Task {
+        do { try await ProviderCheck.run() }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+        let ok = await Check.run(); exit(ok ? 0 : 1)
+    }
     RunLoop.main.run()
 } else {
     app.setActivationPolicy(.regular)

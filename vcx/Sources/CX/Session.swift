@@ -964,8 +964,7 @@ final class Session: ObservableObject {
         for next in available {
             do { try await activate(next, resume: nil, keepRows: keepRows); return }
             catch {
-                // Only a usage limit may move a session off Claude.
-                if next.provider == "claude", !usageLimit(["error": error.localizedDescription]) { throw error }
+                if !usageLimit(["error": error.localizedDescription]) { throw error }
                 failure = error; Settings.shared.updateLimit(account: next.id, reset: Date().timeIntervalSince1970 + 300)
             }
         }
