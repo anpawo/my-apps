@@ -278,6 +278,7 @@ struct ComposerSnapshot {
 
 final class ComposerText: NSTextView {
     weak var session: Session?
+    private var submittingGenerations: Set<Int> = []
     var hidingPlaceholder = false
     var asking = false
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
@@ -425,8 +426,13 @@ final class ComposerText: NSTextView {
             return
         }
         let draft = NSAttributedString(attributedString: session.draft), generation = session.draftGeneration
+        guard draft.length > 0, NSArray(array: draftContent(draft)).isEqual(to: draftContent(attributedString())),
+              submittingGenerations.insert(generation).inserted else { return }
         if session.ready, !session.changing, !text.hasPrefix("/"), !text.isEmpty || !images.isEmpty { willSubmit(text, images, sendSnapshot()) }
-        Task { await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation) }
+        Task {
+            defer { submittingGenerations.remove(generation) }
+            await session.send(text: text, images: images, expectedDraft: draft, expectedGeneration: generation)
+        }
     }
 }
 

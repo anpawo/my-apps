@@ -147,6 +147,24 @@ enum RuntimeCheck {
         let cpuNanoseconds = Double(afterCPU - beforeCPU) * Double(timebase.numer) / Double(timebase.denom)
         let elapsedNanoseconds = Double(afterWall - beforeWall)
         print(String(format: "Idle worker sample: %.3f ms CPU / %.3f s wall (%.3f%% of one core)", cpuNanoseconds / 1_000_000, elapsedNanoseconds / 1_000_000_000, cpuNanoseconds / elapsedNanoseconds * 100))
+        session.runtimeClient = frontend
+        let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
+        storage.addLayoutManager(manager); manager.addTextContainer(container)
+        let field = ComposerText(frame: NSRect(x: 0, y: 0, width: 600, height: 150), textContainer: container)
+        field.heldStorage = storage; field.session = session
+        let coordinator = Composer.Coordinator(session)
+        field.delegate = coordinator
+        defer { withExtendedLifetime(coordinator) {} }
+        let beforeMessages = session.rows.filter { $0.kind == "user" }.count
+        let beforeTurns = (try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("turns.json"))) as? JSON)?["count"] as? Int
+        session.editDraft(NSAttributedString(string: "One runtime submission")); field.setDraft(session.draft)
+        for _ in 0..<2 { _ = coordinator.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) }
+        for _ in 0..<200 where session.draft.length > 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let afterTurns = (try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("turns.json"))) as? JSON)?["count"] as? Int
+        try check(session.draft.length == 0 && session.rows.filter { $0.kind == "user" }.count == beforeMessages + 1,
+                  "two Returns during runtime delivery must clear the draft and create one user message")
+        try check(beforeTurns != nil && afterTurns == beforeTurns! + 1, "two Returns during runtime delivery must reach the provider once")
         worker.terminate()
         await Task.detached { worker.waitUntilExit() }.value
         let stoppedSession = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("stopped-frontend"))

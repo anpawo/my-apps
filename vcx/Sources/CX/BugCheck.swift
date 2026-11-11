@@ -40,6 +40,44 @@ enum BugCheck {
         defer { Settings.shared.value = preferences; Settings.shared.save() }
         Settings.shared.value.provider = "codex"; Settings.shared.save()
         do {
+            let sending = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("repeated-return"))
+            let connection = FixtureConnection(account); connection.hold = true
+            sending.connectionFactory = { _, _ in connection }
+            try await sending.activate(account, resume: nil, keepRows: false)
+            defer { sending.close() }
+            let (field, coordinator) = editor(sending)
+            defer { withExtendedLifetime(coordinator) {} }
+            sending.editDraft(NSAttributedString(string: "Send this once")); field.setDraft(sending.draft)
+            var animations = 0
+            field.willSubmit = { _, _, _ in animations += 1 }
+            for _ in 0..<2 { _ = coordinator.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) }
+            await settle()
+            check(connection.sent.count == 1 && sending.rows.filter { $0.kind == "user" }.count == 1 && animations == 1,
+                  "two Returns before the send task starts submit one message and prepare one animation (sent \(connection.sent.count), animations \(animations))")
+            field.submit()
+            await settle()
+            check(connection.sent.count == 1, "a stale editor cannot resubmit a consumed draft before the view refreshes")
+            sending.editDraft(NSAttributedString(string: "Send this once")); field.setDraft(sending.draft)
+            field.submit()
+            await settle()
+            check(connection.sent.count == 2, "a freshly typed identical message can still be sent")
+            sending.editDraft(NSAttributedString(string: "First draft")); field.setDraft(sending.draft); field.submit()
+            sending.editDraft(NSAttributedString(string: "Next draft")); field.setDraft(sending.draft); field.submit()
+            await settle()
+            check(connection.sent.count == 4 && sending.draft.length == 0, "a new draft can be submitted while an earlier draft is pending")
+            connection.failSend = true
+            sending.editDraft(runtimeDraft([["type": "text", "text": "Retry this"], ["type": "localImage", "path": "/fixture.png"]])); field.setDraft(sending.draft)
+            field.submit()
+            await settle()
+            check(connection.sent.count == 5 && sending.draft.string.contains("Retry this") && draftContent(sending.draft).contains { $0["path"] as? String == "/fixture.png" },
+                  "a failed send restores its text and attachment")
+            connection.failSend = false; field.setDraft(sending.draft)
+            field.submit()
+            await settle()
+            check(connection.sent.count == 6 && sending.draft.length == 0, "the restored draft can be retried without editing it")
+            guard failures.isEmpty else { throw CXError(message: failures.joined(separator: "; ")) }
+        }
+        do {
             let claude = Settings.shared.value.accounts.first { $0.provider == "claude" }!
             let switching = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("provider-switch"))
             switching.providerChoice = "claude"
