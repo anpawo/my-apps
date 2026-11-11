@@ -22,6 +22,8 @@ CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
 ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 SHOWN = 3
 SKIP = ("HIDDEN", "REACTION", "MEMBERSHIP", "NOTICE")
+# A message read within this many seconds (Beeper, or his phone through the read receipt) gets no banner.
+GRACE = 30
 
 THREADS = """
 select threadID id, accountID account, timestamp ts,
@@ -38,7 +40,8 @@ select m.eventID id, m.roomID room, m.timestamp ts, m.type, m.senderContactID se
        json_extract(m.message,'$.text') text
 from mx_room_messages m
 where m.isSentByMe = 0 and m.shouldNotify = 1 and not m.isDeleted
-  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ?
+  and m.seenByMeAt is null
+  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ? and m.timestamp <= ?
 order by m.timestamp"""
 
 
@@ -125,7 +128,8 @@ def build(db, after, now, covered=frozenset()):
     newest = db.execute("select max(timestamp) from mx_room_messages").fetchone()[0] or 0
     if after is None:
         return block, newest
-    fresh = db.execute(INCOMING, (*SKIP, after)).fetchall()
+    cutoff = int((now - GRACE) * 1000)
+    fresh = db.execute(INCOMING, (*SKIP, after, cutoff)).fetchall()
     if covered:
         kinds = {}
         for r in fresh:
@@ -153,7 +157,7 @@ def build(db, after, now, covered=frozenset()):
             body = ", ".join(dict.fromkeys(where(room)[0] or sender(room, rows[-1]["sender"])
                                            for room, rows in reversed(list(by_room.items()))))
         block["notify"] = [{"id": fresh[-1]["id"], "title": head, "body": body[:200]}]
-    return block, max(newest, after)
+    return block, max(after, min(newest, cutoff))
 
 
 def write(path, value):
@@ -201,14 +205,14 @@ def test():
         create table threads (threadID, accountID, thread, timestamp);
         create table participants (room_id, id, full_name, is_self, is_network_bot);
         create table mx_room_messages (eventID, roomID, timestamp, type, senderContactID, isSentByMe,
-                                       shouldNotify, isDeleted, message);""")
+                                       shouldNotify, isDeleted, message, seenByMeAt);""")
     now = 1_800_000_000
     def thread(room, name, unread, ts, proto, kind="single"):
         db.execute("insert into threads values (?,?,?,?)", (room, "whatsapp", json.dumps(
             {"title": name, "unreadCount": unread, "type": kind, "extra": {"protocol": proto}}), ts))
-    def msg(eid, room, ts, text, me=0, notify=1, kind="TEXT"):
-        db.execute("insert into mx_room_messages values (?,?,?,?,?,?,?,?,?)",
-                   (eid, room, ts, kind, "c1", me, notify, 0, json.dumps({"text": text})))
+    def msg(eid, room, ts, text, me=0, notify=1, kind="TEXT", seen=None):
+        db.execute("insert into mx_room_messages values (?,?,?,?,?,?,?,?,?,?)",
+                   (eid, room, ts, kind, "c1", me, notify, 0, json.dumps({"text": text}), seen))
     thread("!a", "Mat", 2, (now - 120) * 1000, "mautrix-whatsapp")
     thread("!b", "+33 6 12 34 56 78", 1, (now - 7200) * 1000, "mautrix-whatsapp")
     thread("!c", "Old", 0, (now - 9000) * 1000, "teams")
@@ -241,6 +245,14 @@ def test():
     assert "notify" not in block, "Beeper Desktop banners it, Fleet does not"
     block, _ = build(db, (now - 150) * 1000, now, {"group"})
     assert block["notify"][0]["id"] == "e2", "Beeper's DM banners are off, Fleet speaks"
+    msg("e6", "!a", (now - 60) * 1000, "read on the phone", seen=(now - 55) * 1000)
+    block, _ = build(db, (now - 80) * 1000, now)
+    assert "notify" not in block, "a message he read elsewhere says nothing"
+    msg("e7", "!a", (now - 10) * 1000, "just now")
+    block, cursor = build(db, (now - 80) * 1000, now)
+    assert "notify" not in block and cursor == (now - GRACE) * 1000, "a message within the grace waits"
+    block, _ = build(db, cursor, now + GRACE)
+    assert block["notify"][0]["id"] == "e7", "still unread after the grace: the banner comes"
     print("messages.py: all good")
 
 
