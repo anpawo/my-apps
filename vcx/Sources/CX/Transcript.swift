@@ -132,6 +132,8 @@ final class TranscriptController: NSObject {
     // Rows that change height shortly after new content keep the end in view; a block opened later grows in place, as before.
     private var followUntil = Date.distantPast
     private var endAnimating = false
+    private var userScrolling = false
+    private var followDeferred = false
     let details = TranscriptDetails()
     private var adjusting = false
     private var publishing = false
@@ -152,6 +154,8 @@ final class TranscriptController: NSObject {
         clip.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: clip)
         NotificationCenter.default.addObserver(self, selector: #selector(userScrolled), name: NSScrollView.didLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(willScroll), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(finishScroll), name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         let session = parent.session
         session.scrollToExchange = { [weak self] in self?.scroll(to: .exchange($0), bottom: false, animated: false) }
         session.landOnEnd = { [weak self] in session.follow.attached = true; self?.scrollToEnd(animated: false) }
@@ -355,7 +359,11 @@ final class TranscriptController: NSObject {
         }
         let follow = revision != session.revision
         revision = session.revision
-        if follow && session.follow.attached { followUntil = Date() + 0.5; scrollToEnd(animated: !parent.reduceMotion && (parent.sending.hasPending || parent.sending.flight != nil)) }
+        if follow && session.follow.attached {
+            followUntil = Date() + 0.5
+            if userScrolling { followDeferred = true }
+            else { scrollToEnd(animated: !parent.reduceMotion && (parent.sending.hasPending || parent.sending.flight != nil)) }
+        }
         else { measure(near: clip.bounds) }
         updateGeometry()
         schedulePrefetch()
@@ -381,7 +389,7 @@ final class TranscriptController: NSObject {
     // the row crossing its top edge too), while a transcript following its end stays on it.
     private func apply(_ rows: IndexSet, crossing: Bool, animated: Bool = false) {
         guard !rows.isEmpty else { return }
-        let visible = clip.bounds, atEnd = parent.session.follow.attached && Date() < followUntil && (endAnimating || contentHeight - visible.maxY < 1)
+        let visible = clip.bounds, atEnd = !userScrolling && parent.session.follow.attached && Date() < followUntil && (endAnimating || contentHeight - visible.maxY < 1)
         var shift: CGFloat = 0
         for row in rows {
             let old = table.rect(ofRow: row)
@@ -391,7 +399,7 @@ final class TranscriptController: NSObject {
         adjusting = true
         relayout(duration: animated && !atEnd && shift == 0 ? (parent.reduceMotion ? 0.1 : 0.25) : 0)
         // Rows shorter than their estimate can leave the origin past the new end: setOrigin brings it back.
-        if atEnd { setOrigin(end, duration: endAnimating ? 0.25 : 0) } else if shift != 0 || visible.minY > end { setOrigin(visible.minY + shift) }
+        if atEnd { setOrigin(end, duration: endAnimating ? 0.25 : 0) } else if shift != 0 || (!userScrolling && visible.minY > end) { setOrigin(visible.minY + shift) }
         adjusting = wasAdjusting
     }
 
@@ -453,7 +461,7 @@ final class TranscriptController: NSObject {
                 guard let self else { return }
                 self.scroll.reflectScrolledClipView(self.clip)
                 // The end may have moved while it scrolled there (a row measured, an answer grown).
-                if toEnd { self.endAnimating = false; if self.parent.session.follow.attached { self.setOrigin(self.end) } }
+                if toEnd { self.endAnimating = false; if self.parent.session.follow.attached && !self.userScrolling { self.setOrigin(self.end) } }
             }
         } else {
             clip.scroll(to: target)
@@ -465,7 +473,7 @@ final class TranscriptController: NSObject {
     func scrollToEnd(animated: Bool) {
         var row = keys.count - 1, covered: CGFloat = 0
         while row >= 0, covered < clip.bounds.height { apply(remeasure([row]), crossing: true); covered += height(keys[row]); row -= 1 }
-        setOrigin(end, duration: animated ? 0.42 : 0)
+        setOrigin(end, duration: animated ? (parent.reduceMotion ? 0.1 : 0.42) : 0)
         updateGeometry()
     }
 
@@ -490,6 +498,22 @@ final class TranscriptController: NSObject {
         updateGeometry()
         if parent.sending.hasPending || parent.sending.flight != nil { publishFrames() }
         schedulePrefetch()
+    }
+
+    // Native gestures, momentum and repeated mouse-wheel events keep control until the wheel rests.
+    @objc func willScroll() {
+        userScrolling = true
+        followUntil = .distantPast
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(finishScroll), object: nil)
+        perform(#selector(finishScroll), with: nil, afterDelay: 0.2)
+    }
+
+    @objc private func finishScroll() {
+        guard !detached else { return }
+        userScrolling = false
+        guard followDeferred else { return }
+        followDeferred = false
+        if parent.session.follow.attached, clip.bounds.minY < end { scrollToEnd(animated: true) }
     }
 
     @objc func userScrolled() {

@@ -571,7 +571,10 @@ extension CXView {
             // A wheel that moves the transcript leaves its end; read once the event has scrolled it.
             var owner: NSView? = target
             while let view = owner, !(view is TranscriptScrollView) { owner = view.superview }
-            if let owner = owner as? TranscriptScrollView { DispatchQueue.main.async { owner.controller?.userScrolled() } }
+            if let owner = owner as? TranscriptScrollView {
+                owner.controller?.willScroll()
+                DispatchQueue.main.async { owner.controller?.userScrolled() }
+            }
             guard hit == nil, let target else { return event }
             target.scrollWheel(with: event)
             return nil

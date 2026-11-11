@@ -2153,14 +2153,14 @@ enum Render {
     }
     // Scrolls a long transcript from its end to its top in wheel-sized steps, each laid out and drawn, and prints frame times.
     static func scrollBench(directory: String) {
+        try! FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         print("Transcript responsive scrolling: \(TranscriptScrollView.isCompatibleWithResponsiveScrolling)")
         precondition(TranscriptScrollView.isCompatibleWithResponsiveScrolling, "The transcript scroll view lost responsive scrolling (a scrollWheel override?)")
         let table = "| Item | What | Where |\n|---|---|---|\n" + (1...12).map { "| Item \($0) | a cell long enough to wrap onto a second line | source line \($0) |" }.joined(separator: "\n")
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/scroll"))
         session.status = "Starting"
-        let host = NSHostingView(rootView: CXView(session: session))
+        let host = CXView.host(session)
         host.appearance = NSAppearance(named: .aqua)
-        host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 1176, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -2191,6 +2191,45 @@ enum Render {
             }
             let sorted = times.sorted()
             print(String(format: "%@: %d frames, median %.2f ms, p95 %.2f ms, max %.2f ms, total %.0f ms, over 16 ms: %d", pass == 0 ? "up (first)" : up ? "up (again)" : "down (again)", times.count, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0, times.reduce(0, +), times.filter { $0 > 16 }.count))
+        }
+        guard let transcript = scroll as? TranscriptScrollView, let controller = transcript.controller else { fatalError("Transcript controller not found") }
+        for offset: CGFloat in [-20, 80] {
+            if offset > 0 {
+                // AppKit's gesture machinery allows elastic bounds; an unshown window needs the same bounds for this replay.
+                class ElasticClip: NSClipView { override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds } }
+                let document = scroll.documentView
+                scroll.contentView = ElasticClip(frame: scroll.contentView.frame); scroll.documentView = document
+            }
+            controller.scrollToEnd(animated: false)
+            RunLoop.main.run(until: Date() + 0.3); host.layoutSubtreeIfNeeded()
+            session.follow.attached = true
+            NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+            let end = (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height
+            scroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: end + offset))
+            let before = scroll.contentView.bounds.minY
+            for _ in 0..<12 {
+                controller.willScroll()
+                session.revision += 1
+                RunLoop.main.run(until: Date() + 0.03); host.layoutSubtreeIfNeeded()
+                precondition(abs(before - end - offset) < 1 && abs(scroll.contentView.bounds.minY - before) < 1, "A content update overrode an active scroll")
+            }
+            print("PASS: repeated scrolling at \(Int(offset)) pt from the end survives 12 content updates")
+            NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
+            if offset < 0 {
+                var samples: [CGFloat] = []
+                let start = Date()
+                for frame in 0..<32 {
+                    RunLoop.main.run(until: start + Double(frame) / 60); host.layoutSubtreeIfNeeded()
+                    samples.append(scroll.contentView.bounds.minY - end)
+                    if [0, 2, 4, 8, 16, 31].contains(frame), let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                        try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory + String(format: "/follow-%02d.png", frame)))
+                    }
+                }
+                print("Following after the gesture, offsets: " + samples.map { String(format: "%.1f", $0) }.joined(separator: " "))
+                precondition(abs(samples.last ?? -20) < 1, "Following did not resume after the gesture")
+                precondition(samples.contains { $0 > -19 && $0 < -1 }, "Following jumped instead of animating after the gesture")
+            }
         }
     }
     // Opens a session as a runtime snapshot does and returns its picture with the transcript's frame in it.
