@@ -50,6 +50,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("screenshot", { glyph("camera.viewfinder", box: 500) }),
     ("watcher", pinnedNote),
     ("paperclip", { glyph("paperclip", box: 500) }),
+    ("one-text", { glyph("bubble.left.and.text.bubble.right.fill", box: 500) }),
     ("mac-guard", guardedApple),
 ]
 
