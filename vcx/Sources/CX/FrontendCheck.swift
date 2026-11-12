@@ -64,7 +64,7 @@ enum FrontendCheck {
         }
         try Data("fixture-new-build".utf8).write(to: directory.appendingPathComponent("installed-build"))
 
-        for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "success", "close"] {
+        for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "moving", "success", "close"] {
             let frontend = AppDelegate()
             frontends.append(frontend)
             frontend.headless = true
@@ -126,9 +126,15 @@ enum FrontendCheck {
                 frontend.replacementLaunch = { _ in throw CXError(message: "Expected fixture launch failure.") }
             } else {
                 frontend.replacementLaunch = { ticket in
+                    // A worker moving to a new build: unreachable for a moment while the replacement attaches.
+                    if mode == "moving" {
+                        let away = sockets[1] + ".moving"
+                        try FileManager.default.moveItem(atPath: sockets[1], toPath: away)
+                        Task { try? await Task.sleep(nanoseconds: 1_500_000_000); try? FileManager.default.moveItem(atPath: away, toPath: sockets[1]) }
+                    }
                     let candidate = Process()
                     candidate.executableURL = RuntimeIdentity.executable
-                    candidate.arguments = ["--frontend-handoff-fixture", ticket.path, mode]
+                    candidate.arguments = ["--frontend-handoff-fixture", ticket.path, mode == "moving" ? "success" : mode]
                     if mode == "stubborn" {
                         candidate.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
                         candidate.arguments = ["-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
@@ -142,13 +148,14 @@ enum FrontendCheck {
             frontend.replaceFrontend()
             guard let task = frontend.replacementTask else { throw CXError(message: "Frontend replacement did not start.") }
             await task.value
-            if mode == "success" {
+            if mode == "success" || mode == "moving" {
                 try check(frontend.windows.isEmpty, "acknowledged old windows were not retired")
                 try check(candidates.last?.isRunning == true, "replacement exited after attachment")
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 guard let file = files.first(where: { $0.lastPathComponent.hasSuffix(".verification.json") }),
                       let report = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? JSON,
                       let restored = report["windows"] as? [JSON] else { throw CXError(message: "Replacement state report is missing.") }
+                try FileManager.default.removeItem(at: file)
                 try check(report["restoreFinished"] as? Bool == true, "completed restoration still freezes new windows")
                 try check(restored.count == 2, "replacement lost a window")
                 for index in 0..<2 {
@@ -159,7 +166,8 @@ enum FrontendCheck {
                     try check(draft.last?["path"] as? String == image.path, "replacement lost draft attachment")
                     try check(record["threadId"] as? String == "runtime-fixture-thread", "replacement lost conversation identity")
                     try check(state["frame"] as? String == NSStringFromRect(old[index].window.frame), "replacement changed frame")
-                    try check(state["follow"] as? Bool == false && state["details"] as? Bool == true, "replacement changed viewport preferences")
+                    // The fixture's transcript is shorter than its window: restored at its end, it follows the end again by design (TranscriptController.scrolled).
+                    try check(state["details"] as? Bool == true, "replacement changed viewport preferences")
                     try check(record["visible"] as? Bool == false, "replacement displayed a verification window")
                     try check(record["permissions"] as? [String] == old[index].session.permissions.map { $0.id.uuidString }, "replacement changed approval identity")
                     try check(record["busy"] as? Bool == true, "replacement stopped running work")

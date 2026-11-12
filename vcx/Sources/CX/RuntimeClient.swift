@@ -77,7 +77,17 @@ final class RuntimeClient {
     func connect(resume: String?, prompt: String = "") async throws {
         if let connectTask { return try await connectTask.value }
         let canRecover = recoveryEntry.map(RuntimeRecovery.hasSavedRecord) ?? false
-        let task = Task { try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime || canRecover) }
+        // A worker moving to a new build drops every connection while it re-executes; a replacement window attaching then quit.
+        let task = Task {
+            for attempt in 0..<8 {
+                do { return try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime || canRecover) }
+                catch {
+                    if let reconnectTask { await reconnectTask.value; if attached { return } }
+                    guard resumingRuntime, attempt < 7, !closed, !superseded, !(error is RuntimeResponseError) else { throw error }
+                    try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 200_000_000)
+                }
+            }
+        }
         connectTask = task
         defer { connectTask = nil }
         try await task.value
