@@ -85,6 +85,16 @@ fn summary(chat: &Value) -> Value {
     })
 }
 
+/// A small Instagram or WhatsApp group (4 people or fewer) with no picture of its own shows its members'.
+fn faces(chat: &Value) -> Vec<&str> {
+    let small = ["Instagram", "WhatsApp"].iter().any(|n| chat["network"] == *n) && chat["participants"]["total"].as_u64().is_some_and(|n| n <= 4);
+    if !small || chat["imgURL"].is_string() {
+        return vec![];
+    }
+    let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
+    members.filter_map(|p| p["imgURL"].as_str()).take(2).collect()
+}
+
 /// Profile pictures to try in turn: Instagram, then WhatsApp, then Google Messages, then the rest by recency.
 fn pictures(chats: &[Value]) -> Vec<&str> {
     let rank = |c: &Value| ["Instagram", "WhatsApp", "Google Messages"].iter().position(|n| c["network"] == *n).unwrap_or(3);
@@ -118,6 +128,19 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             }
         }
     }
+    let mut beeper: HashMap<&str, usize> = HashMap::new();
+    for (i, chat) in singles.iter().enumerate() {
+        let Some(union) = chat["mergedInto"].as_str().filter(|_| !splits.contains(&id(chat))) else { continue };
+        match beeper.get(union) {
+            Some(&j) => {
+                let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                parent[a] = b;
+            }
+            None => {
+                beeper.insert(union, i);
+            }
+        }
+    }
     for pair in overrides["merges"].as_array().into_iter().flatten() {
         if let (Some(&i), Some(&j)) = (pair[0].as_str().and_then(|a| index.get(a)), pair[1].as_str().and_then(|b| index.get(b))) {
             let (a, b) = (find(&mut parent, i), find(&mut parent, j));
@@ -147,12 +170,13 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         })
         .collect();
     people.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
+    let hidden: Vec<&str> = overrides["hidden"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
     let mut rooms: Vec<Value> = chats
         .iter()
         .filter(|c| c["type"] != "single")
         .map(|c| {
             let s = summary(c);
-            json!({ "id": s["id"], "name": c["title"], "imgs": c["imgURL"].as_str().into_iter().collect::<Vec<_>>(), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
+            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": c["title"], "imgs": c["imgURL"].as_str().into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
         })
         .collect();
     rooms.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
@@ -221,6 +245,26 @@ mod tests {
         let li = json!({ "id": "li-x", "type": "single", "network": "LinkedIn", "lastActivity": "2026-11-02T00:00:00Z",
             "participants": { "items": [{ "isSelf": true }, { "fullName": "Alex", "username": "ACoAAEKc-97TUQ" }] } });
         assert_eq!(people(&build(&[ig, wa, li], &json!({}))), vec![vec!["ig-alex", "wa-alex"], vec!["li-x"]]);
+    }
+
+    #[test]
+    fn beeper_merged_parts_stay_one_person() {
+        let mut ig = chat("ig-eliot", "Instagram", "eliot.g", None, "2026-11-12T00:00:00Z");
+        let mut sms = chat("sms-eliot", "Google Messages", "06 11 22 33 44", Some("0611223344"), "2026-11-01T00:00:00Z");
+        ig["mergedInto"] = json!("!union");
+        sms["mergedInto"] = json!("!union");
+        assert_eq!(people(&build(&[ig.clone(), sms.clone()], &json!({}))), vec![vec!["ig-eliot", "sms-eliot"]]);
+        assert_eq!(people(&build(&[ig, sms], &json!({ "splits": ["sms-eliot"] }))).len(), 2);
+    }
+
+    #[test]
+    fn small_groups_show_members() {
+        let g = |net: &str, total: u64, img: Option<&str>| json!({ "id": "g", "type": "group", "network": net, "imgURL": img,
+            "participants": { "total": total, "items": [{ "isSelf": true, "imgURL": "mxc://me" }, { "imgURL": "mxc://a" }, { "imgURL": "mxc://b" }, { "imgURL": "mxc://c" }] } });
+        assert_eq!(faces(&g("Instagram", 4, None)), vec!["mxc://a", "mxc://b"]);
+        assert!(faces(&g("Instagram", 5, None)).is_empty());
+        assert!(faces(&g("WhatsApp", 3, Some("mxc://group"))).is_empty());
+        assert!(faces(&g("Discord", 3, None)).is_empty());
     }
 
     #[test]

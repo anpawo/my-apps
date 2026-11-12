@@ -116,7 +116,22 @@ async fn all_chats(b: &Beeper) -> Result<Vec<Value>, String> {
         }
     }
     chats.retain(|c| c["isArchived"] != true);
-    Ok(chats)
+    // A chat Beeper merged itself (Eliot's: SMS, Instagram, WhatsApp, Teams, LinkedIn in one) lists as one chat of
+    // network "Beeper (Matrix)": open it into the chats it merges, which the list hides, so each network shows and
+    // can be replied on. `mergedInto` keeps them one person (group::build).
+    let mut out = Vec::with_capacity(chats.len());
+    for c in chats {
+        let ids: Vec<String> = c["merge"]["chatIDs"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
+        let mut parts = Vec::new();
+        for id in &ids {
+            if let Ok(mut part) = b.call("GET", &format!("/v1/chats/{}", urlencode(id)), None).await {
+                part["mergedInto"] = c["id"].clone();
+                parts.push(part);
+            }
+        }
+        if parts.is_empty() { out.push(c) } else { out.extend(parts) }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
