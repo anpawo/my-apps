@@ -61,8 +61,11 @@ function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) %
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
 function avatar(item) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
-  const [first, ...rest] = item.imgs || [];
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
+  const faces = item.imgs?.length ? [] : item.faces || [];
+  // A small group with no picture: two of its members, one over the other (Instagram's look).
+  if (faces.length > 1) return `<div class="av duo" style="background:${color}">${faces.slice(0, 2).map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
+  const [first, ...rest] = faces.length ? faces : item.imgs || [];
   if (!first) return `<div class="av" style="background:${color}">${esc(initials)}</div>`;
   return `<div class="av" data-initials="${esc(initials)}" data-color="${color}"><img src="${esc(asset(first))}" data-next="${esc(JSON.stringify(rest))}" onerror="nextPicture(this)"></div>`;
 }
@@ -87,7 +90,7 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs
 /* ---------- Sidebar ---------- */
 
 function fill(n, item) {
-  const sig = JSON.stringify([item.name, item.imgs, item.unread, item.last]);
+  const sig = JSON.stringify([item.name, item.imgs, item.faces, item.unread, item.last]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
@@ -153,7 +156,7 @@ function movePill(ms) {
 // Drawing every person (hundreds of rows and pictures) made the app slow: the list holds the 10 newest, those
 // with unread messages and the open one; a search looks through everyone but draws the 30 newest matches.
 function shown(items) {
-  items = items.filter(i => !isFav(i));
+  items = items.filter(i => !isFav(i) && (!i.hidden || i.id === state.cur?.id));
   return items.filter((i, n) => n < 10 || i.unread > 0 || i.id === state.cur?.id);
 }
 // A favorite is kept by its chats' ids, so it stays one after a merge or a split changes the person's id.
@@ -266,7 +269,8 @@ async function select(id) {
   if (!item || item === state.cur) return;
   state.cur = item;
   state.target = null;
-  movePill();
+  // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
+  showLists();
   document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
   drawHeader();
   $('#empty').style.opacity = 0;
@@ -558,7 +562,10 @@ function openMore(anchor) {
   const sep = () => Object.assign(document.createElement('div'), { className: 'sep' });
   const m = menu(anchor, m => {
     m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
-    if (person.kind !== 'person') return;
+    if (person.kind !== 'person') {
+      m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
+      return;
+    }
     m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
     if (person.chats.length > 1) {
       m.append(sep());
@@ -589,11 +596,18 @@ function mergePicker(m, person) {
   setTimeout(() => field.focus(), 0);
 }
 
+function hide(group, on) {
+  editOverrides(ov => {
+    ov.hidden = ov.hidden.filter(id => id !== group.id);
+    if (on) ov.hidden.push(group.id);
+  }, on ? `${group.name} hidden from the list` : `${group.name} back in the list`);
+}
 async function editOverrides(change, message) {
   const old = await invoke('overrides');
   const next = structuredClone(old);
   next.merges ||= [];
   next.splits ||= [];
+  next.hidden ||= [];
   change(next);
   await invoke('set_overrides', { value: next });
   await refreshList();

@@ -33,7 +33,7 @@ const stub = () => {
   };
   for (const c of chats) c.preview = { text: msgs[c.id].at(-1).text, isSender: msgs[c.id].at(-1).isSender };
   const groups = [
-    { id: 'grp-1', name: 'Climbing crew', imgs: [], unread: 3, last: t(20), preview: { text: 'who is in for friday?', senderName: 'Nina' }, chats: [{ id: 'grp-1', network: 'WhatsApp', accountID: 'whatsapp', unread: 3, last: t(20) }] },
+    { id: 'grp-1', name: 'Climbing crew', imgs: [], faces: ['mxc://nina', 'mxc://paul'], unread: 3, last: t(20), preview: { text: 'who is in for friday?', senderName: 'Nina' }, chats: [{ id: 'grp-1', network: 'WhatsApp', accountID: 'whatsapp', unread: 3, last: t(20) }] },
     { id: 'grp-2', name: 'Rust FR', imgs: [], unread: 0, last: t(700), preview: { text: 'new release is out', senderName: 'Bot' }, chats: [{ id: 'grp-2', network: 'Discord', accountID: 'discordgo', unread: 0, last: t(700) }] },
   ];
   let overrides = {};
@@ -56,7 +56,7 @@ const stub = () => {
   const invoke = async (cmd, args) => {
     log.push([cmd, args]);
     await new Promise(r => setTimeout(r, 30));
-    if (cmd === 'people') return structuredClone({ people: people(), groups });
+    if (cmd === 'people') return structuredClone({ people: people(), groups: groups.map(g => ({ ...g, hidden: (overrides.hidden || []).includes(g.id) })) });
     if (cmd === 'overrides') return structuredClone(overrides);
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
@@ -95,6 +95,7 @@ check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 check(!(await page.$('#people .net')), 'no network logos in the list');
+check(await page.$$eval('#people .row[data-id="grp-1"] .av.duo img', is => is.length) === 2, 'a small group shows two members\' pictures');
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
@@ -229,6 +230,19 @@ check((await favIds()).length === 1 && (await page.$$eval('#people .row:not([dat
 await page.reload();
 await page.waitForSelector('#favs .fav');
 check(JSON.stringify(await favIds()) === JSON.stringify([hugo]), 'favorites are kept after a restart');
+
+// Hiding a group: right-click → Hide from the list; ⌘D still finds it.
+await page.click('#people .row:has-text("Rust FR")', { button: 'right' });
+await page.click('.menu .item:has-text("Hide from the list")');
+await page.waitForTimeout(500);
+await page.click('#people .row:has-text("Lea Martin")');
+await page.waitForTimeout(500);
+check(!(await page.$('#people .row[data-id="grp-2"]:not([data-leaving])')), 'a hidden group leaves the list');
+await page.keyboard.press('Meta+d');
+await page.keyboard.type('rust');
+await page.waitForTimeout(300);
+check(await page.$$eval('#results .row:not([data-leaving])', rs => rs.map(r => r.dataset.id).join()) === 'grp-2', 'the search still finds a hidden group');
+await page.keyboard.press('Escape');
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
