@@ -590,6 +590,14 @@ function bubbleHTML(m) {
   return parts.join('');
 }
 
+// A reply shows what it answers above its bubble; only the last messages are loaded, so an older one is just named a reply.
+function quoteHTML(m) {
+  if (!m.linkedMessageID || m.type === 'REACTION') return '';
+  const q = state.msgs.find(x => x.id === m.linkedMessageID);
+  const who = q && (q.isSender ? 'you' : state.cur.kind === 'group' ? q.senderName : state.cur.name);
+  return `<div class="quote"><b>${who ? `Reply to ${esc(who)}` : 'Reply'}</b>${q ? `<span>${esc(plain(q.text) || 'Attachment')}</span>` : ''}</div>`;
+}
+
 function msgNodes(m, prev) {
   const nodes = [];
   const day = new Date(m.timestamp).toDateString();
@@ -606,7 +614,7 @@ function msgNodes(m, prev) {
   row.dataset.net = m.net;
   row.title = new Date(m.timestamp).toLocaleString('fr-FR');
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
-  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${bubbleHTML(m)}</div>`;
+  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
   nodes.push(row);
   return nodes;
 }
@@ -724,11 +732,64 @@ function command(atEnd) {
   autosize();
   return true;
 }
-input.addEventListener('input', () => { command(false) || autosize(); });
+input.addEventListener('input', () => { command(false) || autosize(); emojiSearch(); });
 input.addEventListener('keydown', e => {
+  if (emojiKey(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); command(true) || send(); }
   if (e.key === 'Escape') { input.value = ''; autosize(); setReply(null); }
 });
+
+// ":" then a few letters lists matching emoji by their Unicode name (unicode-emoji-json), name left, emoji right.
+let EMOJI = null;
+const emo = { list: [], at: 0, from: 0 };
+async function emojiSearch() {
+  const pos = input.selectionStart;
+  const q = input.value.slice(0, pos).match(/(?:^|\s):([\p{L}_]{2,})$/u)?.[1]?.toLowerCase();
+  if (!q) return showEmoji([]);
+  EMOJI ||= await fetch('emoji.json').then(r => r.json());
+  const key = q.replace(/_/g, '');
+  // A whole word first (":joy" → 😂 before 🕹️), then a name starting with it, a word starting with it, anywhere.
+  const rank = ([, slug]) => (slug.split('_').includes(q) ? 0 : slug.startsWith(q) ? 1 : new RegExp(`(^|_)${q}`).test(slug) ? 2 : slug.replace(/_/g, '').includes(key) ? 3 : 9);
+  emo.from = pos - q.length - 1;
+  showEmoji(EMOJI.map(e => [e, rank(e)]).filter(([, r]) => r < 9).sort((a, b) => a[1] - b[1]).slice(0, 8).map(([e]) => e));
+}
+function showEmoji(list) {
+  const box = $('#emoji');
+  emo.list = list;
+  emo.at = 0;
+  if (!list.length) {
+    if (!box.hidden && !box._out) box._out = anim(box, { opacity: [1, 0], transform: ['none', 'translateY(4px)'] }, 140).finished.then(() => { box.hidden = !emo.list.length; box._out = null; }).catch(() => {});
+    return;
+  }
+  box.innerHTML = list.map(([e, slug], i) => `<div class="item${i ? '' : ' hot'}" data-i="${i}"><span>${esc(slug.replace(/_/g, ' '))}</span><b>${e}</b></div>`).join('');
+  box.style.bottom = $('footer').offsetHeight + 'px';
+  if (box.hidden || box._out) { box._out = null; box.hidden = false; anim(box, { opacity: [0, 1], transform: ['translateY(4px)', 'none'] }, 160); }
+}
+function pickEmoji(i) {
+  const [e] = emo.list[i];
+  const end = input.selectionStart;
+  input.value = input.value.slice(0, emo.from) + e + input.value.slice(end);
+  input.selectionStart = input.selectionEnd = emo.from + e.length;
+  showEmoji([]);
+  autosize();
+  input.focus();
+}
+function emojiKey(e) {
+  if (!emo.list.length) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    emo.at = (emo.at + (e.key === 'ArrowDown' ? 1 : emo.list.length - 1)) % emo.list.length;
+    $('#emoji').querySelectorAll('.item').forEach((n, i) => n.classList.toggle('hot', i === emo.at));
+  } else if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) pickEmoji(emo.at);
+  else if (e.key === 'Escape') showEmoji([]);
+  else return false;
+  e.preventDefault();
+  return true;
+}
+$('#emoji').addEventListener('pointerdown', e => {
+  const n = e.target.closest('.item');
+  if (n) { e.preventDefault(); pickEmoji(+n.dataset.i); }
+});
+input.addEventListener('blur', () => showEmoji([]));
 
 function setReply(m) {
   state.reply = m || null;
@@ -754,7 +815,7 @@ async function send() {
   setReply(null);
   input.value = '';
   autosize();
-  const m = { id: 'pending-' + Date.now(), text, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' };
+  const m = { id: 'pending-' + Date.now(), text, linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' };
   const [row] = msgNodes(m, state.msgs[state.msgs.length - 1]).slice(-1);
   row.classList.add('pending');
   row._text = text;

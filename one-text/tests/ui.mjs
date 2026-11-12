@@ -141,6 +141,17 @@ await page.keyboard.press('Meta+k');
 await page.waitForTimeout(300);
 await page.evaluate(() => refreshList());
 check(!(await page.$('#people .row[data-id="ig-lea"] .badge')), '⌘K clears the badge, and it stays cleared after a refresh');
+// ":" and a few letters list emoji by name, the emoji on the right; Enter puts it in place of what was typed.
+await page.click('#input');
+await page.keyboard.type('so :joy');
+await page.waitForSelector('#emoji:not([hidden]) .item');
+const emoRows = await page.$$eval('#emoji .item', is => is.map(i => [i.querySelector('span').textContent, i.querySelector('b').textContent, i.querySelector('b').getBoundingClientRect().left > i.querySelector('span').getBoundingClientRect().right]));
+await page.waitForTimeout(300);
+await page.screenshot({ path: join(out, '1c-emoji.png'), clip: { x: 300, y: 500, width: 400, height: 170 } });
+await page.keyboard.press('Enter');
+const emoText = await page.inputValue('#input');
+check(emoRows[0]?.[0] === 'face with tears of joy' && emoRows[0][1] === '😂' && emoRows.every(r => r[2]) && emoText === 'so 😂' && !(await page.$('.msg.pending')), `":joy" offers 😂 by name, emoji on the right, Enter inserts it without sending (${JSON.stringify([emoRows.slice(0, 3), emoText])})`);
+await page.fill('#input', '');
 // ⌘R over a message replies to it: a bar names it, and the send carries its id to its chat.
 await page.hover('#thread .msg:not(.me):has-text("dinner tonight")');
 await page.keyboard.press('Meta+r');
@@ -150,6 +161,10 @@ await page.keyboard.type('8pm');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const replied = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path.split('/')[3], a.body.replyToMessageID]).at(-1));
+const quote = await page.$eval('#thread .msg.me:last-child .quote', q => q.textContent);
+await page.evaluate(() => { const b = document.querySelector('#msgs'); b.scrollTop = b.scrollHeight; });
+await page.screenshot({ path: join(out, '1b-reply.png'), clip: { x: 600, y: 440, width: 500, height: 200 } });
+check(quote === 'Reply to Lea Martindinner tonight still on?', `a reply shows what it answers above it (${quote})`);
 check(!bar[0] && bar[1].includes('dinner tonight') && bar[2] === 'input' && replied[0] === 'wa-lea' && !!replied[1] && (await page.$eval('#reply', r => r.hidden)), `⌘R replies to the hovered message on its app (${JSON.stringify([bar, replied])})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
