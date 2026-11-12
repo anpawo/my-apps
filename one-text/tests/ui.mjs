@@ -305,6 +305,28 @@ const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 await page.keyboard.press('Escape');
 
+// Tabs over the favorites: "+" names one, right-click → Add to it, All shows every favorite, kept after a restart.
+await page.click('#tabs .add');
+await page.keyboard.type('Family');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(400);
+const tabNames = () => page.$$eval('#tabs .tab[data-name]', ts => ts.map(t => t.textContent + (t.classList.contains('on') ? '*' : '')));
+check(JSON.stringify(await tabNames()) === '["All","Family*"]' && !!(await page.$('#favs .favs-empty')), `a new tab is selected and empty (${await tabNames()})`);
+await page.click('#people .row:has-text("Lea Martin")', { button: 'right' });
+await page.click('.menu .item:has-text("Add to Family")');
+await page.waitForTimeout(400);
+const shownFavs = () => page.$$eval('#favs .fav', fs => fs.map(f => f.title));
+check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', `Add to Family puts her in the tab (${await shownFavs()})`);
+await page.screenshot({ path: join(out, '7-tabs.png') });
+await page.keyboard.press('Meta+1');
+await page.waitForTimeout(400);
+check((await shownFavs()).length > 1 && (await shownFavs()).includes('Lea Martin'), `Cmd+1 shows every favorite (${await shownFavs()})`);
+await page.reload();
+await page.waitForSelector('#tabs .tab');
+await page.click('#tabs .tab[data-name="Family"]');
+await page.waitForTimeout(400);
+check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', 'tabs are kept after a restart');
+
 // The list holds as many people as fit (10 at most), and a wheel turn at its end shows twice as many.
 const before = await page.evaluate(() => {
   state.all = Array.from({ length: 40 }, (_, i) => ({ id: 'q' + i, name: 'Person ' + i, imgs: [], unread: 0, kind: 'person', last: new Date(Date.now() - i * 6e4).toISOString(), chats: [{ id: 'q' + i, network: 'WhatsApp', accountID: 'whatsapp' }] }));
