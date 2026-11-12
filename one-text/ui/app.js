@@ -833,6 +833,23 @@ function react(m, key) {
   }
   redrawMsg(m);
 }
+// The hover bar shows once the pointer reaches the right fifth of a row, stays until it leaves the row,
+// and sits level with the middle of the bubbles (the name above and the reactions below left out).
+let hotRow = null;
+const unhot = () => { hotRow?.classList.remove('hot'); hotRow = null; };
+$('#thread').addEventListener('pointermove', e => {
+  const row = e.target.closest('.msg');
+  if (row === hotRow) return;
+  unhot();
+  const q = row?.querySelector('.quick'), r = row?.getBoundingClientRect();
+  if (!q || e.clientX < r.right - r.width * .2) return;
+  const bs = row.querySelectorAll('.bubble'), top = bs[0].getBoundingClientRect().top, bottom = bs[bs.length - 1].getBoundingClientRect().bottom;
+  q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - r.top - q.offsetHeight / 2)}px`;
+  row.classList.add('hot');
+  hotRow = row;
+});
+$('#thread').addEventListener('pointerleave', unhot);
+$('#msgs').addEventListener('scroll', unhot, { passive: true });
 $('#thread').addEventListener('click', e => {
   const b = e.target.closest('.quick button, .reacts button');
   const m = b && state.msgs.find(x => x.id === b.closest('.msg').dataset.id);

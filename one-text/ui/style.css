@@ -209,8 +209,8 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .reacts button.me { background: rgb(10 132 255 / .35); }
 .reacts button i { font-style: normal; font-size: 11px; color: var(--muted); }
 .reacts button img { width: 16px; height: 16px; }
-.msg .quick { align-self: center; display: flex; gap: 2px; padding: 3px; border-radius: 16px; background: #1c1c1e; opacity: 0; pointer-events: none; transform: scale(.94); transition: opacity .18s ease-out, transform .18s ease-out; }
-.msg:hover .quick { opacity: 1; pointer-events: auto; transform: none; }
+.msg .quick { align-self: flex-start; display: flex; gap: 2px; padding: 3px; border-radius: 16px; background: #1c1c1e; opacity: 0; pointer-events: none; transform: scale(.94); transition: opacity .18s ease-out, transform .18s ease-out; }
+.msg.hot .quick { opacity: 1; pointer-events: auto; transform: none; }
 .msg .quick button { width: 26px; height: 26px; border-radius: 50%; font-size: 15px; transition: transform .15s ease-out, background .15s; }
 .msg .quick button:hover { background: var(--tint); transform: scale(1.18); }
 #picker { position: fixed; width: 220px; padding: 8px; z-index: 20; }

@@ -549,16 +549,21 @@ await page.waitForTimeout(100);
 const seenNow = await page.$$eval('#thread .receipt', rs => rs.map(r => r.textContent));
 check(JSON.stringify(sentOnly) === '["Sent","l2"]' && seenNow.length === 1 && /^Seen \d\d:\d\d$/.test(seenNow[0]), `my last message says Sent, then Seen at its time (${sentOnly} / ${seenNow})`);
 
-// Hovering a message shows my five most used reactions beside it; a click reacts, a second click takes it back.
+// The pointer in a row's right fifth shows my five most used reactions beside it, level with the bubble; a click reacts, a second click takes it back.
+const rightFifth = async sel => { const [x, y] = await page.$eval(sel, r => { const b = r.getBoundingClientRect(); return [b.right - 10, b.top + b.height / 2]; }); await page.mouse.move(x, y); };
 await page.hover('#thread .msg[data-id="h1"] .bubble');
-const quick = await page.$eval('#thread .msg[data-id="h1"]', m => { const q = m.querySelector('.quick'), b = m.querySelector('.bubble'); return [q.querySelectorAll('button').length, q.getBoundingClientRect().left >= b.getBoundingClientRect().right]; });
 await page.waitForTimeout(250);
+const offBubble = await page.$eval('#thread .msg[data-id="h1"] .quick', q => getComputedStyle(q).opacity);
+await rightFifth('#thread .msg[data-id="h1"]');
+await page.waitForTimeout(250);
+const quick = await page.$eval('#thread .msg[data-id="h1"]', m => { const q = m.querySelector('.quick').getBoundingClientRect(), b = m.querySelector('.bubble').getBoundingClientRect(); return [m.querySelectorAll('.quick button[data-e]').length, q.left >= b.right, Math.abs((q.top + q.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5]; });
+check(offBubble === '0', `the hover bar stays hidden while the pointer is on the left of the row (opacity ${offBubble})`);
 await page.click('#thread .msg[data-id="h1"] .quick button[data-e="👍"]');
 const pill = await page.$eval('#thread .msg[data-id="h1"] .reacts button', b => [b.textContent, b.classList.contains('me')]);
 const posted = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.includes('/messages/h1/reactions')).map(([, a]) => a.method + ' ' + (a.body?.reactionKey || a.path.split('/').pop())));
 await page.click('#thread .msg[data-id="h1"] .reacts button');
 const undone = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="h1"] .reacts button').length, __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE').length]);
-check(JSON.stringify(quick) === '[5,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
+check(JSON.stringify(quick) === '[5,true,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
 
 // Holding ⌘ over a message opens every emoji, 5 to a row, searchable by name.
 await page.hover('#thread .msg[data-id="h1"] .bubble');
