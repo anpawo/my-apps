@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>one-text records the voice messages you send.</string>
+	<string>One Text records the voice messages you send.</string>
 </dict>
 </plist>

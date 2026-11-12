@@ -25,7 +25,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
 - A reaction to one of your messages does not count as unread, and a muted chat shows no count.
 - A badge stays until you answer (here or on the app, a reaction included) or press ⌘K for "seen, nothing to say" (over a row, or on the open one); both send the read receipt. Opening a conversation clears nothing and sends none.
-- It opens at login, and ⌘Q or the close button only hide it, unless Allow Quitting is ticked in the one-text menu.
+- It opens at login, and ⌘Q or the close button only hide it, unless Allow Quitting is ticked in the One Text menu.
 - Drag the sidebar's right edge to widen or narrow it; the width is kept.
 - ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close. `/discord`, `/whatsapp` (or `/dc`, `/wh`…) before a name keeps only those on that app.
 

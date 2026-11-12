@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "one-text",
+  "productName": "One Text",
   "version": "0.1.0",
   "identifier": "com.mr.one-text",
   "build": { "frontendDist": "../ui" },
@@ -9,7 +9,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "one-text",
+        "title": "One Text",
         "width": 1100,
         "height": 720,
         "minWidth": 720,

@@ -410,7 +410,7 @@ fn main() {
                 first.remove_at(first.items()?.len() - 1)?;
                 let allow = CheckMenuItem::with_id(app, "allow-quit", "Allow Quitting", true, ALLOW_QUIT.load(Ordering::Relaxed), None::<&str>)?;
                 first.append(&allow)?;
-                first.append(&MenuItem::with_id(app, "quit", "Quit one-text", true, Some("CmdOrCtrl+Q"))?)?;
+                first.append(&MenuItem::with_id(app, "quit", "Quit One Text", true, Some("CmdOrCtrl+Q"))?)?;
                 app.on_menu_event(move |app, e| match e.id().as_ref() {
                     "allow-quit" => {
                         let on = allow.is_checked().unwrap_or(false);
