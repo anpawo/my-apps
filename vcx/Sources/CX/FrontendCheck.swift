@@ -63,6 +63,25 @@ enum FrontendCheck {
             seed.close(); session.close()
         }
         try Data("fixture-new-build".utf8).write(to: directory.appendingPathComponent("installed-build"))
+        do {
+            // An old window that reconnected during a handover took its session back from the replacement, which closed it:
+            // held, a dropped window stays detached until the rollback reclaims it, even with its worker away for a moment.
+            let session = Session(cwd: directory.appendingPathComponent("session-0").path, stateDirectory: directory.appendingPathComponent("session-0/held-state"))
+            let held = RuntimeClient(session: session, cwd: directory.appendingPathComponent("session-0").path, resumeRuntimeID: ids[0], socketPath: sockets[0])
+            session.runtimeClient = held
+            try await held.connect(resume: nil)
+            held.holdReconnect = true
+            held.dropConnectionForCheck()
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            try check(!held.isAttached, "a window held during a handover reconnected on its own")
+            held.holdReconnect = false
+            let away = sockets[0] + ".moving"
+            try FileManager.default.moveItem(atPath: sockets[0], toPath: away)
+            Task { try? await Task.sleep(nanoseconds: 800_000_000); try? FileManager.default.moveItem(atPath: away, toPath: sockets[0]) }
+            try await held.reclaim()
+            try check(held.isAttached, "a rollback reclaim gave up while the worker moved")
+            held.close(); session.close()
+        }
 
         for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "moving", "success", "close"] {
             let frontend = AppDelegate()

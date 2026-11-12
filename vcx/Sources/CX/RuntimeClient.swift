@@ -60,6 +60,8 @@ final class RuntimeClient {
     private var windowState: JSON = [:]
     private var coldRecoveryInProgress = false
     private var swapping = false
+    // Set on the old windows during a frontend handover: their reconnect would take the lease back from the replacement.
+    var holdReconnect = false { didSet { if holdReconnect { reconnectTask?.cancel() } } }
 
     init(session: Session, cwd: String, resumeRuntimeID: String? = nil, socketPath: String? = nil, recovery: RuntimeRecovery.Entry? = nil) {
         self.session = session
@@ -97,14 +99,25 @@ final class RuntimeClient {
         guard !closed else { throw CXError(message: "This frontend is closed.") }
         superseded = false
         channel?.close(); channel = nil
-        try await attach(resume: nil, prompt: "", launch: false)
+        // A rollback that met a worker moving builds left the window detached for good.
+        for attempt in 0..<8 {
+            do { return try await attach(resume: nil, prompt: "", launch: false) }
+            catch {
+                if let reconnectTask { await reconnectTask.value; if attached { return } }
+                guard attempt < 7, !closed, !superseded, !(error is RuntimeResponseError) else { throw error }
+                try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 200_000_000)
+            }
+        }
     }
 
     private func attach(resume: String?, prompt: String, launch: Bool) async throws {
         guard !closed, !superseded else { throw CXError(message: "This window no longer owns the session.") }
         let connection = try await openChannel(launch: launch)
         channel = connection
-        connection.onMessage = { [weak self] in self?.receive($0) }
+        connection.onMessage = { [weak self, weak connection] in
+            guard let self, self.channel === connection else { return }
+            self.receive($0)
+        }
         connection.onClose = { [weak self, weak connection] in
             guard let self, self.channel === connection else { return }
             self.disconnected()
@@ -114,6 +127,7 @@ final class RuntimeClient {
         bufferedUpdates.removeAll()
         do {
             let hello = try await request("hello", ["protocol": 1], timeout: 10)
+            try owns(connection)
             guard hello["protocol"] as? Int == 1 else { throw CXError(message: "The frontend and runtime use incompatible protocols.") }
             workerInstanceID = RuntimeRecovery.workerInstance(hello)
             var params: JSON = ["sessionId": sessionID, "cwd": initialCwd, "prompt": prompt]
@@ -126,6 +140,7 @@ final class RuntimeClient {
                 coldRecoveryInProgress = true
             }
             let result = try await request("attach", params)
+            try owns(connection)
             guard let nextLease = result["lease"] as? String, let state = result["state"] as? JSON, let nextRevision = result["revision"] as? Int else {
                 throw CXError(message: "The runtime returned an invalid session snapshot.")
             }
@@ -143,14 +158,24 @@ final class RuntimeClient {
             for update in updates { receive(update) }
             try persistRecovery()
         } catch {
-            attaching = false
-            bufferedUpdates.removeAll()
-            attached = false
-            channel = nil
+            // A reconnect that already replaced this connection owns the shared state now.
+            if channel === connection || channel == nil {
+                attaching = false
+                bufferedUpdates.removeAll()
+                attached = false
+                channel = nil
+                failPending(error)
+            }
             connection.close()
-            failPending(error)
             throw error
         }
+    }
+
+    // Checks drop a connection the way a worker moving builds does.
+    func dropConnectionForCheck() { channel?.close() }
+
+    private func owns(_ connection: RuntimeChannel) throws {
+        guard channel === connection, !closed, !superseded, !holdReconnect else { throw CXError(message: "A newer connection replaced this attach.") }
     }
 
     private func openChannel(launch: Bool) async throws -> RuntimeChannel {
@@ -333,7 +358,7 @@ final class RuntimeClient {
         channel = nil
         attached = false
         failPending(CXError(message: "Connection lost. Accepted actions continue in the runtime and will not be replayed."))
-        guard !closed, !superseded, reconnectTask == nil else { return }
+        guard !closed, !superseded, !holdReconnect, reconnectTask == nil else { return }
         if !swapping {
             session?.ready = false
             session?.status = "Reconnecting to the running session…"
@@ -342,9 +367,12 @@ final class RuntimeClient {
             guard let self else { return }
             defer { reconnectTask = nil }
             for attempt in 0..<5 {
-                if Task.isCancelled || closed || superseded { return }
+                if Task.isCancelled || closed || superseded || holdReconnect { return }
                 do { try await attach(resume: nil, prompt: "", launch: false); return }
-                catch { if attempt == 4 { session?.status = error.localizedDescription; return } }
+                catch {
+                    // A worker moving builds keeps the window ready; given up, it is not, or it showed Ready while every action failed.
+                    if attempt == 4 { swapping = false; session?.ready = false; session?.status = error.localizedDescription; return }
+                }
                 try? await Task.sleep(nanoseconds: UInt64(attempt + 1) * 200_000_000)
             }
         }

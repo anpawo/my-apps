@@ -131,11 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 if !headless { for entry in windows.reversed() { entry.window.makeKeyAndOrderFront(nil) } }
                 Task {
-                    for _ in 0..<100 {
+                    // The old frontend holds the lock until every window here attached, which it allows 15 s: 10 s here cut a slow handover short.
+                    for _ in 0..<250 {
                         if let lock = try? RuntimeUpdate.lockFrontend() { frontendLock = lock; break }
                         try? await Task.sleep(nanoseconds: 100_000_000)
                     }
-                    guard frontendLock != nil else { exit(1) }
+                    guard frontendLock != nil else { swapLog("VCX frontend replacement: the previous frontend kept its lock for 25 s"); exit(1) }
                     drainOpenRequests()
                 }
             } catch { NSLog("VCX frontend restore: %@", error.localizedDescription); NSApp.terminate(nil) }
@@ -189,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             do { try await client.connect(resume: options.resume, prompt: options.prompt) }
             catch {
-                if restoring != nil { fputs("Frontend replacement could not attach.\n", stderr); exit(1) }
+                if restoring != nil { swapLog("VCX frontend replacement could not attach: %@", error.localizedDescription); exit(1) }
                 session.notice(error.localizedDescription); session.status = error.localizedDescription
             }
             window.title = "\(session.folder) · Vibe Code X"
@@ -206,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreFile + ".verification.json")
                     }
                     do { try RuntimeUpdate.acknowledge(restoreFile) }
-                    catch { exit(1) }
+                    catch { swapLog("VCX frontend replacement could not acknowledge: %@", error.localizedDescription); exit(1) }
                     for entry in windows { entry.session.frontendReplacing = false }
                 }
             }
@@ -262,6 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 var entries: [JSON] = []
                 // Front to back, so the replacement can put the window he was on back in front.
                 let order = NSApp.orderedWindows
+                for entry in windows { entry.session.runtimeClient?.holdReconnect = true }
                 for entry in windows.sorted(by: { (order.firstIndex(of: $0.window) ?? .max) < (order.firstIndex(of: $1.window) ?? .max) }) {
                     entry.session.frontendReplacing = true
                     guard let runtime = entry.session.runtimeClient else { continue }
@@ -286,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     for _ in 0..<30 where !replacement.isTerminated() { try? await Task.sleep(nanoseconds: 100_000_000) }
                     if !replacement.isTerminated() { kill(replacement.pid, SIGKILL) }
                 }
+                for entry in windows { entry.session.runtimeClient?.holdReconnect = false }
                 for entry in windows where entry.session.runtimeClient?.isAttached == false {
                     try? await entry.session.runtimeClient?.reclaim()
                 }
@@ -311,6 +314,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             replacementDeadline = timeout
             DispatchQueue.main.asyncAfter(deadline: .now() + replacementTimeout, execute: timeout)
+            // A replacement that quit fails the handover now, not at the timeout.
+            Task { [weak self] in
+                while let self, self.replacementWaiter != nil {
+                    if self.replacement?.isTerminated() == true, !self.replacementAcknowledged {
+                        self.replacementDeadline?.cancel(); self.replacementDeadline = nil
+                        self.replacementWaiter?.resume(throwing: CXError(message: "The replacement frontend quit before attaching (log: subsystem com.mr.vcx)."))
+                        self.replacementWaiter = nil
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+            }
             completeReplacement()
         }
     }
