@@ -7,8 +7,8 @@ One conversation per person, whatever app they wrote from: WhatsApp, Instagram, 
 It reads and sends through the local [Beeper](https://www.beeper.com) Server API (its address and token come from `~/.beeper/targets/background.json` at launch; nothing is stored in the app), and starts Beeper Server when it is not answering.
 
 - One list, people and groups together, newest first: the 10 newest, plus anyone with unread messages.
-- A group can be hidden from the list (right-click, Hide from the list); ⌘D still finds it. A small Instagram or WhatsApp group with no picture shows two of its members'.
-- Favorites sit above it as pictures only: right-click a person (or ⌘F over them) to add or remove one.
+- A group can be hidden from the list (right-click, Hide from the list); ⌘D still finds it. A small Instagram or WhatsApp group with no picture shows its members' pictures side by side.
+- Favorites sit above it as pictures only: right-click a person (or ⌘F over them, or on the highlighted row of the ⌘D search) to add or remove one. A pinned group keeps its row, under those pictures.
 - Chats with the same name (word order and accents aside), the same phone number, or an Instagram handle like `first.last` matching a full name are one person, and so are the chats inside one Beeper merged itself; the ⋯ menu merges or splits them by hand.
 - The logos at the top right are the apps that person is on; the highlighted one is where your reply goes (by default the app they last wrote from). Click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm` or `/mx`.
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).

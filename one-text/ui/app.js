@@ -63,8 +63,8 @@ function avatar(item) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
   const faces = item.imgs?.length ? [] : item.faces || [];
-  // A small group with no picture: two of its members, one over the other (Instagram's look).
-  if (faces.length > 1) return `<div class="av duo" style="background:${color}">${faces.slice(0, 2).map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
+  // A small group with no picture: its members' pictures side by side.
+  if (faces.length > 1) return `<div class="av faces">${faces.map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
   const [first, ...rest] = faces.length ? faces : item.imgs || [];
   if (!first) return `<div class="av" style="background:${color}">${esc(initials)}</div>`;
   return `<div class="av" data-initials="${esc(initials)}" data-color="${color}"><img src="${esc(asset(first))}" data-next="${esc(JSON.stringify(rest))}" onerror="nextPicture(this)"></div>`;
@@ -140,8 +140,8 @@ function renderList(box, items) {
 // The selection pill (tab-pill template, vertical): its front edge leads, so for a moment it covers both rows.
 function movePill(ms) {
   const pill = $('.sel'), inner = $('.inner');
-  const n = state.cur && document.querySelector(`#people .row[data-id="${CSS.escape(state.cur.id)}"]`);
-  document.querySelectorAll('#people .row.on').forEach(r => r !== n && r.classList.remove('on'));
+  const n = state.cur && document.querySelector(`#list .row[data-id="${CSS.escape(state.cur.id)}"]`);
+  document.querySelectorAll('#list .row.on').forEach(r => r !== n && r.classList.remove('on'));
   const visible = n && !n.hidden && !n.dataset.leaving;
   if (!visible) { pill.style.opacity = 0; return; }
   n.classList.add('on');
@@ -170,7 +170,11 @@ function toggleFav(item) {
 function showLists() {
   const all = state.all || [];
   renderList($('#people'), shown(all));
-  drawFavs(all.filter(isFav));
+  // Pinned groups keep their row (name and members), under the favorites' pictures.
+  const favs = all.filter(isFav);
+  drawFavs(favs.filter(i => i.kind !== 'group'));
+  renderList($('#pinned'), favs.filter(i => i.kind === 'group'));
+  $('#pinned').classList.toggle('some', favs.some(i => i.kind === 'group'));
   movePill();
 }
 // Favorites: their pictures in a strip above the list, newest first; a dot when unread.
@@ -207,7 +211,7 @@ function drawResults() {
   const all = state.all || [];
   const items = (q ? all.filter(i => (i.name || '').toLowerCase().includes(q)) : all).slice(0, q ? 30 : 8);
   renderList($('#results'), items);
-  $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
+  $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
 }
 search.addEventListener('input', drawResults);
 search.addEventListener('keydown', e => {
@@ -220,6 +224,11 @@ search.addEventListener('keydown', e => {
     to?.scrollIntoView({ block: 'nearest' });
   } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); closePalette(); select(rows[at].dataset.id); }
   else if (e.key === 'Escape') closePalette();
+  else if (e.metaKey && e.key.toLowerCase() === 'f' && rows[at]) {
+    e.preventDefault(); e.stopPropagation();
+    toggleFav(state.byId.get(rows[at].dataset.id));
+    rows[at].classList.toggle('faved', isFav(state.byId.get(rows[at].dataset.id)));
+  }
 });
 palette.addEventListener('pointerdown', e => { if (e.target === palette) closePalette(); });
 
@@ -259,7 +268,7 @@ addEventListener('click', e => {
 addEventListener('keydown', e => {
   if (e.metaKey && e.key.toLowerCase() === 'd') { e.preventDefault(); openPalette(); }
   // ⌘F over a person or a favorite adds or removes the favorite.
-  const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#people .row:hover, .fav:hover');
+  const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
 });
 /* ---------- Conversation ---------- */
@@ -424,7 +433,7 @@ function markRead(item) {
   localStorage.seen = JSON.stringify(seen);
   item.unread = 0;
   document.querySelector(`.fav[data-id="${CSS.escape(item.id)}"]`)?.classList.remove('unread');
-  const n = document.querySelector(`#people .row[data-id="${CSS.escape(item.id)}"]`);
+  const n = document.querySelector(`#list .row[data-id="${CSS.escape(item.id)}"]`);
   const badge = n?.querySelector('.badge');
   if (badge) anim(badge, { scale: [1, 0.4], opacity: [1, 0] }, 180).finished.then(() => fill(n, item)).catch(() => {});
 }

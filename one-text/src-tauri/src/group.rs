@@ -92,7 +92,7 @@ fn faces(chat: &Value) -> Vec<&str> {
         return vec![];
     }
     let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
-    members.filter_map(|p| p["imgURL"].as_str()).take(2).collect()
+    members.filter_map(|p| p["imgURL"].as_str()).take(3).collect()
 }
 
 /// Profile pictures to try in turn: Instagram, then WhatsApp, then Google Messages, then the rest by recency.
@@ -263,7 +263,7 @@ mod tests {
     fn small_groups_show_members() {
         let g = |net: &str, total: u64, img: Option<&str>| json!({ "id": "g", "type": "group", "network": net, "imgURL": img,
             "participants": { "total": total, "items": [{ "isSelf": true, "imgURL": "mxc://me" }, { "imgURL": "mxc://a" }, { "imgURL": "mxc://b" }, { "imgURL": "mxc://c" }] } });
-        assert_eq!(faces(&g("Instagram", 4, None)), vec!["mxc://a", "mxc://b"]);
+        assert_eq!(faces(&g("Instagram", 4, None)), vec!["mxc://a", "mxc://b", "mxc://c"]);
         assert!(faces(&g("Instagram", 5, None)).is_empty());
         assert!(faces(&g("WhatsApp", 3, Some("mxc://group"))).is_empty());
         assert!(faces(&g("Discord", 3, None)).is_empty());

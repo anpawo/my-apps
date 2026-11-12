@@ -95,7 +95,8 @@ check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 check(!(await page.$('#people .net')), 'no network logos in the list');
-check(await page.$$eval('#people .row[data-id="grp-1"] .av.duo img', is => is.length) === 2, 'a small group shows two members\' pictures');
+const faces = await page.$$eval('#people .row[data-id="grp-1"] .av.faces img', is => is.map(i => i.getBoundingClientRect()).map(r => [r.left, r.right]));
+check(faces.length === 2 && faces[0][1] <= faces[1][0], `a small group shows its members' pictures side by side (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
@@ -250,6 +251,25 @@ await page.evaluate(d => setPicture(state.byId.get(state.all.find(i => i.name ==
 await page.waitForTimeout(400);
 check(await page.$eval('.fav img, #people .row:has-text("Hugo R") img', i => i.src.startsWith('data:image/svg')), 'a picture set by hand shows instead of the initials');
 check(await page.evaluate(() => Object.keys(state.pictures || {}).length) === 1, 'the picture is kept in the overrides');
+
+// Pinning a group: it keeps its row, under the favorites' pictures and above the list.
+await page.click('#people .row[data-id="grp-1"]', { button: 'right' });
+await page.click('.menu .item:has-text("Add to favorites")');
+await page.waitForTimeout(500);
+const pinned = await page.evaluate(() => {
+  const row = document.querySelector('#pinned .row[data-id="grp-1"]'), favs = document.querySelector('#favs'), list = document.querySelector('#people');
+  return row && [!!row.querySelector('.name'), !document.querySelector('#favs .fav[data-id="grp-1"]'), favs.getBoundingClientRect().bottom <= row.getBoundingClientRect().top, row.getBoundingClientRect().bottom <= list.getBoundingClientRect().top];
+});
+check(JSON.stringify(pinned) === '[true,true,true,true]', `a pinned group keeps its row between the favorites and the list (${pinned})`);
+await page.screenshot({ path: join(out, '6-pinned.png') });
+
+// ⌘F in the ⌘D search favorites the highlighted row, and the search stays open.
+await page.keyboard.press('Meta+d');
+await page.fill('#search', 'sarah');
+await page.keyboard.press('Meta+f');
+await page.waitForTimeout(400);
+check(await page.evaluate(() => !document.querySelector('#palette').hidden && !!document.querySelector('#results .row.hot.faved') && !!document.querySelector('#favs .fav[title="Sarah K"]')), 'Cmd+F in the search adds the highlighted person to favorites');
+await page.keyboard.press('Escape');
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
