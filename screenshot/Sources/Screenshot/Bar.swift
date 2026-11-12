@@ -13,6 +13,7 @@ final class Bar: NSPanel, NSMenuDelegate {
     let go = NSButton()
     private let options = NSButton()
     let hint = Hint()
+    let strip = Strip()
 
     init(session: Session, on screen: NSScreen) {
         self.session = session
@@ -47,7 +48,7 @@ final class Bar: NSPanel, NSMenuDelegate {
             let b = ModeButton(state: state, target: self, action: #selector(pick(_:)))
             b.onHover = { [weak self, weak b] over in
                 guard let self, let b else { return }
-                if over { self.hint.show(b.toolTip!, above: b, in: self) } else { self.hint.hide() }
+                if over && !self.strip.shown { self.hint.show(b.toolTip!, above: b, in: self) } else { self.hint.hide() }
             }
             let wide = state.kind == .video
             if wide && buttons.last?.mode.kind == .photo {
@@ -97,9 +98,15 @@ final class Bar: NSPanel, NSMenuDelegate {
     }
 
     override var canBecomeKey: Bool { false }
-    override func orderOut(_ sender: Any?) { hint.hide(); super.orderOut(sender) }
+    override func orderOut(_ sender: Any?) { hint.hide(); strip.hide(); super.orderOut(sender) }
     override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
+
+    /// ⌘ down: the settings strip; ⌘ up: gone.
+    func showSettings(_ on: Bool) {
+        if on { hint.hide() }
+        strip.show(on, above: self)
+    }
 
     func refresh() {
         let s = session.state
@@ -173,12 +180,7 @@ final class Bar: NSPanel, NSMenuDelegate {
             m.indentationLevel = 1
         }
         header("Save to")
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        // A home that renamed Desktop and Downloads (desk, dwl) is offered those, not folders macOS would bring back.
-        var known = [("Desktop", "desk"), ("Downloads", "dwl"), ("Documents", "Documents")].map { name, short in
-            let own = home.appendingPathComponent(short)
-            return FileManager.default.fileExists(atPath: own.path) ? (short, own) : (name, home.appendingPathComponent(name))
-        }
+        var known = Settings.standardFolders
         for f in Settings.folders where !known.contains(where: { $0.1.path == f.path }) { known.append((f.lastPathComponent, f)) }
         for (name, dir) in known {
             item(name, #selector(toggleFolder(_:)), on: Settings.folders.contains { $0.path == dir.path }, object: dir)
@@ -198,12 +200,7 @@ final class Bar: NSPanel, NSMenuDelegate {
         return menu
     }
 
-    @objc private func toggleFolder(_ item: NSMenuItem) {
-        let dir = item.representedObject as! URL
-        var folders = Settings.folders
-        if let i = folders.firstIndex(where: { $0.path == dir.path }) { folders.remove(at: i) } else { folders.append(dir) }
-        Settings.folders = folders
-    }
+    @objc private func toggleFolder(_ item: NSMenuItem) { Settings.toggle(folder: item.representedObject as! URL) }
     @objc private func toggleThumbnail() { Settings.thumbnail.toggle() }
     @objc private func toggleCopy() { Settings.copies.toggle() }
 
@@ -311,6 +308,151 @@ final class Hint: NSPanel {
     }
 
     func hide() { orderOut(nil) }
+}
+
+/// ⌘ held: every setting in a strip above the bar, each with its letter; ⌘ + that letter flips it.
+final class Strip: NSPanel {
+    struct Item {
+        let key: String, title: String, widest: String, on: Bool
+        let flip: () -> Void
+    }
+
+    static let height: CGFloat = 42
+    private(set) var shown = false
+
+    static func items() -> [Item] {
+        var out = zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
+            Item(key: key, title: f.0, widest: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
+        }
+        let t = Settings.timer
+        out += [
+            Item(key: "C", title: "Clipboard", widest: "", on: Settings.copies) { Settings.copies.toggle() },
+            // None → 5 s → 10 s → None, like the menu's three choices.
+            Item(key: "T", title: t == 0 ? "No Timer" : "\(t)s Timer", widest: "10s Timer", on: t > 0) {
+                Settings.timer = [0: 5, 5: 10][Settings.timer] ?? 0
+            },
+            Item(key: "F", title: "Thumbnail", widest: "", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
+            Item(key: "P", title: "Pointer", widest: "", on: Settings.cursor) { Settings.cursor.toggle() },
+            Item(key: "M", title: "Microphone", widest: "", on: Settings.microphone) { Settings.microphone.toggle() },
+        ]
+        return out
+    }
+
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        hidesOnDeactivate = false
+        animationBehavior = .none
+        isReleasedWhenClosed = false
+        sharingType = .none
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        alphaValue = 0
+        contentView = Ground()
+        reload()
+    }
+
+    override var canBecomeKey: Bool { false }
+
+    func reload() {
+        let back = contentView!
+        back.subviews.forEach { $0.removeFromSuperview() }
+        var x: CGFloat = 6
+        for item in Strip.items() {
+            let v = StripKey(item) { [weak self] in item.flip(); self?.reload() }
+            v.frame.origin = CGPoint(x: x, y: (Strip.height - v.frame.height) / 2)
+            back.addSubview(v)
+            x = v.frame.maxX + 2
+        }
+        setContentSize(CGSize(width: x + 4, height: Strip.height))
+    }
+
+    /// ⌘ + `key`; false when no setting has that letter.
+    func flip(_ key: String) -> Bool {
+        guard let item = Strip.items().first(where: { $0.key == key.uppercased() }) else { return false }
+        item.flip()
+        reload()
+        return true
+    }
+
+    func place(above bar: NSWindow) {
+        setFrameOrigin(CGPoint(x: (bar.frame.midX - frame.width / 2).rounded(), y: bar.frame.maxY + 8))
+    }
+
+    /// Fades in rising 6 pt and out sinking back; Reduce Motion keeps the fade alone.
+    func show(_ on: Bool, above bar: NSWindow) {
+        guard on != shown else { return }
+        shown = on
+        if on { reload() }
+        place(above: bar)
+        let rest = frame
+        let low = rest.offsetBy(dx: 0, dy: -6)
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if on {
+            if alphaValue == 0 && !still { setFrame(low, display: false) }
+            orderFrontRegardless()
+        }
+        NSAnimationContext.runAnimationGroup({ c in
+            c.duration = 0.2
+            c.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = on ? 1 : 0
+            if !still { animator().setFrame(on ? rest : low, display: true) }
+        }, completionHandler: { [weak self] in
+            if let self, !self.shown { self.orderOut(nil) }
+        })
+    }
+
+    func hide() {
+        shown = false
+        alphaValue = 0
+        orderOut(nil)
+    }
+}
+
+/// One setting: its letter on a key cap, then its name; on, both sit on the accent colour.
+private final class StripKey: NSView {
+    private let item: Strip.Item
+    private let flip: () -> Void
+    private static let font = NSFont.systemFont(ofSize: 13)
+    private static let keyFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+
+    init(_ item: Strip.Item, flip: @escaping () -> Void) {
+        self.item = item
+        self.flip = flip
+        let text = [item.title, item.widest].map { ($0 as NSString).size(withAttributes: [.font: StripKey.font]).width }.max()!
+        super.init(frame: CGRect(x: 0, y: 0, width: 32 + ceil(text) + 10, height: 30))
+    }
+    required init?(coder: NSCoder) { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { flip() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let on = item.on
+        if on {
+            NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
+        }
+        let cap = CGRect(x: 6, y: (bounds.height - 20) / 2, width: 20, height: 20)
+        if on {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5).fill()
+        } else {
+            NSColor.labelColor.withAlphaComponent(0.3).setStroke()
+            let p = NSBezierPath(roundedRect: cap.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
+            p.lineWidth = 1
+            p.stroke()
+        }
+        func centre(_ s: String, _ attrs: [NSAttributedString.Key: Any], x: CGFloat? = nil, in r: CGRect) {
+            let size = (s as NSString).size(withAttributes: attrs)
+            (s as NSString).draw(at: CGPoint(x: x ?? r.midX - size.width / 2, y: r.midY - size.height / 2), withAttributes: attrs)
+        }
+        centre(item.key, [.font: StripKey.keyFont,
+                          .foregroundColor: on ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.6)], in: cap)
+        centre(item.title, [.font: StripKey.font,
+                            .foregroundColor: NSColor.labelColor.withAlphaComponent(on ? 0.95 : 0.5)], x: 32, in: bounds)
+    }
 }
 
 /// The system's glyphs, traced from its bar: a 28.5 × 22.5 rounded rect with a 2 pt stroke and

@@ -210,9 +210,12 @@ private final class OverlayView: NSView {
                 let step: CGFloat = mods.contains(.shift) ? 100 : 20
                 session.nudge(dx: dx * step, dy: dy * step, resize: mods.contains(.option))
             }
-        default: break
+        default:
+            if mods.contains(.command), let k = event.charactersIgnoringModifiers { session.flipSetting(k) }
         }
     }
+
+    override func flagsChanged(with event: NSEvent) { session.showSettings(event.modifierFlags.contains(.command)) }
 
     // MARK: Layers
 

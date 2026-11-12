@@ -109,6 +109,8 @@ final class Session {
     }
 
     func step(_ delta: Int) { state.step(delta); refresh() }
+    func showSettings(_ on: Bool) { bar?.showSettings(on) }
+    func flipSetting(_ key: String) { _ = bar?.strip.flip(key) }
     func set(_ target: Target) { state.target = target; refresh() }
     func toggleKind() { state.toggleKind(); refresh() }
 

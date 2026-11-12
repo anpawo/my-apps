@@ -33,6 +33,11 @@ Pick a recording and the button says so:
 - **Keys.** ⌘← ⌘→ step through the modes, the arrows glide the selection by 20 (⇧ by 100, ⌥ resizes),
   Return takes it, Escape closes. ⌘⇧5 again flips between still and recording, and stops a
   recording that is running.
+- **Settings.** Hold ⌘ and every setting comes up above the bar, each with its letter: ⌘ and
+  that letter turns it on or off (⌘T steps the timer through none, 5 and 10 seconds).
+
+  ![The bar with the settings strip above it: Desktop, Downloads, Documents, Clipboard, the timer, Thumbnail, Pointer and Microphone, each on a key cap with its letter, the ones that are on in blue](docs/bar-settings.png)
+
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
   takes the file with it.
   A pinned capture stays in the top-right corner: a click copies it, a double click opens the

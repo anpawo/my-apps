@@ -22,6 +22,15 @@ enum Docs {
 
         session.state = BarState(target: .area, kind: .photo)
         bar.refresh()
+        bar.strip.place(above: bar)
+        let both = bar.frame.union(bar.strip.frame)
+        let held = Bar.canvas(both.size) {
+            for v in [bar.contentView!, bar.strip.contentView!] {
+                Bar.pixels(v).draw(in: v.window!.frame.offsetBy(dx: -both.minX, dy: -both.minY), from: .zero,
+                                   operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            }
+        }
+        save(held.representation(using: .png, properties: [:]), dir, "bar-settings.png")
         let overlay = Overlay(screen: screen, frozen: wall, session: session)
         overlay.refreshLayers()
         // Cropped to the selection and the bar: the whole 2× screen of wallpaper is a 6 MB PNG.

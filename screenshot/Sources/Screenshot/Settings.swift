@@ -12,6 +12,17 @@ enum Settings {
         set { d.set(newValue.map(\.path), forKey: "folders") }
     }
     static var folder: URL { folders.first ?? history }
+    /// A home that renamed Desktop and Downloads (desk, dwl) is offered those, not folders macOS would bring back.
+    static var standardFolders: [(String, URL)] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [("Desktop", "desk"), ("Downloads", "dwl"), ("Documents", "Documents")].map { name, short in
+            let own = home.appendingPathComponent(short)
+            return FileManager.default.fileExists(atPath: own.path) ? (short, own) : (name, home.appendingPathComponent(name))
+        }
+    }
+    static func toggle(folder dir: URL) {
+        if let i = folders.firstIndex(where: { $0.path == dir.path }) { folders.remove(at: i) } else { folders.append(dir) }
+    }
     /// Seconds before a timed capture; 0 is immediate.
     static var timer: Int {
         get { d.integer(forKey: "timer") }
