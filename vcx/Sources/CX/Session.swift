@@ -277,6 +277,7 @@ final class Session: ObservableObject {
     private var pendingInput: (String, [String])?
     private var transferring = false
     private var injectedContext = ""
+    private var recalledRules = Set<String>()
     private var testing = false
     private var suppressSave = false
     private var recordLock: (String, Int32)?
@@ -537,6 +538,13 @@ final class Session: ObservableObject {
            let index = content.firstIndex(where: { ($0["text"] as? String).map { $0 == "$" + name || $0.hasPrefix("$" + name + " ") } == true }),
            let text = content[index]["text"] as? String {
             content[index]["text"] = "/" + text.dropFirst(); data["content"] = content
+        }
+        if data["type"] as? String == "userMessage", let content = data["content"] as? [JSON] {
+            data["content"] = content.compactMap { piece -> JSON? in
+                guard let text = piece["text"] as? String, text.contains(ErrorsRecall.marker) else { return piece }
+                let kept = ErrorsRecall.strip(text)
+                return kept.isEmpty ? nil : piece.merging(["text": kept]) { $1 }
+            }
         }
         guard let id = data["id"] as? String, let kind = data["type"] as? String else { return }
         if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; item.data = data; return }
@@ -856,7 +864,10 @@ final class Session: ObservableObject {
                     Task { await self.refreshCatalog() }
                 } else { status = "Working…" }
             }
+            let recalled = ErrorsRecall.recall(text, cwd: params["cwd"] as? String ?? cwd).filter { !recalledRules.contains($0) }
+            if !recalled.isEmpty { params["input"] = (params["input"] as? [JSON] ?? []) + [["type": "text", "text": ErrorsRecall.note(recalled)]] }
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
+            recalledRules.formUnion(recalled)
             if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
             injectedContext = ""
             save()

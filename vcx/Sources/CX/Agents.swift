@@ -646,7 +646,7 @@ final class QwenConnection: Connection {
             }
             var message: JSON = ["role": "user", "content": text]
             if !images.isEmpty { message["images"] = images }
-            let project = messages.count == 1 ? qwenProject(text, cwd: cwd).flatMap { workingDirectory($0, within: initialDirectory) } : nil
+            let project = messages.count == 1 ? qwenProject(ErrorsRecall.strip(text), cwd: cwd).flatMap { workingDirectory($0, within: initialDirectory) } : nil
             messages.append(message)
             // A reply to a pause question continues the paused task, whose request compaction keeps.
             if !paused || taskRequest == nil { taskRequest = message }

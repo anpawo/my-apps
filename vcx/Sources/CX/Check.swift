@@ -62,6 +62,19 @@ enum Check {
         func step(_ body: @MainActor () async -> Bool) async -> Bool { await body() }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000
         do {
+            let project = ErrorsRecall.home + "/self/app"
+            try? FileManager.default.createDirectory(atPath: ErrorsRecall.home + "/.claude", withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: project, withIntermediateDirectories: true)
+            try? "## Git\n- 01/11: Read back each commit before the push.\n- 02/11: A screenshot waits for the window to load.\n".write(toFile: ErrorsRecall.home + "/.claude/ERRORS.tools.md", atomically: true, encoding: .utf8)
+            try? "- 03/11: Launch agents are loaded within 30 s.\n- 04/11: A transcript is searched in its decoded strings.\n".write(toFile: project + "/ERRORS.md", atomically: true, encoding: .utf8)
+            check(ErrorsRecall.recall("commit and push the git fix", cwd: project, minimum: 1).first == "01/11: Read back each commit before the push.", "a prompt recalls the ERRORS line that shares its words")
+            check(ErrorsRecall.recall("add a launch agent", cwd: project, minimum: 1).first == "03/11: Launch agents are loaded within 30 s.", "a project's ERRORS.md is recalled from inside the project")
+            check(ErrorsRecall.recall("add a launch agent", cwd: ErrorsRecall.home + "/self", minimum: 1).isEmpty, "another folder's ERRORS.md stays out")
+            check(ErrorsRecall.recall("hi", cwd: project).isEmpty, "a prompt sharing no word recalls nothing")
+            let note = ErrorsRecall.note(["01/11: Read back each commit before the push."])
+            check(ErrorsRecall.strip("Fix it\n" + note) == "Fix it" && ErrorsRecall.strip(note).isEmpty, "a prompt read back drops the recalled note")
+        }
+        do {
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-peers-" + UUID().uuidString)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let previousFolder = claudeSessionsFolder; claudeSessionsFolder = folder.path

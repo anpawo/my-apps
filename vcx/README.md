@@ -16,6 +16,9 @@ and instruction files apply as they do in the terminal; the sidebar lists them.
   into a `[Paste #N]` chip.
 - **Sessions outlive updates.** `vcx --update-now` moves every running window to the installed build once its turn
   ends, without restarting its agent.
+- **Past mistakes come with the prompt.** Each prompt carries the few lines of the `ERRORS.md` and
+  `ERRORS.tools.md` files (`~/.claude`, then the project's folders) that share its words, once per session.
+  `vcx --recall "<prompt>"` shows what a prompt would carry.
 - **Fleet sees it.** Each window reports its state to [Fleet](../fleet), which shows when it needs you.
 
 `vcx -p "<prompt>"` runs a background job with no window and the same fallback (`--provider auto|claude|codex|qwen`,
