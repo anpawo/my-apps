@@ -412,6 +412,14 @@ fn main() {
                 });
             }
             app.set_menu(menu)?;
+            // Full screen height (menu bar and Dock aside), at the configured width.
+            if let Some(w) = app.get_webview_window("main") {
+                if let Some(m) = w.current_monitor()? {
+                    let area = m.work_area();
+                    w.set_size(tauri::PhysicalSize::new(w.outer_size()?.width, area.size.height))?;
+                    w.set_position(tauri::PhysicalPosition::new(area.position.x, area.position.y))?;
+                }
+            }
             Ok(())
         })
         .on_window_event(|w, e| {
