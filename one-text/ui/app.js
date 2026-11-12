@@ -848,18 +848,21 @@ function react(m, key) {
   }
   redrawMsg(m);
 }
-// The hover bar shows once the pointer reaches the right fifth of a row, stays until it leaves the row,
-// and sits level with the middle of the bubbles (the name above and the reactions below left out).
+// The hover bar shows once the pointer reaches the fifth of the bubble on the bar's side (or past it),
+// stays until it leaves the row, and sits level with the middle of the bubbles (name and reactions left out).
 let hotRow = null;
 const unhot = () => { hotRow?.classList.remove('hot'); hotRow = null; };
 $('#thread').addEventListener('pointermove', e => {
   const row = e.target.closest('.msg');
   if (row === hotRow) return;
   unhot();
-  const q = row?.querySelector('.quick'), r = row?.getBoundingClientRect();
-  if (!q || e.clientX < r.right - r.width * .2) return;
-  const bs = row.querySelectorAll('.bubble'), top = bs[0].getBoundingClientRect().top, bottom = bs[bs.length - 1].getBoundingClientRect().bottom;
-  q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - r.top - q.offsetHeight / 2)}px`;
+  const q = row?.querySelector('.quick');
+  if (!q) return;
+  const bs = [...row.querySelectorAll('.bubble')].map(b => b.getBoundingClientRect());
+  const left = Math.min(...bs.map(b => b.left)), right = Math.max(...bs.map(b => b.right)), fifth = (right - left) * .2;
+  if (row.classList.contains('me') ? e.clientX > left + fifth : e.clientX < right - fifth) return;
+  const top = bs[0].top, bottom = bs.at(-1).bottom;
+  q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - row.getBoundingClientRect().top - q.offsetHeight / 2)}px`;
   row.classList.add('hot');
   hotRow = row;
 });
