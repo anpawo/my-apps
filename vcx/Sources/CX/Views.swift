@@ -476,7 +476,7 @@ struct CXView: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
                 HStack(alignment: .bottom, spacing: 12) {
-                Composer(session: session, hidingPlaceholder: sending.hasPending || sending.flight != nil) { text, images, snapshot in
+                Composer(session: session) { text, images, snapshot in
                     sending.prepare(text: text, images: images, rows: session.rows, snapshot: snapshot)
                 }.frame(height: session.editorHeight)
                     .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })

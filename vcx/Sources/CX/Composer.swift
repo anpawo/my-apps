@@ -165,7 +165,6 @@ func pastedPieces(_ source: String) -> [InputPiece] {
 
 struct Composer: NSViewRepresentable {
     @ObservedObject var session: Session
-    var hidingPlaceholder = false
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     func makeCoordinator() -> Coordinator { Coordinator(session) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -173,7 +172,6 @@ struct Composer: NSViewRepresentable {
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
-        field.hidingPlaceholder = hidingPlaceholder
         field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
         field.setDraft(session.draft)
@@ -191,7 +189,6 @@ struct Composer: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let field = scroll.documentView as? ComposerText else { return }
-        if field.hidingPlaceholder != hidingPlaceholder { field.hidingPlaceholder = hidingPlaceholder; field.needsDisplay = true }
         let asking = session.questionFlow?.done == false
         if field.asking != asking { field.asking = asking; field.needsDisplay = true }
         field.willSubmit = willSubmit
@@ -279,7 +276,6 @@ struct ComposerSnapshot {
 final class ComposerText: NSTextView {
     weak var session: Session?
     private var submittingGenerations: Set<Int> = []
-    var hidingPlaceholder = false
     var asking = false
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     var heldStorage: NSTextStorage?
@@ -322,7 +318,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { highlightCommands(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty && !hidingPlaceholder { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if string.isEmpty { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
