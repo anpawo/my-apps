@@ -13,3 +13,4 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 unicode-normalization = "0.1"
 sha2 = "0.10"
 futures-util = "0.3"
+objc2 = "0.6"

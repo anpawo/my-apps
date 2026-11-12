@@ -229,7 +229,16 @@ function drawFavs(box, items, tab) {
   box._closing = false;
   box._drawn = true;
   box.hidden = false;
-  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Drag someone here</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
+  const [shown, folded] = foldGroup(items, tab), h0 = box.offsetHeight;
+  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Drag someone here</div>` : shown.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('')
+    + (folded.length ? `<button class="folder${folded.some(i => i.unread) ? ' unread' : ''}" title="${folded.length} more: ${esc(folded.map(i => i.name).join(', '))}">${folded.slice(0, 4).map(avatar).join('')}</button>`
+      : tab && state.unfolded.has(tab.name) && items.length > 5 ? '<button class="folder less" title="Fold">–</button>' : '');
+  const folder = box.querySelector('.folder');
+  if (folder) folder.onclick = () => { state.unfolded[folded.length ? 'add' : 'delete'](tab.name); showLists(); };
+  if (!opening && h0 && box.offsetHeight !== h0) {
+    box.style.overflow = 'hidden';
+    anim(box, { height: [h0 + 'px', box.offsetHeight + 'px'] }, 260).finished.then(() => (box.style.overflow = ''), () => {});
+  }
   box.querySelectorAll('.fav').forEach(b => {
     b.onclick = () => b._dragged || select(b.dataset.id);
     dragFrom(b);
@@ -239,6 +248,17 @@ function drawFavs(box, items, tab) {
     if (old && (old.left !== now.left || old.top !== now.top)) anim(b, { translate: [`${old.left - now.left}px ${old.top - now.top}px`, '0 0'] }, 260);
   });
   if (opening) collapse(box, false);
+}
+
+// A group of more than 5 shows 4 and folds the rest into one tile of small pictures; the open person and
+// those with unread messages stay out of it, unless 5 or more have some.
+state.unfolded = new Set();
+function foldGroup(items, tab) {
+  if (!tab || items.length <= 5 || state.unfolded.has(tab.name)) return [items, []];
+  const unread = items.filter(i => i.unread).length;
+  const out = new Set(items.filter(i => (unread < 5 && i.unread) || i.id === state.cur?.id).slice(0, 4));
+  for (const i of items) if (out.size < 4) out.add(i);
+  return [items.filter(i => out.has(i)), items.filter(i => !out.has(i))];
 }
 
 // Groups: named sets of favorites, each always open under the favorites in no group.
@@ -873,7 +893,7 @@ function toast(text, undo) {
 // Holding the sidebar's right edge and dragging resizes it; the width is kept.
 {
   const aside = $('aside'), grip = $('.resize');
-  if (localStorage.sidebarWidth) aside.style.width = localStorage.sidebarWidth + 'px';
+  if (localStorage.asideWidth) aside.style.width = localStorage.asideWidth + 'px';
   grip.addEventListener('pointerdown', e => {
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
@@ -884,7 +904,7 @@ function toast(text, undo) {
     grip.addEventListener('pointerup', () => {
       grip.removeEventListener('pointermove', move);
       grip.classList.remove('held');
-      localStorage.sidebarWidth = aside.offsetWidth;
+      localStorage.asideWidth = aside.offsetWidth;
       if (!state.more) showLists();
     }, { once: true });
   });

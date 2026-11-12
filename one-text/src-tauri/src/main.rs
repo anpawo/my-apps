@@ -1,8 +1,8 @@
 mod group;
 
 use serde_json::{json, Value};
-use std::{fs, path::PathBuf, sync::Mutex, time::{Duration, Instant}};
-use tauri::{http::Response, Manager, State};
+use std::{fs, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
+use tauri::{http::Response, menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind}, Manager, State, WindowEvent};
 
 /// one-text runs on the always-on Beeper Server that the beeper CLI installs as this LaunchAgent, not on Beeper Desktop.
 const AGENT: &str = "com.beeper.cli.profile.background";
@@ -264,12 +264,68 @@ mod live {
     }
 }
 
+/// ⌘Q and the window's close button only hide the app, unless Allow Quitting is ticked in the app menu.
+static ALLOW_QUIT: AtomicBool = AtomicBool::new(false);
+
+#[link(name = "ServiceManagement", kind = "framework")]
+extern "C" {}
+
+/// Adds the app to System Settings → Login Items (SMAppService, macOS 13+).
+fn open_at_login() -> bool {
+    use objc2::{msg_send, runtime::{AnyClass, AnyObject}};
+    let Some(class) = AnyClass::get(c"SMAppService") else { return false };
+    unsafe {
+        let service: *mut AnyObject = msg_send![class, mainAppService];
+        let mut err: *mut AnyObject = std::ptr::null_mut();
+        msg_send![service, registerAndReturnError: &mut err]
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let overrides = app.path().app_data_dir()?.join("overrides.json");
-            app.manage(beeper(overrides));
+            let dir = app.path().app_data_dir()?;
+            app.manage(beeper(dir.join("overrides.json")));
+            let path = dir.join("settings.json");
+            let mut settings: Value = fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
+            ALLOW_QUIT.store(settings["allowQuit"].as_bool().unwrap_or(false), Ordering::Relaxed);
+            // Once only, so turning it off in System Settings stays off; a build run from target/ is not the installed app.
+            let installed = !std::env::current_exe().unwrap_or_default().to_string_lossy().contains("/target/");
+            if installed && settings["loginItem"].is_null() && open_at_login() {
+                settings["loginItem"] = json!(true);
+                fs::create_dir_all(&dir)?;
+                fs::write(&path, settings.to_string())?;
+            }
+            let menu = Menu::default(app.handle())?;
+            if let Some(MenuItemKind::Submenu(first)) = menu.items()?.first() {
+                first.remove_at(first.items()?.len() - 1)?;
+                let allow = CheckMenuItem::with_id(app, "allow-quit", "Allow Quitting", true, ALLOW_QUIT.load(Ordering::Relaxed), None::<&str>)?;
+                first.append(&allow)?;
+                first.append(&MenuItem::with_id(app, "quit", "Quit one-text", true, Some("CmdOrCtrl+Q"))?)?;
+                app.on_menu_event(move |app, e| match e.id().as_ref() {
+                    "allow-quit" => {
+                        let on = allow.is_checked().unwrap_or(false);
+                        ALLOW_QUIT.store(on, Ordering::Relaxed);
+                        let mut settings: Value = fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
+                        settings["allowQuit"] = json!(on);
+                        let _ = fs::create_dir_all(&dir);
+                        let _ = fs::write(&path, settings.to_string());
+                    }
+                    "quit" if ALLOW_QUIT.load(Ordering::Relaxed) => app.exit(0),
+                    "quit" => { let _ = app.hide(); }
+                    _ => {}
+                });
+            }
+            app.set_menu(menu)?;
             Ok(())
+        })
+        .on_window_event(|w, e| {
+            if let WindowEvent::CloseRequested { api, .. } = e {
+                if !ALLOW_QUIT.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = w.app_handle().hide();
+                }
+            }
         })
         // <img src="beeper://localhost/asset?url=mxc://…">: avatars and media need the token, which an <img> cannot send.
         .register_asynchronous_uri_scheme_protocol("beeper", |ctx, request, responder| {
