@@ -53,6 +53,9 @@ function collapse(el, hide, ms = 240) {
     .catch(() => {});
 }
 
+// Lowercase, accents off, Greek and Cyrillic lookalikes as Latin: "faustine" finds "ƒαustine".
+const LOOK = { ƒ: 'f', α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ω: 'w', а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', х: 'x', ı: 'i', ł: 'l' };
+const fold = s => String(s || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/./g, c => LOOK[c] || c);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const linkify = s => esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noreferrer">${u}</a>`);
 const asset = url => url.startsWith('data:') ? url : `beeper://localhost/asset?url=${enc(url)}`;
@@ -382,7 +385,8 @@ function drawResults() {
     if (net) q = q.slice(m[0].length);
   }
   const all = net ? (state.all || []).filter(i => netsOf(i).includes(net)) : state.all || [];
-  const items = (q ? all.filter(i => (i.name || '').toLowerCase().includes(q)) : all).slice(0, q || net ? 30 : 8);
+  q = fold(q);
+  const items = (q ? all.filter(i => fold(i.name).includes(q)) : all).slice(0, q || net ? 30 : 8);
   renderList($('#results'), items);
   $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
 }
@@ -781,7 +785,7 @@ function mergePicker(m, person) {
   found.className = 'found';
   const draw = () => {
     const q = field.value.trim().toLowerCase();
-    const others = [...state.byId.values()].filter(i => i.kind === 'person' && i.id !== person.id && (!q || (i.name || '').toLowerCase().includes(q))).slice(0, 30);
+    const others = [...state.byId.values()].filter(i => i.kind === 'person' && i.id !== person.id && (!q || fold(i.name).includes(fold(q)))).slice(0, 30);
     found.replaceChildren(...others.map(o => item(o.name || 'Unnamed', { icon: avatar(o), hint: netsOf(o).map(k => NETS[k].label).join(', '), action: () => { closeMenu(); merge(person, o); } })));
     if (!others.length) found.innerHTML = '<div class="none">Nobody by that name</div>';
   };

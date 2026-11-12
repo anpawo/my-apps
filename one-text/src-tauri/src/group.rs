@@ -4,8 +4,16 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 /// Word order and accents ignored, so "Léa Martin" on WhatsApp meets "martin lea" on Instagram; one word is too
 /// weak to merge on.
+/// Lowercase, accents off, and the Greek or Cyrillic lookalikes of stylised names ("ƒαustine") read as Latin.
+fn plain(name: &str) -> String {
+    const LOOK: [(char, char); 22] = [('ƒ', 'f'), ('α', 'a'), ('β', 'b'), ('ε', 'e'), ('η', 'n'), ('ι', 'i'), ('κ', 'k'), ('ν', 'v'), ('ο', 'o'), ('ρ', 'p'),
+        ('τ', 't'), ('υ', 'u'), ('χ', 'x'), ('ω', 'w'), ('а', 'a'), ('е', 'e'), ('о', 'o'), ('р', 'p'), ('с', 'c'), ('х', 'x'), ('ı', 'i'), ('ł', 'l')];
+    name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase()
+        .chars().map(|c| LOOK.iter().find(|(l, _)| *l == c).map_or(c, |(_, r)| *r)).collect()
+}
+
 pub fn name_key(name: &str) -> Option<String> {
-    let plain: String = name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase();
+    let plain = plain(name);
     let mut words: Vec<&str> = plain.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).collect();
     if words.len() < 2 {
         return None;
@@ -18,7 +26,7 @@ pub fn name_key(name: &str) -> Option<String> {
 }
 
 fn words(name: &str) -> Vec<String> {
-    let plain: String = name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase();
+    let plain = plain(name);
     plain.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).map(str::to_string).collect()
 }
 
@@ -301,6 +309,12 @@ mod tests {
         let li = json!({ "id": "li-x", "type": "single", "network": "LinkedIn", "lastActivity": "2026-11-02T00:00:00Z",
             "participants": { "items": [{ "isSelf": true }, { "fullName": "Alex", "username": "ACoAAEKc-97TUQ" }] } });
         assert_eq!(people(&build(&[ig, wa, li], &json!({}))), vec![vec!["ig-alex", "wa-alex"], vec!["li-x"]]);
+    }
+
+    #[test]
+    fn lookalike_letters_read_as_latin() {
+        assert_eq!(one_word("ƒαustine"), Some("faustine".into()));
+        assert_eq!(name_key("Lεa Martιn"), name_key("lea martin"));
     }
 
     #[test]
