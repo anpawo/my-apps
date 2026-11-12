@@ -91,10 +91,27 @@ await page.goto('http://chats.test/index.html');
 await page.waitForSelector('#people .row');
 
 const names = await page.$$eval('#people .row .name', ns => ns.map(n => n.textContent));
-check(names.length === 5, `5 people listed (${names.join(', ')})`);
-check(await page.$$eval('#groups .row', ns => ns.length) === 2, '2 groups in their own section');
+check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')})`);
+const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
+check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 check(!(await page.$('#people .net')), 'no network logos in the list');
-const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0 }))).map(i => i.id));
+// A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
+const searchCost = await page.evaluate(async () => {
+  const saved = state.all;
+  state.all = Array.from({ length: 1000 }, (_, i) => ({ id: 'f' + i, name: 'Person ' + i, imgs: [], unread: 0, kind: 'person', last: new Date(Date.now() - i * 6e4).toISOString(), chats: [{ id: 'f' + i, network: 'WhatsApp', accountID: 'whatsapp' }] }));
+  openPalette();
+  const field = document.querySelector('#search');
+  field.value = 'p';
+  const t0 = performance.now();
+  field.dispatchEvent(new Event('input'));
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const ms = performance.now() - t0, rows = document.querySelectorAll('#results .row').length;
+  state.all = saved; closePalette();
+  await new Promise(r => setTimeout(r, 400));
+  return [Math.round(ms), rows];
+});
+check(searchCost[0] < 150, `a one-letter search over 1000 people draws in ${searchCost[0]} ms (${searchCost[1]} rows)`);
+const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0, chats: [] }))).map(i => i.id));
 check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus unread (${many.length})`);
 
 // Opening Lea: mixed timeline, marks, auto target = Instagram (her last message), read sent.
@@ -122,8 +139,16 @@ const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textCo
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
 await page.click('#input');
 await page.keyboard.press('Meta+d');
-check(await page.evaluate(() => document.activeElement.id === 'search'), 'Cmd+D focuses the search bar');
-await page.click('#input');
+await page.waitForTimeout(250);
+const pal = await page.$eval('#palette .box', b => { const r = b.getBoundingClientRect(); return [document.activeElement.id, Math.round(r.left + r.width / 2 - innerWidth / 2)]; });
+check(pal[0] === 'search' && Math.abs(pal[1]) < 2, `Cmd+D opens the search centered in the window (${pal})`);
+await page.keyboard.type('hug');
+await page.screenshot({ path: join(out, '0-search.png') });
+await page.keyboard.press('Enter');
+await page.waitForTimeout(300);
+check(await page.isHidden('#palette') && await page.textContent('header .who') === 'HRHugo R', 'Enter opens the match and closes the search');
+await page.click('#people .row[data-id="ig-lea"]');
+await page.waitForTimeout(400);
 // beeper:// does not load here: a stand-in reel thumbnail, so the screenshot (docs/screenshot.png) shows the card.
 await page.$eval('#thread .bubble.reel img', i => (i.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#f58529"/><stop offset=".5" stop-color="#dd2a7b"/><stop offset="1" stop-color="#515bd4"/></linearGradient></defs><rect width="9" height="16" fill="url(#g)"/></svg>')));
 await page.waitForTimeout(100);
@@ -176,24 +201,34 @@ await page.keyboard.type('tom b');
 await page.screenshot({ path: join(out, '3-merge.png') });
 await page.click('.menu .found .item >> nth=0');
 await page.waitForTimeout(600);
-check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 4, 'merge leaves 4 people');
+check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 6, 'merge leaves 4 people (and the 2 groups)');
 check(await page.evaluate(() => JSON.stringify(__log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.merges)) === '[["dc-tom","wa-tom"]]', 'merge saved as an override');
 check(JSON.stringify(await page.$$eval('header .chip', cs => cs.map(c => c.dataset.net).sort())) === '["discord","whatsapp"]', 'open conversation now shows both of Tom\'s logos');
 check(await page.isVisible('.toast button'), 'toast offers Undo');
 await page.screenshot({ path: join(out, '4-merged.png') });
 await page.click('.toast button');
 await page.waitForTimeout(600);
-check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 5, 'Undo brings back 5 people');
+check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 7, 'Undo brings back 5 people');
 
-// Groups section folds with its content clipped.
-const fold = await page.evaluate(async () => {
-  const clip = document.querySelector('#groups-clip'), h = [];
-  document.querySelector('#groups-toggle').click();
-  const t0 = performance.now();
-  while (performance.now() - t0 < 360) { await new Promise(r => requestAnimationFrame(r)); h.push(clip.getBoundingClientRect().height); }
-  return h;
-});
-check(fold.some(h => h > 5 && h < 100) && monotonic(fold) && fold.at(-1) < 1, `groups fold smoothly (${fold.map(Math.round).join(' ')})`);
+// Favorites: right-click → Add to favorites moves Hugo to the picture strip; ⌘F over Sarah adds her too, and again removes her.
+await page.click('#people .row:has-text("Hugo R")', { button: 'right' });
+await page.click('.menu .item:has-text("Add to favorites")');
+await page.waitForTimeout(400);
+const favIds = () => page.$$eval('#favs .fav', fs => fs.map(f => f.dataset.id));
+const hugo = (await favIds())[0];
+check((await favIds()).length === 1 && !(await page.$(`#people .row[data-id="${hugo}"]:not([data-leaving])`)) && !(await page.$('#favs .name')), 'a favorite shows only its picture, above the list');
+await page.hover('#people .row:has-text("Sarah K")');
+await page.keyboard.press('Meta+f');
+await page.waitForTimeout(400);
+check((await favIds()).length === 2, 'Cmd+F over a person adds them to favorites');
+await page.screenshot({ path: join(out, '5-favorites.png') });
+await page.hover('#favs .fav:last-child');
+await page.keyboard.press('Meta+f');
+await page.waitForTimeout(400);
+check((await favIds()).length === 1 && (await page.$$eval('#people .row:not([data-leaving])', ns => ns.length)) === 6, 'Cmd+F over a favorite puts it back in the list');
+await page.reload();
+await page.waitForSelector('#favs .fav');
+check(JSON.stringify(await favIds()) === JSON.stringify([hugo]), 'favorites are kept after a restart');
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();

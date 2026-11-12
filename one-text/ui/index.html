@@ -8,14 +8,12 @@
 <body>
 <aside>
   <div class="drag" data-tauri-drag-region></div>
-  <input id="search" placeholder="Search" spellcheck="false" autocomplete="off">
   <div id="banner" hidden></div>
+  <div id="favs" hidden></div>
   <div class="scroll" id="list">
     <div class="inner">
       <div class="sel"></div>
       <div id="people"></div>
-      <button class="sect" id="groups-toggle"><span>Groups</span><svg class="chev" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3"/></svg></button>
-      <div id="groups-clip"><div id="groups"></div></div>
     </div>
   </div>
 </aside>
@@ -32,6 +30,7 @@
   </footer>
   <div id="empty">Select a conversation</div>
 </main>
+<div id="palette" hidden><div class="box"><input id="search" placeholder="Search people and groups" spellcheck="false" autocomplete="off"><div class="scroll" id="results"></div></div></div>
 <script src="app.js"></script>
 </body>
 </html>

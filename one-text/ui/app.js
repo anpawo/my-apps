@@ -82,7 +82,7 @@ function when(iso, long) {
 }
 const netsOf = item => [...new Set(item.chats.map(netOf))];
 
-const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, groupsShut: localStorage.groupsShut === '1' };
+const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs: new Set(JSON.parse(localStorage.favs || '[]')) };
 
 /* ---------- Sidebar ---------- */
 
@@ -137,9 +137,9 @@ function renderList(box, items) {
 // The selection pill (tab-pill template, vertical): its front edge leads, so for a moment it covers both rows.
 function movePill(ms) {
   const pill = $('.sel'), inner = $('.inner');
-  const n = state.cur && document.querySelector(`.row[data-id="${CSS.escape(state.cur.id)}"]`);
-  document.querySelectorAll('.row.on').forEach(r => r !== n && r.classList.remove('on'));
-  const visible = n && !n.hidden && !n.dataset.leaving && !(state.cur.kind === 'group' && state.groupsShut);
+  const n = state.cur && document.querySelector(`#people .row[data-id="${CSS.escape(state.cur.id)}"]`);
+  document.querySelectorAll('#people .row.on').forEach(r => r !== n && r.classList.remove('on'));
+  const visible = n && !n.hidden && !n.dataset.leaving;
   if (!visible) { pill.style.opacity = 0; return; }
   n.classList.add('on');
   const top = n.offsetTop, bottom = inner.offsetHeight - top - n.offsetHeight;
@@ -151,20 +151,74 @@ function movePill(ms) {
 }
 
 // Drawing every person (hundreds of rows and pictures) made the app slow: the list holds the 10 newest, those
-// with unread messages and the open one; a search looks through everyone.
+// with unread messages and the open one; a search looks through everyone but draws the 30 newest matches.
 function shown(items) {
-  const q = $('#search').value.trim().toLowerCase();
-  if (q) return items.filter(i => (i.name || '').toLowerCase().includes(q));
+  items = items.filter(i => !isFav(i));
   return items.filter((i, n) => n < 10 || i.unread > 0 || i.id === state.cur?.id);
 }
-function showLists() {
-  renderList($('#people'), shown(state.people || []));
-  renderList($('#groups'), shown(state.groups || []));
-}
-function applySearch() {
+// A favorite is kept by its chats' ids, so it stays one after a merge or a split changes the person's id.
+const isFav = item => item.chats.some(c => state.favs.has(c.id));
+function toggleFav(item) {
+  const on = !isFav(item);
+  for (const c of item.chats) on ? state.favs.add(c.id) : state.favs.delete(c.id);
+  localStorage.favs = JSON.stringify([...state.favs]);
   showLists();
-  setTimeout(() => movePill(200), 230);
 }
+function showLists() {
+  const all = state.all || [];
+  renderList($('#people'), shown(all));
+  drawFavs(all.filter(isFav));
+  movePill();
+}
+// Favorites: their pictures in a strip above the list, newest first; a dot when unread.
+function drawFavs(items) {
+  const box = $('#favs');
+  const had = new Set([...box.children].map(b => b.dataset.id));
+  box.hidden = !items.length;
+  box.innerHTML = items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
+  box.querySelectorAll('.fav').forEach(b => {
+    b.onclick = () => select(b.dataset.id);
+    b.oncontextmenu = e => { e.preventDefault(); select(b.dataset.id); openMore(b); };
+    if (had.size && !had.has(b.dataset.id)) anim(b, { scale: [0.5, 1], opacity: [0, 1] }, 260);
+  });
+}
+
+// ⌘D: a search palette in the middle of the window, over everyone; ↑ ↓ pick, ↵ opens, esc closes.
+const palette = $('#palette'), search = $('#search');
+function openPalette() {
+  if (!palette.hidden) return search.select();
+  palette.hidden = false;
+  search.value = '';
+  drawResults();
+  search.focus();
+  anim(palette.firstElementChild, { opacity: [0, 1], scale: [0.96, 1] }, 220);
+  anim(palette, { opacity: [0, 1] }, 220);
+}
+function closePalette() {
+  if (palette.hidden) return;
+  anim(palette.firstElementChild, { opacity: [1, 0], scale: [1, 0.96] }, 160);
+  anim(palette, { opacity: [1, 0] }, 160).finished.then(() => (palette.hidden = true)).catch(() => (palette.hidden = true));
+}
+function drawResults() {
+  const q = search.value.trim().toLowerCase();
+  const all = state.all || [];
+  const items = (q ? all.filter(i => (i.name || '').toLowerCase().includes(q)) : all).slice(0, q ? 30 : 8);
+  renderList($('#results'), items);
+  $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
+}
+search.addEventListener('input', drawResults);
+search.addEventListener('keydown', e => {
+  const rows = [...$('#results').querySelectorAll('.row:not([data-leaving])')];
+  const at = rows.findIndex(r => r.classList.contains('hot'));
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const to = rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+    rows.forEach(r => r.classList.toggle('hot', r === to));
+    to?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); closePalette(); select(rows[at].dataset.id); }
+  else if (e.key === 'Escape') closePalette();
+});
+palette.addEventListener('pointerdown', e => { if (e.target === palette) closePalette(); });
 
 let loading = false;
 async function refreshList() {
@@ -177,8 +231,8 @@ async function refreshList() {
     [...people, ...groups].forEach(applySeen);
     state.byId = new Map([...people, ...groups].map(i => [i.id, i]));
     $('#banner').hidden = true;
-    state.people = people;
-    state.groups = groups;
+    // Groups sit among the people, by their latest message.
+    state.all = [...people, ...groups].sort((a, b) => (b.last || '').localeCompare(a.last || ''));
     showLists();
     if (state.cur) {
       // A merge or a split gives the person a new id: follow the chat we had open.
@@ -195,25 +249,16 @@ async function refreshList() {
   }
 }
 
-$('#search').addEventListener('input', applySearch);
 addEventListener('click', e => {
   const a = e.target.closest('a[href^="http"]');
   if (a) { e.preventDefault(); invoke('open_url', { url: a.href }); }
 });
 addEventListener('keydown', e => {
-  if (e.metaKey && e.key.toLowerCase() === 'd') { e.preventDefault(); $('#search').focus(); $('#search').select(); }
+  if (e.metaKey && e.key.toLowerCase() === 'd') { e.preventDefault(); openPalette(); }
+  // ⌘F over a person or a favorite adds or removes the favorite.
+  const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#people .row:hover, .fav:hover');
+  if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
 });
-$('#groups-toggle').classList.toggle('shut', state.groupsShut);
-$('#groups-clip').hidden = state.groupsShut;
-$('#groups-toggle').onclick = async () => {
-  state.groupsShut = !state.groupsShut;
-  localStorage.groupsShut = state.groupsShut ? '1' : '0';
-  $('#groups-toggle').classList.toggle('shut', state.groupsShut);
-  if (state.groupsShut) movePill();
-  await collapse($('#groups-clip'), state.groupsShut, 280);
-  movePill();
-};
-
 /* ---------- Conversation ---------- */
 
 async function select(id) {
@@ -222,6 +267,7 @@ async function select(id) {
   state.cur = item;
   state.target = null;
   movePill();
+  document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
   drawHeader();
   $('#empty').style.opacity = 0;
   $('footer').hidden = false;
@@ -253,7 +299,7 @@ function drawHeader() {
   $('.chips').innerHTML = netsOf(item).map(k => `<button class="chip" data-net="${k}" title="Reply on ${NETS[k].label}${NETS[k].cmd ? ` (/${NETS[k].cmd})` : ''}">${netMark(k)}</button>`).join('');
   $('.chips').querySelectorAll('.chip').forEach(b => (b.onclick = () => { setTarget(chatFor(b.dataset.net), true); input.focus(); }));
   highlightTarget(false);
-  $('.more').hidden = item.kind !== 'person';
+  $('.more').hidden = false;
 }
 
 function highlightTarget(animate) {
@@ -373,7 +419,8 @@ function markRead(item) {
   }
   localStorage.seen = JSON.stringify(seen);
   item.unread = 0;
-  const n = document.querySelector(`.row[data-id="${CSS.escape(item.id)}"]`);
+  document.querySelector(`.fav[data-id="${CSS.escape(item.id)}"]`)?.classList.remove('unread');
+  const n = document.querySelector(`#people .row[data-id="${CSS.escape(item.id)}"]`);
   const badge = n?.querySelector('.badge');
   if (badge) anim(badge, { scale: [1, 0.4], opacity: [1, 0] }, 180).finished.then(() => fill(n, item)).catch(() => {});
 }
@@ -507,13 +554,14 @@ $('.more').onclick = () => openMore($('.more'));
 function openMore(anchor) {
   if (openMenu?._anchor === anchor) return closeMenu();
   const person = state.cur;
-  if (!person || person.kind !== 'person') return;
+  if (!person) return;
+  const sep = () => Object.assign(document.createElement('div'), { className: 'sep' });
   const m = menu(anchor, m => {
-    m.append(item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
+    m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
+    if (person.kind !== 'person') return;
+    m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
     if (person.chats.length > 1) {
-      const sep = document.createElement('div');
-      sep.className = 'sep';
-      m.append(sep);
+      m.append(sep());
       for (const c of person.chats) {
         const k = netOf(c);
         m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); split(person, c); } }));
