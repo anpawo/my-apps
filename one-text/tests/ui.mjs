@@ -66,7 +66,8 @@ const stub = () => {
     if (cmd === 'open_url') return null;
     if (cmd === 'api') {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
-      if (args.path.includes('/reactions') || args.method === 'PATCH') return {};
+      if (args.method === 'DELETE' && !args.path.includes('/reactions')) { const [, c, id] = args.path.match(/chats\/([^/]+)\/messages\/([^/]+)/); msgs[decodeURIComponent(c)] = msgs[decodeURIComponent(c)].filter(x => x.id !== decodeURIComponent(id)); return {}; }
+      if (args.path.includes('/reactions') || ['PATCH', 'PUT'].includes(args.method)) return {};
       const [path, query] = args.path.split('?');
       const one = path.match(/^\/v1\/chats\/([^/]+)$/);
       if (args.method === 'GET' && one) {
@@ -565,18 +566,52 @@ await page.click('#thread .msg[data-id="h1"] .reacts button');
 const undone = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="h1"] .reacts button').length, __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE').length]);
 check(JSON.stringify(quick) === '[5,true,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
 
-// Holding ⌘ over a message opens every emoji, 5 to a row, searchable by name.
-await page.hover('#thread .msg[data-id="h1"] .bubble');
-await page.keyboard.down('Meta');
-await page.waitForTimeout(450);
-await page.keyboard.up('Meta');
+// The + at the end of the hover bar opens every emoji, 5 to a row, searchable by name.
+await rightFifth('#thread .msg[data-id="h1"]');
+await page.waitForTimeout(250);
+await page.click('#thread .msg[data-id="h1"] .quick .all');
+await page.waitForTimeout(250);
 const pick = await page.evaluate(() => { const p = document.querySelector('#picker'), g = p.querySelector('.grid'); return [p.hidden, document.activeElement === p.querySelector('input'), g.children.length > 25, Math.round(g.clientHeight / g.children[0].offsetHeight), getComputedStyle(g).gridTemplateColumns.split(' ').length]; });
 await page.keyboard.type('joy');
 await page.waitForTimeout(100);
 await page.keyboard.press('Enter');
 await page.waitForTimeout(250);
 const picked = await page.evaluate(() => [document.querySelector('#picker').hidden, __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.includes('/reactions')).at(-1)[1].body.reactionKey]);
-check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `⌘ held opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
+check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `the + opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
+
+// A group's bubble of faces in the list: the first click opens the chat, a click on the open one opens its members.
+await page.click('#people .row[data-id="grp-1"] .av, #pinned .row[data-id="grp-1"] .av');
+await page.waitForTimeout(500);
+const firstClick = await page.evaluate(() => [state.cur.id, !profile.box.hidden]);
+await page.click('#people .row[data-id="grp-1"] .av, #pinned .row[data-id="grp-1"] .av');
+await page.waitForTimeout(500);
+const prof = [...firstClick, ...(await page.evaluate(() => [state.cur.id, !profile.box.hidden]))];
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));
+await page.waitForTimeout(300);
+check(JSON.stringify(prof) === '["grp-1",false,"grp-1",true]', `a group's picture opens the chat, then on the open chat its profile (${prof})`);
+
+// Right-click on a message: reply, react, copy; on mine, edit and delete too (delete asks a second click).
+const menuOf = async id => { await page.click(`#thread .msg[data-id="${id}"] .bubble`, { button: 'right' }); await page.waitForTimeout(250); const t = await page.$$eval('.menu .item span:first-of-type', s => s.map(x => x.textContent)); await page.keyboard.press('Escape'); await page.waitForTimeout(200); return t.join(); };
+const theirs = await menuOf('h1'), ours = await menuOf('l2');
+await page.click('#thread .msg[data-id="l2"] .bubble', { button: 'right' });
+await page.waitForTimeout(250);
+await page.click('.menu .item:has-text("Edit")');
+const editing = await page.evaluate(() => [document.querySelector('#reply b').textContent, document.querySelector('#input').value]);
+await page.fill('#input', 'thank you so much');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+const edited = await page.evaluate(() => [msgText(document.querySelector('#thread .msg[data-id="l2"]')), __log.filter(([c, a]) => c === 'api' && a.method === 'PUT').map(([, a]) => a.body.text).join(), document.querySelector('#input').value]);
+await page.click('#thread .msg[data-id="l2"] .bubble', { button: 'right' });
+await page.waitForTimeout(250);
+await page.click('.menu .item:has-text("Delete")');
+const stillThere = await page.evaluate(() => [!!document.querySelector('.menu'), __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE' && !a.path.includes('/reactions')).length]);
+await page.click('.menu .item:has-text("Delete for everyone")');
+await page.waitForTimeout(400);
+const deleted = await page.evaluate(() => [!!document.querySelector('#thread .msg[data-id="l2"]'), __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE' && !a.path.includes('/reactions')).length]);
+check(theirs === 'Reply,React…,Copy' && ours === 'Reply,React…,Copy,Edit,Delete' && JSON.stringify(editing) === '["Editing","thank you"]' && JSON.stringify(edited) === '["thank you so much","thank you so much",""]' && JSON.stringify(stillThere) === '[true,0]' && JSON.stringify(deleted) === '[false,1]',
+  `right-click: ${theirs} / ${ours}; edit ${editing} → ${edited}; delete ${stillThere} → ${deleted}`);
 
 // Muting asks each app to mute and shows the bell; merging two group chats keeps the pair.
 await page.evaluate(() => mute(state.byId.get(state.cur.id), true));

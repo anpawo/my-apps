@@ -135,7 +135,12 @@ function renderList(box, items) {
       n = document.createElement('div');
       n.className = 'row';
       n.dataset.id = item.id;
-      n.onclick = () => n._dragged || select(n.dataset.id);
+      // On the open conversation, its picture (a group's bubble of faces) opens the profile: who someone is, who is in the group.
+      n.onclick = e => {
+        if (n._dragged) return;
+        if (e.target.closest('.av') && state.cur?.id === n.dataset.id) return profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile();
+        select(n.dataset.id);
+      };
       if (box.id === 'people') dragFrom(n);
       n.oncontextmenu = e => { e.preventDefault(); select(n.dataset.id); openMore(n); };
     }
@@ -749,7 +754,7 @@ function msgNodes(m, prev) {
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
   if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {
     row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(m));
-    row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}</div>`);
+    row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}<button class="all" title="All emoji">${PLUS}</button></div>`);
   }
   nodes.push(row);
   return nodes;
@@ -857,20 +862,15 @@ $('#thread').addEventListener('pointermove', e => {
 $('#thread').addEventListener('pointerleave', unhot);
 $('#msgs').addEventListener('scroll', unhot, { passive: true });
 $('#thread').addEventListener('click', e => {
+  if (e.target.closest('.quick .all')) return openPicker(e.target.closest('.msg'));
   const b = e.target.closest('.quick button, .reacts button');
   const m = b && state.msgs.find(x => x.id === b.closest('.msg').dataset.id);
   if (m) react(m, b.dataset.e);
 });
 
-// Holding ⌘ over a message opens every emoji: the most used first, a field to search them by name.
+// The + at the end of the hover bar opens every emoji: the most used first, a field to search them by name.
+const PLUS = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const picker = $('#picker');
-let holdTimer = 0;
-addEventListener('keydown', e => {
-  if (e.key === 'Meta' && !e.repeat) {
-    holdTimer = setTimeout(() => { const row = document.querySelector('#thread .msg:hover'); if (row?.querySelector('.quick')) openPicker(row); }, 250);
-  } else if (e.metaKey) clearTimeout(holdTimer);
-});
-addEventListener('keyup', e => e.key === 'Meta' && clearTimeout(holdTimer));
 async function openPicker(row) {
   const m = state.msgs.find(x => x.id === row.dataset.id);
   if (!m) return;
@@ -885,7 +885,7 @@ async function openPicker(row) {
   field.value = '';
   await draw();
   field.oninput = draw;
-  const r = row.querySelector('.quick').getBoundingClientRect();
+  const r = (row.querySelector('.quick') || row.querySelector('.bubble')).getBoundingClientRect();
   picker.hidden = false;
   const h = picker.offsetHeight, w = picker.offsetWidth;
   picker.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left))}px`;
@@ -1122,13 +1122,17 @@ $('#emoji').addEventListener('pointerdown', e => {
 });
 input.addEventListener('blur', () => showEmoji([]));
 
-function setReply(m) {
-  state.reply = m || null;
+// The bar above the field: the message a reply answers, or the one being edited (its text then fills the field).
+function setReply(m, edit = false) {
+  if (state.edit && !(edit && m)) { input.value = ''; autosize(); }
+  state.reply = m && !edit ? m : null;
+  state.edit = m && edit ? m : null;
   const bar = $('#reply');
   if (m) {
     const chat = state.cur.chats.find(c => c.id === m.chatID);
     if (chat) setTarget(chat, true);
-    bar.innerHTML = `<b>${esc(m.isSender ? 'You' : m.senderName || state.cur.name)}</b><span>${esc(plain(m.text) || 'Attachment')}</span>`;
+    bar.innerHTML = `<b>${edit ? 'Editing' : esc(m.isSender ? 'You' : m.senderName || state.cur.name)}</b><span>${esc(plain(m.text) || 'Attachment')}</span>`;
+    if (edit) { input.value = plain(m.text) || ''; autosize(); }
     input.focus();
   }
   collapse(bar, !m, 220);
@@ -1140,6 +1144,12 @@ $('#send').disabled = true;
 
 async function send() {
   const text = input.value.trim();
+  if (state.edit && text) {
+    const m = state.edit;
+    setReply(null);
+    if (text !== plain(m.text)) editMsg(m, text);
+    return;
+  }
   if (!text || !state.target) return;
   input.value = '';
   autosize();
@@ -1219,6 +1229,55 @@ function sendVoice(blob, secs) {
 }
 $('#mic').onclick = toggleRecord;
 addEventListener('keydown', e => { if (e.key === 'Escape' && rec.mr) { e.preventDefault(); stopRecord(false); } }, true);
+
+/* ---------- Right-click on a message: reply, react, copy, edit, delete ---------- */
+
+$('#thread').addEventListener('contextmenu', e => {
+  const row = e.target.closest('.msg');
+  const m = row && state.msgs.find(x => x.id === row.dataset.id);
+  if (!m || row.classList.contains('pending')) return;
+  e.preventDefault();
+  const anchor = row.querySelector('.bubble') || row;
+  const text = plain(m.text)?.trim();
+  menu(anchor, mm => {
+    mm.append(item('Reply', { hint: '⌘R', action: () => { closeMenu(); setReply(m); } }));
+    mm.append(item('React…', { action: () => { closeMenu(); openPicker(row); } }));
+    if (text) mm.append(item('Copy', { action: () => { closeMenu(); copyText(text); } }));
+    if (m.isSender && text) mm.append(item('Edit', { action: () => { closeMenu(); setReply(m, true); } }));
+    if (m.isSender) {
+      const del = item('Delete', { action: () => {
+        // A second click, so a stray one deletes nothing: the message goes for everyone in the chat.
+        if (!del.classList.contains('sure')) { del.classList.add('sure'); del.querySelector('span').textContent = 'Delete for everyone'; return; }
+        closeMenu();
+        deleteMsg(m);
+      } });
+      mm.append(Object.assign(document.createElement('div'), { className: 'sep' }), del);
+    }
+  }, { up: anchor.getBoundingClientRect().top > innerHeight / 2 });
+});
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Copied'), () => {
+    const t = Object.assign(document.createElement('textarea'), { value: text });
+    document.body.append(t);
+    t.select();
+    document.execCommand('copy');
+    t.remove();
+    toast('Copied');
+  });
+}
+function editMsg(m, text) {
+  const was = m.text;
+  m.text = text;
+  redrawMsg(m);
+  api('PUT', `/v1/chats/${enc(m.chatID)}/messages/${enc(m.id)}`, { text }).catch(e => { m.text = was; redrawMsg(m); toast(`Not edited: ${e}`); });
+}
+function deleteMsg(m) {
+  const row = document.querySelector(`#thread .msg[data-id="${CSS.escape(m.id)}"]`);
+  state.msgs = state.msgs.filter(x => x !== m);
+  if (row) collapse(row, true, 240).then(() => row.remove());
+  drawSeen();
+  api('DELETE', `/v1/chats/${enc(m.chatID)}/messages/${enc(m.id)}`).catch(e => { toast(`Not deleted: ${e}`); pollThread(); });
+}
 
 /* ---------- Menus ---------- */
 

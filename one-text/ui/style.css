@@ -213,6 +213,8 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .msg.hot .quick { opacity: 1; pointer-events: auto; transform: none; }
 .msg .quick button { width: 26px; height: 26px; border-radius: 50%; font-size: 15px; transition: transform .15s ease-out, background .15s; }
 .msg .quick button:hover { background: var(--tint); transform: scale(1.18); }
+.msg .quick .all { display: grid; place-items: center; color: var(--muted); }
+.menu .item.sure { color: #ff453a; }
 #picker { position: fixed; width: 220px; padding: 8px; z-index: 20; }
 #picker input { width: 100%; box-sizing: border-box; margin-bottom: 6px; padding: 6px 10px; border-radius: 10px; border: 0; background: var(--field); color: inherit; font: inherit; font-size: 13px; outline: none; }
 #picker .grid { display: grid; grid-template-columns: repeat(5, 1fr); max-height: 200px; overflow-y: auto; }
