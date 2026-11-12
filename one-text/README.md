@@ -6,7 +6,7 @@ One conversation per person, whatever app they wrote from: WhatsApp, Instagram, 
 
 It reads and sends through the local [Beeper](https://www.beeper.com) Server API (its address and token come from `~/.beeper/targets/background.json` at launch; nothing is stored in the app), and starts Beeper Server when it is not answering.
 
-- One list, people and groups together, newest first: the 10 newest, plus anyone with unread messages.
+- One list, people and groups together, newest first: as many as fit in the window (10 at most, fewer under many favorites), plus anyone with unread messages; scrolling past the end shows twice as many.
 - A group can be hidden from the list (right-click, Hide from the list); ⌘D still finds it. A small Instagram or WhatsApp group with no picture shows its members' pictures side by side.
 - Favorites sit above it as pictures only: right-click a person (or ⌘F over them, or on the highlighted row of the ⌘D search) to add or remove one. A pinned group keeps its row, under those pictures.
 - Chats with the same name (word order and accents aside), the same phone number, or an Instagram handle like `first.last` matching a full name are one person, and so are the chats inside one Beeper merged itself; the ⋯ menu merges or splits them by hand.
@@ -14,7 +14,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
 - A reaction to one of your messages does not count as unread, and a muted chat shows no count.
 - Opening a conversation sends no read receipt.
-- ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close.
+- ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close. `/discord`, `/whatsapp` (or `/dc`, `/wh`…) before a name keeps only those on that app.
 
 ## Build
 

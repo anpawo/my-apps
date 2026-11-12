@@ -153,12 +153,28 @@ function movePill(ms) {
   Object.assign(pill.style, { top: top + 'px', bottom: bottom + 'px', opacity: 1 });
 }
 
-// Drawing every person (hundreds of rows and pictures) made the app slow: the list holds the 10 newest, those
-// with unread messages and the open one; a search looks through everyone but draws the 30 newest matches.
+// Drawing every person (hundreds of rows and pictures) made the app slow: the list holds the newest that fit
+// on screen (10 at most), those with unread messages and the open one; scrolling past the end doubles it.
+// A search looks through everyone but draws the 30 newest matches.
+function fits() {
+  const list = $('#list'), row = $('#people .row:not([data-leaving])')?.offsetHeight || 56;
+  const room = list.clientHeight - $('#pinned').offsetHeight - parseFloat(getComputedStyle(list).paddingBottom);
+  return Math.max(3, Math.min(10, Math.floor(room / row)));
+}
 function shown(items) {
   items = items.filter(i => !isFav(i) && (!i.hidden || i.id === state.cur?.id));
-  return items.filter((i, n) => n < 10 || i.unread > 0 || i.id === state.cur?.id);
+  const max = state.more || fits();
+  return items.filter((i, n) => n < max || i.unread > 0 || i.id === state.cur?.id);
 }
+// A wheel turn at the bottom of the list, even one too short to scroll, shows twice as many people.
+$('#list').addEventListener('wheel', e => {
+  const list = $('#list');
+  if (e.deltaY <= 0 || list.scrollHeight - list.scrollTop - list.clientHeight > 40) return;
+  const have = $('#people').querySelectorAll('.row:not([data-leaving])').length;
+  if (have >= (state.all || []).filter(i => !isFav(i) && !i.hidden).length) return;
+  state.more = Math.max(state.more || 0, fits()) * 2;
+  showLists();
+}, { passive: true });
 // A favorite is kept by its chats' ids, so it stays one after a merge or a split changes the person's id.
 const isFav = item => item.chats.some(c => state.favs.has(c.id));
 function toggleFav(item) {
@@ -169,12 +185,12 @@ function toggleFav(item) {
 }
 function showLists() {
   const all = state.all || [];
-  renderList($('#people'), shown(all));
   // Pinned groups keep their row (name and members), under the favorites' pictures.
   const favs = all.filter(isFav);
   drawFavs(favs.filter(i => i.kind !== 'group'));
   renderList($('#pinned'), favs.filter(i => i.kind === 'group'));
   $('#pinned').classList.toggle('some', favs.some(i => i.kind === 'group'));
+  renderList($('#people'), shown(all));
   movePill();
 }
 // Favorites: their pictures in a strip above the list, newest first; a dot when unread.
@@ -193,7 +209,9 @@ function drawFavs(items) {
 // ⌘D: a search palette in the middle of the window, over everyone; ↑ ↓ pick, ↵ opens, esc closes.
 const palette = $('#palette'), search = $('#search');
 function openPalette() {
-  if (!palette.hidden) return search.select();
+  if (!palette.hidden && !palette.closing) return search.select();
+  // ⌘D right after esc: the closing fade is cut short instead of hiding the reopened palette.
+  palette.closing = false;
   palette.hidden = false;
   search.value = '';
   drawResults();
@@ -202,14 +220,22 @@ function openPalette() {
   anim(palette, { opacity: [0, 1] }, 220);
 }
 function closePalette() {
-  if (palette.hidden) return;
+  if (palette.hidden || palette.closing) return;
+  palette.closing = true;
+  const done = () => { if (palette.closing) { palette.hidden = true; palette.closing = false; } };
   anim(palette.firstElementChild, { opacity: [1, 0], scale: [1, 0.96] }, 160);
-  anim(palette, { opacity: [1, 0] }, 160).finished.then(() => (palette.hidden = true)).catch(() => (palette.hidden = true));
+  anim(palette, { opacity: [1, 0] }, 160).finished.then(done, done);
 }
+// "/whatsapp lea", "/wh lea" or "/ws lea": only those on that app.
 function drawResults() {
-  const q = search.value.trim().toLowerCase();
-  const all = state.all || [];
-  const items = (q ? all.filter(i => (i.name || '').toLowerCase().includes(q)) : all).slice(0, q ? 30 : 8);
+  let q = search.value.trim().toLowerCase(), net = null;
+  const m = q.match(/^\/([a-z]+)\s*/);
+  if (m) {
+    net = Object.keys(NETS).find(k => NETS[k].cmd && (NETS[k].cmd === m[1] || k.startsWith(m[1])));
+    if (net) q = q.slice(m[0].length);
+  }
+  const all = net ? (state.all || []).filter(i => netsOf(i).includes(net)) : state.all || [];
+  const items = (q ? all.filter(i => (i.name || '').toLowerCase().includes(q)) : all).slice(0, q || net ? 30 : 8);
   renderList($('#results'), items);
   $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
 }
@@ -681,7 +707,7 @@ function toast(text, undo) {
 
 /* ---------- Start ---------- */
 
-addEventListener('resize', () => movePill(0));
+addEventListener('resize', () => { if (!state.more) showLists(); movePill(0); });
 // ponytail: polling every 3 s / 10 s; switch to the /v1/ws event stream if it ever feels late or heavy.
 setInterval(pollThread, 3000);
 setInterval(refreshList, 10000);

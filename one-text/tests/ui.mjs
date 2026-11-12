@@ -278,6 +278,35 @@ const tops = await page.evaluate(() => {
 });
 check(tops.filter(t => t === tops[0]).length === 5, `five favorites to a row (${tops})`);
 
+// "/discord" in the search keeps only those on Discord; "/wh tom" those on WhatsApp named tom.
+await page.keyboard.press('Meta+d');
+await page.fill('#search', '/discord');
+await page.waitForTimeout(400);
+const dc = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
+check(JSON.stringify(dc) === '["tom","Rust FR"]', `/discord keeps those on Discord (${dc})`);
+await page.fill('#search', '/wh tom');
+await page.waitForTimeout(400);
+const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
+check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
+await page.keyboard.press('Escape');
+
+// The list holds as many people as fit (10 at most), and a wheel turn at its end shows twice as many.
+const before = await page.evaluate(() => {
+  state.all = Array.from({ length: 40 }, (_, i) => ({ id: 'q' + i, name: 'Person ' + i, imgs: [], unread: 0, kind: 'person', last: new Date(Date.now() - i * 6e4).toISOString(), chats: [{ id: 'q' + i, network: 'WhatsApp', accountID: 'whatsapp' }] }));
+  state.byId = new Map(state.all.map(i => [i.id, i]));
+  state.cur = null; state.more = 0;
+  showLists();
+  const l = document.querySelector('#list');
+  return [document.querySelectorAll('#people .row:not([data-leaving])').length];
+});
+await page.waitForTimeout(400);
+before.push(await page.evaluate(() => { const l = document.querySelector('#list'); return l.scrollHeight <= l.clientHeight + 1; }));
+await page.mouse.move(150, 600);
+await page.mouse.wheel(0, 200);
+await page.waitForTimeout(400);
+const after = await page.evaluate(() => document.querySelectorAll('#people .row:not([data-leaving])').length);
+check(before[1] && before[0] > 0 && before[0] <= 10 && after === before[0] * 2, `the list fits the window (${before}) and a wheel turn doubles it (${after})`);
+
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');
