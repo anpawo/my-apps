@@ -879,9 +879,15 @@ function rename() {
       ov.names ||= {};
       for (const c of cur.chats) delete ov.names[c.id];
       if (alias) ov.names[cur.chats[0].id] = name;
-    }, alias ? `${original} is now ${name}` : `${cur.name} back to ${original}`).then(drawHeader);
+    }, alias ? `${original} is now ${name}` : `${cur.name} back to ${original}`).then(() => $('.who input') || drawHeader());
   };
-  field.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') end(true); if (e.key === 'Escape') end(false); };
+  // ⌘R on another row while typing keeps this alias and goes on to that one.
+  field.onkeydown = e => {
+    if (e.metaKey && e.key.toLowerCase() === 'r') return end(true);
+    e.stopPropagation();
+    if (e.key === 'Enter') end(true);
+    if (e.key === 'Escape') end(false);
+  };
   field.onblur = () => end(true);
 }
 function hide(group, on) {

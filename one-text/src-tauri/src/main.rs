@@ -316,7 +316,14 @@ mod live {
         }
         super::with_hashes(&b, &mut rt);
         let _ = std::fs::write(b.overrides.with_file_name("pictures.json"), serde_json::Value::Object(b.hashes.lock().unwrap().clone()).to_string());
-        let out = super::group::build(&rt, &serde_json::json!({}));
+        let ov = std::env::var("OVERRIDES").ok().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::json!({}));
+        let out = super::group::build(&rt, &ov);
+        if let Ok(name) = std::env::var("GROUP") {
+            for g in out["groups"].as_array().unwrap().iter().filter(|g| g["name"].as_str().is_some_and(|n| n.contains(name.as_str()))) {
+                let kinds: Vec<&str> = g["faces"].as_array().unwrap().iter().map(|f| f.as_str().unwrap_or("").split(':').next().unwrap_or("")).collect();
+                println!("group {} {}: faces {kinds:?}", g["name"].as_str().unwrap_or("").chars().take(24).collect::<String>(), g["chats"][0]["network"]);
+            }
+        }
         println!("people before pictures {before}, hashed {}", rt.iter().filter(|c| c["pictureHash"].is_array()).count());
         for p in out["people"].as_array().unwrap().iter().filter(|p| !first.contains(&p["chats"].to_string()) && p["chats"].as_array().unwrap().len() > 1) {
             let chats: Vec<String> = p["chats"].as_array().unwrap().iter().map(|c| format!("{} {}", c["network"], c["title"])).collect();

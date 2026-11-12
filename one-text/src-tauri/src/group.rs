@@ -113,14 +113,14 @@ fn summary(chat: &Value) -> Value {
     })
 }
 
-/// Every member's picture, for the row that shows them after the app's logo.
+/// Every member's picture, for the row that shows them after the app's logo: the one their person has (a picture
+/// set by hand, or one from another app) before the one this app gives.
 // ponytail: 12 at most, enough to fill a row; a 200-person Discord would otherwise load 200 pictures per draw.
-fn faces(chat: &Value) -> Vec<&str> {
+fn faces(chat: &Value, pic_of: &HashMap<String, String>) -> Vec<String> {
     let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
-    members.filter_map(|p| p["imgURL"].as_str()).take(12).collect()
+    members.filter_map(|p| p["id"].as_str().and_then(|i| pic_of.get(i)).map(String::clone).or(p["imgURL"].as_str().map(String::from))).take(12).collect()
 }
 
-/// Profile pictures to try in turn: Instagram, then WhatsApp, then Google Messages, then the rest by recency.
 fn pictures(chats: &[Value]) -> Vec<&str> {
     let rank = |c: &Value| ["Instagram", "WhatsApp", "Google Messages"].iter().position(|n| c["network"] == *n).unwrap_or(3);
     let mut ranked: Vec<&Value> = chats.iter().filter(|c| c["img"].is_string()).collect();
@@ -255,6 +255,7 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         let root = find(&mut parent, i);
         groups.entry(root).or_default().push(singles[i]);
     }
+    let mut pic_of: HashMap<String, String> = HashMap::new();
     let mut people: Vec<Value> = groups
         .into_values()
         .map(|mut members| {
@@ -264,6 +265,11 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             // A picture set by hand (overrides.pictures, by chat id) comes first.
             let custom = members.iter().find_map(|c| overrides["pictures"][id(c)].as_str());
             let alias = members.iter().find_map(|c| overrides["names"][id(c)].as_str());
+            if let Some(img) = custom.or_else(|| pictures(&chats).into_iter().next()) {
+                for p in members.iter().filter_map(|c| other(c)?["id"].as_str()) {
+                    pic_of.insert(p.to_string(), img.to_string());
+                }
+            }
             json!({
                 "id": members.iter().map(|c| id(c)).min().unwrap_or(""),
                 "name": alias.unwrap_or(&name),
@@ -283,7 +289,7 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         .filter(|c| c["type"] != "single")
         .map(|c| {
             let s = summary(c);
-            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)), "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()), "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
+            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)), "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()), "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c, &pic_of), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
         })
         .collect();
     rooms.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
@@ -420,8 +426,11 @@ mod tests {
     #[test]
     fn small_groups_show_members() {
         let g = |net: &str, total: u64, img: Option<&str>| json!({ "id": "g", "type": "group", "network": net, "imgURL": img,
-            "participants": { "total": total, "items": [{ "isSelf": true, "imgURL": "mxc://me" }, { "imgURL": "mxc://a" }, { "imgURL": "mxc://b" }, { "imgURL": "mxc://c" }] } });
-        assert_eq!(faces(&g("Discord", 30, Some("mxc://group"))), vec!["mxc://a", "mxc://b", "mxc://c"]);
+            "participants": { "total": total, "items": [{ "isSelf": true, "imgURL": "mxc://me" }, { "id": "@a", "imgURL": "mxc://a" }, { "id": "@b", "imgURL": "mxc://b" }, { "id": "@c", "imgURL": "mxc://c" }] } });
+        let mut pic_of = HashMap::new();
+        assert_eq!(faces(&g("Discord", 30, Some("mxc://group")), &pic_of), vec!["mxc://a", "mxc://b", "mxc://c"]);
+        pic_of.insert("@b".to_string(), "data:mine".to_string());
+        assert_eq!(faces(&g("Discord", 30, None), &pic_of), vec!["mxc://a", "data:mine", "mxc://c"]);
     }
 
     #[test]
