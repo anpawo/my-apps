@@ -14,6 +14,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
 - A reaction to one of your messages does not count as unread, and a muted chat shows no count.
 - Opening a conversation sends no read receipt.
+- Drag the sidebar's right edge to widen or narrow it; the width is kept.
 - ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close. `/discord`, `/whatsapp` (or `/dc`, `/wh`…) before a name keeps only those on that app.
 
 ## Build

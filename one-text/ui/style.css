@@ -21,7 +21,10 @@ svg { display: block; }
 [hidden] { display: none !important; }
 
 /* Sidebar */
-aside { width: 300px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+aside { position: relative; width: 360px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.resize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 5; cursor: col-resize; }
+.resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--rule); opacity: 0; transition: opacity 150ms; }
+.resize:hover::after, .resize.held::after { opacity: 1; }
 .drag { height: 40px; flex: none; }
 #banner { margin: 0 12px 8px; padding: 8px 11px; border-radius: 9px; background: #3a2a10; color: #ffc46b; font-size: 12.5px; }
 #list { flex: 1; padding: 0 8px 12px; }

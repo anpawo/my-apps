@@ -870,6 +870,25 @@ function toast(text, undo) {
 
 /* ---------- Start ---------- */
 
+// Holding the sidebar's right edge and dragging resizes it; the width is kept.
+{
+  const aside = $('aside'), grip = $('.resize');
+  if (localStorage.sideWidth) aside.style.width = localStorage.sideWidth + 'px';
+  grip.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    grip.classList.add('held');
+    const x0 = e.clientX, w0 = aside.offsetWidth;
+    const move = ev => { aside.style.width = Math.round(Math.max(260, Math.min(innerWidth * 0.6, w0 + ev.clientX - x0))) + 'px'; movePill(0); };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', () => {
+      grip.removeEventListener('pointermove', move);
+      grip.classList.remove('held');
+      localStorage.sideWidth = aside.offsetWidth;
+      if (!state.more) showLists();
+    }, { once: true });
+  });
+}
 addEventListener('resize', () => { if (!state.more) showLists(); movePill(0); });
 // ponytail: polling every 3 s / 10 s; switch to the /v1/ws event stream if it ever feels late or heavy.
 setInterval(pollThread, 3000);

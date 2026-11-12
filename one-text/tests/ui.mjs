@@ -353,6 +353,23 @@ await page.waitForSelector('.group');
 await page.waitForTimeout(300);
 check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'groups are kept after a restart');
 
+// Dragging the sidebar's right edge widens it, and the width is kept after a restart.
+const sideW = () => page.evaluate(() => document.querySelector('aside').offsetWidth);
+const w0 = await sideW();
+const grip = await page.locator('.resize').boundingBox();
+await page.mouse.move(grip.x + grip.width / 2, 300);
+await page.mouse.down();
+await page.mouse.move(grip.x + grip.width / 2 + 80, 300, { steps: 6 });
+await page.mouse.up();
+const w1 = await sideW();
+await page.reload();
+await page.waitForSelector('aside');
+check(w0 === 360 && w1 === 440 && (await sideW()) === 440, `the sidebar starts at 360 px and its edge drags to 440 px, kept after a restart (${w0}, ${w1}, ${await sideW()})`);
+await page.evaluate(() => { delete localStorage.sideWidth; });
+await page.reload();
+await page.waitForSelector('#people .row');
+await page.waitForTimeout(300);
+
 // The list holds as many people as fit (10 at most), and a wheel turn at its end shows twice as many.
 const before = await page.evaluate(() => {
   state.all = Array.from({ length: 40 }, (_, i) => ({ id: 'q' + i, name: 'Person ' + i, imgs: [], unread: 0, kind: 'person', last: new Date(Date.now() - i * 6e4).toISOString(), chats: [{ id: 'q' + i, network: 'WhatsApp', accountID: 'whatsapp' }] }));
