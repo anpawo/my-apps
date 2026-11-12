@@ -92,6 +92,8 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .bubble.voice .track { flex: 1; height: 4px; border-radius: 2px; background: rgb(255 255 255 / .2); overflow: hidden; }
 .bubble.voice .track i { display: block; height: 100%; width: 0; background: #fff; transition: width .25s linear; }
 .bubble.voice .time { font-size: 12px; opacity: .7; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+.bubble.voice .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--me); transition: opacity .3s ease-out, transform .3s ease-out; }
+.bubble.voice.heard .dot { opacity: 0; transform: scale(.4); }
 .bubble.voice.loading .toggle { opacity: .5; }
 .bubble.voice.failed { opacity: .5; }
 #msgs { flex: 1; padding: 14px 20px 8px; }
@@ -112,6 +114,8 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .bubble a { color: #e0f1ff; }
 .bubble.media { padding: 3px; background: none; }
 .msg.me .bubble.media { background: none; }
+.bubble.media.sticker { background: none; padding: 0; }
+.bubble.media.sticker img { width: 120px; height: 120px; object-fit: contain; border-radius: 0; }
 .bubble.media img { display: block; max-width: 280px; max-height: 320px; border-radius: 14px; }
 .msg .bubble.reel { position: relative; display: block; padding: 0; width: 180px; aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: #000; }
 .bubble.reel img { width: 100%; height: 100%; object-fit: cover; display: block; transition: scale 250ms cubic-bezier(.32, .72, 0, 1); }
@@ -198,3 +202,21 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .dragging { opacity: .35; }
 .group, #favs, .newgroup { transition: background-color 150ms; border-radius: 0; }
 .group.drop, #favs.drop, .newgroup.drop { background: var(--tint); border-radius: 10px; }
+.name .muted { width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.receipt { font-size: 11px; color: var(--muted); margin: 3px 6px 0; }
+.reacts { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 8px 2px; position: relative; }
+.reacts button { display: flex; align-items: center; gap: 3px; height: 22px; padding: 0 7px; border-radius: 11px; background: #262626; box-shadow: 0 0 0 2px #000; font-size: 13px; }
+.reacts button.me { background: rgb(10 132 255 / .35); }
+.reacts button i { font-style: normal; font-size: 11px; color: var(--muted); }
+.reacts button img { width: 16px; height: 16px; }
+.msg .quick { align-self: center; display: flex; gap: 2px; padding: 3px; border-radius: 16px; background: #1c1c1e; opacity: 0; pointer-events: none; transform: scale(.94); transition: opacity .18s ease-out, transform .18s ease-out; }
+.msg:hover .quick { opacity: 1; pointer-events: auto; transform: none; }
+.msg .quick button { width: 26px; height: 26px; border-radius: 50%; font-size: 15px; transition: transform .15s ease-out, background .15s; }
+.msg .quick button:hover { background: var(--tint); transform: scale(1.18); }
+#picker { position: fixed; width: 220px; padding: 8px; z-index: 20; }
+#picker input { width: 100%; box-sizing: border-box; margin-bottom: 6px; padding: 6px 10px; border-radius: 10px; border: 0; background: var(--field); color: inherit; font: inherit; font-size: 13px; outline: none; }
+#picker .grid { display: grid; grid-template-columns: repeat(5, 1fr); max-height: 200px; overflow-y: auto; }
+#picker .grid button { height: 40px; font-size: 22px; border-radius: 8px; }
+#picker .grid button:hover { background: var(--tint); }
+#picker .none { grid-column: 1 / -1; padding: 8px; font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .msg .quick, .msg .quick button { transition-duration: 1ms; } }

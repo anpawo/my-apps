@@ -100,17 +100,19 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], older: {}, pool: [
 
 /* ---------- Sidebar ---------- */
 
+const MUTED = '<svg class="muted" viewBox="0 0 16 16" aria-label="Muted"><path d="M4 6.5a4 4 0 0 1 6.9-2.7M12 7v2.5l1.5 2H5M6.5 13.5a1.5 1.5 0 0 0 3 0M2.5 2.5l11 11"/></svg>';
 function fill(n, item, all) {
   // A person: the logo of the app with their latest message only.
   const nets = item.kind === 'person' ? [netOf(item.chats.reduce((a, c) => (c.last > a.last ? c : a)))] : [];
-  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets, all]);
+  const muted = item.chats.length && item.chats.every(c => c.muted);
+  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets, all, muted]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
   const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item, all);
-  n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
+  n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${muted ? MUTED : ''}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;
   if (item.unread && !wasUnread && n.isConnected) anim(n.querySelector('.badge'), { scale: [0.4, 1], opacity: [0, 1] }, 200);
 }
@@ -467,6 +469,7 @@ async function refreshList() {
       if (now) { const changed = now.id !== state.cur.id || now.chats.length !== state.cur.chats.length; state.cur = now; if (changed) drawHeader(); }
     }
     requestAnimationFrame(() => movePill(300));
+    seedReactions();
   } catch (e) {
     $('#banner').textContent = String(e).startsWith('Beeper Server') ? e : `Beeper Server isn't answering (${e}). Retrying…`;
     $('#banner').hidden = false;
@@ -515,30 +518,43 @@ addEventListener('keydown', e => {
 /* ---------- Voice messages ---------- */
 
 // Fetched whole into a blob: WebKit streams media from a custom scheme only with range requests, which beeper:// lacks.
+// Each is loaded as it scrolls into view, so its length shows before it is played. Beeper does not say which ones I
+// have heard: a voice message played to 90 % is kept here as heard, and until then it carries a blue dot.
 const clock = t => (isFinite(t) ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` : '');
-$('#thread').addEventListener('click', async e => {
-  const v = e.target.closest('.bubble.voice');
-  if (!v) return;
-  let au = v._audio;
-  if (au && e.target.closest('.track')) {
-    const r = v.querySelector('.track').getBoundingClientRect();
-    au.currentTime = ((e.clientX - r.left) / r.width) * au.duration;
-    return;
-  }
-  if (!au) {
-    if (v.classList.contains('loading')) return;
+const heard = new Set(JSON.parse(localStorage.heard || '[]'));
+function voiceLoad(v) {
+  return (v._load ||= (async () => {
     v.classList.add('loading');
     const blob = await fetch(v.dataset.src).then(r => (r.ok ? r.blob() : null)).catch(() => null);
     v.classList.remove('loading');
-    if (!blob) { v.classList.add('failed'); v.title = 'Could not load this voice message'; return; }
-    au = v._audio = new Audio(URL.createObjectURL(new Blob([blob], { type: v.dataset.type || blob.type })));
+    if (!blob) { v.classList.add('failed'); v.title = 'Could not load this voice message'; return null; }
+    const au = (v._audio = new Audio(URL.createObjectURL(new Blob([blob], { type: v.dataset.type || blob.type }))));
+    au.preload = 'metadata';
     const show = () => {
       v.querySelector('.track i').style.width = `${(au.currentTime / au.duration) * 100 || 0}%`;
-      v.querySelector('.time').textContent = clock(au.paused && !au.currentTime ? au.duration : au.currentTime);
+      v.querySelector('.time').textContent = clock(au.currentTime && !au.ended ? au.currentTime : au.duration);
+      if (au.currentTime >= au.duration * 0.9 && !heard.has(v.dataset.id)) {
+        heard.add(v.dataset.id);
+        localStorage.heard = JSON.stringify([...heard].slice(-3000));
+        v.classList.add('heard');
+      }
     };
-    au.ontimeupdate = au.onloadedmetadata = show;
+    au.ontimeupdate = au.onloadedmetadata = au.ondurationchange = show;
     au.onplay = () => { v.classList.add('playing'); v.querySelector('.toggle').innerHTML = PAUSE; };
-    au.onpause = au.onended = () => { v.classList.remove('playing'); v.querySelector('.toggle').innerHTML = PLAY; };
+    au.onpause = au.onended = () => { v.classList.remove('playing'); v.querySelector('.toggle').innerHTML = PLAY; show(); };
+    return au;
+  })());
+}
+const voiceIO = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && (voiceIO.unobserve(e.target), voiceLoad(e.target))), { rootMargin: '400px' });
+$('#thread').addEventListener('click', async e => {
+  const v = e.target.closest('.bubble.voice');
+  if (!v) return;
+  const au = await voiceLoad(v);
+  if (!au) return;
+  if (e.target.closest('.track')) {
+    const r = v.querySelector('.track').getBoundingClientRect();
+    au.currentTime = ((e.clientX - r.left) / r.width) * au.duration;
+    return;
   }
   document.querySelectorAll('.bubble.voice.playing').forEach(o => o !== v && o._audio.pause());
   if (au.paused) au.play().catch(() => v.classList.add('failed')); else au.pause();
@@ -684,9 +700,11 @@ function bubbleHTML(m) {
   }
   for (const a of m.attachments || []) {
     if (a.srcURL && (a.isVoiceNote || a.type === 'audio')) {
-      parts.push(`<div class="bubble voice" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span></div>`);
+      const id = `${m.id}/${a.id || a.srcURL}`;
+      parts.push(`<div class="bubble voice${m.isSender || heard.has(id) ? ' heard' : ''}" data-id="${esc(id)}" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span><b class="dot" title="Not played yet"></b></div>`);
       if (a.transcription) parts.push(`<div class="bubble note">${esc(a.transcription)}</div>`);
-    } else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}" loading="lazy"></div>`);
+    } else if (a.isSticker && a.srcURL) parts.push(`<div class="bubble media sticker"><img src="${esc(asset(a.srcURL))}" loading="lazy" alt="Sticker"></div>`);
+    else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}" loading="lazy"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
   if (text) parts.push(`<div class="bubble">${linkify(text)}</div>`);
@@ -719,6 +737,11 @@ function msgNodes(m, prev) {
   row.title = new Date(m.timestamp).toLocaleString('fr-FR');
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
   row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
+  row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
+  if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {
+    row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(m));
+    row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}</div>`);
+  }
   nodes.push(row);
   return nodes;
 }
@@ -736,8 +759,128 @@ function drawThread(enter, keep) {
     void thread.offsetWidth;
     thread.classList.add('in');
   }
+  drawSeen();
   box.scrollTop = keep ? box.scrollHeight - fromEnd : box.scrollHeight;
 }
+
+/* ---------- Read markers and reactions ---------- */
+
+const selfIn = chatID => new Set(state.msgs.filter(m => m.isSender && m.chatID === chatID).map(m => m.senderID));
+// Under my last message, when nobody wrote after it: Seen (at what time; in a group, by how many) once the other side's
+// read marker (Beeper's `seen`, on that message or a later one) reaches it, else Sent.
+function drawSeen() {
+  document.querySelectorAll('#thread .receipt').forEach(r => r.remove());
+  const last = state.msgs.at(-1);
+  if (!last?.isSender) return;
+  const self = selfIn(last.chatID), by = new Map();
+  for (const m of state.msgs.filter(m => m.chatID === last.chatID && m.timestamp >= last.timestamp)) {
+    const v = m.seen;
+    if (v === true || typeof v === 'string') by.set('', typeof v === 'string' ? v : m.timestamp);
+    else if (v && typeof v === 'object') for (const [k, t] of Object.entries(v)) if (t && !self.has(k)) by.set(k, typeof t === 'string' ? t : m.timestamp);
+  }
+  const at = [...by.values()].sort().at(-1);
+  const day = at && new Date(at).toDateString() === new Date().toDateString();
+  const text = !by.size ? 'Sent' : state.cur.kind === 'group' ? `Seen by ${by.size}` : `Seen ${day ? new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : when(at)}`;
+  document.querySelector(`#thread .msg[data-id="${CSS.escape(last.id)}"] .col`)?.insertAdjacentHTML('beforeend', `<div class="receipt">${text}</div>`);
+}
+function reactsHTML(m) {
+  if (!m.reactions?.length) return '';
+  const self = selfIn(m.chatID), keys = new Map();
+  for (const r of m.reactions) {
+    const k = keys.get(r.reactionKey) || { n: 0, me: false, img: r.imgURL };
+    k.n++;
+    k.me ||= self.has(r.participantID) || r.participantID === 'me';
+    keys.set(r.reactionKey, k);
+  }
+  return `<div class="reacts">${[...keys].map(([key, k]) => `<button class="r${k.me ? ' me' : ''}" data-e="${esc(key)}" title="${k.me ? 'Remove your reaction' : 'React the same'}">${k.img && !/\p{Extended_Pictographic}/u.test(key) ? `<img src="${esc(asset(k.img))}" alt="">` : esc(key)}${k.n > 1 ? `<i>${k.n}</i>` : ''}</button>`).join('')}</div>`;
+}
+function redrawMsg(m) {
+  const old = document.querySelector(`#thread .msg[data-id="${CSS.escape(m.id)}"]`);
+  if (!old) return;
+  const i = state.msgs.findIndex(x => x.id === m.id);
+  old.replaceWith(msgNodes(m, state.msgs[i - 1]).at(-1));
+}
+// The five reactions I use most: counted once over my recent chats, then each one I send from here.
+const reactCount = JSON.parse(localStorage.reactCount || '{}');
+const topEmoji = () => [...new Set([...Object.entries(reactCount).sort((a, b) => b[1] - a[1]).map(([k]) => k), '❤️', '😂', '👍', '😮', '😢'])].slice(0, 5);
+async function seedReactions() {
+  if (localStorage.reactCount) return;
+  const chats = state.all.flatMap(i => i.chats).sort((a, b) => (b.last || '').localeCompare(a.last || '')).slice(0, 40);
+  for (const c of chats) {
+    const r = await api('GET', `/v1/chats/${enc(c.id)}/messages`).catch(() => null);
+    const self = new Set((r?.items || []).filter(m => m.isSender).map(m => m.senderID));
+    for (const m of r?.items || []) for (const x of m.reactions || []) if (self.has(x.participantID)) reactCount[x.reactionKey] = (reactCount[x.reactionKey] || 0) + 1;
+  }
+  localStorage.reactCount = JSON.stringify(reactCount);
+}
+// A reaction answers the conversation like a reply does; my own reaction clicked again is taken back.
+function react(m, key) {
+  const self = selfIn(m.chatID);
+  const path = `/v1/chats/${enc(m.chatID)}/messages/${enc(m.id)}/reactions`;
+  const had = (m.reactions || []).find(r => r.reactionKey === key && (self.has(r.participantID) || r.participantID === 'me'));
+  if (had) {
+    m.reactions = m.reactions.filter(r => r !== had);
+    api('DELETE', `${path}/${enc(key)}`).catch(e => toast(`Not removed: ${e}`));
+  } else {
+    m.reactions = [...(m.reactions || []), { participantID: [...self][0] || 'me', reactionKey: key }];
+    reactCount[key] = (reactCount[key] || 0) + 1;
+    localStorage.reactCount = JSON.stringify(reactCount);
+    api('POST', path, { reactionKey: key }).catch(e => toast(`Reaction not sent: ${e}`));
+    markRead(state.cur);
+  }
+  redrawMsg(m);
+}
+$('#thread').addEventListener('click', e => {
+  const b = e.target.closest('.quick button, .reacts button');
+  const m = b && state.msgs.find(x => x.id === b.closest('.msg').dataset.id);
+  if (m) react(m, b.dataset.e);
+});
+
+// Holding ⌘ over a message opens every emoji: the most used first, a field to search them by name.
+const picker = $('#picker');
+let holdTimer = 0;
+addEventListener('keydown', e => {
+  if (e.key === 'Meta' && !e.repeat) {
+    holdTimer = setTimeout(() => { const row = document.querySelector('#thread .msg:hover'); if (row?.querySelector('.quick')) openPicker(row); }, 250);
+  } else if (e.metaKey) clearTimeout(holdTimer);
+});
+addEventListener('keyup', e => e.key === 'Meta' && clearTimeout(holdTimer));
+async function openPicker(row) {
+  const m = state.msgs.find(x => x.id === row.dataset.id);
+  if (!m) return;
+  picker._msg = m;
+  const field = picker.querySelector('input'), grid = picker.querySelector('.grid');
+  const draw = async () => {
+    const q = field.value.trim();
+    const list = q ? (await emojiFind(q)).map(([e]) => e) : [...new Set([...topEmoji(), ...Object.keys(reactCount), ...(EMOJI ||= await fetch('emoji.json').then(r => r.json())).map(([e]) => e)])];
+    grid.innerHTML = list.map(e => `<button data-e="${e}">${e}</button>`).join('') || '<div class="none">No emoji by that name</div>';
+    grid.scrollTop = 0;
+  };
+  field.value = '';
+  await draw();
+  field.oninput = draw;
+  const r = row.querySelector('.quick').getBoundingClientRect();
+  picker.hidden = false;
+  const h = picker.offsetHeight, w = picker.offsetWidth;
+  picker.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left))}px`;
+  picker.style.top = `${r.top - h - 6 > 8 ? r.top - h - 6 : r.bottom + 6}px`;
+  anim(picker, { opacity: [0, 1], transform: ['scale(.96)', 'none'] }, 160);
+  field.focus();
+}
+function closePicker() {
+  if (picker.hidden) return;
+  anim(picker, { opacity: [1, 0] }, 120).finished.then(() => (picker.hidden = true)).catch(() => {});
+  input.focus();
+}
+picker.addEventListener('click', e => {
+  const b = e.target.closest('.grid button');
+  if (b) { react(picker._msg, b.dataset.e); closePicker(); }
+});
+picker.querySelector('input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); picker.querySelector('.grid button')?.click(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePicker(); }
+});
+addEventListener('pointerdown', e => { if (!picker.hidden && !picker.contains(e.target)) closePicker(); });
 
 // Scrolling up loads older messages, a page per app. One app's page reaches further back than another's, so only what is
 // newer than every app's oldest loaded message is shown; the rest waits in state.pool.
@@ -786,6 +929,13 @@ async function pollThread() {
   const msgs = await loadMessages(item);
   if (seq !== state.seq || !msgs.length) return;
   const known = new Set(state.msgs.map(m => m.id));
+  // A reaction or a read marker changes a message already shown: that one is redrawn in place.
+  const look = m => JSON.stringify([m.reactions || [], m.seen || null]);
+  for (const m of msgs) {
+    const i = state.msgs.findIndex(x => x.id === m.id);
+    if (i >= 0 && look(state.msgs[i]) !== look(m)) { state.msgs[i] = m; redrawMsg(m); }
+  }
+  drawSeen();
   const fresh = msgs.filter(m => !known.has(m.id));
   if (!fresh.length) return;
   const box = $('#msgs');
@@ -808,6 +958,7 @@ async function pollThread() {
       if (!n.hidden) { n.hidden = true; collapse(n, false, 280); }
     }
   }
+  drawSeen();
   if (atBottom) box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
   if (fresh.some(m => !m.isSender)) pickTarget(true);
   // A message of mine, sent from here or from another device, answers what came before it.
@@ -896,12 +1047,16 @@ async function emojiSearch() {
   const pos = input.selectionStart;
   const q = input.value.slice(0, pos).match(/(?:^|\s):([\p{L}_]{2,})$/u)?.[1]?.toLowerCase();
   if (!q) return showEmoji([]);
-  EMOJI ||= await fetch('emoji.json').then(r => r.json());
-  const key = q.replace(/_/g, '');
-  // A whole word first (":joy" → 😂 before 🕹️), then a name starting with it, a word starting with it, anywhere.
-  const rank = ([, slug]) => (slug.split('_').includes(q) ? 0 : slug.startsWith(q) ? 1 : new RegExp(`(^|_)${q}`).test(slug) ? 2 : slug.replace(/_/g, '').includes(key) ? 3 : 9);
   emo.from = pos - q.length - 1;
-  showEmoji(EMOJI.map(e => [e, rank(e)]).filter(([, r]) => r < 9).sort((a, b) => a[1] - b[1]).slice(0, 8).map(([e]) => e));
+  showEmoji((await emojiFind(q)).slice(0, 8));
+}
+// A whole word first (":joy" → 😂 before 🕹️), then a name starting with it, a word starting with it, anywhere.
+async function emojiFind(q) {
+  EMOJI ||= await fetch('emoji.json').then(r => r.json());
+  q = q.toLowerCase().replace(/[^\p{L}_ ]/gu, '').replace(/ /g, '_');
+  const key = q.replace(/_/g, '');
+  const rank = ([, slug]) => (slug.split('_').includes(q) ? 0 : slug.startsWith(q) ? 1 : new RegExp(`(^|_)${q}`).test(slug) ? 2 : slug.replace(/_/g, '').includes(key) ? 3 : 9);
+  return EMOJI.map(e => [e, rank(e)]).filter(([, r]) => r < 9).sort((a, b) => a[1] - b[1]).map(([e]) => e);
 }
 function showEmoji(list) {
   const box = $('#emoji');
@@ -1107,14 +1262,13 @@ function openMore(anchor) {
     m.append(sep(), item('Alias…', { hint: '⌘M', action: () => { closeMenu(); rename(); } }));
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
-    if (person.kind !== 'person') {
-      m.append(sep(), item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
-      return;
-    }
+    const muted = person.chats.every(c => c.muted);
+    m.append(sep(), item(muted ? 'Unmute' : 'Mute', { hint: muted ? '' : 'no badge, no count', action: () => { closeMenu(); mute(person, !muted); } }));
+    if (person.kind !== 'person') m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
     m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
     for (const c of person.chats.length > 1 ? person.chats : []) {
       const k = netOf(c);
-      m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); split(person, c); } }));
+      m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); (person.kind === 'person' ? split : splitGroup)(person, c); } }));
     }
   }, { right: anchor.classList.contains('more') });
   return m;
@@ -1123,13 +1277,14 @@ function openMore(anchor) {
 function mergePicker(m, person) {
   const field = document.createElement('input');
   field.placeholder = `Merge ${person.name} with…`;
+  const kind = person.kind === 'person' ? 'person' : 'group';
   const found = document.createElement('div');
   found.className = 'found';
   const draw = () => {
     const q = field.value.trim().toLowerCase();
-    const others = [...state.byId.values()].filter(i => i.kind === 'person' && i.id !== person.id && (!q || fold(i.name).includes(fold(q)) || fold(i.original).includes(fold(q)))).slice(0, 30);
-    found.replaceChildren(...others.map(o => item(o.name || 'Unnamed', { icon: avatar(o), hint: netsOf(o).map(k => NETS[k].label).join(', '), action: () => { closeMenu(); merge(person, o); } })));
-    if (!others.length) found.innerHTML = '<div class="none">Nobody by that name</div>';
+    const others = [...state.byId.values()].filter(i => (i.kind === 'person' ? 'person' : 'group') === kind && i.id !== person.id && (!q || fold(i.name).includes(fold(q)) || fold(i.original).includes(fold(q)))).slice(0, 30);
+    found.replaceChildren(...others.map(o => item(o.name || 'Unnamed', { icon: avatar(o), hint: netsOf(o).map(k => NETS[k].label).join(', '), action: () => { closeMenu(); (kind === 'person' ? merge : mergeGroups)(person, o); } })));
+    if (!others.length) found.innerHTML = `<div class="none">${kind === 'person' ? 'Nobody' : 'No group'} by that name</div>`;
   };
   field.oninput = draw;
   field.onkeydown = e => { if (e.key === 'Enter') found.querySelector('.item')?.click(); };
@@ -1215,6 +1370,19 @@ function merge(a, b) {
     ov.splits = ov.splits.filter(id => !ids.includes(id));
     ov.merges.push([a.chats[0].id, b.chats[0].id]);
   }, `Merged ${a.name} and ${b.name}`);
+}
+// The same group on two apps, one conversation: kept in overrides.groupMerges, the first keeps its name and picture.
+function mergeGroups(a, b) {
+  editOverrides(ov => { (ov.groupMerges ||= []).push([a.chats[0].id, b.chats[0].id]); }, `Merged ${a.name} and ${b.name}`);
+}
+function splitGroup(g, chat) {
+  editOverrides(ov => { ov.groupMerges = (ov.groupMerges || []).filter(pair => !pair.includes(chat.id)); }, `Split ${NETS[netOf(chat)].label} off ${g.name}`);
+}
+// Muting goes to the apps through Beeper, so it holds on the phone too.
+async function mute(item, on) {
+  await Promise.all(item.chats.map(c => api('PATCH', `/v1/chats/${enc(c.id)}`, { isMuted: on }).then(() => (c.muted = on)).catch(e => toast(`${NETS[netOf(c)].label}: ${e}`))));
+  toast(`${item.name} ${on ? 'muted' : 'unmuted'}`);
+  refreshList();
 }
 function split(person, chat) {
   editOverrides(ov => {

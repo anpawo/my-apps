@@ -9,6 +9,8 @@ const out = process.argv[2] || '/tmp/chats-ui';
 mkdirSync(out, { recursive: true });
 
 const stub = () => {
+  // A message's own text: the hover reactions and the Sent/Seen line are not part of it.
+  window.msgText = m => { const c = m.cloneNode(true); c.querySelectorAll('.quick, .receipt, .reacts').forEach(e => e.remove()); return c.textContent.trim(); };
   const t = m => new Date(Date.now() - m * 60000).toISOString();
   const chat = (id, network, person, name, last, unread = 0) => ({ id, network, accountID: network.toLowerCase(), person, title: name, last, unread, preview: null });
   const chats = [
@@ -63,6 +65,7 @@ const stub = () => {
     if (cmd === 'open_url') return null;
     if (cmd === 'api') {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
+      if (args.path.includes('/reactions') || args.method === 'PATCH') return {};
       const [path, query] = args.path.split('?');
       const m = path.match(/^\/v1\/chats\/([^/]+)\/(messages|read)$/);
       const id = m && decodeURIComponent(m[1]);
@@ -77,6 +80,7 @@ const stub = () => {
     }
     throw new Error('unexpected ' + cmd + ' ' + JSON.stringify(args));
   };
+  window.__msgs = msgs;
   window.__TAURI__ = { core: { invoke } };
 };
 
@@ -87,8 +91,8 @@ const monotonic = v => v.every((x, i) => i === 0 || x >= v[i - 1] - 0.5) || v.ev
 const browser = await webkit.launch();
 const page = await browser.newPage({ viewport: { width: 1100, height: 720 }, deviceScaleFactor: 2 });
 const errors = [];
-page.on('pageerror', e => errors.push(e.message));
-page.on('console', m => m.type() === 'error' && !/beeper:\/\/|unsupported URL/.test(m.text()) && errors.push(m.text()));
+page.on('pageerror', e => !/localhost\/asset/.test(e.message) && errors.push(e.message));
+page.on('console', m => m.type() === 'error' && !/beeper:\/\/|unsupported URL|Cross origin requests|\/localhost\/asset/.test(m.text()) && errors.push(m.text()));
 await page.addInitScript(stub);
 await page.route('http://chats.test/**', r => {
   const file = new URL(r.request().url()).pathname.slice(1) || 'index.html';
@@ -129,7 +133,7 @@ check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus
 await page.click('#people .row >> nth=0');
 await page.waitForSelector('#thread .msg');
 await page.waitForTimeout(700);
-const thread = await page.$$eval('#thread .msg', ms => ms.map(m => m.dataset.net + ':' + m.textContent.trim()));
+const thread = await page.$$eval('#thread .msg', ms => ms.map(m => m.dataset.net + ':' + msgText(m)));
 check(!(await page.$('#thread .net')), 'no network logos on messages');
 const reel = await page.$$eval('#thread .bubble.reel', rs => rs.map(r => [r.getAttribute('href'), !!r.querySelector('img'), !!r.querySelector('.play')]));
 check(JSON.stringify(reel) === JSON.stringify([['https://www.instagram.com/reel/ABC123/', true, true]]), `shared reel shows as a card (${JSON.stringify(reel)})`);
@@ -202,7 +206,7 @@ check(!bar[0] && bar[1].includes('dinner tonight') && bar[2] === 'input' && repl
 // Older messages come a page at a time as the thread is scrolled up, or until it fills the window; both apps stay in time order.
 await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() => select('ig-lea')); });
 await page.waitForTimeout(1500);
-const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => b.textContent.trim()), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
+const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => msgText(b)), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
 await page.evaluate(() => { window.__page = 0; });
 check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '', '8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
@@ -253,13 +257,13 @@ await page.keyboard.type('/ws ');
 check(await on() === 'whatsapp' && (await page.inputValue('#input')) === '', '/ws switches to WhatsApp and clears the command');
 await page.keyboard.type('- on my way');
 await page.keyboard.press('Enter');
-const pend = await page.$$eval('#thread .msg.pending', ms => ms.map(m => m.textContent.trim()));
+const pend = await page.$$eval('#thread .msg.pending', ms => ms.map(m => msgText(m)));
 await page.waitForTimeout(100);
 const sent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path, a.body.text]));
 check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', '- on my way']), 'message sent to the WhatsApp chat');
 check(JSON.stringify(pend) === '["- on my way"]', `pending bubble shown at once (${JSON.stringify(pend)})`);
 await page.waitForTimeout(1200);
-const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => m.textContent.trim()).filter(t => t.includes('on my way')));
+const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => msgText(m)).filter(t => t.includes('on my way')));
 check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && JSON.stringify(mine) === '["on my way"]', `pending bubble replaced by the sent message, even when the app rewrote it (${mine} ${await page.$$eval('#thread .msg.failed', ms => ms.map(m => m.title))})`);
 check(await on() === 'whatsapp', 'manual choice holds after sending');
 
@@ -417,7 +421,7 @@ await page.waitForTimeout(250);
 await page.screenshot({ path: join(out, '8-menu.png') });
 const sections = await page.$$eval('.menu > *', es => es.map(e => e.classList.contains('sep') ? '|' : e.textContent.replace(/⌘.|⌘D.*/, '').trim()).join(','));
 await page.keyboard.press('Escape');
-check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Merge with…'), `⌘M gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
+check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Muteno badge, no count,|,Merge with…'), `⌘M gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
@@ -524,6 +528,53 @@ await page.waitForTimeout(400);
 const after = await page.evaluate(() => document.querySelectorAll('#people .row:not([data-leaving])').length);
 check(before[1] && before[0] > 0 && before[0] <= 10 && after === before[0] * 2, `the list fits the window (${before}) and a wheel turn doubles it (${after})`);
 
+// Under my last message: Seen and its time once the other side's read marker reaches it, Sent before.
+await page.evaluate(() => {
+  const t = new Date(Date.now() - 60000).toISOString();
+  __msgs['ig-hugo'].push({ id: 'h2', chatID: 'ig-hugo', text: 'thanks!', timestamp: t, sortKey: String(1e9 - 1), isSender: true, senderID: 'me', senderName: 'x', seen: { 'ig-hugo': t } });
+  __msgs['li-hugo'].push({ id: 'l2', chatID: 'li-hugo', text: 'thank you', timestamp: new Date().toISOString(), sortKey: String(1e9), isSender: true, senderID: 'me', senderName: 'x' });
+  return refreshList().then(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));
+});
+await page.waitForSelector('#thread .receipt');
+const sentOnly = await page.$eval('#thread .receipt', r => [r.textContent, r.closest('.msg').dataset.id]);
+await page.evaluate(() => { __msgs['li-hugo'].at(-1).seen = { 'li-hugo': new Date().toISOString() }; return pollThread(); });
+await page.waitForTimeout(100);
+const seenNow = await page.$$eval('#thread .receipt', rs => rs.map(r => r.textContent));
+check(JSON.stringify(sentOnly) === '["Sent","l2"]' && seenNow.length === 1 && /^Seen \d\d:\d\d$/.test(seenNow[0]), `my last message says Sent, then Seen at its time (${sentOnly} / ${seenNow})`);
+
+// Hovering a message shows my five most used reactions beside it; a click reacts, a second click takes it back.
+await page.hover('#thread .msg[data-id="h1"] .bubble');
+const quick = await page.$eval('#thread .msg[data-id="h1"]', m => { const q = m.querySelector('.quick'), b = m.querySelector('.bubble'); return [q.querySelectorAll('button').length, q.getBoundingClientRect().left >= b.getBoundingClientRect().right]; });
+await page.waitForTimeout(250);
+await page.click('#thread .msg[data-id="h1"] .quick button[data-e="👍"]');
+const pill = await page.$eval('#thread .msg[data-id="h1"] .reacts button', b => [b.textContent, b.classList.contains('me')]);
+const posted = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.includes('/messages/h1/reactions')).map(([, a]) => a.method + ' ' + (a.body?.reactionKey || a.path.split('/').pop())));
+await page.click('#thread .msg[data-id="h1"] .reacts button');
+const undone = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="h1"] .reacts button').length, __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE').length]);
+check(JSON.stringify(quick) === '[5,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
+
+// Holding ⌘ over a message opens every emoji, 5 to a row, searchable by name.
+await page.hover('#thread .msg[data-id="h1"] .bubble');
+await page.keyboard.down('Meta');
+await page.waitForTimeout(450);
+await page.keyboard.up('Meta');
+const pick = await page.evaluate(() => { const p = document.querySelector('#picker'), g = p.querySelector('.grid'); return [p.hidden, document.activeElement === p.querySelector('input'), g.children.length > 25, Math.round(g.clientHeight / g.children[0].offsetHeight), getComputedStyle(g).gridTemplateColumns.split(' ').length]; });
+await page.keyboard.type('joy');
+await page.waitForTimeout(100);
+await page.keyboard.press('Enter');
+await page.waitForTimeout(250);
+const picked = await page.evaluate(() => [document.querySelector('#picker').hidden, __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.includes('/reactions')).at(-1)[1].body.reactionKey]);
+check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `⌘ held opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
+
+// Muting asks each app to mute and shows the bell; merging two group chats keeps the pair.
+await page.evaluate(() => mute(state.byId.get(state.cur.id), true));
+await page.waitForTimeout(300);
+const muted = await page.evaluate(() => [__log.filter(([c, a]) => c === 'api' && a.method === 'PATCH' && a.body.isMuted === true).length, !!document.querySelector(`#people .row[data-id="${state.cur.id}"] .muted, #favs [data-id="${state.cur.id}"] .muted`)]);
+await page.evaluate(() => mergeGroups(state.byId.get('grp-1'), state.byId.get('grp-2')));
+await page.waitForTimeout(200);
+const merged = await page.evaluate(() => __log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.groupMerges);
+check(muted[0] === 2 && JSON.stringify(merged) === '[["grp-1","grp-2"]]', `mute PATCHes both chats; merging two groups keeps the pair (${muted} / ${JSON.stringify(merged)})`);
+
 // A voice message plays in the thread: its file is fetched whole, then a play button, a track and the time.
 await page.evaluate(() => {
   const wav = (() => { const n = 8000, b = new DataView(new ArrayBuffer(44 + n)); const w = (o, s) => [...s].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
@@ -533,8 +584,13 @@ await page.evaluate(() => {
   return refreshList().then(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'dc-tom')).id));
 });
 await page.waitForSelector('#thread .bubble.voice');
-await page.click('#thread .bubble.voice .toggle');
 await page.waitForTimeout(600);
+const unplayed = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [v.querySelector('.time').textContent, getComputedStyle(v.querySelector('.dot')).opacity]; });
+check(JSON.stringify(unplayed) === '["0:01","1"]', `a voice message shows its length and a dot before it is played (${unplayed})`);
+await page.click('#thread .bubble.voice .toggle');
+await page.waitForTimeout(1600);
+const heardNow = await page.evaluate(() => [document.querySelector('#thread .bubble.voice').classList.contains('heard'), JSON.parse(localStorage.heard || '[]').length]);
+check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard (${heardNow})`);
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 

@@ -108,7 +108,7 @@ fn merged_picture(chat: &Value) -> Option<&str> {
 fn summary(chat: &Value) -> Value {
     json!({
         "id": id(chat), "network": chat["network"], "accountID": chat["accountID"], "title": name_of(chat),
-        "unread": chat["unreadCount"].as_i64().unwrap_or(0), "last": last(chat), "preview": chat["preview"],
+        "unread": chat["unreadCount"].as_i64().unwrap_or(0), "last": last(chat), "preview": chat["preview"], "muted": chat["isMuted"] == true,
         "img": other(chat).and_then(|p| p["imgURL"].as_str()).or_else(|| merged_picture(chat)).or(chat["imgURL"].as_str()),
     })
 }
@@ -283,12 +283,43 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         .collect();
     people.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
     let hidden: Vec<&str> = overrides["hidden"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-    let mut rooms: Vec<Value> = chats
-        .iter()
-        .filter(|c| c["type"] != "single")
-        .map(|c| {
-            let s = summary(c);
-            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)), "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()), "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c, &pic_of), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
+    // Group chats are one each, unless `overrides.groupMerges` joins some (the same group on two apps): the first of a
+    // pair keeps its id, name and picture, the others add their chats, members and unread messages.
+    let groups: Vec<&Value> = chats.iter().filter(|c| c["type"] != "single").collect();
+    let at: HashMap<&str, usize> = groups.iter().enumerate().map(|(i, c)| (id(c), i)).collect();
+    let mut root: Vec<usize> = (0..groups.len()).collect();
+    fn find(root: &mut [usize], i: usize) -> usize {
+        if root[i] != i { let r = find(root, root[i]); root[i] = r; }
+        root[i]
+    }
+    for pair in overrides["groupMerges"].as_array().into_iter().flatten() {
+        if let (Some(&a), Some(&b)) = (pair[0].as_str().and_then(|x| at.get(x)), pair[1].as_str().and_then(|x| at.get(x))) {
+            let (ra, rb) = (find(&mut root, a), find(&mut root, b));
+            if ra != rb { root[rb] = ra; }
+        }
+    }
+    let mut sets: Vec<(usize, Vec<usize>)> = Vec::new();
+    for i in 0..groups.len() {
+        let r = find(&mut root, i);
+        match sets.iter_mut().find(|(k, _)| *k == r) { Some((_, v)) => v.push(i), None => sets.push((r, vec![i])) }
+    }
+    let mut rooms: Vec<Value> = sets
+        .into_iter()
+        .map(|(r, members)| {
+            let c = groups[r];
+            let mut summaries: Vec<Value> = members.iter().map(|&i| summary(groups[i])).collect();
+            summaries.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
+            let mut seen = std::collections::HashSet::new();
+            let faces: Vec<String> = members.iter().flat_map(|&i| faces(groups[i], &pic_of)).filter(|f| seen.insert(f.clone())).collect();
+            json!({
+                "id": id(c), "hidden": hidden.contains(&id(c)),
+                "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)),
+                "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()),
+                "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(),
+                "faces": faces,
+                "unread": summaries.iter().map(|s| s["unread"].as_i64().unwrap_or(0)).sum::<i64>(),
+                "last": summaries[0]["last"], "preview": summaries[0]["preview"], "chats": summaries,
+            })
         })
         .collect();
     rooms.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
@@ -374,6 +405,18 @@ mod tests {
         let out = build(&fixture(), &json!({ "names": { "wa-lea": "Lele" } }));
         let lea = out["people"].as_array().unwrap().iter().find(|p| p["name"] == "Lele").unwrap();
         assert_eq!(lea["original"], "Léa  MARTIN");
+    }
+
+    #[test]
+    fn merged_groups_are_one_conversation() {
+        let g = |i: &str, net: &str, t: &str, at: &str, n: i64| json!({ "id": i, "type": "group", "network": net, "title": t, "lastActivity": at, "unreadCount": n, "participants": { "total": 3, "items": [] } });
+        let all = [g("wa-s14", "WhatsApp", "s14", "2026-11-12T10:00:00Z", 2), g("te-s14", "Microsoft Teams", "S14 team", "2026-11-12T11:00:00Z", 1), g("mx-gl", "Matrix", "GL", "2026-11-11T09:00:00Z", 0)];
+        let out = build(&all, &json!({ "groupMerges": [["wa-s14", "te-s14"]] }));
+        let groups = out["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 2);
+        let s14 = groups.iter().find(|g| g["id"] == "wa-s14").unwrap();
+        assert_eq!((&s14["name"], &s14["unread"], s14["chats"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect::<Vec<_>>()), (&json!("s14"), &json!(3), vec!["te-s14", "wa-s14"]));
+        assert_eq!(build(&all, &json!({}))["groups"].as_array().unwrap().len(), 3);
     }
 
     #[test]
