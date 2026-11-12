@@ -8,8 +8,8 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 
 - One list, people and groups together, newest first: as many as fit in the window (10 at most, fewer under many favorites), plus anyone with unread messages; scrolling past the end shows twice as many.
 - A group can be hidden from the list (right-click, Hide from the list); ⌘D still finds it. A small Instagram or WhatsApp group with no picture shows its members' pictures side by side.
-- Favorites sit above it as pictures only: right-click a person (or ⌘F over them, or on the highlighted row of the ⌘D search) to add or remove one. A pinned group keeps its row, under those pictures.
-- Chats with the same name (word order and accents aside), the same phone number, or an Instagram handle like `first.last` matching a full name are one person, and so are the chats inside one Beeper merged itself; the ⋯ menu merges or splits them by hand.
+- Favorites sit above it as pictures only: right-click a person (or ⌘F over them, or on the highlighted row of the ⌘D search) to add or remove one. A pinned group keeps its row, under those pictures. ⌘ + arrows move the favorite under the pointer (or the open one) to order them.
+- Chats with the same name (word order and accents aside), the same phone number, an Instagram handle like `first.last` matching a full name, or `first_l` matching the one full name that starts that way, are one person; so is a first name alone ("Cyprien") when no app has two chats under it; and so are the chats inside one Beeper merged itself; the ⋯ menu merges or splits them by hand.
 - The logos at the top right are the apps that person is on; the highlighted one is where your reply goes (by default the app they last wrote from). Click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm` or `/mx`.
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
 - A reaction to one of your messages does not count as unread, and a muted chat shows no count.

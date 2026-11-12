@@ -231,6 +231,21 @@ check((await favIds()).length === 1 && (await page.$$eval('#people .row:not([dat
 await page.reload();
 await page.waitForSelector('#favs .fav');
 check(JSON.stringify(await favIds()) === JSON.stringify([hugo]), 'favorites are kept after a restart');
+// ⌘ + arrows reorder favorites, and the order survives a restart.
+await page.hover('#people .row:has-text("Tom B")');
+await page.keyboard.press('Meta+f');
+await page.waitForTimeout(300);
+const tomB = (await favIds())[1];
+await page.hover(`#favs .fav[data-id="${tomB}"]`);
+await page.keyboard.press('Meta+ArrowLeft');
+await page.waitForTimeout(400);
+check(JSON.stringify(await favIds()) === JSON.stringify([tomB, hugo]), `Cmd+Left moves a favorite first (${await favIds()})`);
+await page.reload();
+await page.waitForSelector('#favs .fav');
+check(JSON.stringify(await favIds()) === JSON.stringify([tomB, hugo]), 'the favorites order is kept after a restart');
+await page.hover(`#favs .fav[data-id="${tomB}"]`);
+await page.keyboard.press('Meta+f');
+await page.waitForTimeout(400);
 
 // Hiding a group: right-click → Hide from the list; ⌘D still finds it.
 await page.click('#people .row:has-text("Rust FR")', { button: 'right' });

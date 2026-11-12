@@ -17,6 +17,26 @@ pub fn name_key(name: &str) -> Option<String> {
     (!PLACEHOLDERS.contains(&key.as_str())).then(|| format!("name:{key}"))
 }
 
+fn words(name: &str) -> Vec<String> {
+    let plain: String = name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase();
+    plain.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).map(str::to_string).collect()
+}
+
+fn one_word(name: &str) -> Option<String> {
+    let w = words(name);
+    (w.len() == 1 && w[0].chars().count() >= 3).then(|| w[0].clone())
+}
+
+/// "victor__k__" → ("victor", 'k'): a first name and one letter, nothing else.
+fn initial_handle(handle: &str) -> Option<(String, char)> {
+    let parts: Vec<&str> = handle.split(['.', '_']).filter(|w| !w.is_empty()).collect();
+    match parts[..] {
+        [name, letter] if name.chars().count() >= 3 && name.chars().all(char::is_alphabetic) && letter.chars().count() == 1 && letter.chars().all(char::is_alphabetic) =>
+            Some((name.to_lowercase(), letter.to_lowercase().chars().next()?)),
+        _ => None,
+    }
+}
+
 /// The last 9 digits, so +33 6…, 06… and 0033 6… are one number.
 pub fn phone_key(phone: &str) -> Option<String> {
     let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
@@ -125,6 +145,40 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
                 None => {
                     owner.insert(key, i);
                 }
+            }
+        }
+    }
+    // A first name alone ("Cyprien") is one person when no app has two chats under it; on one app, it is ambiguous.
+    let mut first: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, chat) in singles.iter().enumerate() {
+        if let Some(word) = one_word(&name_of(chat)).filter(|_| !splits.contains(&id(chat))) {
+            first.entry(word).or_default().push(i);
+        }
+    }
+    for same in first.values().filter(|v| v.len() > 1) {
+        let apps: std::collections::HashSet<String> = same.iter().map(|&i| format!("{} {}", singles[i]["network"], singles[i]["accountID"])).collect();
+        if apps.len() == same.len() {
+            for &i in &same[1..] {
+                let (a, b) = (find(&mut parent, i), find(&mut parent, same[0]));
+                parent[a] = b;
+            }
+        }
+    }
+    // A handle like "victor__k__" is the one full name on another app that starts with Victor K.
+    for (i, chat) in singles.iter().enumerate() {
+        let Some((name, initial)) = other(chat).and_then(|p| p["username"].as_str()).and_then(initial_handle) else { continue };
+        if splits.contains(&id(chat)) {
+            continue;
+        }
+        let fits: Vec<usize> = (0..singles.len()).filter(|&j| j != i && !splits.contains(&id(singles[j]))).filter(|&j| {
+            let w = words(&name_of(singles[j]));
+            w.len() >= 2 && w[0] == name && w.last().is_some_and(|l| l.starts_with(initial))
+        }).collect();
+        let names: std::collections::HashSet<Option<String>> = fits.iter().map(|&j| name_key(&name_of(singles[j]))).collect();
+        if names.len() == 1 {
+            for &j in &fits {
+                let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                parent[a] = b;
             }
         }
     }
@@ -247,6 +301,27 @@ mod tests {
         let li = json!({ "id": "li-x", "type": "single", "network": "LinkedIn", "lastActivity": "2026-11-02T00:00:00Z",
             "participants": { "items": [{ "isSelf": true }, { "fullName": "Alex", "username": "ACoAAEKc-97TUQ" }] } });
         assert_eq!(people(&build(&[ig, wa, li], &json!({}))), vec![vec!["ig-alex", "wa-alex"], vec!["li-x"]]);
+    }
+
+    #[test]
+    fn first_name_alone_merges_once_per_app() {
+        let at = "2026-11-12T00:00:00Z";
+        let cyp = [chat("ig-c", "Instagram", "Cyprien", None, at), chat("wa-c", "WhatsApp", "Cyprien", None, at)];
+        assert_eq!(people(&build(&cyp, &json!({}))), vec![vec!["ig-c", "wa-c"]]);
+        assert_eq!(people(&build(&cyp, &json!({ "splits": ["wa-c"] }))).len(), 2);
+        let tom = [chat("ig-t", "Instagram", "Tom", None, at), chat("ig-u", "Instagram", "Tom", None, at), chat("wa-t", "WhatsApp", "Tom", None, at)];
+        assert_eq!(people(&build(&tom, &json!({}))).len(), 3);
+    }
+
+    #[test]
+    fn handle_with_an_initial_meets_the_one_full_name() {
+        let at = "2026-11-12T00:00:00Z";
+        let ig = json!({ "id": "ig-v", "type": "single", "network": "Instagram", "lastActivity": at,
+            "participants": { "items": [{ "isSelf": true }, { "fullName": "Victor", "username": "victor__k__" }] } });
+        let wa = chat("wa-v", "WhatsApp", "Victor Koscher", None, at);
+        assert_eq!(people(&build(&[ig.clone(), wa.clone()], &json!({}))), vec![vec!["ig-v", "wa-v"]]);
+        let other = chat("wa-w", "WhatsApp", "Victor Kalinski", None, at);
+        assert_eq!(people(&build(&[ig, wa, other], &json!({}))).len(), 3);
     }
 
     #[test]

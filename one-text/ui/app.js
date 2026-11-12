@@ -183,26 +183,43 @@ function toggleFav(item) {
   localStorage.favs = JSON.stringify([...state.favs]);
   showLists();
 }
+// Favorites keep the order he gives them (⌘ + arrows), new ones last.
+const favRank = item => Math.min(...item.chats.map(c => [...state.favs].indexOf(c.id)).filter(n => n >= 0));
+function moveFav(item, key) {
+  const favs = (state.all || []).filter(isFav).sort((a, b) => favRank(a) - favRank(b));
+  const same = favs.filter(i => (i.kind === 'group') === (item.kind === 'group'));
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: item.kind === 'group' ? -1 : -5, ArrowDown: item.kind === 'group' ? 1 : 5 }[key];
+  const from = same.indexOf(item), to = Math.max(0, Math.min(same.length - 1, from + step));
+  if (from < 0 || to === from) return;
+  same.splice(to, 0, ...same.splice(from, 1));
+  const order = [...same, ...favs.filter(i => !same.includes(i))].flatMap(i => i.chats.map(c => c.id)).filter(id => state.favs.has(id));
+  state.favs = new Set([...order, ...state.favs]);
+  localStorage.favs = JSON.stringify([...state.favs]);
+  showLists();
+}
 function showLists() {
   const all = state.all || [];
   // Pinned groups keep their row (name and members), under the favorites' pictures.
-  const favs = all.filter(isFav);
+  const favs = all.filter(isFav).sort((a, b) => favRank(a) - favRank(b));
   drawFavs(favs.filter(i => i.kind !== 'group'));
   renderList($('#pinned'), favs.filter(i => i.kind === 'group'));
   $('#pinned').classList.toggle('some', favs.some(i => i.kind === 'group'));
   renderList($('#people'), shown(all));
   movePill();
 }
-// Favorites: their pictures in a strip above the list, newest first; a dot when unread.
+// Favorites: their pictures in a strip above the list, in his order; a dot when unread.
 function drawFavs(items) {
   const box = $('#favs');
-  const had = new Set([...box.children].map(b => b.dataset.id));
+  const was = new Map([...box.children].map(b => [b.dataset.id, b.getBoundingClientRect()]));
+  const had = new Set(was.keys());
   box.hidden = !items.length;
   box.innerHTML = items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
   box.querySelectorAll('.fav').forEach(b => {
     b.onclick = () => select(b.dataset.id);
     b.oncontextmenu = e => { e.preventDefault(); select(b.dataset.id); openMore(b); };
     if (had.size && !had.has(b.dataset.id)) anim(b, { scale: [0.5, 1], opacity: [0, 1] }, 260);
+    const old = was.get(b.dataset.id), now = b.getBoundingClientRect();
+    if (old && (old.left !== now.left || old.top !== now.top)) anim(b, { translate: [`${old.left - now.left}px ${old.top - now.top}px`, '0 0'] }, 260);
   });
 }
 
@@ -296,6 +313,13 @@ addEventListener('keydown', e => {
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
+  // ⌘ + arrows move the favorite under the pointer, or the open one when no text is being edited.
+  if (e.metaKey && e.key.startsWith('Arrow')) {
+    const hover = document.querySelector('.fav:hover, #pinned .row:hover');
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.value;
+    const item = hover ? state.byId.get(hover.dataset.id) : !typing && state.cur && isFav(state.cur) ? state.cur : null;
+    if (item) { e.preventDefault(); moveFav(item, e.key); }
+  }
 });
 /* ---------- Conversation ---------- */
 
