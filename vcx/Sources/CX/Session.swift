@@ -1051,7 +1051,7 @@ final class Session: ObservableObject {
         for message in startupEvents { event(message) }
         do {
             changing = false
-            try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
+            try await open(resume, keepRows: keepRows, selectedModel: resume != nil && previous.0.id == next.id && !["", "Claude", "Codex"].contains(previous.2) ? previous.2 : nil)
             if previous.0.id != next.id { effort = nil; save() }
             pendingActivation = nil; pendingRestore = nil; lostConnection = false
             if let reason { reconnected(reason, resumed: resume != nil, switched: previous.0.id != next.id) }
