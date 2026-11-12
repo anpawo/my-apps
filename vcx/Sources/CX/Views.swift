@@ -576,7 +576,7 @@ extension CXView {
         return dy > 0 ? top : bottom
     }
     private(set) static var chained: Bool?
-    private static var held: [NSEvent] = []
+    private(set) static var held: [NSEvent] = []
     private static var travel = CGSize.zero
     static let monitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
         MainActor.assumeIsolated { route(event, in: event.window, at: event.locationInWindow) }
@@ -587,7 +587,7 @@ extension CXView {
             var outer = hit?.superview
             while let view = outer, !(view is TranscriptScrollView) { outer = view.superview }
             // A swipe begun off any table stays with the transcript when a table slides under the pointer.
-            if event.phase.contains(.began) || event.phase.contains(.mayBegin) { chained = outer is TranscriptScrollView ? nil : true; travel = .zero }
+            if event.phase.contains(.began) || event.phase.contains(.mayBegin) { chained = outer is TranscriptScrollView ? nil : true; travel = .zero; held = [] }
             if let inner = hit, let outer = outer as? TranscriptScrollView {
                 let chain: Bool
                 if event.phase.isEmpty && event.momentumPhase.isEmpty { chain = passes(event, over: inner) }
@@ -604,6 +604,11 @@ extension CXView {
                 }
                 let replay = held; held = []
                 if chain { hit = nil; replay.forEach(outer.scrollWheel) } else { replay.forEach(inner.scrollWheel) }
+            } else if !held.isEmpty {
+                // An undecided swipe left the table: what it held goes where it went, never into a later swipe.
+                if chained == nil { chained = true }
+                let replay = held; held = []
+                if let receiver = hit ?? transcript(under: point, in: content) { replay.forEach(receiver.scrollWheel) }
             }
             let target = hit ?? transcript(under: point, in: content)
             // A wheel that moves the transcript leaves its end; read once the event has scrolled it.

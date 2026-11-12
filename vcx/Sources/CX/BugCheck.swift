@@ -533,6 +533,19 @@ enum BugCheck {
             send(0, -10, phase: .changed)
             let slid = TranscriptWheel.chained
             send(0, phase: .ended)
+            // Held under 4 pt over the table, a swipe that leaves it hands its events on; they never replay into the next swipe.
+            send(0, phase: .began); send(1, phase: .changed)
+            let heldOver = TranscriptWheel.held.count
+            point = NSPoint(x: outer.convert(outer.bounds, to: nil).minX + 4, y: frame.midY)
+            send(1, phase: .changed)
+            let heldAfter = TranscriptWheel.held.count
+            send(0, phase: .ended)
+            point = NSPoint(x: frame.midX, y: frame.midY)
+            send(0, phase: .began)
+            let heldNext = TranscriptWheel.held.count
+            send(0, phase: .ended)
+            print("\(columns)-column table: \(heldOver) event(s) held over it, \(heldAfter) once the swipe left it, \(heldNext) at the next swipe")
+            check(heldOver > 0 && heldAfter == 0 && heldNext <= 1, "a swipe leaving a \(columns)-column table undecided keeps no held events")
             let wide = columns == 5
             print("\(columns)-column table (\(Int(table.frame.width)) over \(Int(table.documentView?.frame.width ?? 0)) pt): transcript at \(Int(start)), \(Int(wheel)) after a mouse wheel up; swipe to the transcript: up \(String(describing: up)), leaning \(String(describing: leaning)), sideways \(String(describing: sideways)), begun beside it \(String(describing: slid))")
             check(wheel < start - 1 && up == true && leaning == true && sideways == !wide && slid == true,
