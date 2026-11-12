@@ -23,6 +23,7 @@ const stub = () => {
     chat('te-sarah', 'bridgev2', 'sarah', 'Sarah K', t(400)),
   ];
   chats[6].accountID = 'sh-teams';
+  chats.forEach(c => (c.pid = 'p-' + c.id));
   const msg = (chatID, id, text, min, isSender = false) => ({ id, chatID, text, timestamp: t(min), sortKey: String(1e9 - min), isSender, senderID: isSender ? 'me' : chatID, senderName: 'x' });
   const msgs = {
     'wa-lea': [msg('wa-lea', 'w1', 'dinner tonight still on?', 50), msg('wa-lea', 'w2', 'yes! where?', 45, true), msg('wa-lea', 'w3', 'the usual place', 30)],
@@ -67,6 +68,12 @@ const stub = () => {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
       if (args.path.includes('/reactions') || args.method === 'PATCH') return {};
       const [path, query] = args.path.split('?');
+      const one = path.match(/^\/v1\/chats\/([^/]+)$/);
+      if (args.method === 'GET' && one) {
+        const cid = decodeURIComponent(one[1]);
+        if (cid === 'grp-1') return { id: cid, description: 'Bouldering on fridays', participants: { total: 4, hasMore: false, items: [{ id: 'me', isSelf: true }, { id: 'p-nina', fullName: 'Nina', username: 'nina.climbs' }, { id: 'p-wa-lea', fullName: 'Lea M', phoneNumber: '+33 6 00 00 00 00', isAdmin: true }] } };
+        return { id: cid, participants: { total: 2, items: [{ id: 'me', isSelf: true }, { id: 'p-' + cid, fullName: chats.find(c => c.id === cid)?.title, username: cid.split('-')[1] }] } };
+      }
       const m = path.match(/^\/v1\/chats\/([^/]+)\/(messages|read)$/);
       const id = m && decodeURIComponent(m[1]);
       if (args.method === 'GET' && m) {
@@ -593,6 +600,30 @@ const heardNow = await page.evaluate(() => [document.querySelector('#thread .bub
 check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard (${heardNow})`);
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
+
+// A click on the group bubble at the top slides in its profile: description and members, admins first; a member who
+// is someone in the list opens as that person, ‹ goes back, esc closes.
+await page.evaluate(() => select('grp-1'));
+await page.waitForSelector('#thread .msg');
+await page.click('header .who > .av');
+await page.waitForTimeout(110);
+const sliding = await page.$eval('#profile .sheet', s => new DOMMatrix(getComputedStyle(s).transform).m41);
+await page.waitForSelector('#profile .member');
+await page.waitForTimeout(400);
+const group = await page.$eval('#profile', p => [p.querySelector('h2').textContent, p.querySelector('.desc')?.textContent, [...p.querySelectorAll('.member b')].map(b => b.textContent), p.querySelector('.member i')?.textContent, p.querySelector('.more-members')?.textContent, Math.round(p.querySelector('.sheet').getBoundingClientRect().right) === Math.round(p.getBoundingClientRect().right)]);
+await page.screenshot({ path: join(out, 'profile-group.png') });
+check(sliding > 0 && JSON.stringify(group) === JSON.stringify(['Climbing crew', 'Bouldering on fridays', ['Lea Martin', 'Nina'], 'Admin', 'and 1 more', true]), `the group bubble opens the group's profile, sliding in (${Math.round(sliding)} px mid-way, ${JSON.stringify(group)})`);
+await page.click('#profile .member >> nth=0');
+await page.waitForSelector('#profile .open');
+await page.waitForTimeout(400);
+const person = await page.$eval('#profile', p => [p.querySelector('h2').textContent, [...p.querySelectorAll('section h3 > span:not(.net)')].map(s => s.textContent), [...p.querySelectorAll('.line b')].map(b => b.textContent), !!p.querySelector('.back')]);
+await page.screenshot({ path: join(out, 'profile-person.png') });
+check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
+await page.click('#profile .back');
+await page.waitForSelector('#profile .member');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+check(await page.$eval('#profile', p => p.hidden), '‹ goes back to the group, esc closes the profile');
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();

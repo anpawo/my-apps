@@ -631,6 +631,7 @@ async function select(id) {
   state.target = null;
   setReply(null);
   if (!find.box.hidden) closeFind();
+  closeProfile();
   // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
   showLists();
   document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
@@ -663,6 +664,8 @@ async function loadMessages(item) {
 function drawHeader() {
   const item = state.cur;
   $('.who').innerHTML = `${avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
+  $('.who .av').title = item.kind === 'group' ? 'Group info and members' : 'Profile';
+  $('.who .av').onclick = () => (profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile());
   // Every network this person is on, as its logo; the one replies go to is highlighted, a click picks another.
   $('.chips').innerHTML = netsOf(item).map(k => `<button class="chip" data-net="${k}" title="Reply on ${NETS[k].label}${NETS[k].cmd ? ` (/${NETS[k].cmd})` : ''}">${netMark(k)}</button>`).join('');
   $('.chips').querySelectorAll('.chip').forEach(b => (b.onclick = () => { setTarget(chatFor(b.dataset.net), true); input.focus(); }));
@@ -1410,6 +1413,96 @@ function toast(text, undo) {
   anim(el, { translate: ['0 24px', '0 0'], opacity: [0, 1] }, 200, 'ease-out');
   setTimeout(gone, undo ? 8000 : 2500);
 }
+
+/* ---------- Profiles: a click on the header's picture or group bubble ---------- */
+
+// side-panel template: the sheet slides in from the right over the conversation, its content fading in after it.
+// A person shows what each app knows of them; a group, its description and members, each opening their own profile.
+const profile = { box: $('#profile'), sheet: $('#profile .sheet'), body: $('#profile .body'), stack: [], seq: 0, cache: {}, members: [] };
+const DETAILS = p => [['Name', p.fullName], ['Username', p.username && '@' + p.username.replace(/^@/, '')], ['Phone', p.phoneNumber], ['Email', p.email]].filter(([, v]) => v);
+const personOf = pid => pid && [...state.byId.values()].find(i => i.kind === 'person' && i.chats.some(c => c.pid === pid));
+const appHead = (c, extra = '') => `<h3>${netMark(netOf(c))}<span>${NETS[netOf(c)].label}</span>${extra}</h3>`;
+const line = ([label, value]) => `<div class="line"><span>${label}</span><b>${esc(value)}</b></div>`;
+
+function openProfile(item) {
+  if (!item) return;
+  const opening = profile.box.hidden || profile.closing;
+  profile.closing = false;
+  profile.stack = [];
+  profile.cache = {};
+  profile.box.hidden = false;
+  if (opening) {
+    [profile.box, profile.sheet].forEach(el => el.getAnimations().forEach(a => a.cancel()));
+    anim(profile.box, { opacity: [0, 1] }, 200);
+    anim(profile.sheet, { transform: ['translateX(100%)', 'none'] }, 220, 'cubic-bezier(.2, .8, .2, 1)');
+  }
+  showProfile(item, opening ? 120 : 0);
+}
+function closeProfile() {
+  if (profile.box.hidden || profile.closing) return;
+  profile.closing = true;
+  const done = () => { if (profile.closing) { profile.box.hidden = true; profile.closing = false; } };
+  anim(profile.sheet, { transform: ['none', 'translateX(100%)'] }, 180, 'ease-in').effect.updateTiming({ fill: 'forwards' });
+  const a = anim(profile.box, { opacity: [1, 0] }, 180);
+  a.effect.updateTiming({ fill: 'forwards' });
+  a.finished.then(done, done);
+}
+
+// The head shows at once; what the apps know comes after one call per chat, its box growing into place.
+async function showProfile(view, delay = 0) {
+  const seq = ++profile.seq;
+  profile.view = view;
+  const member = view.kind === 'member';
+  const who = member ? { name: view.p.fullName || view.p.username || 'Unknown', imgs: view.p.imgURL ? [view.p.imgURL] : [] } : view;
+  profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
+    + `<div class="head">${avatar(who)}<h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div>`
+    + (view.kind === 'person' && view.id !== state.cur?.id ? '<button class="open">Open conversation</button>' : '')
+    + '<div class="details" hidden></div>';
+  profile.body.scrollTop = 0;
+  anim(profile.body, { opacity: [0, 1], transform: ['translateY(6px)', 'none'] }, 200).effect.updateTiming({ delay, fill: 'backwards' });
+  const html = await detailsHTML(view);
+  if (seq !== profile.seq) return;
+  const box = profile.body.querySelector('.details');
+  box.innerHTML = html;
+  collapse(box, false, 260);
+}
+
+async function detailsHTML(view) {
+  if (view.kind === 'member') return `<section>${appHead(view.chat)}${DETAILS(view.p).map(line).join('')}</section>`;
+  const full = await Promise.all(view.chats.map(c => (profile.cache[c.id] ||= api('GET', `/v1/chats/${enc(c.id)}`).catch(() => null))));
+  if (view.kind === 'person') {
+    return view.chats.map((c, i) => {
+      const p = full[i]?.participants?.items?.find(p => !p.isSelf) || { fullName: c.title };
+      return `<section>${appHead(c)}${DETAILS(p).map(line).join('')}</section>`;
+    }).join('');
+  }
+  profile.members = [];
+  return view.chats.map((c, i) => {
+    const all = full[i]?.participants?.items || [];
+    const ps = all.filter(p => !p.isSelf && !p.isNetworkBot).sort((a, b) => b.isAdmin - a.isAdmin || fold(a.fullName).localeCompare(fold(b.fullName)));
+    const total = full[i]?.participants?.total ?? all.length;
+    const rows = ps.map(p => {
+      const known = personOf(p.id);
+      profile.members.push({ kind: 'member', p, chat: c });
+      return `<button class="member" data-i="${profile.members.length - 1}">${avatar(known || { name: p.fullName, imgs: p.imgURL ? [p.imgURL] : [] })}<span><b>${esc(known?.name || p.fullName || p.username || 'Unknown')}</b><small>${esc(p.username ? '@' + p.username.replace(/^@/, '') : p.phoneNumber || '')}</small></span>${p.isAdmin ? '<i>Admin</i>' : ''}</button>`;
+    });
+    return `<section>${appHead(c, `<small>${total} members</small>`)}${full[i]?.description ? `<p class="desc">${linkify(full[i].description)}</p>` : ''}<div class="members">${rows.join('')}</div>`
+      + (total > all.length ? `<p class="more-members">and ${total - all.length} more</p>` : '') + '</section>';
+  }).join('');
+}
+
+profile.box.addEventListener('click', e => {
+  if (e.target === profile.box || e.target.closest('.close')) return closeProfile();
+  const m = e.target.closest('.member');
+  if (m) {
+    const v = profile.members[+m.dataset.i];
+    profile.stack.push(profile.view);
+    return showProfile(personOf(v.p.id) || v);
+  }
+  if (e.target.closest('.back')) return showProfile(profile.stack.pop());
+  if (e.target.closest('.open')) select(profile.view.id);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape' && !profile.box.hidden && !profile.closing && !openMenu) { e.preventDefault(); e.stopPropagation(); closeProfile(); } }, true);
 
 /* ---------- Start ---------- */
 

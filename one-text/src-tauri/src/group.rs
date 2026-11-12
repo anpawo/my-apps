@@ -110,6 +110,8 @@ fn summary(chat: &Value) -> Value {
         "id": id(chat), "network": chat["network"], "accountID": chat["accountID"], "title": name_of(chat),
         "unread": chat["unreadCount"].as_i64().unwrap_or(0), "last": last(chat), "preview": chat["preview"], "muted": chat["isMuted"] == true,
         "img": other(chat).and_then(|p| p["imgURL"].as_str()).or_else(|| merged_picture(chat)).or(chat["imgURL"].as_str()),
+        // The other side's id, so a group member's profile can lead to their own conversation.
+        "pid": other(chat).and_then(|p| p["id"].as_str()),
     })
 }
 
