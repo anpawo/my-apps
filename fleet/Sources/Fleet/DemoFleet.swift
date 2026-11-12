@@ -129,7 +129,7 @@ enum DemoFleet {
         let month = DateFormatter()
         month.dateFormat = "yyyy-MM"
         let spent = [("Groceries & bakeries", 310.0), ("\"Restaurants, fast food & coffee\"", 140),
-                     ("Train", 85), ("Leisure & sport", 70), ("Clothes", 60),
+                     ("Train", 85), ("Bars & pubs", 70), ("Clothes", 60),
                      ("Subscriptions & apps", 45), ("Health", 20)]
         let lines = [0, -1, -2].flatMap { back in
             let id = month.string(from: Calendar.current.date(byAdding: .month, value: back, to: now) ?? now)

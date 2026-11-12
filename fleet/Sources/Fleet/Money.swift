@@ -14,7 +14,7 @@ enum Money {
     /// every month; its place does not, a month ranks its own — so two colours a colour-blind
     /// eye confuses can sit side by side, and the name its arrow points to is what says which.
     enum Kind: CaseIterable {
-        case food, transport, shopping, clothes, leisure, sport, subscriptions, ai, health, loan, other
+        case food, transport, shopping, clothes, drinks, sport, subscriptions, ai, health, loan, other
 
         var title: String {
             switch self {
@@ -22,7 +22,7 @@ enum Money {
             case .transport: "Transport"
             case .shopping: "Shopping"
             case .clothes: "Clothes"
-            case .leisure: "Leisure"
+            case .drinks: "Drinks"
             case .sport: "Sport"
             case .subscriptions: "Subscriptions"
             case .ai: "AI"
@@ -40,7 +40,7 @@ enum Money {
             case .transport: Color(red: 0.851, green: 0.349, blue: 0.149)
             case .shopping: Color(red: 0.098, green: 0.620, blue: 0.439)
             case .clothes: Color(red: 0.902, green: 0.404, blue: 0.404)
-            case .leisure: Color(red: 0.565, green: 0.522, blue: 0.914)
+            case .drinks: Color(red: 0.565, green: 0.522, blue: 0.914)
             case .sport: Color(red: 0.890, green: 0.780, blue: 0.200)
             case .subscriptions: Color(red: 0.788, green: 0.522, blue: 0.0)
             case .ai: Color(red: 0.180, green: 0.700, blue: 0.800)
@@ -54,7 +54,7 @@ enum Money {
         /// lands in Other instead of nowhere. Clothes are the exception: the export has them
         /// under Shopping, and only the bank's own code for the line (104) tells them apart. AI
         /// too, by its merchant: Claude is filed under Subscriptions, ChatGPT under Other. Sport
-        /// shares Leisure's category, and only its code (705) parts it from bowling or the cinema.
+        /// is Leisure & sport's code 705; the rest of that category (bowling, the cinema) is Other.
         init(category: String, bankCode: String = "", merchant: String = "") {
             let name = category.lowercased(), merchant = merchant.lowercased()
             func has(_ words: String...) -> Bool { words.contains { name.contains($0) } }
@@ -66,7 +66,7 @@ enum Money {
             else if has("train", "uber", "taxi", "bus", "metro") { self = .transport }
             else if has("grocer", "restaurant", "food") { self = .food }
             else if bankCode == "705" { self = .sport }
-            else if has("bars", "leisure") { self = .leisure }
+            else if has("bars") { self = .drinks }
             else if has("health", "vet", "pharmac") { self = .health }
             else { self = .other }
         }

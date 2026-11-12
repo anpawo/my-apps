@@ -513,7 +513,7 @@ enum SelfCheck {
         let ai = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-20.00,Subscriptions & apps,Anthropic* Clau\n2026-11-02,-5.00,Other,Openai *chatgpt\n2026-11-03,-3.00,Subscriptions & apps,Spotify\n")
         expect(ai.months.first?.spent == [.ai: 25, .subscriptions: 3], true, "money: Claude and ChatGPT are AI, by their merchant")
         let sport = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-53.00,Leisure & sport,Climb,x,700,705\n2026-11-02,-9.00,Leisure & sport,Bowling,x,700,701\n")
-        expect(sport.months.first?.spent == [.sport: 53, .leisure: 9], true, "money: sport is Leisure's code 705")
+        expect(sport.months.first?.spent == [.sport: 53, .other: 9], true, "money: sport is Leisure's code 705, the rest of it Other")
         expect(read.latest == "2026-10-05", true, "money: the day of the newest line, spent or not")
         expect(read.months.first?.shares.values.reduce(0, +) == 100, true, "money: a month's shares add up to 100")
         expect(read.months.last?.shares[.food] == 100, true, "money: one kind alone is the whole month")
@@ -521,7 +521,7 @@ enum SelfCheck {
                "money: a month's kinds the largest first, one that reads 0% left out")
         // One large slice and five small ones that end at twelve o'clock, where their names
         // would sit on top of one another.
-        let crowded = Money.Month(id: "2026-10", spent: [.food: 62, .transport: 12, .leisure: 9,
+        let crowded = Money.Month(id: "2026-10", spent: [.food: 62, .transport: 12, .drinks: 9,
                                                          .clothes: 8, .subscriptions: 6, .health: 3])
         let callouts = crowded.callouts(of: Set(crowded.ranked), radius: 48, reach: 10, line: 11.5, longest: 34)
         expect(callouts.filter(\.right).map(\.kind) == [.food] && callouts.count == 6, true,
@@ -536,7 +536,7 @@ enum SelfCheck {
         let tall = crowded.callouts(of: Set(crowded.ranked).subtracting([.food]), radius: 100, reach: 16,
                                     line: 25, longest: 90)
         let stacked = tall.filter { $0.turn > 0.75 }.map { -$0.point(radius: 100, past: $0.length).y }
-        expect(tall.map(\.kind) == [.transport, .leisure, .clothes, .subscriptions, .health]
+        expect(tall.map(\.kind) == [.transport, .drinks, .clothes, .subscriptions, .health]
                && zip(stacked, stacked.dropFirst()).allSatisfy { $1 - $0 >= 24.999 }
                && tall.allSatisfy { $0.length <= 90 }, true,
                "money: an arrow for the slices named and no other, two lines of room each")
