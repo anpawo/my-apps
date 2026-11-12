@@ -243,9 +243,10 @@ final class AppController: ObservableObject {
         notifier.start()
         // A banner names a session; clicking it should land you in that session, which is the
         // same handoff a tile click does.
+        // A banner about no session, or one whose session has gone, opens the panel.
         notifier.onSelect = { [weak self] id in
-            guard let self, let session = sessions.first(where: { $0.id == id }) else { return }
-            activate(session)
+            guard let self else { return }
+            if let session = sessions.first(where: { $0.id == id }) { activate(session) } else if !isPanelVisible { forceShow() }
         }
         // State left behind by sessions that ended without saying so — a killed terminal, a
         // crash. Once at launch is enough; nothing else creates them.

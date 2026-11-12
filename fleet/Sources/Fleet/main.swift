@@ -45,6 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Launching an already-running bundle (Spotlight, Dock, `open`) arrives here instead of
     /// starting a second process, so this is the usual path for a manual trigger.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // A banner click reopens the app too: it opened the panel over the session the banner
+        // raises. The banner's own handler (`Notifier`) decides where a click goes.
+        let pid = NSAppleEventManager.shared().currentAppleEvent?
+            .attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value
+        let from = pid.map { (ProcessScanner.executablePath($0) as NSString).lastPathComponent } ?? "?"
+        NSLog("Fleet: reopen from \(from)")
+        if ["usernoted", "NotificationCenter"].contains(from) { return false }
         controller.toggleOnDemand()
         return true
     }

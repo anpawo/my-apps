@@ -14,8 +14,8 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject {
 
-    /// Clicking a banner hands back the session identity it named.
-    var onSelect: ((String) -> Void)?
+    /// Clicking a banner hands back the session identity it named, nil for a banner about no session.
+    var onSelect: ((String?) -> Void)?
 
     /// Sessions already announced, so a question that sits unanswered for ten minutes produces
     /// one banner rather than one per refresh. Cleared when the session stops waiting.
@@ -130,7 +130,6 @@ extension Notifier: UNUserNotificationCenterDelegate {
             return
         }
         let id = info["sessionId"] as? String ?? (info["pid"] as? Int).map { "pid:\($0)" }
-        guard let id else { return }
         await MainActor.run { self.onSelect?(id) }
     }
 }

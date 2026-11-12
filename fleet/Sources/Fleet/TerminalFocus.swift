@@ -30,7 +30,13 @@ enum TerminalFocus {
     static func focus(session: Session) -> Bool {
         if let id = session.runtimeSessionID {
             DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.mr.vcx.focus"), object: nil, userInfo: ["sessionId": id], deliverImmediately: true)
-            return true
+            // VCX cannot take focus from the background (cooperative activation): from a banner
+            // click it raised nothing. Fleet got the click, so Fleet hands the focus over.
+            guard let app = NSRunningApplication(processIdentifier: session.proc.pid) else { return false }
+            NSApp.yieldActivation(to: app)
+            let ok = app.activate()
+            NSLog("Fleet: activated VCX pid \(session.proc.pid) for \(id) -> \(ok)")
+            return ok
         }
         let host = ProcessScanner.hostApplication(of: session.proc.pid)?.app
         let bundleID = host?.bundleIdentifier ?? ""
