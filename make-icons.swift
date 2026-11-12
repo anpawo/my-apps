@@ -43,15 +43,16 @@ func pinnedNote() {
     glyph("pin.fill", box: 300, at: NSPoint(x: 560, y: 700), angle: -35)
 }
 
-// one-text's: one bubble with a 1 cut out of it, every chat in one.
+// one-text's: one bubble with a 1 cut out of it, every chat in one; the American 1, a flag and a bar at its foot.
 func oneBubble() {
     NSImage(size: NSSize(width: 1024, height: 1024), flipped: false) { _ in
         glyph("bubble.fill", box: 520)
         NSGraphicsContext.current!.compositingOperation = .destinationOut
-        let font = NSFont.systemFont(ofSize: 300, weight: .bold)
-        let one = NSAttributedString(string: "1", attributes: [.font: NSFont(descriptor: font.fontDescriptor.withDesign(.rounded)!, size: 300)!])
-        let s = one.size()
-        one.draw(at: NSPoint(x: 512 - s.width / 2, y: 548 - s.height / 2))
+        let one = NSBezierPath()
+        one.move(to: NSPoint(x: 440, y: 624)); one.line(to: NSPoint(x: 514, y: 676)); one.line(to: NSPoint(x: 514, y: 448))
+        one.move(to: NSPoint(x: 444, y: 448)); one.line(to: NSPoint(x: 584, y: 448))
+        one.lineWidth = 50; one.lineCapStyle = .round; one.lineJoinStyle = .round
+        NSColor.black.setStroke(); one.stroke()
         return true
     }.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), from: .zero, operation: .sourceOver, fraction: 1)
 }
