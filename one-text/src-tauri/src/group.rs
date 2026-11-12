@@ -263,9 +263,11 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             let chats: Vec<Value> = members.iter().map(|c| summary(c)).collect();
             // A picture set by hand (overrides.pictures, by chat id) comes first.
             let custom = members.iter().find_map(|c| overrides["pictures"][id(c)].as_str());
+            let alias = members.iter().find_map(|c| overrides["names"][id(c)].as_str());
             json!({
                 "id": members.iter().map(|c| id(c)).min().unwrap_or(""),
-                "name": name,
+                "name": alias.unwrap_or(&name),
+                "original": alias.map(|_| &name),
                 "imgs": custom.into_iter().chain(pictures(&chats)).collect::<Vec<_>>(),
                 "unread": chats.iter().map(|c| c["unread"].as_i64().unwrap_or(0)).sum::<i64>(),
                 "last": last(members[0]),
@@ -364,6 +366,9 @@ mod tests {
         let out = build(&[g.clone()], &json!({ "names": { "g1": "Rust FR" } }));
         assert_eq!((&out["groups"][0]["name"], &out["groups"][0]["original"]), (&json!("Rust FR"), &json!("general-chat")));
         assert!(build(&[g], &json!({}))["groups"][0]["original"].is_null());
+        let out = build(&fixture(), &json!({ "names": { "wa-lea": "Lele" } }));
+        let lea = out["people"].as_array().unwrap().iter().find(|p| p["name"] == "Lele").unwrap();
+        assert_eq!(lea["original"], "Léa  MARTIN");
     }
 
     #[test]

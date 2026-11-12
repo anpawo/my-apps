@@ -97,13 +97,16 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs
 /* ---------- Sidebar ---------- */
 
 function fill(n, item) {
-  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last]);
+  const nets = item.kind === 'person' ? netsOf(item) : [];
+  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
-  n.innerHTML = `${avatar(item)}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
+  // A person: the logos of the apps they are on, then their picture, as a group shows its app's logo then its members.
+  const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item);
+  n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;
   if (item.unread && !wasUnread && n.isConnected) anim(n.querySelector('.badge'), { scale: [0.4, 1], opacity: [0, 1] }, 200);
 }
@@ -428,7 +431,6 @@ search.addEventListener('keydown', e => {
   else if (e.metaKey && e.key.toLowerCase() === 'r' && rows[at]) {
     e.preventDefault(); e.stopPropagation();
     const id = rows[at].dataset.id;
-    if (state.byId.get(id)?.kind !== 'group') return;
     closePalette();
     select(id).then(rename);
   }
@@ -478,12 +480,11 @@ addEventListener('keydown', e => {
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
-  // ⌘R renames the group under the pointer, or the open one.
+  // ⌘R gives an alias to the person or group under the pointer, or the open one.
   if (e.metaKey && e.key.toLowerCase() === 'r') {
     e.preventDefault();
     const id = document.querySelector('#list .row:hover, .fav:hover')?.dataset.id;
-    if (id && state.byId.get(id)?.kind === 'group') select(id).then(rename);
-    else if (state.cur?.kind === 'group') rename();
+    if (id && id !== state.cur?.id) select(id).then(rename); else rename();
   }
   // ⌘ + arrows move the favorite under the pointer, or the open one when no text is being edited.
   if (e.metaKey && e.key.startsWith('Arrow')) {
@@ -791,27 +792,28 @@ function openMore(anchor) {
   const person = state.cur;
   if (!person) return;
   const sep = () => Object.assign(document.createElement('div'), { className: 'sep' });
+  // One section per kind of setting, a thin white line between them.
   const m = menu(anchor, m => {
+    const tab = state.tabs.find(t => inTab(person, t));
     m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
-    for (const t of state.tabs) {
-      const on = inTab(person, t);
-      m.append(item(on ? `Remove from ${t.name}` : `Move to ${t.name}`, { action: () => { closeMenu(); addToTab(person, t.name, !on); } }));
+    if (person.kind === 'person') {
+      if (tab) m.append(item(`Remove from ${tab.name}`, { action: () => { closeMenu(); addToTab(person, tab.name, false); } }));
+      m.append(item(tab ? 'Move to another group…' : 'Add to a group…', { action: () => morph(m, mm => {
+        for (const t of state.tabs.filter(t => t !== tab)) mm.append(item(t.name, { action: () => { closeMenu(); addToTab(person, t.name); } }));
+        mm.append(item('New group…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
+      }) }));
     }
-    m.append(item('New group with them…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
+    m.append(sep(), item('Alias…', { hint: '⌘R', action: () => { closeMenu(); rename(); } }));
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
     if (person.kind !== 'person') {
-      m.append(item('Rename…', { hint: '⌘R', action: () => { closeMenu(); rename(); } }));
-      m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
+      m.append(sep(), item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
       return;
     }
     m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
-    if (person.chats.length > 1) {
-      m.append(sep());
-      for (const c of person.chats) {
-        const k = netOf(c);
-        m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); split(person, c); } }));
-      }
+    for (const c of person.chats.length > 1 ? person.chats : []) {
+      const k = netOf(c);
+      m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); split(person, c); } }));
     }
   }, { right: anchor.classList.contains('more') });
   return m;
@@ -824,7 +826,7 @@ function mergePicker(m, person) {
   found.className = 'found';
   const draw = () => {
     const q = field.value.trim().toLowerCase();
-    const others = [...state.byId.values()].filter(i => i.kind === 'person' && i.id !== person.id && (!q || fold(i.name).includes(fold(q)))).slice(0, 30);
+    const others = [...state.byId.values()].filter(i => i.kind === 'person' && i.id !== person.id && (!q || fold(i.name).includes(fold(q)) || fold(i.original).includes(fold(q)))).slice(0, 30);
     found.replaceChildren(...others.map(o => item(o.name || 'Unnamed', { icon: avatar(o), hint: netsOf(o).map(k => NETS[k].label).join(', '), action: () => { closeMenu(); merge(person, o); } })));
     if (!others.length) found.innerHTML = '<div class="none">Nobody by that name</div>';
   };
@@ -855,11 +857,13 @@ function setPicture(item, url) {
     if (url) ov.pictures[item.chats[0].id] = url;
   }, url ? `New picture for ${item.name}` : `Picture of ${item.name} removed`);
 }
-// The open group's name becomes a field in the header: Enter keeps it (empty: back to the app's name), esc drops it.
+// An alias for the open person or group: their name becomes a field in the header; Enter keeps it (empty: back
+// to the apps' name), esc drops it. The apps' name stays searchable.
 function rename() {
-  const group = state.cur, b = $('.who b');
-  if (group?.kind !== 'group' || !b) return;
-  const field = Object.assign(document.createElement('input'), { value: group.name || '', placeholder: group.original || group.name || 'Group name', spellcheck: false });
+  const cur = state.cur, b = $('.who b');
+  if (!cur || !b) return;
+  const original = cur.original || cur.name;
+  const field = Object.assign(document.createElement('input'), { value: cur.name || '', placeholder: original || 'Alias', spellcheck: false });
   b.replaceWith(field);
   field.focus();
   field.select();
@@ -869,12 +873,13 @@ function rename() {
     over = true;
     const name = field.value.trim();
     field.replaceWith(b);
-    if (!keep || name === group.name) return;
+    if (!keep || name === cur.name) return;
+    const alias = name && name !== original;
     editOverrides(ov => {
       ov.names ||= {};
-      if (name && name !== (group.original || group.name)) ov.names[group.id] = name;
-      else delete ov.names[group.id];
-    }, name && name !== group.original ? `${group.original || group.name} renamed ${name}` : `${group.name} back to ${group.original}`).then(drawHeader);
+      for (const c of cur.chats) delete ov.names[c.id];
+      if (alias) ov.names[cur.chats[0].id] = name;
+    }, alias ? `${original} is now ${name}` : `${cur.name} back to ${original}`).then(drawHeader);
   };
   field.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') end(true); if (e.key === 'Escape') end(false); };
   field.onblur = () => end(true);

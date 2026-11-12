@@ -49,7 +49,8 @@ const stub = () => {
     for (const c of chats) (by[find(c.person)] ||= []).push(c);
     return Object.values(by).map(cs => {
       cs.sort((a, b) => b.last.localeCompare(a.last));
-      return { id: cs.map(c => c.id).sort()[0], name: cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], imgs: [...cs.map(c => overrides.pictures?.[c.id]).filter(Boolean), 'mxc://ig', 'mxc://wa'],
+      const name = cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], alias = cs.map(c => overrides.names?.[c.id]).find(Boolean);
+      return { id: cs.map(c => c.id).sort()[0], name: alias || name, original: alias ? name : null, imgs: [...cs.map(c => overrides.pictures?.[c.id]).filter(Boolean), 'mxc://ig', 'mxc://wa'],
         unread: cs.reduce((s, c) => s + c.unread, 0), last: cs[0].last, preview: cs[0].preview, chats: cs };
     }).sort((a, b) => b.last.localeCompare(a.last));
   }
@@ -94,9 +95,10 @@ const names = await page.$$eval('#people .row .name', ns => ns.map(n => n.textCo
 check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')})`);
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
-check(!(await page.$('#people .row:not([data-id^="grp"]) .net')), 'no network logos on people in the list');
+const logos = await page.$$eval('#people .row:not([data-id^="grp"])', rs => rs.map(r => [...r.querySelectorAll('.net')].map(n => [n.title, n.getBoundingClientRect().width])));
+check(logos.every(l => l.length && l.every(([, w]) => w === 30)) && logos.some(l => l.length === 2), `each person in the list shows the logos of their apps, 30 px (${JSON.stringify(logos)})`);
 const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, ...[...a.querySelectorAll('img')].map(i => i.getBoundingClientRect()).map(r => [r.left, r.width])]);
-check(faces[0] === 'net' && faces[1] === 40 && faces.length === 4 && faces[2][1] === 40 && faces[3][0] < faces[2][0] + 40, `a group shows its app's logo, then its members' pictures overlapping (${JSON.stringify(faces)})`);
+check(faces[0] === 'net' && faces[1] === 30 && faces.length === 4 && faces[2][1] === 40 && faces[3][0] < faces[2][0] + 40, `a group shows its app's logo, then its members' pictures overlapping (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
@@ -320,6 +322,21 @@ await page.waitForTimeout(400);
 const found = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => [n.firstChild.textContent, n.querySelector('.orig')?.textContent]));
 check(header === 'Climbers' && JSON.stringify(found) === '[["Climbers","Climbing crew"]]', `⌘R renames a group; searching its old name shows both (${header}, ${JSON.stringify(found)})`);
 await page.keyboard.press('Escape');
+await page.keyboard.press('Meta+d');
+await page.fill('#search', 'sarah');
+await page.waitForTimeout(300);
+await page.keyboard.press('Meta+r');
+await page.waitForSelector('header .who input');
+await page.fill('header .who input', 'Sassy');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(500);
+const alias = await page.evaluate(() => [document.querySelector('header .who b').textContent, state.byId.get(state.cur.id).name, state.byId.get(state.cur.id).original]);
+await page.click('.more');
+await page.waitForTimeout(250);
+await page.screenshot({ path: join(out, '8-menu.png') });
+const sections = await page.$$eval('.menu > *', es => es.map(e => e.classList.contains('sep') ? '|' : e.textContent.replace(/⌘.|⌘D.*/, '').trim()).join(','));
+await page.keyboard.press('Escape');
+check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Merge with…'), `⌘R gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
@@ -333,7 +350,8 @@ await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 check(!!(await page.$('.group[data-name="Family"] .favs-empty')) && JSON.stringify(await topFavs()) === JSON.stringify(topBefore), `a new group shows under the favorites in no group (${topBefore})`);
 await page.click('#people .row:has-text("Lea Martin")', { button: 'right' });
-await page.click('.menu .item:has-text("Move to Family")');
+await page.click('.menu .item:has-text("group…")');
+await page.click('.menu .item:has-text("Family")');
 await page.waitForTimeout(400);
 check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && !(await topFavs()).includes('Lea Martin'), `Add to Family moves her into the group (${await groupFavs('Family')} / ${await topFavs()})`);
 await page.click('#tabbox .newgroup');
@@ -341,7 +359,8 @@ await page.keyboard.type('Work');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(300);
 await page.click('#people .row:has-text("Tom B")', { button: 'right' });
-await page.click('.menu .item:has-text("Move to Work")');
+await page.click('.menu .item:has-text("group…")');
+await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
 check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'two groups are open at once');
 const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
@@ -378,10 +397,12 @@ check((await groupFavs('Family')).length === 0 && (await groupFavs('Work')).incl
 await drag('.group[data-name="Work"] .fav[title="Tom B"]', '#favs');
 check((await topFavs()).includes('Tom B') && !(await groupFavs('Work')).includes('Tom B'), `dragging onto the top strip takes him out of his group (${await topFavs()})`);
 await page.click('.group[data-name="Work"] .fav[title="Lea Martin"]', { button: 'right' });
-await page.click('.menu .item:has-text("Move to Family")');
+await page.click('.menu .item:has-text("group…")');
+await page.click('.menu .item:has-text("Family")');
 await page.waitForTimeout(400);
 await page.click('#favs .fav[title="Tom B"]', { button: 'right' });
-await page.click('.menu .item:has-text("Move to Work")');
+await page.click('.menu .item:has-text("group…")');
+await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
 await page.reload();
 await page.waitForSelector('.group');
