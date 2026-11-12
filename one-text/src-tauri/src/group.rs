@@ -23,6 +23,15 @@ pub fn phone_key(phone: &str) -> Option<String> {
     (digits.len() >= 9).then(|| format!("tel:{}", &digits[digits.len() - 9..]))
 }
 
+/// A handle like "alexandre.chahinian" is the full name another network carries, when the profile shows one word.
+fn handle_key(handle: &str) -> Option<String> {
+    let words: Vec<&str> = handle.split(['.', '_']).filter(|w| !w.is_empty()).collect();
+    if words.iter().any(|w| !w.chars().all(char::is_alphabetic)) {
+        return None;
+    }
+    name_key(&words.join(" "))
+}
+
 fn other(chat: &Value) -> Option<&Value> {
     chat["participants"]["items"].as_array()?.iter().find(|p| p["isSelf"] != true && p["isNetworkBot"] != true)
 }
@@ -36,6 +45,7 @@ fn keys(chat: &Value) -> Vec<String> {
     let mut keys: Vec<String> = name_key(&name_of(chat)).into_iter().collect();
     if let Some(p) = other(chat) {
         keys.extend(p["phoneNumber"].as_str().and_then(phone_key));
+        keys.extend(p["username"].as_str().and_then(handle_key));
     }
     keys
 }
@@ -201,6 +211,16 @@ mod tests {
             "participants": { "items": [{ "isSelf": true }, { "id": "a", "fullName": "Eliot G" },
                 { "id": "@whatsapp_1:x", "imgURL": "mxc://wa" }, { "id": "@instagram_2:x", "imgURL": "file://ig" }] } });
         assert_eq!(build(&[c], &json!({}))["people"][0]["imgs"], json!(["file://ig"]));
+    }
+
+    #[test]
+    fn handle_meets_full_name() {
+        let ig = json!({ "id": "ig-alex", "type": "single", "network": "Instagram", "lastActivity": "2026-11-12T00:00:00Z",
+            "participants": { "items": [{ "isSelf": true }, { "fullName": "Alexandre", "username": "alexandre.chahinian" }] } });
+        let wa = chat("wa-alex", "WhatsApp", "Alexandre Chahinian", Some("+33 6 00 00 00 09"), "2026-11-01T00:00:00Z");
+        let li = json!({ "id": "li-x", "type": "single", "network": "LinkedIn", "lastActivity": "2026-11-02T00:00:00Z",
+            "participants": { "items": [{ "isSelf": true }, { "fullName": "Alex", "username": "ACoAAEKc-97TUQ" }] } });
+        assert_eq!(people(&build(&[ig, wa, li], &json!({}))), vec![vec!["ig-alex", "wa-alex"], vec!["li-x"]]);
     }
 
     #[test]

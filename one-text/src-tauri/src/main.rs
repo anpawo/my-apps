@@ -178,6 +178,12 @@ mod live {
             *shapes.entry(nets.join("+")).or_insert(0) += 1;
         }
         println!("merged shapes {shapes:?}");
+        if let Ok(name) = std::env::var("PERSON") {
+            for p in people.iter().filter(|p| p["name"].as_str().is_some_and(|n| n.contains(name.as_str()))) {
+                let nets: Vec<&str> = p["chats"].as_array().unwrap().iter().map(|c| c["network"].as_str().unwrap_or("?")).collect();
+                println!("{}: {nets:?}", p["name"]);
+            }
+        }
         assert!(!people.is_empty());
     }
 
