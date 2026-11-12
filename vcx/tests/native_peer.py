@@ -71,6 +71,19 @@ else:
                     if cancelled:
                         send({'type': 'command_lifecycle', 'command_uuid': uuid, 'state': 'cancelled'})
                     continue
+                # As claude 2.1.322 does: the held turn ends in error_during_execution, then the waiting prompts run.
+                if subtype == 'interrupt' and message['request'].get('send_now') is True:
+                    stopped = holding and bool(queue)
+                    send({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': {'send_now': 'stopped' if stopped else 'nothing_waiting'}}})
+                    if stopped:
+                        send({'type': 'result', 'subtype': 'error_during_execution', 'is_error': True, 'queued_turn_count': 0})
+                        for queued, _ in queue:
+                            send({'type': 'command_lifecycle', 'command_uuid': queued, 'state': 'started'})
+                        answer = 'Now: ' + ', '.join(text for _, text in queue)
+                        send({'type': 'assistant', 'message': {'id': 'msg-now', 'content': [{'type': 'text', 'text': answer}]}})
+                        send({'type': 'result', 'is_error': False, 'result': answer, 'queued_turn_count': 0, 'user_message_uuids': [queued for queued, _ in queue]})
+                        holding, queue = False, []
+                    continue
                 if subtype == 'apply_flag_settings':
                     settings = message['request']['settings']
                     error = settings.get('model') == 'reject-me' or settings.get('effortLevel') not in [None, 'low', 'medium', 'high']

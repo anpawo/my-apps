@@ -277,6 +277,15 @@ enum BugCheck {
             let late = try await backend.perform(action: "unsend", params: ["id": raced])
             check(late["cancelled"] as? Bool == false && prompts().last == "raced", "a prompt the agent took in before the withdrawal stays sent")
             backendSession.editDraft(NSAttributedString(string: ""))
+            let sentBeforeNow = connection.sent.count, noticesBefore = backendSession.rows.filter { $0.kind == "notice" }.count
+            _ = try await backend.perform(action: "sendNow", params: [:])
+            for _ in 0..<20 where connection.sent.count == sentBeforeNow { await settle() }
+            let resumed = connection.sent.suffix(connection.sent.count - sentBeforeNow)
+            check(resumed.count == 1 && (resumed.first?["input"] as? [JSON])?.isEmpty == true && backendSession.busy && prompts().last == "raced" && backendSession.rows.filter({ $0.kind == "notice" }).count == noticesBefore,
+                  "Shift+Return interrupts Codex and a turn with no input reads the waiting prompt, without a stop notice")
+            let afterNow = connection.sent.count
+            _ = try await backend.perform(action: "sendNow", params: [:]); await settle()
+            check(connection.sent.count == afterNow && backendSession.busy, "Shift+Return does nothing once the prompt is the running turn's own")
         }
         do {
             let ordered = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unread-order"))
@@ -867,6 +876,19 @@ enum BugCheck {
             check(queued["edited"] == false, "Claude reports a prompt its turn took in as read")
             let late = try await claude.request("cx/unsend", ["id": "edited"])
             check(late["cancelled"] as? Bool == false, "a prompt Claude has read cannot be withdrawn")
+            var completions: [JSON] = []
+            claude.event = { message in
+                let p = message["params"] as? JSON ?? [:]
+                if message["method"] as? String == "item/completed", let item = p["item"] as? JSON { answer = item["text"] as? String ?? answer }
+                if message["method"] as? String == "turn/completed" { completions.append(p["turn"] as? JSON ?? [:]) }
+            }
+            let held = ((try await claude.request("turn/start", ["input": [["type": "text", "text": "WAIT"]]]))["turn"] as? JSON)?["id"] as? String ?? ""
+            _ = try await claude.request("turn/steer", ["expectedTurnId": held, "clientUserMessageId": "now", "input": [["type": "text", "text": "do this now"]]])
+            let sentNow = try await claude.request("cx/sendNow", ["id": "now"])
+            for _ in 0..<200 where completions.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+            try await Task.sleep(nanoseconds: 100_000_000)
+            check(sentNow["send_now"] as? String == "stopped" && answer == "Now: do this now" && completions.count == 1 && completions.first?["status"] as? String == "completed" && completions.first?["error"] == nil,
+                  "send-now on Claude answers the waiting prompt in the same turn, without reporting the cut turn as failed")
         } catch { check(false, "Claude withdrawal: " + error.localizedDescription) }
         do {
             // A main thread that stops answering leaves a report of the callbacks it kept running, as the 11-08 freeze did not.

@@ -1074,7 +1074,7 @@ struct UserBubble: View {
                     // Not onHover: opening into its own scroll view over the transcript's table, it reported the pointer gone while it stayed.
                     .onContinuousHover { phase in FreezeTrace.note("question hover " + item.id); if case .ended = phase, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
-                if unread { Text("Not read yet · ↑ to edit").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
+                if unread { Text("Not read yet · ↑ to edit · ⇧↩ to send now").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
             }.column(pinnedIn.map { $0.width * 0.85 })
         }
     }

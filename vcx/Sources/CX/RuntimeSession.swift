@@ -214,6 +214,7 @@ final class SessionBackend: RuntimeBackend {
             }
             await session.send(text: text, images: images, expectedDraft: (params["draft"] as? [JSON]).map(runtimeDraft), expectedGeneration: params["generation"] as? Int)
         case "stop": await session.stop(source: params["source"] as? String ?? "Stop command")
+        case "sendNow": await session.sendWaitingNow()
         case "unsend":
             let cancelled = await session.unsend(params["id"] as? String ?? "")
             publish()

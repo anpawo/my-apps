@@ -250,6 +250,7 @@ struct Composer: NSViewRepresentable {
             if selector == #selector(NSResponder.moveUp(_:)), session.recallQueued() || session.movePromptHistory(-1) { return true }
             if selector == #selector(NSResponder.cancelOperation(_:)), session.restoreRecalled() { return true }
             if selector == #selector(NSResponder.moveDown(_:)), session.movePromptHistory(1) { return true }
+            if selector == #selector(NSResponder.insertNewline(_:)), view.string.isEmpty, NSApp.currentEvent?.modifierFlags.contains(.shift) == true, session.sendNow() { return true }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
                     if session.commandToken != nil { _ = session.completeCommand(); return true }

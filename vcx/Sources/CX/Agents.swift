@@ -114,6 +114,7 @@ final class ClaudeConnection: Connection {
     private var limit: JSON?
     private var rateLimited = false
     private var stopped = false
+    private var sendingNow = false
     private var command: [String]?
     private var pendingUsers: [String] = []
     private var metadata: JSON?
@@ -231,7 +232,15 @@ final class ClaudeConnection: Connection {
             resumed = true; pendingUsers.append(userID)
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
-        case "turn/interrupt": stopped = true; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); return [:]
+        case "turn/interrupt": stopped = true; sendingNow = false; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); return [:]
+        case "cx/sendNow":
+            sendingNow = true
+            do {
+                let result = try await controlResult(["subtype": "interrupt", "send_now": true, "message_uuid": params["id"] as? String ?? ""], timeout: 5)
+                // "delivering": the turn takes the prompt in and goes on; only "stopped" ends it with a result to absorb.
+                if result["send_now"] as? String != "stopped" { sendingNow = false }
+                return result
+            } catch { sendingNow = false; throw error }
         // Claude refuses bypass live unless it was launched with --allow-dangerously-skip-permissions, which an older VCX build did not pass.
         case "cx/mode":
             let value = params["mode"] as? String == "bypass" ? "bypass" : "ask", native = value == "bypass" ? "bypassPermissions" : "default"
@@ -425,6 +434,9 @@ final class ClaudeConnection: Connection {
             if ids.isEmpty { if !pendingUsers.isEmpty { pendingUsers.removeFirst() } }
             else { pendingUsers.removeAll { ids.contains($0) } }
             let queued = message["queued_turn_count"] as? Int
+            // The turn send-now stopped ends in error_during_execution with queued_turn_count 0 (claude 2.1.322),
+            // then the waiting prompt runs: the VCX turn stays open for it.
+            if sendingNow, message["is_error"] as? Bool == true { sendingNow = false; return }
             let failed = rateLimited || message["is_error"] as? Bool == true
             if queued == 0 || stopped || failed { pendingUsers.removeAll() }
             if !pendingUsers.isEmpty || (queued ?? 0) > 0 { return }

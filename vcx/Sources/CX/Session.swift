@@ -179,6 +179,7 @@ final class Session: ObservableObject {
     @Published var needsAttention = false
     private var stopSource: String?
     private var turnPrompt: String?
+    private var sendingNow: String?
     private var turnCommands: [String] = []
     @Published private var activeActions: Set<String> = []
     @Published var changing = false
@@ -666,6 +667,7 @@ final class Session: ObservableObject {
             if withdrawn, let prompt, let content = prompt.data["content"] as? [JSON] {
                 rows.removeLast(); itemMap[prompt.id] = nil; revision += 1
                 editDraft(withdrawnDraft(content))
+            } else if outcome == "interrupted", sendingNow != nil {
             } else if outcome == "interrupted" {
                 notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
             } else if needsAttention {
@@ -673,6 +675,10 @@ final class Session: ObservableObject {
             }
             stopSource = nil
             status = withdrawn ? "Ready" : outcome == "interrupted" ? "Stopped" : needsAttention ? "Failed" : "Ready"
+            if let waiting = sendingNow {
+                sendingNow = nil
+                if outcome == "interrupted" { Task { await self.continueWith(waiting) } }
+            }
             save()
             resumeWhenOnline(after: turn)
             if let command = pendingModelCommand {
@@ -1377,6 +1383,39 @@ final class Session: ObservableObject {
         draft = restored; draftGeneration += 1; draftRevision += 1
         checkpointRuntimeDraft()
         return true
+    }
+
+    // Shift+Return on an empty composer: the prompt waiting for the running turn is taken in now, as "send now" does in Claude Code and Codex.
+    func sendNow() -> Bool {
+        guard busy, rows.last?.kind == "user" else { return false }
+        Task { await sendWaitingNow() }
+        return true
+    }
+
+    func sendWaitingNow() async {
+        if runtimeClient != nil { await performRuntime("sendNow", [:]); return }
+        guard busy, sendingNow == nil, let item = rows.last?.kind == "user" ? rows.last?.items.first : nil, item.id != turnPrompt else { return }
+        // Claude moves what the turn waits on to the background, or ends the turn, and takes the prompt in.
+        if account.provider == "claude" {
+            guard item.data["queued"] as? Bool == true else { return }
+            do { _ = try await rpc.request("cx/sendNow", ["id": item.id], timeout: 5) } catch { notice("Could not send now: " + error.localizedDescription) }
+            return
+        }
+        // Codex keeps an unread steer in the interrupted turn; a turn with no input then answers it.
+        sendingNow = item.id
+        await stop(source: "Shift+Return")
+    }
+
+    private func continueWith(_ prompt: String) async {
+        guard ready, !busy, !submitting, let threadID else { return }
+        busy = true; turnPrompt = prompt; activeActions.removeAll(); status = "Working…"
+        var params: JSON = ["threadId": threadID, "input": [JSON](), "cwd": cwd]
+        if let effort { params["effort"] = effort }
+        do {
+            let result = try await rpc.request("turn/start", params)
+            if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
+        } catch { busy = false; needsAttention = true; status = "Send failed"; notice("Prompt was not sent: " + error.localizedDescription) }
+        save()
     }
 
     // Up arrow on the last prompt while the agent has not read it: it leaves the queue and comes back into the composer.
