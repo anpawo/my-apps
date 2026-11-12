@@ -378,7 +378,8 @@ enum BugCheck {
                 check(heights.contains { $0 > shut && $0 < heights.last! } && opened >= 0.15 && zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 } && heights.last! > heights[0],
                       "hovering its arrow opens a pinned question in one smooth motion")
                 RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-                pointer(host, at: NSPoint(x: left + 300, y: 60)); pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                // A close starts 80 ms after the pointer leaves, then runs its 0.3 s spring.
+                pointer(host, at: NSPoint(x: left + 300, y: 60)); pointer(host, at: NSPoint(x: 5, y: 60)); RunLoop.main.run(until: Date().addingTimeInterval(0.8))
                 let away = tinted()
                 print("Pinned question from x \(Int(left)): \(heights[0]) tinted rows with the pointer on its text, \(heights.last!) on its arrow, \(away) away")
                 // Column 922 crosses the bubble's rounded corners: the same shut bubble measures 272 or 274 rows from one render to the next.
