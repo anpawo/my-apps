@@ -2,27 +2,19 @@
 """Fleet's MESSAGES block, from Beeper Server's local index (read on a copy, never written).
 
 Writes ~/.local/state/fleet/blocks/messages.json: the three chats with unread messages heard from
-last, each a click away from a VCX session that reads it, and a notice for what came in since the
-last run, still unread after 30 seconds, which Fleet posts as a banner.
+last, each a click away from a VCX session that reads it. No banners: one-text pings for messages.
 Run every 10 s by the fleet.messages LaunchAgent.
 
   messages.py            one run
   messages.py --test     the self-check, on a made-up index
 """
-import json, os, plistlib, shutil, sqlite3, subprocess, sys, tempfile, time
+import json, os, shutil, sqlite3, sys, tempfile, time
 
 SRC = os.path.expanduser("~/.beeper/profiles/server/background/index.db")
-BEEPER_ID = "com.automattic.beeper.desktop"
-BEEPER_PREFS = os.path.expanduser("~/Library/Application Support/BeeperTexts/account.db")
-# macOS 26 keeps per-app notification settings here, not in com.apple.ncprefs.
-NC_PREFS = os.path.expanduser("~/Library/Group Containers/group.com.apple.usernoted/Library/"
-                              "Preferences/group.com.apple.usernoted.plist")
 OUT = os.path.expanduser("~/.local/state/fleet/blocks/messages.json")
-CURSOR = os.path.expanduser("~/.local/state/fleet/messages-cursor.json")
 # Each network's icon, copied beside the block: Fleet reads pictures from its blocks folder.
 ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 SHOWN = 3
-NOTIFY_DELAY = 30
 SKIP = ("HIDDEN", "REACTION", "MEMBERSHIP", "NOTICE")
 
 THREADS = """
@@ -34,15 +26,6 @@ select threadID id, accountID account, timestamp ts,
        json_extract(thread,'$.extra.protocol') protocol
 from threads where accountID not like '$%' and json_extract(thread,'$.unreadCount') > 0
 order by timestamp desc"""
-
-INCOMING = f"""
-select m.eventID id, m.roomID room, m.timestamp ts, m.type, m.senderContactID sender,
-       json_extract(m.message,'$.text') text
-from mx_room_messages m
-where m.isSentByMe = 0 and m.shouldNotify = 1 and not m.isDeleted
-  and m.seenByMeAt is null -- already read, on Beeper or on the phone (its read receipt)
-  and m.type not in ({",".join("?" * len(SKIP))}) and m.timestamp > ? and m.timestamp <= ?
-order by m.timestamp"""
 
 
 def network(protocol, account):
@@ -64,44 +47,13 @@ def words(row):
             "STICKER": "sticker"}.get(row["type"], row["type"].lower())
 
 
-def beeper_covers():
-    """The chat types ("single", "group") whose banner Beeper Desktop shows itself, so Fleet stays quiet."""
-    try:
-        if subprocess.run(["pgrep", "-xq", "Beeper Desktop"]).returncode:
-            return set()
-        with open(NC_PREFS, "rb") as f:
-            flags = next((a.get("flags", 0) for a in plistlib.load(f).get("apps", [])
-                          if a.get("bundle-id") == BEEPER_ID), 0)
-        # Alert style None, or the "Desktop" box unticked (bit 31): macOS shows Beeper nothing.
-        if not (flags >> 3) & 7 or flags >> 31 & 1:
-            return set()
-        db = sqlite3.connect(f"file:{BEEPER_PREFS}?mode=ro", uri=True)
-        row = db.execute("select value from store where key='ad:com.beeper.desktop.prefs'").fetchone()
-        db.close()
-        prefs = json.loads(row[0]) if row else {}
-        return {kind for kind, key in (("single", "message_notifications"), ("group", "group_message_notifications"))
-                if prefs.get(key, True)}
-    except (OSError, ValueError, sqlite3.Error):
-        return set()
-
-
 def ago(ms, now):
     s = max(0, now - ms / 1000)
     return f"{int(s // 60)} min" if s < 3600 else f"{int(s // 3600)} h" if s < 86400 else f"{int(s // 86400)} d"
 
 
-def build(db, after, now, covered=frozenset()):
-    """The block and the cursor to keep. `after` None: a first run, which announces nothing.
-    `covered`: the chat types Beeper Desktop already banners."""
+def build(db, now):
     db.row_factory = sqlite3.Row
-    names = {}
-
-    def sender(room, contact):
-        if room not in names:
-            names[room] = {r[0]: r[1] for r in db.execute(
-                "select id, full_name from participants where room_id=?", (room,))}
-        return names[room].get(contact) or "someone"
-
     chats = db.execute(THREADS).fetchall()
     last = {}
     for chat in chats:
@@ -126,42 +78,8 @@ def build(db, after, now, covered=frozenset()):
                                f"lines what they want from me and what I should answer."},
         })
     total = sum(1 for _ in chats)
-    block = {"title": "Messages", "tint": "#3E6FB0",
-             "groups": [{"title": f"{total} unread chat{'s' if total != 1 else ''}", "items": items}]}
-
-    newest = db.execute("select max(timestamp) from mx_room_messages").fetchone()[0] or 0
-    if after is None:
-        return block, newest
-    cutoff = (now - NOTIFY_DELAY) * 1000
-    rooms = {r["id"]: r for r in chats}
-    fresh = [r for r in db.execute(INCOMING, (*SKIP, after, cutoff)) if r["room"] in rooms]
-    if covered:
-        kinds = {}
-        for r in fresh:
-            if r["room"] not in kinds:
-                row = db.execute("select json_extract(thread,'$.type') from threads where threadID=?",
-                                 (r["room"],)).fetchone()
-                kinds[r["room"]] = row[0] if row else None
-        fresh = [r for r in fresh if kinds[r["room"]] not in covered]
-    if fresh:
-        def where(room):
-            r = rooms.get(room)
-            return (title(r["title"]), network(r["protocol"], r["account"])) if r else (None, None)
-        by_room = {}
-        for r in fresh:
-            by_room.setdefault(r["room"], []).append(r)
-        if len(by_room) == 1:
-            room, rows = next(iter(by_room.items()))
-            name, net = where(room)
-            who = sender(room, rows[-1]["sender"])
-            head = f"{who}" + (f" in {name}" if name and name != who else "") + (f" · {net}" if net else "")
-            body = words(rows[-1]) if len(rows) == 1 else f"{len(rows)} messages, last: {words(rows[-1])}"
-        else:
-            head = f"{len(fresh)} new messages"
-            body = ", ".join(dict.fromkeys(where(room)[0] or sender(room, rows[-1]["sender"])
-                                           for room, rows in reversed(list(by_room.items()))))
-        block["notify"] = [{"id": fresh[-1]["id"], "title": head, "body": body[:200]}]
-    return block, max(min(newest, cutoff), after)
+    return {"title": "Messages", "tint": "#3E6FB0",
+            "groups": [{"title": f"{total} unread chat{'s' if total != 1 else ''}", "items": items}]}
 
 
 def write(path, value):
@@ -173,20 +91,13 @@ def write(path, value):
 
 
 def main():
-    after = None
-    try:
-        with open(CURSOR) as f:
-            after = json.load(f)["after"]
-    except (OSError, ValueError, KeyError):
-        pass
     with tempfile.TemporaryDirectory() as tmp:
         for ext in ("", "-wal", "-shm"):
             if os.path.exists(SRC + ext):
                 shutil.copy2(SRC + ext, os.path.join(tmp, "index.db" + ext))
         db = sqlite3.connect(os.path.join(tmp, "index.db"))
-        block, cursor = build(db, after, time.time(), beeper_covers())
+        block = build(db, time.time())
         db.close()
-    # The notice goes once: the next poll clears it after the cursor advances.
     previous = None
     try:
         with open(OUT) as f:
@@ -200,7 +111,6 @@ def main():
             shutil.copy2(os.path.join(ICONS, name), icons)
     if block != previous:
         write(OUT, block)
-    write(CURSOR, {"after": cursor})
 
 
 def test():
@@ -227,9 +137,8 @@ def test():
     msg("e4", "!a", (now - 100) * 1000, "mine", me=1)
     msg("e5", "!c", (now - 90) * 1000, "muted", notify=0)
 
-    block, cursor = build(db, None, now)
-    assert "notify" not in block, "a first run announces nothing"
-    assert cursor == (now - 90) * 1000
+    block = build(db, now)
+    assert "notify" not in block, "Fleet never banners a message: one-text does"
     items = block["groups"][0]["items"]
     assert block["groups"][0]["title"] == "2 unread chats", block
     assert items[0]["text"] == "Mat · are you there?", items[0]
@@ -239,34 +148,11 @@ def test():
     assert items[1]["text"].startswith("Note to self"), "a phone number never shows"
     assert "Mat" in items[0]["open"]["prompt"]
 
-    block, _ = build(db, (now - 150) * 1000, now)
-    assert block["notify"] == [{"id": "e2", "title": "Mat · whatsapp", "body": "are you there?"}], block["notify"]
-    block, _ = build(db, (now - 250) * 1000, now)
-    assert block["notify"][0]["body"] == "2 messages, last: are you there?", block["notify"]
-    block, _ = build(db, (now - 50) * 1000, now)
-    assert "notify" not in block, "mine and muted ones say nothing"
-    block, _ = build(db, (now - 150) * 1000, now, {"single", "group"})
-    assert "notify" not in block, "Beeper Desktop banners it, Fleet does not"
-    block, _ = build(db, (now - 150) * 1000, now, {"group"})
-    assert block["notify"][0]["id"] == "e2", "Beeper's DM banners are off, Fleet speaks"
     msg("e6", "!a", (now - 60) * 1000, "read on the phone", seen=(now - 55) * 1000)
-    block, _ = build(db, (now - 80) * 1000, now)
-    assert "notify" not in block, "a message he read elsewhere says nothing"
-    msg("e7", "!a", (now - 10) * 1000, "just now")
-    block, pending = build(db, (now - 80) * 1000, now)
-    assert "notify" not in block, "a new message waits 30 seconds for read receipts"
-    block, _ = build(db, pending, now + 19)
-    assert "notify" not in block, "the full delay applies"
-    block, delivered = build(db, pending, now + 20)
-    assert block["notify"][0]["id"] == "e7", "an unread message is announced after the delay"
-    block, _ = build(db, delivered, now + 30)
-    assert "notify" not in block, "a delayed message is announced once"
-    db.execute("update mx_room_messages set seenByMeAt=? where eventID='e7'", (now * 1000,))
-    block, _ = build(db, pending, now + 20)
-    assert "notify" not in block, "reading during the delay cancels the banner"
+    block = build(db, now)
     assert block["groups"][0]["items"][0]["text"] == "Mat · are you there?", "preview skips read messages"
     db.execute("update mx_room_messages set isDeleted=1 where eventID='e2'")
-    block, _ = build(db, pending, now + 20)
+    block = build(db, now)
     assert block["groups"][0]["items"][0]["text"] == "Mat · hello", "preview skips deleted messages"
     for i in range(4):
         room = f"!read{i}"
@@ -274,14 +160,12 @@ def test():
         msg(f"read{i}", room, now * 1000, "already read", seen=now * 1000)
     thread("!d", "Unread", 1, (now - 8000) * 1000, "instagram")
     msg("e8", "!d", (now - 300) * 1000, "still unread")
-    block, _ = build(db, pending, now + 20)
+    block = build(db, now)
     assert [i["text"] for i in block["groups"][0]["items"]] == [
         "Mat · hello", "Unread · still unread", "Note to self · note"], "three latest unread messages, not stale chat timestamps"
     assert block["groups"][0]["title"] == "3 unread chats", "read-only chats do not count"
     db.execute("update threads set thread=json_set(thread,'$.unreadCount',0) where threadID='!a'")
-    db.execute("update mx_room_messages set seenByMeAt=null where eventID='e7'")
-    block, _ = build(db, pending, now + 20)
-    assert "notify" not in block, "a read chat cancels the banner even before message receipts sync"
+    block = build(db, now)
     assert all(not i["text"].startswith("Mat") for i in block["groups"][0]["items"])
     print("messages.py: all good")
 

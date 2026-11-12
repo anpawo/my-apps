@@ -222,7 +222,7 @@ PLIST_EOF
 	fi
 	launchctl bootstrap "gui/$UID" "$plist" 2>/dev/null || true
 }
-# Poll read receipts every 10 s; messages.py waits 30 s before notifying. The MO digest moves once a day.
+# The unread list moves every 10 s. The MO digest moves once a day.
 block_agent fleet.messages 10 messages.py
 block_agent fleet.s14 900 s14.py
 
