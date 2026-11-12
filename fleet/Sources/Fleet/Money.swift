@@ -112,6 +112,10 @@ enum Money {
         /// 1209 (read off a card refund and a health insurer's; a transfer from a person, his
         /// parents' or his own included, is 1214).
         var refunds: Double = 0
+        /// What went to savings (the PEA included) and what came back out of them: neither
+        /// is spent, and neither is his to spend twice.
+        var saved: Double = 0
+        var drawn: Double = 0
         var total: Double { spent.values.reduce(0, +) }
         /// What is left of the month his own once all of that is in.
         var yours: Double { max(0, total - back.values.reduce(0, +) - refunds) }
@@ -207,6 +211,7 @@ enum Money {
         var months: [String: Month] = [:]
         var covers: [String: [Kind: Double]] = [:]
         var refunds: [String: Double] = [:]
+        var saved: [String: Double] = [:], drawn: [String: Double] = [:]
         var latest: String?
         for line in csv.split(whereSeparator: \.isNewline).dropFirst() {
             let row = fields(line, 7)
@@ -214,12 +219,15 @@ enum Money {
             latest = max(latest ?? row[0], row[0])
             let id = String(row[0].prefix(7))
             let kind = Kind(category: row[2], bankCode: row.count > 6 ? row[6] : "", merchant: row.count > 3 ? row[3] : "")
-            if amount > 0 {
+            let saving = row[2].localizedCaseInsensitiveContains("saving")
+                || row.dropFirst(3).prefix(2).joined(separator: " ").localizedCaseInsensitiveContains("bourse direct")
+            if saving {
+                if amount > 0 { drawn[id, default: 0] += amount } else { saved[id, default: 0] -= amount }
+            } else if amount > 0 {
                 if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
                 guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
-            } else if !row[2].localizedCaseInsensitiveContains("saving"),
-                      !row.dropFirst(3).prefix(2).joined(separator: " ").localizedCaseInsensitiveContains("bourse direct") {
+            } else {
                 months[id, default: Month(id: id)].spent[kind, default: 0] -= amount
                 let named = row[2] + " " + (row.count > 3 ? row[3] : "")
                 var left = 1.0
@@ -234,6 +242,8 @@ enum Money {
         let newest = months.keys.max()
         for id in months.keys {
             months[id]?.refunds = refunds[id] ?? 0
+            months[id]?.saved = saved[id] ?? 0
+            months[id]?.drawn = drawn[id] ?? 0
             for (kind, paid) in months[id]?.spent ?? [:] {
                 let cover = min(paid, covers[id]?[kind] ?? 0)
                 if cover > 0 {
@@ -723,6 +733,9 @@ private struct MoneyMonth: View {
                 line("arrow.uturn.backward", "Back", month.back.sorted { $0.value > $1.value }
                      + (month.refunds > 0 ? [("Refunds", month.refunds)] : []))
                 line("equal", "Yours", [("", month.yours)], "once it is all back")
+            }
+            if month.saved > 0 || month.drawn > 0 {
+                line("banknote", "Savings", [("In", month.saved), ("Out", month.drawn)].filter { $0.1 > 0 })
             }
         }
         .onGeometryChange(for: Double.self) { $0.size.width } action: { width = $0 }
