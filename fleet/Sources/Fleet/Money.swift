@@ -9,12 +9,12 @@ import SwiftUI
 enum Money {
     static let file = URL(fileURLWithPath: NSHomeDirectory()).appending(path: "self/bank/state/payments.csv")
 
-    /// What a payment was for. Nine: the export names eighteen categories, and eighteen
+    /// What a payment was for. Ten: the export names eighteen categories, and eighteen
     /// percentages a month are a statement, not a glance. A colour belongs to its kind in
     /// every month; its place does not, a month ranks its own — so two colours a colour-blind
     /// eye confuses can sit side by side, and the name its arrow points to is what says which.
     enum Kind: CaseIterable {
-        case food, transport, shopping, clothes, leisure, subscriptions, health, loan, other
+        case food, transport, shopping, clothes, leisure, subscriptions, ai, health, loan, other
 
         var title: String {
             switch self {
@@ -24,6 +24,7 @@ enum Money {
             case .clothes: "Clothes"
             case .leisure: "Leisure"
             case .subscriptions: "Subscriptions"
+            case .ai: "AI"
             case .health: "Health"
             case .loan: "Loan"
             case .other: "Other"
@@ -40,6 +41,7 @@ enum Money {
             case .clothes: Color(red: 0.902, green: 0.404, blue: 0.404)
             case .leisure: Color(red: 0.565, green: 0.522, blue: 0.914)
             case .subscriptions: Color(red: 0.788, green: 0.522, blue: 0.0)
+            case .ai: Color(red: 0.180, green: 0.700, blue: 0.800)
             case .health: Color(red: 0.110, green: 0.588, blue: 0.110)
             case .loan: Color(red: 0.835, green: 0.318, blue: 0.506)
             case .other: Color(white: 0.45)
@@ -48,11 +50,13 @@ enum Money {
 
         /// By the words of the export's own category, so a category it starts using tomorrow
         /// lands in Other instead of nowhere. Clothes are the exception: the export has them
-        /// under Shopping, and only the bank's own code for the line (104) tells them apart.
-        init(category: String, bankCode: String = "") {
-            let name = category.lowercased()
+        /// under Shopping, and only the bank's own code for the line (104) tells them apart. AI
+        /// too, by its merchant: Claude is filed under Subscriptions, ChatGPT under Other.
+        init(category: String, bankCode: String = "", merchant: String = "") {
+            let name = category.lowercased(), merchant = merchant.lowercased()
             func has(_ words: String...) -> Bool { words.contains { name.contains($0) } }
-            if has("loan") { self = .loan }
+            if ["anthropic", "claude", "openai", "chatgpt"].contains(where: merchant.contains) { self = .ai }
+            else if has("loan") { self = .loan }
             else if has("subscription") { self = .subscriptions }
             else if has("cloth") || bankCode == "104" { self = .clothes }
             else if has("shopping", "tobacco") { self = .shopping }
@@ -205,7 +209,7 @@ enum Money {
             guard row.count >= 3, row[0].count == 10, let amount = Double(row[1]), amount != 0 else { continue }
             latest = max(latest ?? row[0], row[0])
             let id = String(row[0].prefix(7))
-            let kind = Kind(category: row[2], bankCode: row.count > 6 ? row[6] : "")
+            let kind = Kind(category: row[2], bankCode: row.count > 6 ? row[6] : "", merchant: row.count > 3 ? row[3] : "")
             if amount > 0 {
                 if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
                 guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
