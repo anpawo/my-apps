@@ -65,12 +65,13 @@ function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) %
 function avatar(item) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
-  // A group chat: the logo of the app it comes from, then its members' pictures (its own picture when none has one).
+  // A group chat: the logo of the app it comes from, then up to 4 of its members' pictures in one round tile, like a
+  // folded group of favorites (its own picture when no member has one).
   if (item.kind === 'group' && !item._plain) {
     const faces = item.faces || [];
     const logo = netMark(netOf(item.chats[0]));
     if (!faces.length) return `<div class="av faces members">${logo}${avatar({ ...item, _plain: true })}</div>`;
-    return `<div class="av faces members">${logo}${faces.map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
+    return `<div class="av faces members">${logo}<div class="av tile">${faces.slice(0, 4).map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div></div>`;
   }
   const [first, ...rest] = item.imgs || [];
   if (!first) return `<div class="av" style="background:${color}">${esc(initials)}</div>`;

@@ -113,12 +113,11 @@ fn summary(chat: &Value) -> Value {
     })
 }
 
-/// Every member's picture, for the row that shows them after the app's logo: the one their person has (a picture
-/// set by hand, or one from another app) before the one this app gives.
-// ponytail: 12 at most, enough to fill a row; a 200-person Discord would otherwise load 200 pictures per draw.
+/// Four members' pictures, for the tile after the app's logo: the one their person has (a picture set by hand, or
+/// one from another app) before the one this app gives.
 fn faces(chat: &Value, pic_of: &HashMap<String, String>) -> Vec<String> {
     let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
-    members.filter_map(|p| p["id"].as_str().and_then(|i| pic_of.get(i)).map(String::clone).or(p["imgURL"].as_str().map(String::from))).take(12).collect()
+    members.filter_map(|p| p["id"].as_str().and_then(|i| pic_of.get(i)).map(String::clone).or(p["imgURL"].as_str().map(String::from))).take(4).collect()
 }
 
 fn pictures(chats: &[Value]) -> Vec<&str> {

@@ -97,8 +97,8 @@ const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 const logos = await page.$$eval('#people .row:not([data-id^="grp"])', rs => rs.map(r => [...r.querySelectorAll('.net')].map(n => [n.title, n.getBoundingClientRect().width])));
 check(logos.every(l => l.length === 1 && l[0][1] === 26) && (await page.$eval('#people .row:has-text("Lea Martin") .net', n => n.title)) === 'Instagram', `each person in the list shows the logo of the app of their latest message, 26 px (${JSON.stringify(logos)})`);
-const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, ...[...a.querySelectorAll('img')].map(i => i.getBoundingClientRect()).map(r => [r.left, r.width])]);
-check(faces[0] === 'net' && faces[1] === 26 && faces.length === 4 && faces[2][1] === 40 && faces[3][0] < faces[2][0] + 40, `a group shows its app's logo, then its members' pictures overlapping (${JSON.stringify(faces)})`);
+const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, a.querySelector('.tile').getBoundingClientRect().width, a.querySelectorAll('.tile img').length]);
+check(JSON.stringify(faces) === '["net",26,40,2]', `a group shows its app's logo, then its members' pictures in one round tile (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
