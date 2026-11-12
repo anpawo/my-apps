@@ -271,6 +271,13 @@ await page.waitForTimeout(400);
 check(await page.evaluate(() => !document.querySelector('#palette').hidden && !!document.querySelector('#results .row.hot.faved') && !!document.querySelector('#favs .fav[title="Sarah K"]')), 'Cmd+F in the search adds the highlighted person to favorites');
 await page.keyboard.press('Escape');
 
+// Five favorites to a row.
+const tops = await page.evaluate(() => {
+  for (let i = 0; i < 6; i++) document.querySelector('#favs').insertAdjacentHTML('beforeend', '<button class="fav"><div class="av"></div></button>');
+  return [...document.querySelectorAll('#favs .fav')].map(b => Math.round(b.getBoundingClientRect().top));
+});
+check(tops.filter(t => t === tops[0]).length === 5, `five favorites to a row (${tops})`);
+
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');
