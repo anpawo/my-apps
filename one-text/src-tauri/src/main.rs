@@ -14,6 +14,7 @@ struct Beeper {
     nudged: Mutex<Option<Instant>>,
     http: reqwest::Client,
     overrides: PathBuf,
+    unread: Mutex<std::collections::HashMap<String, i64>>,
 }
 
 fn home() -> PathBuf {
@@ -30,7 +31,7 @@ fn read_target() -> Option<(String, String)> {
 }
 
 fn beeper(overrides: PathBuf) -> Beeper {
-    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::new(), overrides }
+    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::new(), overrides, unread: Default::default() }
 }
 
 impl Beeper {
@@ -131,7 +132,39 @@ async fn all_chats(b: &Beeper) -> Result<Vec<Value>, String> {
         }
         if parts.is_empty() { out.push(c) } else { out.extend(parts) }
     }
+    // Beeper counts a reaction to one of my messages as unread, though the thread never shows it: count only the
+    // unread messages it shows. A muted chat counts none. Kept per chat and latest message, so a refresh asks again
+    // only for chats that moved.
+    let mut ask = Vec::new();
+    for (i, c) in out.iter_mut().enumerate().filter(|(_, c)| c["unreadCount"].as_i64().unwrap_or(0) > 0) {
+        if c["isMuted"] == true {
+            c["unreadCount"] = json!(0);
+            continue;
+        }
+        let key = format!("{}|{}", c["id"], c["preview"]["sortKey"]);
+        match b.unread.lock().unwrap().get(&key) {
+            Some(&n) => c["unreadCount"] = json!(n),
+            None => ask.push((i, key, format!("/v1/chats/{}/messages", urlencode(c["id"].as_str().unwrap_or(""))))),
+        }
+    }
+    let pages = futures_util::future::join_all(ask.iter().map(|(_, _, path)| b.call("GET", path, None))).await;
+    for ((i, key, _), page) in ask.into_iter().zip(pages) {
+        let Ok(page) = page else { continue };
+        let n = shown_unread(page["items"].as_array().map(Vec::as_slice).unwrap_or_default(), out[i]["unreadCount"].as_i64().unwrap_or(0));
+        b.unread.lock().unwrap().insert(key, n);
+        out[i]["unreadCount"] = json!(n);
+    }
     Ok(out)
+}
+
+/// The unread messages a page shows (reactions and deleted ones aside); a page all unread holds fewer than there
+/// are, so Beeper's count stands.
+fn shown_unread(page: &[Value], beeper_count: i64) -> i64 {
+    let unread: Vec<&Value> = page.iter().filter(|m| m["isUnread"] == true).collect();
+    if !page.is_empty() && unread.len() == page.len() {
+        return beeper_count;
+    }
+    unread.iter().filter(|m| m["isHidden"] != true && m["isDeleted"] != true).count() as i64
 }
 
 #[tauri::command]
@@ -178,6 +211,15 @@ fn urlencode(s: &str) -> String {
 mod live {
     /// Against the running Beeper Server, counts only: `cargo test -- --ignored --nocapture`.
     #[test]
+    fn reactions_are_not_unread() {
+        use serde_json::json;
+        let m = |unread: bool, hidden: bool| json!({ "isUnread": unread, "isHidden": hidden });
+        assert_eq!(super::shown_unread(&[m(false, false), m(true, true)], 1), 0);
+        assert_eq!(super::shown_unread(&[m(false, false), m(true, false), m(true, true)], 2), 1);
+        assert_eq!(super::shown_unread(&[m(true, false), m(true, false)], 57), 57);
+    }
+
+    #[test]
     #[ignore]
     fn people_from_beeper() {
         let b = super::beeper(std::env::temp_dir().join("chats-no-overrides.json"));
@@ -193,6 +235,8 @@ mod live {
             *shapes.entry(nets.join("+")).or_insert(0) += 1;
         }
         println!("merged shapes {shapes:?}");
+        let unread = |v: &serde_json::Value| v.as_array().unwrap().iter().filter(|p| p["unread"].as_i64().unwrap_or(0) > 0).count();
+        println!("with unread: people {} groups {}", unread(&out["people"]), unread(&out["groups"]));
         if let Ok(name) = std::env::var("PERSON") {
             for p in people.iter().filter(|p| p["name"].as_str().is_some_and(|n| n.contains(name.as_str()))) {
                 let nets: Vec<&str> = p["chats"].as_array().unwrap().iter().map(|c| c["network"].as_str().unwrap_or("?")).collect();
