@@ -11,6 +11,8 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - Favorites sit above it as pictures only: right-click a person (or ⌘F over them) to add or remove one.
 - Chats with the same name (word order and accents aside), the same phone number, or an Instagram handle like `first.last` matching a full name are one person, and so are the chats inside one Beeper merged itself; the ⋯ menu merges or splits them by hand.
 - The logos at the top right are the apps that person is on; the highlighted one is where your reply goes (by default the app they last wrote from). Click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm` or `/mx`.
+- Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
+- A reaction to one of your messages does not count as unread, and a muted chat shows no count.
 - Opening a conversation sends no read receipt.
 - ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close.
 

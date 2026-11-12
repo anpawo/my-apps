@@ -55,7 +55,7 @@ function collapse(el, hide, ms = 240) {
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const linkify = s => esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noreferrer">${u}</a>`);
-const asset = url => `beeper://localhost/asset?url=${enc(url)}`;
+const asset = url => url.startsWith('data:') ? url : `beeper://localhost/asset?url=${enc(url)}`;
 const netMark = key => { const n = NETS[key]; return `<span class="net" style="background:${n.color}" title="${n.label}">${n.logo}</span>`; };
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
@@ -562,6 +562,8 @@ function openMore(anchor) {
   const sep = () => Object.assign(document.createElement('div'), { className: 'sep' });
   const m = menu(anchor, m => {
     m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
+    m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
+    if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
     if (person.kind !== 'person') {
       m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
       return;
@@ -596,6 +598,26 @@ function mergePicker(m, person) {
   setTimeout(() => field.focus(), 0);
 }
 
+// A picture of one's own for a person or a group: any image file, cut to a 256 px square, kept in overrides.json.
+function pickPicture(item) {
+  const field = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  field.onchange = async () => {
+    const file = field.files[0];
+    if (!file) return;
+    const img = await createImageBitmap(file);
+    const side = Math.min(img.width, img.height), canvas = Object.assign(document.createElement('canvas'), { width: 256, height: 256 });
+    canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+    setPicture(item, canvas.toDataURL('image/jpeg', 0.85));
+  };
+  field.click();
+}
+function setPicture(item, url) {
+  editOverrides(ov => {
+    ov.pictures ||= {};
+    for (const c of item.chats) delete ov.pictures[c.id];
+    if (url) ov.pictures[item.chats[0].id] = url;
+  }, url ? `New picture for ${item.name}` : `Picture of ${item.name} removed`);
+}
 function hide(group, on) {
   editOverrides(ov => {
     ov.hidden = ov.hidden.filter(id => id !== group.id);
@@ -610,6 +632,7 @@ async function editOverrides(change, message) {
   next.hidden ||= [];
   change(next);
   await invoke('set_overrides', { value: next });
+  state.pictures = next.pictures;
   await refreshList();
   toast(message, async () => { await invoke('set_overrides', { value: old }); await refreshList(); });
 }
@@ -653,5 +676,6 @@ addEventListener('resize', () => movePill(0));
 // ponytail: polling every 3 s / 10 s; switch to the /v1/ws event stream if it ever feels late or heavy.
 setInterval(pollThread, 3000);
 setInterval(refreshList, 10000);
+invoke('overrides').then(o => (state.pictures = o.pictures));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshList(); pollThread(); } });
 refreshList();

@@ -158,10 +158,12 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             members.sort_by(|a, b| last(b).cmp(last(a)));
             let name = members.iter().map(|c| name_of(c)).max_by_key(|n| (name_key(n).map_or(0, |k| k.split(' ').count()), n.len())).unwrap_or_default();
             let chats: Vec<Value> = members.iter().map(|c| summary(c)).collect();
+            // A picture set by hand (overrides.pictures, by chat id) comes first.
+            let custom = members.iter().find_map(|c| overrides["pictures"][id(c)].as_str());
             json!({
                 "id": members.iter().map(|c| id(c)).min().unwrap_or(""),
                 "name": name,
-                "imgs": pictures(&chats),
+                "imgs": custom.into_iter().chain(pictures(&chats)).collect::<Vec<_>>(),
                 "unread": chats.iter().map(|c| c["unread"].as_i64().unwrap_or(0)).sum::<i64>(),
                 "last": last(members[0]),
                 "preview": members[0]["preview"],
@@ -176,7 +178,7 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         .filter(|c| c["type"] != "single")
         .map(|c| {
             let s = summary(c);
-            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": c["title"], "imgs": c["imgURL"].as_str().into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
+            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": c["title"], "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
         })
         .collect();
     rooms.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
@@ -265,6 +267,14 @@ mod tests {
         assert!(faces(&g("Instagram", 5, None)).is_empty());
         assert!(faces(&g("WhatsApp", 3, Some("mxc://group"))).is_empty());
         assert!(faces(&g("Discord", 3, None)).is_empty());
+    }
+
+    #[test]
+    fn picture_set_by_hand_comes_first() {
+        let out = build(&fixture(), &json!({ "pictures": { "sms-lea": "data:image/jpeg;base64,AA", "grp": "data:image/png;base64,BB" } }));
+        let lea = out["people"].as_array().unwrap().iter().find(|p| p["id"] == "ig-lea").unwrap();
+        assert_eq!(lea["imgs"][0], "data:image/jpeg;base64,AA");
+        assert_eq!(out["groups"][0]["imgs"], json!(["data:image/png;base64,BB"]));
     }
 
     #[test]

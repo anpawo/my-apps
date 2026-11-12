@@ -49,7 +49,7 @@ const stub = () => {
     for (const c of chats) (by[find(c.person)] ||= []).push(c);
     return Object.values(by).map(cs => {
       cs.sort((a, b) => b.last.localeCompare(a.last));
-      return { id: cs.map(c => c.id).sort()[0], name: cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], imgs: ['mxc://ig', 'mxc://wa'],
+      return { id: cs.map(c => c.id).sort()[0], name: cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], imgs: [...cs.map(c => overrides.pictures?.[c.id]).filter(Boolean), 'mxc://ig', 'mxc://wa'],
         unread: cs.reduce((s, c) => s + c.unread, 0), last: cs[0].last, preview: cs[0].preview, chats: cs };
     }).sort((a, b) => b.last.localeCompare(a.last));
   }
@@ -243,6 +243,13 @@ await page.keyboard.type('rust');
 await page.waitForTimeout(300);
 check(await page.$$eval('#results .row:not([data-leaving])', rs => rs.map(r => r.dataset.id).join()) === 'grp-2', 'the search still finds a hidden group');
 await page.keyboard.press('Escape');
+
+// A picture set by hand: setPicture saves it and the row shows it; the menu then offers to remove it.
+const dot = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#0a0"/></svg>');
+await page.evaluate(d => setPicture(state.byId.get(state.all.find(i => i.name === 'Hugo R').id), d), dot);
+await page.waitForTimeout(400);
+check(await page.$eval('.fav img, #people .row:has-text("Hugo R") img', i => i.src.startsWith('data:image/svg')), 'a picture set by hand shows instead of the initials');
+check(await page.evaluate(() => Object.keys(state.pictures || {}).length) === 1, 'the picture is kept in the overrides');
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();

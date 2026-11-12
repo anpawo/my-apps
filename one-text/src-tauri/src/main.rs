@@ -184,9 +184,11 @@ fn set_overrides(b: State<'_, Beeper>, value: Value) -> Result<(), String> {
 /// the avatar fall through to the next network's picture.
 fn is_default_picture(bytes: &[u8]) -> bool {
     use sha2::{Digest, Sha256};
-    const DEFAULTS: [&str; 2] = [
+    const DEFAULTS: [&str; 3] = [
         "f5319c27a8a51bad81caeabb1ffdc72dd296a73ee1f426e1c462e7b42269eff6",
         "76c85ef9f896fd6ce0bf7d6e85d6b0f3c4940bc67d0e5acf15f486e8c5108fc0",
+        // Teams' grey head, on 14 Teams chats
+        "e4242961c76b49751f0dceab695adbc489731975c8bdc663c383d129f9526a85",
     ];
     let hex: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
     DEFAULTS.contains(&hex.as_str())
