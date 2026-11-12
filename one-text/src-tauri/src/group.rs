@@ -284,7 +284,7 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         .filter(|c| c["type"] != "single")
         .map(|c| {
             let s = summary(c);
-            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": c["title"], "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
+            json!({ "id": s["id"], "hidden": hidden.contains(&id(c)), "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)), "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()), "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(), "faces": faces(c), "unread": s["unread"], "last": s["last"], "preview": s["preview"], "chats": [s] })
         })
         .collect();
     rooms.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
@@ -359,6 +359,14 @@ mod tests {
     fn lookalike_letters_read_as_latin() {
         assert_eq!(one_word("ƒαustine"), Some("faustine".into()));
         assert_eq!(name_key("Lεa Martιn"), name_key("lea martin"));
+    }
+
+    #[test]
+    fn a_renamed_group_keeps_its_original_name() {
+        let g = json!({ "id": "g1", "type": "group", "network": "Discord", "title": "general-chat", "participants": { "total": 30, "items": [] } });
+        let out = build(&[g.clone()], &json!({ "names": { "g1": "Rust FR" } }));
+        assert_eq!((&out["groups"][0]["name"], &out["groups"][0]["original"]), (&json!("Rust FR"), &json!("general-chat")));
+        assert!(build(&[g], &json!({}))["groups"][0]["original"].is_null());
     }
 
     #[test]

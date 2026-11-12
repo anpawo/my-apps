@@ -93,13 +93,13 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs
 /* ---------- Sidebar ---------- */
 
 function fill(n, item) {
-  const sig = JSON.stringify([item.name, item.imgs, item.faces, item.unread, item.last]);
+  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
-  n.innerHTML = `${avatar(item)}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}</span><span class="time">${when(item.last)}</span></div>
+  n.innerHTML = `${avatar(item)}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;
   if (item.unread && !wasUnread && n.isConnected) anim(n.querySelector('.badge'), { scale: [0.4, 1], opacity: [0, 1] }, 200);
 }
@@ -406,7 +406,7 @@ function drawResults() {
   }
   const all = net ? (state.all || []).filter(i => netsOf(i).includes(net)) : state.all || [];
   q = fold(q);
-  const items = (q ? all.filter(i => fold(i.name).includes(q)) : all).slice(0, q || net ? 30 : 8);
+  const items = (q ? all.filter(i => fold(i.name).includes(q) || fold(i.original).includes(q)) : all).slice(0, q || net ? 30 : 8);
   renderList($('#results'), items);
   $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
 }
@@ -421,6 +421,13 @@ search.addEventListener('keydown', e => {
     to?.scrollIntoView({ block: 'nearest' });
   } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); closePalette(); select(rows[at].dataset.id); }
   else if (e.key === 'Escape') closePalette();
+  else if (e.metaKey && e.key.toLowerCase() === 'r' && rows[at]) {
+    e.preventDefault(); e.stopPropagation();
+    const id = rows[at].dataset.id;
+    if (state.byId.get(id)?.kind !== 'group') return;
+    closePalette();
+    select(id).then(rename);
+  }
   else if (e.metaKey && e.key.toLowerCase() === 'f' && rows[at]) {
     e.preventDefault(); e.stopPropagation();
     toggleFav(state.byId.get(rows[at].dataset.id));
@@ -467,6 +474,13 @@ addEventListener('keydown', e => {
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
+  // ⌘R renames the group under the pointer, or the open one.
+  if (e.metaKey && e.key.toLowerCase() === 'r') {
+    e.preventDefault();
+    const id = document.querySelector('#list .row:hover, .fav:hover')?.dataset.id;
+    if (id && state.byId.get(id)?.kind === 'group') select(id).then(rename);
+    else if (state.cur?.kind === 'group') rename();
+  }
   // ⌘ + arrows move the favorite under the pointer, or the open one when no text is being edited.
   if (e.metaKey && e.key.startsWith('Arrow')) {
     const hover = document.querySelector('.fav:hover, #pinned .row:hover');
@@ -783,6 +797,7 @@ function openMore(anchor) {
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
     if (person.kind !== 'person') {
+      m.append(item('Rename…', { hint: '⌘R', action: () => { closeMenu(); rename(); } }));
       m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
       return;
     }
@@ -835,6 +850,30 @@ function setPicture(item, url) {
     for (const c of item.chats) delete ov.pictures[c.id];
     if (url) ov.pictures[item.chats[0].id] = url;
   }, url ? `New picture for ${item.name}` : `Picture of ${item.name} removed`);
+}
+// The open group's name becomes a field in the header: Enter keeps it (empty: back to the app's name), esc drops it.
+function rename() {
+  const group = state.cur, b = $('.who b');
+  if (group?.kind !== 'group' || !b) return;
+  const field = Object.assign(document.createElement('input'), { value: group.name || '', placeholder: group.original || group.name || 'Group name', spellcheck: false });
+  b.replaceWith(field);
+  field.focus();
+  field.select();
+  let over = false;
+  const end = keep => {
+    if (over) return;
+    over = true;
+    const name = field.value.trim();
+    field.replaceWith(b);
+    if (!keep || name === group.name) return;
+    editOverrides(ov => {
+      ov.names ||= {};
+      if (name && name !== (group.original || group.name)) ov.names[group.id] = name;
+      else delete ov.names[group.id];
+    }, name && name !== group.original ? `${group.original || group.name} renamed ${name}` : `${group.name} back to ${group.original}`).then(drawHeader);
+  };
+  field.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') end(true); if (e.key === 'Escape') end(false); };
+  field.onblur = () => end(true);
 }
 function hide(group, on) {
   editOverrides(ov => {

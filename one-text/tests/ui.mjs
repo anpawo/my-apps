@@ -56,7 +56,7 @@ const stub = () => {
   const invoke = async (cmd, args) => {
     log.push([cmd, args]);
     await new Promise(r => setTimeout(r, 30));
-    if (cmd === 'people') return structuredClone({ people: people(), groups: groups.map(g => ({ ...g, hidden: (overrides.hidden || []).includes(g.id) })) });
+    if (cmd === 'people') return structuredClone({ people: people(), groups: groups.map(g => ({ ...g, name: overrides.names?.[g.id] || g.name, original: overrides.names?.[g.id] ? g.name : null, hidden: (overrides.hidden || []).includes(g.id) })) });
     if (cmd === 'overrides') return structuredClone(overrides);
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
@@ -304,6 +304,24 @@ await page.waitForTimeout(400);
 const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 await page.keyboard.press('Escape');
+// ⌘R on a group in the search renames it in the header; the search then finds it by either name and shows both.
+await page.keyboard.press('Meta+d');
+await page.fill('#search', 'climbing');
+await page.waitForTimeout(300);
+await page.keyboard.press('Meta+r');
+await page.waitForSelector('header .who input');
+await page.fill('header .who input', 'Climbers');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(500);
+const header = await page.$eval('header .who', w => w.textContent);
+await page.keyboard.press('Meta+d');
+await page.fill('#search', 'climbing crew');
+await page.waitForTimeout(400);
+const found = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => [n.firstChild.textContent, n.querySelector('.orig')?.textContent]));
+check(header === 'Climbers' && JSON.stringify(found) === '[["Climbers","Climbing crew"]]', `⌘R renames a group; searching its old name shows both (${header}, ${JSON.stringify(found)})`);
+await page.keyboard.press('Escape');
+await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
+await page.waitForTimeout(300);
 
 // Groups: favorites in no group stay on top; "+ New group" names one; Add to it moves her into it; every group stays open.
 const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
