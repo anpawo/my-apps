@@ -873,7 +873,7 @@ function toast(text, undo) {
 // Holding the sidebar's right edge and dragging resizes it; the width is kept.
 {
   const aside = $('aside'), grip = $('.resize');
-  if (localStorage.sideWidth) aside.style.width = localStorage.sideWidth + 'px';
+  if (localStorage.sidebarWidth) aside.style.width = localStorage.sidebarWidth + 'px';
   grip.addEventListener('pointerdown', e => {
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
@@ -884,7 +884,7 @@ function toast(text, undo) {
     grip.addEventListener('pointerup', () => {
       grip.removeEventListener('pointermove', move);
       grip.classList.remove('held');
-      localStorage.sideWidth = aside.offsetWidth;
+      localStorage.sidebarWidth = aside.offsetWidth;
       if (!state.more) showLists();
     }, { once: true });
   });

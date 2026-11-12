@@ -286,12 +286,12 @@ await page.waitForTimeout(400);
 check(await page.evaluate(() => !document.querySelector('#palette').hidden && !!document.querySelector('#results .row.hot.faved') && !!document.querySelector('#favs .fav[title="Sarah K"]')), 'Cmd+F in the search adds the highlighted person to favorites');
 await page.keyboard.press('Escape');
 
-// Five favorites to a row.
+// Eight favorites to a row, packed to the left.
 const tops = await page.evaluate(() => {
-  for (let i = 0; i < 6; i++) document.querySelector('#favs').insertAdjacentHTML('beforeend', '<button class="fav"><div class="av"></div></button>');
+  for (let i = 0; i < 9; i++) document.querySelector('#favs').insertAdjacentHTML('beforeend', '<button class="fav"><div class="av"></div></button>');
   return [...document.querySelectorAll('#favs .fav')].map(b => Math.round(b.getBoundingClientRect().top));
 });
-check(tops.filter(t => t === tops[0]).length === 5, `five favorites to a row (${tops})`);
+check(tops.filter(t => t === tops[0]).length === 8, `eight favorites to a row (${tops})`);
 
 // "/discord" in the search keeps only those on Discord; "/wh tom" those on WhatsApp named tom.
 await page.keyboard.press('Meta+d');
@@ -329,6 +329,8 @@ check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.str
 const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
 check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no group, then each group, then pinned groups, then the list (${order})`);
 await page.screenshot({ path: join(out, '7-groups.png') });
+const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(), t = document.querySelector('#favs .fav').getBoundingClientRect(); return [l.right <= f.left, l.top >= f.top && l.bottom <= f.bottom, Math.round(f.left - t.left)]; });
+check(JSON.stringify(side) === '[true,true,0]', `a group's name sits left of its pictures, which line up with the top strip (${side})`);
 // Dragging Lea onto Work moves her out of Family; dragging Tom B onto the top strip takes him out of Work.
 const drag = async (from, to) => {
   const a = await page.locator(from).boundingBox(), b = await page.locator(to).boundingBox();
@@ -364,8 +366,8 @@ await page.mouse.up();
 const w1 = await sideW();
 await page.reload();
 await page.waitForSelector('aside');
-check(w0 === 360 && w1 === 440 && (await sideW()) === 440, `the sidebar starts at 360 px and its edge drags to 440 px, kept after a restart (${w0}, ${w1}, ${await sideW()})`);
-await page.evaluate(() => { delete localStorage.sideWidth; });
+check(w0 === 557 && w1 === 637 && (await sideW()) === 637, `the sidebar starts at 557 px and its edge drags to 637 px, kept after a restart (${w0}, ${w1}, ${await sideW()})`);
+await page.evaluate(() => { delete localStorage.sidebarWidth; });
 await page.reload();
 await page.waitForSelector('#people .row');
 await page.waitForTimeout(300);
