@@ -881,6 +881,24 @@ enum BugCheck {
             FreezeTrace.start(stall: 2, resample: 3)
             func spin(_ seconds: TimeInterval) { let end = Date().addingTimeInterval(seconds); while Date() < end { FreezeTrace.note("stuck callback") } }
             func files() -> [URL] { (try? FileManager.default.contentsOfDirectory(at: FreezeTrace.folder, includingPropertiesForKeys: nil)) ?? [] }
+            // A hitch too short for a freeze report still gets a line, told apart by who held the CPU; a stall in the background none.
+            let realActive = FreezeTrace.active
+            FreezeTrace.hitchLog = directory.appendingPathComponent("hitches.log")
+            FreezeTrace.active = { true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            spin(0.8)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            Thread.sleep(forTimeInterval: 0.8)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            FreezeTrace.active = { false }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            spin(0.8)
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            FreezeTrace.active = realActive
+            let hitches = ((try? String(contentsOf: FreezeTrace.hitchLog, encoding: .utf8)) ?? "").split(separator: "\n")
+            print("Hitch log: " + hitches.joined(separator: " | "))
+            check(hitches.count == 2 && hitches[0].contains("VCX busy") && hitches[1].contains("VCX waiting") && hitches.allSatisfy { $0.contains("top: ") },
+                  "a 0.8 s stall in the front app logs one hitch line, busy when spinning, waiting when blocked, none in the background")
             RunLoop.main.run(until: Date().addingTimeInterval(1))
             clock.withLock { frozen = real() - lost }
             spin(5)

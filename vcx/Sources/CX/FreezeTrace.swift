@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import os
 
 // The 11-05, 11-06 and 11-08 freezes (main thread stuck in SwiftUI's flush) never came back offscreen. When the main thread
@@ -10,6 +10,8 @@ enum FreezeTrace {
     }
     private struct State {
         var beat: TimeInterval = 0
+        var beatCPU: TimeInterval = 0
+        var wasActive = false
         var counts: [String: Int] = [:]
         var shapes: [(time: TimeInterval, shape: Shape)] = []
     }
@@ -17,6 +19,11 @@ enum FreezeTrace {
     nonisolated(unsafe) static var folder = URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx/freezes", isDirectory: true)
     // Uptime stops while the Mac sleeps: on wall time, 7 of the 8 first reports were a night's sleep, not a freeze.
     nonisolated(unsafe) static var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    // Freezes need 3 s; the lag felt on 11-12 was keystrokes answered 0.6 to 1.4 s late (spindump's "slow hid response"), and
+    // nothing recorded it. Every stall over `hitch` while VCX is the front app gets one line here, with who held the CPU.
+    nonisolated(unsafe) static var hitchLog = URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx/hitches.log")
+    // App Nap delays a background app's timers by seconds: only a stall seen active on both of its beats counts.
+    nonisolated(unsafe) static var active: () -> Bool = { MainActor.assumeIsolated { NSApplication.shared.isActive } }
 
     static func note(_ key: String) { state.withLock { $0.counts[key, default: 0] += 1 } }
 
@@ -54,10 +61,58 @@ enum FreezeTrace {
         return Double(info.user_time.seconds + info.system_time.seconds) + Double(info.user_time.microseconds + info.system_time.microseconds) / 1_000_000
     }
 
-    @MainActor static func start(stall: TimeInterval = 3, resample: TimeInterval = 60) {
+    static func hitchLine(at date: Date, stalled: TimeInterval, cpu: TimeInterval, footprint: Double, load: Double, top: [String], window: String) -> String {
+        let clock = ISO8601DateFormatter(); clock.timeZone = .current
+        let who = spinning(stalled: stalled, cpu: cpu) ? "VCX busy" : "VCX waiting"
+        return clock.string(from: date) + String(format: "\t%.1f s\t%@ (%.1f s CPU)\tfootprint %.1f GB\tload %.1f\twindow %@\ttop: %@\n",
+                                                 stalled, who, cpu, footprint, load, window.isEmpty ? "-" : window, top.joined(separator: ", "))
+    }
+
+    static func footprint() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) } }
+        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1e9 : 0
+    }
+
+    static func logHitch(stalled: TimeInterval, cpu: TimeInterval) {
+        let date = Date(), window = state.withLock { $0.shapes.last?.shape.window ?? "" }
+        DispatchQueue.global(qos: .utility).async {
+            var load = [0.0, 0.0, 0.0]; getloadavg(&load, 3)
+            let ps = Process(), pipe = Pipe()
+            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-Arco", "pcpu=,comm="]
+            ps.standardOutput = pipe; ps.standardError = FileHandle.nullDevice
+            try? ps.run()
+            let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            ps.waitUntilExit()
+            let top = out.split(separator: "\n").prefix(3).map { line -> String in
+                let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+                return parts.count == 2 ? "\(parts[1]) \(Int(Double(parts[0]) ?? 0))%" : String(line)
+            }
+            let line = hitchLine(at: date, stalled: stalled, cpu: cpu, footprint: footprint(), load: load[0], top: top, window: window)
+            let manager = FileManager.default, path = hitchLog.path
+            try? manager.createDirectory(at: hitchLog.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let size = (try? manager.attributesOfItem(atPath: path))?[.size] as? Int, size > 1_000_000 {
+                try? manager.removeItem(atPath: path + ".1"); try? manager.moveItem(atPath: path, toPath: path + ".1")
+            }
+            if !manager.fileExists(atPath: path) { manager.createFile(atPath: path, contents: nil) }
+            guard let handle = FileHandle(forWritingAtPath: path) else { return }
+            handle.seekToEndOfFile(); handle.write(Data(line.utf8)); try? handle.close()
+        }
+    }
+
+    @MainActor static func start(stall: TimeInterval = 3, resample: TimeInterval = 60, hitch: TimeInterval = 0.5) {
         let main = mach_thread_self()
-        state.withLock { $0.beat = uptime() }
-        let timer = Timer(timeInterval: 0.5, repeats: true) { _ in let now = uptime(); state.withLock { $0.beat = now } }
+        state.withLock { $0.beat = uptime(); $0.beatCPU = cpuTime(main); $0.wasActive = active() }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { _ in
+            let now = uptime(), cpu = cpuTime(main), isActive = active()
+            let (gap, used, counted) = state.withLock { s in
+                defer { s.beat = now; s.beatCPU = cpu; s.wasActive = isActive }
+                return (now - s.beat, cpu - s.beatCPU, s.wasActive && isActive)
+            }
+            if counted, gap > hitch { logHitch(stalled: gap, cpu: used) }
+        }
         RunLoop.main.add(timer, forMode: .common)
         Thread.detachNewThread {
             var fresh = (beat: state.withLock { $0.beat }, at: uptime(), cpu: cpuTime(main))
