@@ -18,6 +18,14 @@ import AppKit
     @Published var on = false
 }
 
+// While its pinned copy is lifted above the transcript, the flat row under it is not drawn.
+private struct UnderPinned<Content: View>: View {
+    @ObservedObject var geometry: TranscriptGeometry
+    let id: UUID
+    @ViewBuilder let content: Content
+    var body: some View { content.opacity(geometry.pinned == id ? 0 : 1) }
+}
+
 private struct LiveDetails<Content: View>: View {
     @ObservedObject var details: TranscriptDetails
     @ViewBuilder let content: (Bool) -> Content
@@ -248,7 +256,7 @@ final class TranscriptController: NSObject {
         case .question(let id):
             guard let section = sections[id], let question = section.question else { return nil }
             let closesUp = section.rows.isEmpty && section.id != lastSection
-            return root(key, ConversationRow(row: question, session: session, collapsible: true).equatable().padding(.bottom, closesUp ? 8 : 24))
+            return root(key, UnderPinned(geometry: parent.geometry, id: question.id) { ConversationRow(row: question, session: session, collapsible: true).equatable() }.padding(.bottom, closesUp ? 8 : 24))
         case .exchange(let id):
             guard let section = sections[id] else { return nil }
             let parts = sectionParts(section.rows), sent = parts.notices.filter { $0.kind == "peer" }
