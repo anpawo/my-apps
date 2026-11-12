@@ -442,7 +442,8 @@ enum BugCheck {
                 }
                 pointer(content, at: NSPoint(x: 1100, y: 20), entering: true)
                 let shut = rows()
-                pointer(content, at: arrowBox(content, left: edge, below: 150).map { NSPoint(x: $0.midX, y: $0.midY) } ?? .zero)
+                let arrow = arrowBox(content, left: edge, below: 150).map { NSPoint(x: $0.midX, y: $0.midY) } ?? .zero
+                pointer(content, at: arrow)
                 // Taller than the transcript, it opens into a scroll view of its own: the switch happens mid-opening and must not jump.
                 var opening = [shut]
                 let start = Date()
@@ -453,6 +454,11 @@ enum BugCheck {
                 check(open > shut + 100, "in the transcript, hovering a pinned question's arrow opens it")
                 check(opening.contains { $0 > shut + 20 && $0 < open - 20 } && zip(opening, opening.dropFirst()).allSatisfy { $0 <= $1 + 4 } && abs(opening.last! - open) <= 4,
                       "in the transcript, a question opening into its own scroll view grows in one smooth motion")
+                // A hand resting on the mouse still sends moves: the question shut and reopened on each one, its main thread at 100 % (11-12).
+                var held: [Int] = []
+                for frame in 1...30 { pointer(content, at: arrow); RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 60)); if frame % 6 == 0 { held.append(rows(after: 0)) } }
+                print("Pointer moving on the open question's arrow, tinted rows per sample: " + held.map(String.init).joined(separator: " "))
+                check(held.allSatisfy { abs($0 - open) <= 4 }, "a pointer moving where an open question's arrow was keeps it open")
                 // Open and taller than the transcript, the pinned question had its end below the window: the wheel scrolled only the answer under it.
                 func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
                 if let outer = RuntimeUpdate.scrollView(in: content), let inner = scrollViews(content).first(where: { $0 !== outer && outer.convert(outer.bounds, to: nil).contains($0.convert($0.bounds, to: nil)) }), let document = inner.documentView {

@@ -1033,6 +1033,7 @@ struct UserBubble: View {
     @State private var hovering = false
     @State private var stuck = false
     @State private var hides = false
+    @State private var closing: Timer?
     @State private var size = CGSize.zero
     @EnvironmentObject private var sending: SendAnimation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1082,7 +1083,15 @@ struct UserBubble: View {
                     .onChange(of: lifted) { _, now in stuck = now }
                     .animation(.easeOut(duration: 0.2), value: stuck)
                     // Not onHover: opening into its own scroll view over the transcript's table, it reported the pointer gone while it stayed.
-                    .onContinuousHover { phase in FreezeTrace.note("question hover " + item.id); if case .ended = phase, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
+                    // Opening, it still reports an end under a pointer that never left, and the next move starts the hover again:
+                    // shut at once, the arrow came back under the pointer and reopened it on every move (11-12, 100 % CPU).
+                    // A close waits for the next move to say the pointer is really gone.
+                    .onContinuousHover { phase in
+                        FreezeTrace.note("question hover " + item.id)
+                        closing?.invalidate(); closing = nil
+                        guard case .ended = phase, hovering else { return }
+                        closing = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: false) { _ in MainActor.assumeIsolated { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
+                    }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
                 if unread {
                     HStack(spacing: 4) {
