@@ -17,6 +17,7 @@ TABLES = {
         "autocorrect": "Fixes the word you just typed, in French and in English.",
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
+        "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",
         "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
         "watcher": "Watches what you are waiting for: mail answers, PR reviews and more...",
     },

@@ -21,6 +21,7 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 | <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
+| <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
 | <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | Watches what you are waiting for: mail answers, PR reviews and more... |
 
@@ -39,6 +40,10 @@ Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
 ### [mac-guard](mac-guard)
 
 [![mac-guard's icon: a white shield standing in front of a grey Apple logo, on Fleet's dark tile](mac-guard/docs/icon.png)](mac-guard)
+
+### [one-text](one-text)
+
+[![Lea Martin's conversation: her Instagram and WhatsApp messages in one timeline, an Instagram reel shown as a card, and at the top right the logos of both apps, Instagram highlighted as the one replies go to](one-text/docs/screenshot.png)](one-text)
 
 ### [opener](opener)
 
