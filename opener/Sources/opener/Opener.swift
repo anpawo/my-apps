@@ -68,7 +68,7 @@ final class Opener: ObservableObject {
     @Published private(set) var index = 0
     var apps: [AppEntry] = []
     private var panel: OpenerPanel?
-    private static var icons: [String: NSImage] = [:]
+    private static var icons: [String: (date: Date?, icon: NSImage)] = [:]
 
     var uses: [String: Int] {
         get { UserDefaults.standard.dictionary(forKey: "uses") as? [String: Int] ?? [:] }
@@ -128,9 +128,11 @@ final class Opener: ObservableObject {
     func hide() { panel?.orderOut(nil) }
 
     static func icon(_ path: String) -> NSImage {
-        if let icon = icons[path] { return icon }
+        // A reinstalled app keeps its path, so its date tells a new icon from the cached one.
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        if let cached = icons[path], cached.date == date { return cached.icon }
         let icon = NSWorkspace.shared.icon(forFile: path)
-        icons[path] = icon
+        icons[path] = (date, icon)
         return icon
     }
 
