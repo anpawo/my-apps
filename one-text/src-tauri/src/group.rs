@@ -113,11 +113,11 @@ fn summary(chat: &Value) -> Value {
     })
 }
 
-/// Four members' pictures, for the tile after the app's logo: the one their person has (a picture set by hand, or
+/// Every member's picture (a tile shows 4, a pinned group all): the one their person has (a picture set by hand, or
 /// one from another app) before the one this app gives.
 fn faces(chat: &Value, pic_of: &HashMap<String, String>) -> Vec<String> {
     let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
-    members.filter_map(|p| p["id"].as_str().and_then(|i| pic_of.get(i)).map(String::clone).or(p["imgURL"].as_str().map(String::from))).take(4).collect()
+    members.filter_map(|p| p["id"].as_str().and_then(|i| pic_of.get(i)).map(String::clone).or(p["imgURL"].as_str().map(String::from))).collect()
 }
 
 fn pictures(chats: &[Value]) -> Vec<&str> {

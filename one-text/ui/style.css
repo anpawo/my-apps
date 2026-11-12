@@ -52,9 +52,10 @@ aside { position: relative; width: 313px; flex: none; display: flex; flex-direct
 .av.faces.members > .net { flex: none; width: 26px; height: 26px; border-radius: 7px; margin-right: 11px; }
 .av.faces.members > .av { --s: inherit; width: var(--s, 40px); height: var(--s, 40px); }
 .av.tile { background: #2a2a2a; display: grid; grid-template-columns: repeat(2, 38%); align-content: center; justify-content: center; gap: 6%; }
-/* A pinned group shows its members side by side instead of in a tile. */
-#pinned .av.tile { width: auto; height: auto; display: flex; gap: 3px; background: none; border-radius: 0; overflow: visible; }
-#pinned .av.tile img { width: 30px; }
+#pinned .av.faces.members { max-width: none; }
+.stack { display: flex; align-items: center; }
+.stack img { flex: none; width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #363636; box-shadow: 0 0 0 2px #000; }
+.stack img + img { margin-left: min(-14px, calc((110px - 40px * var(--n)) / (var(--n) - 1))); }
 .av.tile img { width: 100%; aspect-ratio: 1; height: auto; border-radius: 50%; object-fit: cover; background: #363636; }
 #pinned.some { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--rule); }
 .net { width: 14px; height: 14px; border-radius: 3.5px; display: inline-grid; place-items: center; color: #fff; font-size: 8.5px; font-weight: 700;

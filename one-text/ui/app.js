@@ -62,7 +62,7 @@ const asset = url => url.startsWith('data:') ? url : `beeper://localhost/asset?u
 const netMark = key => { const n = NETS[key]; return `<span class="net" style="background:${n.color}" title="${n.label}">${n.logo}</span>`; };
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
-function avatar(item) {
+function avatar(item, all) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
   // A group chat: the logo of the app it comes from, then up to 4 of its members' pictures in one round tile, like a
@@ -71,7 +71,10 @@ function avatar(item) {
     const faces = item.faces || [];
     const logo = netMark(netOf(item.chats[0]));
     if (!faces.length) return `<div class="av faces members">${logo}${avatar({ ...item, _plain: true })}</div>`;
-    return `<div class="av faces members">${logo}<div class="av tile">${faces.slice(0, 4).map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div></div>`;
+    const img = f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`;
+    // A pinned group: every member, overlapping more as there are more, so all fit in the same width.
+    if (all) return `<div class="av faces members">${logo}<div class="stack" style="--n:${faces.length}">${faces.map(img).join('')}</div></div>`;
+    return `<div class="av faces members">${logo}<div class="av tile">${faces.slice(0, 4).map(img).join('')}</div></div>`;
   }
   const [first, ...rest] = item.imgs || [];
   if (!first) return `<div class="av" style="background:${color}">${esc(initials)}</div>`;
@@ -97,16 +100,16 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs
 
 /* ---------- Sidebar ---------- */
 
-function fill(n, item) {
+function fill(n, item, all) {
   // A person: the logo of the app with their latest message only.
   const nets = item.kind === 'person' ? [netOf(item.chats.reduce((a, c) => (c.last > a.last ? c : a)))] : [];
-  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets]);
+  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets, all]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
-  const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item);
+  const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item, all);
   n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;
   if (item.unread && !wasUnread && n.isConnected) anim(n.querySelector('.badge'), { scale: [0.4, 1], opacity: [0, 1] }, 200);
@@ -134,7 +137,7 @@ function renderList(box, items) {
       if (box.id === 'people') dragFrom(n);
       n.oncontextmenu = e => { e.preventDefault(); select(n.dataset.id); openMore(n); };
     }
-    fill(n, item);
+    fill(n, item, box.id === 'pinned');
     let at = prev ? prev.nextSibling : box.firstChild;
     while (at && at.dataset.leaving) at = at.nextSibling;
     if (n !== at) box.insertBefore(n, at);

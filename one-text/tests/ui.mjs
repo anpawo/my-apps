@@ -278,8 +278,8 @@ const pinned = await page.evaluate(() => {
   return row && [!!row.querySelector('.name'), !document.querySelector('#favs .fav[data-id="grp-1"]'), favs.getBoundingClientRect().bottom <= row.getBoundingClientRect().top, row.getBoundingClientRect().bottom <= list.getBoundingClientRect().top];
 });
 check(JSON.stringify(pinned) === '[true,true,true,true]', `a pinned group keeps its row between the favorites and the list (${pinned})`);
-const pinnedFaces = await page.$$eval('#pinned .row .tile img', is => is.map(i => i.getBoundingClientRect()).map(r => [Math.round(r.left), Math.round(r.top), r.width]));
-check(pinnedFaces.length === 2 && pinnedFaces[0][1] === pinnedFaces[1][1] && pinnedFaces[0][0] + 30 < pinnedFaces[1][0] && pinnedFaces.every(r => r[2] === 30), `a pinned group shows its members side by side (${JSON.stringify(pinnedFaces)})`);
+const pinnedFaces = await page.$$eval('#pinned .row .stack img', is => is.map(i => i.getBoundingClientRect()).map(r => [Math.round(r.left), Math.round(r.top), r.width]));
+check(pinnedFaces.length === 2 && pinnedFaces[0][1] === pinnedFaces[1][1] && pinnedFaces[1][0] - pinnedFaces[0][0] === 26 && pinnedFaces.every(r => r[2] === 40), `a pinned group shows all its members at full size, overlapping to the right (${JSON.stringify(pinnedFaces)})`);
 await page.screenshot({ path: join(out, '6-pinned.png') });
 
 // ⌘F in the ⌘D search favorites the highlighted row, and the search stays open.
