@@ -216,7 +216,7 @@ function drawFavs(items) {
   const was = new Map([...box.children].map(b => [b.dataset.id, b.getBoundingClientRect()]));
   const had = new Set(was.keys());
   box.hidden = !items.length && !state.tab;
-  box.innerHTML = state.tab && !items.length ? `<div class="favs-empty">Right-click someone → Add to ${esc(state.tab)}</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
+  box.innerHTML = state.tab && !items.length ? `<div class="favs-empty">Right-click a favorite → Add to ${esc(state.tab)}</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
   box.querySelectorAll('.fav').forEach(b => {
     b.onclick = () => select(b.dataset.id);
     b.oncontextmenu = e => { e.preventDefault(); select(b.dataset.id); openMore(b); };
@@ -275,9 +275,11 @@ function nameTab(button, value, done) {
   field.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') end(true); if (e.key === 'Escape') end(false); };
   field.onblur = () => end(true);
 }
+// A new tab holds the favorites shown when it was made (all of them from All), pinned groups included; right-click → Remove from it trims it.
 function newTab(button, person) {
+  const shown = (state.all || []).filter(i => isFav(i) && (!tabOf(state.tab) || inTab(i, tabOf(state.tab))));
   nameTab(button, '', name => {
-    state.tabs.push({ name, ids: [] });
+    state.tabs.push({ name, ids: shown.flatMap(i => i.chats.map(c => c.id)) });
     state.tab = name;
     if (person) addToTab(person, name);
   });

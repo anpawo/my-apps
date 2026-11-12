@@ -311,11 +311,21 @@ await page.keyboard.type('Family');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const tabNames = () => page.$$eval('#tabs .tab[data-name]', ts => ts.map(t => t.textContent + (t.classList.contains('on') ? '*' : '')));
-check(JSON.stringify(await tabNames()) === '["All","Family*"]' && !!(await page.$('#favs .favs-empty')), `a new tab is selected and empty (${await tabNames()})`);
+const shownFavs = () => page.$$eval('#favs .fav', fs => fs.map(f => f.title));
+const startFavs = await shownFavs();
+check(JSON.stringify(await tabNames()) === '["All","Family*"]' && startFavs.length >= 1 && !!(await page.$('#pinned .row')), `a new tab is selected and holds the favorites and pinned groups (${await tabNames()}; ${startFavs})`);
+for (const name of startFavs) {
+  await page.click(`#favs .fav[title="${name}"]`, { button: 'right' });
+  await page.click('.menu .item:has-text("Remove from Family")');
+  await page.waitForTimeout(300);
+}
+await page.click('#pinned .row', { button: 'right' });
+await page.click('.menu .item:has-text("Remove from Family")');
+await page.waitForTimeout(300);
+check(!!(await page.$('#favs .favs-empty')) && !(await page.$('#pinned .row:not([data-leaving])')), 'Remove from Family empties the tab');
 await page.click('#people .row:has-text("Lea Martin")', { button: 'right' });
 await page.click('.menu .item:has-text("Add to Family")');
 await page.waitForTimeout(400);
-const shownFavs = () => page.$$eval('#favs .fav', fs => fs.map(f => f.title));
 check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', `Add to Family puts her in the tab (${await shownFavs()})`);
 await page.screenshot({ path: join(out, '7-tabs.png') });
 await page.keyboard.press('Meta+1');
