@@ -93,9 +93,9 @@ final class Notifier: NSObject {
 
     private func post(for session: Session) {
         let content = UNMutableNotificationContent()
-        content.title = "\(session.dirName) needs you"
-        // What it last said is usually the question, or the sentence leading into it.
-        content.body = session.lastSaid.map { String($0.prefix(160)) } ?? "Waiting on an answer."
+        // A banner's title is bold and its body is not: the folder, then the card's own name.
+        content.title = session.dirName
+        content.body = session.label ?? session.topic
         content.sound = .default
         content.userInfo = ["pid": Int(session.proc.pid), "sessionId": session.id]
 

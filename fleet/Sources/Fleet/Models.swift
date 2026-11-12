@@ -584,12 +584,6 @@ struct Session: Identifiable {
         return "\(who) · \(step)"
     }
 
-    /// The last thing Claude said, for a notification body — the question it is waiting on is
-    /// usually the sentence right before it asked.
-    var lastSaid: String? {
-        steps.last { $0.kind == .assistant }?.text
-    }
-
     /// The recent conversation, oldest first: your prompts, the tools Claude ran, what it said.
     var steps: [PreviewLine] { transcript?.preview ?? [] }
 }
