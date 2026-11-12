@@ -96,7 +96,7 @@ const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 check(!(await page.$('#people .net')), 'no network logos in the list');
 const faces = await page.$$eval('#people .row[data-id="grp-1"] .av.faces img', is => is.map(i => i.getBoundingClientRect()).map(r => [r.left, r.right]));
-check(faces.length === 2 && faces[0][1] <= faces[1][0], `a small group shows its members' pictures side by side (${JSON.stringify(faces)})`);
+check(faces.length === 2 && faces[0][1] <= faces[1][0] && faces.every(([l, r]) => r - l === 40), `a small group shows its members' pictures side by side (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
