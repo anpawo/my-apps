@@ -695,7 +695,7 @@ function highlightTarget(animate) {
 
 // Beeper hands Instagram shares over as HTML (<p><a href=…>…</a></p>): keep the text only.
 const plain = s => (s && /<\/?[a-z][^>]*>/i.test(s) ? new DOMParser().parseFromString(s, 'text/html').body.textContent : s);
-const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p)\/[\w-]+\/?\S*/;
+const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p|stories)\/[\w-]+\/?\S*/;
 const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
 const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
 // Instagram view-once media reach Beeper as this sentence only: shown as Instagram's own grey "Photo" pill instead.
