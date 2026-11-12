@@ -172,7 +172,7 @@ $('#list').addEventListener('wheel', e => {
   if (e.deltaY <= 0 || list.scrollHeight - list.scrollTop - list.clientHeight > 40) return;
   const have = $('#people').querySelectorAll('.row:not([data-leaving])').length;
   if (have >= (state.all || []).filter(i => !isFav(i) && !i.hidden).length) return;
-  state.more = Math.max(state.more || 0, fits()) * 2;
+  state.more = have * 2;
   showLists();
 }, { passive: true });
 // A favorite is kept by its chats' ids, so it stays one after a merge or a split changes the person's id.
@@ -188,7 +188,8 @@ function toggleFav(item) {
 const favRank = item => Math.min(...item.chats.map(c => [...state.favs].indexOf(c.id)).filter(n => n >= 0));
 function moveFav(item, key) {
   const favs = (state.all || []).filter(isFav).sort((a, b) => favRank(a) - favRank(b));
-  const same = favs.filter(i => (i.kind === 'group') === (item.kind === 'group'));
+  const tab = tabOf(state.tab), strip = tab && inTab(item, tab) ? favs.filter(i => inTab(i, tab)) : favs.filter(i => !grouped(i));
+  const same = strip.filter(i => (i.kind === 'group') === (item.kind === 'group'));
   const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: item.kind === 'group' ? -1 : -5, ArrowDown: item.kind === 'group' ? 1 : 5 }[key];
   const from = same.indexOf(item), to = Math.max(0, Math.min(same.length - 1, from + step));
   if (from < 0 || to === from) return;
@@ -198,25 +199,37 @@ function moveFav(item, key) {
   localStorage.favs = JSON.stringify([...state.favs]);
   showLists();
 }
+const grouped = item => state.tabs.some(t => inTab(item, t));
+// Favorites in no tab on top, then the tabs and the open tab's favorites; pinned groups of both keep their row below.
 function showLists() {
   const all = state.all || [];
-  // Pinned groups keep their row (name and members), under the favorites' pictures.
   const tab = tabOf(state.tab);
-  const favs = all.filter(i => isFav(i) && (!tab || inTab(i, tab))).sort((a, b) => favRank(a) - favRank(b));
+  const favs = all.filter(isFav).sort((a, b) => favRank(a) - favRank(b));
+  const top = favs.filter(i => !grouped(i)), inside = tab ? favs.filter(i => inTab(i, tab)) : [];
   drawTabs();
-  drawFavs(favs.filter(i => i.kind !== 'group'));
-  renderList($('#pinned'), favs.filter(i => i.kind === 'group'));
-  $('#pinned').classList.toggle('some', favs.some(i => i.kind === 'group'));
+  $('#tabbox').hidden = !state.tabs.length && !favs.length;
+  drawFavs($('#favs'), top.filter(i => i.kind !== 'group'));
+  drawFavs($('#tabfavs'), inside.filter(i => i.kind !== 'group'), tab);
+  const groups = [...top, ...inside].filter(i => i.kind === 'group');
+  renderList($('#pinned'), groups);
+  $('#pinned').classList.toggle('some', groups.length > 0);
   renderList($('#people'), shown(all));
   movePill();
 }
 // Favorites: their pictures in a strip above the list, in his order; a dot when unread.
-function drawFavs(items) {
-  const box = $('#favs');
+function drawFavs(box, items, tab) {
   const was = new Map([...box.children].map(b => [b.dataset.id, b.getBoundingClientRect()]));
   const had = new Set(was.keys());
-  box.hidden = !items.length && !state.tab;
-  box.innerHTML = state.tab && !items.length ? `<div class="favs-empty">Right-click a favorite → Add to ${esc(state.tab)}</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
+  // An emptied strip folds away with what it showed; one that comes back unfolds (not on the first draw).
+  if (!items.length && !tab) {
+    if (!box.hidden && !box._closing) { box._closing = true; collapse(box, true).then(() => (box._closing = false)); }
+    return;
+  }
+  const opening = box._drawn && (box.hidden || box._closing);
+  box._closing = false;
+  box._drawn = true;
+  box.hidden = false;
+  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Right-click someone → Add to ${esc(tab.name)}</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
   box.querySelectorAll('.fav').forEach(b => {
     b.onclick = () => select(b.dataset.id);
     b.oncontextmenu = e => { e.preventDefault(); select(b.dataset.id); openMore(b); };
@@ -224,9 +237,10 @@ function drawFavs(items) {
     const old = was.get(b.dataset.id), now = b.getBoundingClientRect();
     if (old && (old.left !== now.left || old.top !== now.top)) anim(b, { translate: [`${old.left - now.left}px ${old.top - now.top}px`, '0 0'] }, 260);
   });
+  if (opening) collapse(box, false);
 }
 
-// Tabs over the favorites: named sets of chats, "All" shows every favorite; ⌘1 is All, ⌘2… the tabs.
+// Tabs: named sets of favorites, one open at a time (click it again to close it); ⌘1… open them.
 state.tabs = JSON.parse(localStorage.tabs || '[]');
 state.tab = localStorage.tab || '';
 const saveTabs = () => { localStorage.tabs = JSON.stringify(state.tabs); localStorage.tab = state.tab; };
@@ -235,10 +249,9 @@ const inTab = (item, tab) => item.chats.some(c => tab.ids.includes(c.id));
 function drawTabs() {
   const box = $('#tabs');
   if (box.querySelector('input')) return;
-  box.hidden = !state.tabs.length && !(state.all || []).some(isFav);
-  box.innerHTML = ['', ...state.tabs.map(t => t.name)].map(n => `<button class="tab${n === state.tab ? ' on' : ''}" data-name="${esc(n)}">${esc(n || 'All')}</button>`).join('') + '<button class="tab add" title="New tab">+</button>';
+  box.innerHTML = state.tabs.map(t => `<button class="tab${t.name === state.tab ? ' on' : ''}" data-name="${esc(t.name)}">${esc(t.name)}</button>`).join('') + '<button class="tab add" title="New tab">+</button>';
   box.querySelectorAll('.tab[data-name]').forEach(b => {
-    b.onclick = () => setTab(b.dataset.name);
+    b.onclick = () => setTab(b.dataset.name === state.tab ? '' : b.dataset.name);
     if (b.dataset.name) b.oncontextmenu = e => {
       e.preventDefault();
       menu(b, m => m.append(
@@ -250,12 +263,12 @@ function drawTabs() {
 }
 // The strip eases to its new height while the tab's pictures scale in.
 function setTab(name) {
-  const box = $('#favs'), h0 = box.hidden ? 0 : box.offsetHeight;
+  const box = $('#tabfavs'), h0 = box.hidden ? 0 : box.offsetHeight;
   state.tab = tabOf(name) ? name : '';
   saveTabs();
   showLists();
   const h1 = box.hidden ? 0 : box.offsetHeight;
-  if (h0 !== h1 && !box.hidden) anim(box, { height: [h0 + 'px', h1 + 'px'] }, 240);
+  if (h0 && h1 && h0 !== h1 && !box._anim) anim(box, { height: [h0 + 'px', h1 + 'px'] }, 240);
   box.querySelectorAll('.fav, .favs-empty').forEach(f => anim(f, { opacity: [0, 1], scale: [0.85, 1] }, 220));
 }
 // A name typed in place of the button; Enter keeps it, esc or leaving the field drops it.
@@ -275,11 +288,9 @@ function nameTab(button, value, done) {
   field.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') end(true); if (e.key === 'Escape') end(false); };
   field.onblur = () => end(true);
 }
-// A new tab holds the favorites shown when it was made (all of them from All), pinned groups included; right-click → Remove from it trims it.
 function newTab(button, person) {
-  const shown = (state.all || []).filter(i => isFav(i) && (!tabOf(state.tab) || inTab(i, tabOf(state.tab))));
   nameTab(button, '', name => {
-    state.tabs.push({ name, ids: shown.flatMap(i => i.chats.map(c => c.id)) });
+    state.tabs.push({ name, ids: [] });
     state.tab = name;
     if (person) addToTab(person, name);
   });
@@ -380,7 +391,8 @@ addEventListener('click', e => {
 });
 addEventListener('keydown', e => {
   if (e.metaKey && e.key.toLowerCase() === 'd') { e.preventDefault(); openPalette(); }
-  if (e.metaKey && /^[1-9]$/.test(e.key) && (e.key === '1' || state.tabs[e.key - 2])) { e.preventDefault(); setTab(e.key === '1' ? '' : state.tabs[e.key - 2].name); }
+  const numbered = e.metaKey && /^[1-9]$/.test(e.key) && state.tabs[e.key - 1];
+  if (numbered) { e.preventDefault(); setTab(numbered.name === state.tab ? '' : numbered.name); }
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }

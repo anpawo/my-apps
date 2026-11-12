@@ -305,36 +305,32 @@ const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 await page.keyboard.press('Escape');
 
-// Tabs over the favorites: "+" names one, right-click → Add to it, All shows every favorite, kept after a restart.
+// Tabs: favorites in no tab stay on top; "+" names a tab, right-click → Add to it moves her under the tabs; clicking the open tab closes it.
+const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
+const shownFavs = () => page.$$eval('#tabfavs:not([hidden]) .fav', fs => fs.map(f => f.title));
+const topBefore = await topFavs();
 await page.click('#tabs .add');
 await page.keyboard.type('Family');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const tabNames = () => page.$$eval('#tabs .tab[data-name]', ts => ts.map(t => t.textContent + (t.classList.contains('on') ? '*' : '')));
-const shownFavs = () => page.$$eval('#favs .fav', fs => fs.map(f => f.title));
-const startFavs = await shownFavs();
-check(JSON.stringify(await tabNames()) === '["All","Family*"]' && startFavs.length >= 1 && !!(await page.$('#pinned .row')), `a new tab is selected and holds the favorites and pinned groups (${await tabNames()}; ${startFavs})`);
-for (const name of startFavs) {
-  await page.click(`#favs .fav[title="${name}"]`, { button: 'right' });
-  await page.click('.menu .item:has-text("Remove from Family")');
-  await page.waitForTimeout(300);
-}
-await page.click('#pinned .row', { button: 'right' });
-await page.click('.menu .item:has-text("Remove from Family")');
-await page.waitForTimeout(300);
-check(!!(await page.$('#favs .favs-empty')) && !(await page.$('#pinned .row:not([data-leaving])')), 'Remove from Family empties the tab');
+check(JSON.stringify(await tabNames()) === '["Family*"]' && !!(await page.$('#tabfavs .favs-empty')) && JSON.stringify(await topFavs()) === JSON.stringify(topBefore), `a new tab opens empty under the favorites in no tab (${await tabNames()}; ${topBefore})`);
 await page.click('#people .row:has-text("Lea Martin")', { button: 'right' });
 await page.click('.menu .item:has-text("Add to Family")');
 await page.waitForTimeout(400);
-check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', `Add to Family puts her in the tab (${await shownFavs()})`);
+check(JSON.stringify(await shownFavs()) === '["Lea Martin"]' && !(await topFavs()).includes('Lea Martin'), `Add to Family puts her in the tab, not on top (${await shownFavs()} / ${await topFavs()})`);
+const order = await page.evaluate(() => ['#favs', '#tabs', '#tabfavs', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
+check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no tab, then tabs, then the tab's favorites, then the list (${order})`);
 await page.screenshot({ path: join(out, '7-tabs.png') });
+await page.click('#tabs .tab[data-name="Family"]');
+await page.waitForTimeout(500);
+check((await shownFavs()).length === 0 && !(await topFavs()).includes('Lea Martin'), 'clicking the open tab closes it');
 await page.keyboard.press('Meta+1');
 await page.waitForTimeout(400);
-check((await shownFavs()).length > 1 && (await shownFavs()).includes('Lea Martin'), `Cmd+1 shows every favorite (${await shownFavs()})`);
+check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', 'Cmd+1 opens the first tab');
 await page.reload();
 await page.waitForSelector('#tabs .tab');
-await page.click('#tabs .tab[data-name="Family"]');
-await page.waitForTimeout(400);
+await page.waitForTimeout(300);
 check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', 'tabs are kept after a restart');
 
 // The list holds as many people as fit (10 at most), and a wheel turn at its end shows twice as many.
