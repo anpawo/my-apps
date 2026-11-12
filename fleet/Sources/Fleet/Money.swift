@@ -195,7 +195,7 @@ enum Money {
 
     /// The months of an export, newest first, and the day of its newest line. Only a debit is
     /// spending — a credit is not money spent backwards — and not a debit that only moved to
-    /// savings: it left the account without being spent.
+    /// savings, the PEA at Bourse Direct included: it left the account without being spent.
     ///
     /// One credit does count, against a debit: a cover, by the word in its category ("loan
     /// instalment cover"), pays for the kind that category names, in its own month. That
@@ -218,7 +218,8 @@ enum Money {
                 if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
                 guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
-            } else if !row[2].localizedCaseInsensitiveContains("saving") {
+            } else if !row[2].localizedCaseInsensitiveContains("saving"),
+                      !row.dropFirst(3).prefix(2).joined(separator: " ").localizedCaseInsensitiveContains("bourse direct") {
                 months[id, default: Month(id: id)].spent[kind, default: 0] -= amount
                 let named = row[2] + " " + (row.count > 3 ? row[3] : "")
                 var left = 1.0

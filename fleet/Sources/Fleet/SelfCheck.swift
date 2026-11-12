@@ -510,7 +510,7 @@ enum SelfCheck {
                == [.transport: 4.5, .loan: 250.00, .health: 1, .clothes: 5, .shopping: 3], true,
                "money: a month cut by kind, a credit and a move to savings left out, clothes by the bank's code")
         expect(read.months.last?.spent == [.food: 10], true, "money: a quoted category keeps its comma")
-        let ai = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-20.00,Subscriptions & apps,Anthropic* Clau\n2026-11-02,-5.00,Other,Openai *chatgpt\n2026-11-03,-3.00,Subscriptions & apps,Spotify\n")
+        let ai = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-20.00,Subscriptions & apps,Anthropic* Clau\n2026-11-02,-5.00,Other,Openai *chatgpt\n2026-11-03,-3.00,Subscriptions & apps,Spotify\n2026-11-06,-20.00,Transfers to people,VIREMENT,VIR SEPA BOURSE DIRECT PEA\n")
         expect(ai.months.first?.spent == [.ai: 25, .subscriptions: 3], true, "money: Claude and ChatGPT are AI, by their merchant")
         let sport = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-53.00,Leisure & sport,Climb,x,700,705\n2026-11-02,-9.00,Leisure & sport,Bowling,x,700,701\n")
         expect(sport.months.first?.spent == [.sport: 53, .other: 9], true, "money: sport is Leisure's code 705, the rest of it Other")
