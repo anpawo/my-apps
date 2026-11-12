@@ -136,8 +136,21 @@ const chips = await page.$$eval('header .chip', cs => cs.map(c => c.dataset.net 
 check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*:', 'whatsapp:']), `header shows both logos, Instagram highlighted, no names (${chips})`);
 const reads = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path));
 check(reads.length === 0, `no read receipt sent (${reads.length})`);
+check(!!(await page.$('#people .row[data-id="ig-lea"] .badge')), 'opening a conversation keeps its badge');
+await page.keyboard.press('Meta+k');
+await page.waitForTimeout(300);
 await page.evaluate(() => refreshList());
-check(!(await page.$('#people .row[data-id="ig-lea"] .badge')), 'badge stays cleared after a refresh');
+check(!(await page.$('#people .row[data-id="ig-lea"] .badge')), '⌘K clears the badge, and it stays cleared after a refresh');
+// ⌘R over a message replies to it: a bar names it, and the send carries its id to its chat.
+await page.hover('#thread .msg:not(.me):has-text("dinner tonight")');
+await page.keyboard.press('Meta+r');
+await page.waitForTimeout(300);
+const bar = await page.evaluate(() => [document.querySelector('#reply').hidden, document.querySelector('#reply').textContent, document.activeElement.id]);
+await page.keyboard.type('8pm');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(400);
+const replied = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path.split('/')[3], a.body.replyToMessageID]).at(-1));
+check(!bar[0] && bar[1].includes('dinner tonight') && bar[2] === 'input' && replied[0] === 'wa-lea' && !!replied[1] && (await page.$eval('#reply', r => r.hidden)), `⌘R replies to the hovered message on its app (${JSON.stringify([bar, replied])})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
@@ -188,7 +201,7 @@ await page.keyboard.type('on my way');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(100);
 const sent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path, a.body.text]));
-check(JSON.stringify(sent) === JSON.stringify([['/v1/chats/wa-lea/messages', 'on my way']]), 'message sent to the WhatsApp chat');
+check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', 'on my way']), 'message sent to the WhatsApp chat');
 check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 1, 'pending bubble shown at once');
 await page.waitForTimeout(1200);
 check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && (await page.$$eval('#thread .msg.me', ms => ms.at(-1).textContent)).includes('on my way'), 'pending bubble replaced by the sent message');
@@ -283,15 +296,15 @@ check(pinnedFaces.length === 2 && pinnedFaces[0][1] === pinnedFaces[1][1] && pin
 await page.screenshot({ path: join(out, '6-pinned.png') });
 
 // ⌘F in the ⌘D search favorites the highlighted row, and the search stays open.
-// ⌘R on one row, then ⌘R on another: the second gets the field, focused.
+// ⌘M on one row, then ⌘M on another: the second gets the field, focused.
 await page.hover('#people .row:has-text("Lea Martin")');
-await page.keyboard.press('Meta+r');
+await page.keyboard.press('Meta+m');
 await page.waitForSelector('header .who input');
 await page.hover('#people .row:has-text("Tom B")');
-await page.keyboard.press('Meta+r');
+await page.keyboard.press('Meta+m');
 await page.waitForTimeout(800);
 const second = await page.evaluate(() => [state.cur.name, document.activeElement === document.querySelector('header .who input')]);
-check(JSON.stringify(second) === '["Tom B",true]', `a second ⌘R moves the alias field to the other person, focused (${second})`);
+check(JSON.stringify(second) === '["Tom B",true]', `a second ⌘M moves the alias field to the other person, focused (${second})`);
 await page.keyboard.press('Escape');
 await page.keyboard.press('Meta+d');
 await page.fill('#search', 'sarah');
@@ -318,11 +331,11 @@ await page.waitForTimeout(400);
 const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 await page.keyboard.press('Escape');
-// ⌘R on a group in the search renames it in the header; the search then finds it by either name and shows both.
+// ⌘M on a group in the search renames it in the header; the search then finds it by either name and shows both.
 await page.keyboard.press('Meta+d');
 await page.fill('#search', 'climbing');
 await page.waitForTimeout(300);
-await page.keyboard.press('Meta+r');
+await page.keyboard.press('Meta+m');
 await page.waitForSelector('header .who input');
 await page.fill('header .who input', 'Climbers');
 await page.keyboard.press('Enter');
@@ -332,12 +345,12 @@ await page.keyboard.press('Meta+d');
 await page.fill('#search', 'climbing crew');
 await page.waitForTimeout(400);
 const found = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => [n.firstChild.textContent, n.querySelector('.orig')?.textContent]));
-check(header === 'Climbers' && JSON.stringify(found) === '[["Climbers","Climbing crew"]]', `⌘R renames a group; searching its old name shows both (${header}, ${JSON.stringify(found)})`);
+check(header === 'Climbers' && JSON.stringify(found) === '[["Climbers","Climbing crew"]]', `⌘M renames a group; searching its old name shows both (${header}, ${JSON.stringify(found)})`);
 await page.keyboard.press('Escape');
 await page.keyboard.press('Meta+d');
 await page.fill('#search', 'sarah');
 await page.waitForTimeout(300);
-await page.keyboard.press('Meta+r');
+await page.keyboard.press('Meta+m');
 await page.waitForSelector('header .who input');
 await page.fill('header .who input', 'Sassy');
 await page.keyboard.press('Enter');
@@ -348,7 +361,7 @@ await page.waitForTimeout(250);
 await page.screenshot({ path: join(out, '8-menu.png') });
 const sections = await page.$$eval('.menu > *', es => es.map(e => e.classList.contains('sep') ? '|' : e.textContent.replace(/⌘.|⌘D.*/, '').trim()).join(','));
 await page.keyboard.press('Escape');
-check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Merge with…'), `⌘R gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
+check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Merge with…'), `⌘M gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 

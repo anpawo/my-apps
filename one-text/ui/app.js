@@ -432,7 +432,7 @@ search.addEventListener('keydown', e => {
     to?.scrollIntoView({ block: 'nearest' });
   } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); closePalette(); select(rows[at].dataset.id); }
   else if (e.key === 'Escape') closePalette();
-  else if (e.metaKey && e.key.toLowerCase() === 'r' && rows[at]) {
+  else if (e.metaKey && e.key.toLowerCase() === 'm' && rows[at]) {
     e.preventDefault(); e.stopPropagation();
     const id = rows[at].dataset.id;
     closePalette();
@@ -484,8 +484,20 @@ addEventListener('keydown', e => {
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
-  // ⌘R gives an alias to the person or group under the pointer, or the open one.
-  if (e.metaKey && e.key.toLowerCase() === 'r') {
+  // ⌘K: seen, nothing to say. Clears the badge of the person or group under the pointer, or of the open one.
+  if (e.metaKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    const item = state.byId.get(document.querySelector('#list .row:hover, .fav:hover')?.dataset.id) || state.cur;
+    if (item?.unread) markRead(item);
+  }
+  // ⌘R replies to the message under the pointer, or to the last one they sent.
+  if (e.metaKey && e.key.toLowerCase() === 'r' && state.cur) {
+    e.preventDefault();
+    const id = document.querySelector('#thread .msg:hover')?.dataset.id;
+    setReply(state.msgs.find(m => m.id === id) || state.msgs.findLast(m => !m.isSender));
+  }
+  // ⌘M gives an alias to the person or group under the pointer, or the open one.
+  if (e.metaKey && e.key.toLowerCase() === 'm') {
     e.preventDefault();
     const id = document.querySelector('#list .row:hover, .fav:hover')?.dataset.id;
     if (id && id !== state.cur?.id) select(id).then(rename); else rename();
@@ -505,6 +517,7 @@ async function select(id) {
   if (!item || item === state.cur) return;
   state.cur = item;
   state.target = null;
+  setReply(null);
   // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
   showLists();
   document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
@@ -522,7 +535,6 @@ async function select(id) {
   drawThread(true);
   fade?.cancel();
   pickTarget();
-  markRead(item);
   $('#input').focus();
 }
 
@@ -642,10 +654,13 @@ async function pollThread() {
     }
   }
   if (atBottom) box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
-  if (fresh.some(m => !m.isSender)) { pickTarget(true); markRead(item); }
+  if (fresh.some(m => !m.isSender)) pickTarget(true);
+  // A message of mine, sent from here or from another device, answers what came before it.
+  if (fresh.some(m => m.isSender)) markRead(item);
 }
 
-// Opening a chat clears its badge here only: nothing goes to Beeper, so the sender gets no read receipt.
+// A badge stays until I answer (a message of mine, here or elsewhere; a reaction elsewhere clears Beeper's count) or
+// press ⌘K for "seen, nothing to say". It clears here only: nothing goes to Beeper, so the sender gets no read receipt.
 const seen = JSON.parse(localStorage.seen || '{}');
 function applySeen(item) {
   for (const c of item.chats) if (c.unread && Date.parse(seen[c.id]) >= Date.parse(c.last)) c.unread = 0;
@@ -712,8 +727,22 @@ function command(atEnd) {
 input.addEventListener('input', () => { command(false) || autosize(); });
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); command(true) || send(); }
-  if (e.key === 'Escape') { input.value = ''; autosize(); }
+  if (e.key === 'Escape') { input.value = ''; autosize(); setReply(null); }
 });
+
+function setReply(m) {
+  state.reply = m || null;
+  const bar = $('#reply');
+  if (m) {
+    const chat = state.cur.chats.find(c => c.id === m.chatID);
+    if (chat) setTarget(chat, true);
+    bar.innerHTML = `<b>${esc(m.isSender ? 'You' : m.senderName || state.cur.name)}</b><span>${esc(plain(m.text) || 'Attachment')}</span>`;
+    input.focus();
+  }
+  collapse(bar, !m, 220);
+}
+
+
 $('#send').onclick = send;
 $('#send').disabled = true;
 
@@ -721,6 +750,8 @@ async function send() {
   const text = input.value.trim();
   if (!text || !state.target) return;
   const chat = state.target.chat;
+  const reply = state.reply?.chatID === chat.id ? state.reply.id : undefined;
+  setReply(null);
   input.value = '';
   autosize();
   const m = { id: 'pending-' + Date.now(), text, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' };
@@ -733,7 +764,8 @@ async function send() {
   const box = $('#msgs');
   box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
   try {
-    await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text });
+    await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text, replyToMessageID: reply });
+    markRead(state.cur);
     setTimeout(pollThread, 600);
   } catch (e) {
     row.classList.remove('pending');
@@ -807,7 +839,7 @@ function openMore(anchor) {
         mm.append(item('New group…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
       }) }));
     }
-    m.append(sep(), item('Alias…', { hint: '⌘R', action: () => { closeMenu(); rename(); } }));
+    m.append(sep(), item('Alias…', { hint: '⌘M', action: () => { closeMenu(); rename(); } }));
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
     if (person.kind !== 'person') {
@@ -885,9 +917,9 @@ function rename() {
       if (alias) ov.names[cur.chats[0].id] = name;
     }, alias ? `${original} is now ${name}` : `${cur.name} back to ${original}`).then(() => $('.who input') || drawHeader());
   };
-  // ⌘R on another row while typing keeps this alias and goes on to that one.
+  // ⌘M on another row while typing keeps this alias and goes on to that one.
   field.onkeydown = e => {
-    if (e.metaKey && e.key.toLowerCase() === 'r') return end(true);
+    if (e.metaKey && e.key.toLowerCase() === 'm') return end(true);
     e.stopPropagation();
     if (e.key === 'Enter') end(true);
     if (e.key === 'Escape') end(false);

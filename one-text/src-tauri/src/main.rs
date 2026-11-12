@@ -399,6 +399,13 @@ fn main() {
                 fs::write(&path, settings.to_string())?;
             }
             let menu = Menu::default(app.handle())?;
+            // ⌘M is the alias key here, not Minimize.
+            for sub in menu.items()? {
+                let MenuItemKind::Submenu(sub) = sub else { continue };
+                if let Some(i) = sub.items()?.iter().position(|it| matches!(it, MenuItemKind::Predefined(p) if p.text().is_ok_and(|t| t == "Minimize"))) {
+                    sub.remove_at(i)?;
+                }
+            }
             if let Some(MenuItemKind::Submenu(first)) = menu.items()?.first() {
                 first.remove_at(first.items()?.len() - 1)?;
                 let allow = CheckMenuItem::with_id(app, "allow-quit", "Allow Quitting", true, ALLOW_QUIT.load(Ordering::Relaxed), None::<&str>)?;
