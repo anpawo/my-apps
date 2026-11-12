@@ -1943,6 +1943,21 @@ enum Render {
         for editing in [false, true] {
             write(CodeBlock(block: message, editing: editing).environment(\.codeEdits, edits).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-edit-\(editing ? "open" : "done").png")
         }
+        do {
+            let host = NSHostingView(rootView: CodeBlock(block: message, editing: true).environment(\.codeEdits, CodeEdits()).frame(width: 480))
+            host.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
+            let window = ComposerWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            func textView(_ view: NSView) -> NSTextView? { (view as? NSTextView) ?? view.subviews.lazy.compactMap(textView).first }
+            guard let field = textView(host) else { fputs("FAIL: the code block editor has a text view\n", stderr); exit(1) }
+            window.makeFirstResponder(field); field.setSelectedRange(NSRange(location: 5, length: 0))
+            for (code, text) in [(UInt16(0), "a"), (49, " "), (11, "b")] {
+                window.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)!)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            }
+            if !field.string.hasPrefix("helloa b,") || field.selectedRange().location != 8 { fputs("FAIL: typing in an edited code block keeps the caret where it types\n", stderr); exit(1) }
+        }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {
             write(WorkBlock(rows: sent, details: open).padding(24).background(Color.white), size: CGSize(width: 760, height: open ? 220 : 90), path: directory + "/sent-\(open ? "open" : "closed").png")

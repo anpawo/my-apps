@@ -1269,6 +1269,7 @@ struct CodeBlock: View {
     @State private var copied = false
     @State private var reset: Task<Void, Never>?
     @State private var edited: String?
+    @State private var draft = ""
     @State var editing = false
     @FocusState private var focused: Bool
     var body: some View {
@@ -1297,11 +1298,13 @@ struct CodeBlock: View {
                 // The hidden copy sizes the editor to its text, so it never scrolls inside the transcript; 5 pt is NSTextView's line padding.
                 Text(code + " ").font(mono).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 5).hidden()
                 .overlay {
-                    TextEditor(text: Binding(get: { code }, set: { edited = $0 == block.text ? nil : $0; edits?.set(block.text, $0) }))
+                    // Bound to its own state: a Binding(get:set:) here made every keystroke reset the text and send the caret to the end.
+                    TextEditor(text: $draft)
                         .font(mono).scrollContentBackground(.hidden).scrollDisabled(true).focused($focused)
                         .onKeyPress(.escape) { editing = false; return .handled }
                 }.padding(.vertical, 14).padding(.horizontal, 9)
-                .onAppear { DispatchQueue.main.async { focused = true } }
+                .onAppear { draft = code; DispatchQueue.main.async { focused = true } }
+                .onChange(of: draft) { _, now in edited = now == block.text ? nil : now; edits?.set(block.text, now) }
                 .onChange(of: focused) { _, now in if !now { editing = false } }
             }
             else { Text(code).font(mono).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
