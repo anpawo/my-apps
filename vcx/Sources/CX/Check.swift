@@ -831,6 +831,24 @@ enum Check {
                 routed.close()
             }
             do {
+                let home = Session(cwd: NSHomeDirectory(), stateDirectory: directory.appendingPathComponent("route-later-state"))
+                var folders: [String] = [], fixtures: [FixtureConnection] = [], asked: [[String]] = []
+                home.connectionFactory = { account, folder in let fixture = FixtureConnection(account); folders.append(folder); fixtures.append(fixture); return fixture }
+                await home.connect(resume: nil)
+                let router = Session.router
+                Session.router = { prompts, _ in asked.append(prompts); return prompts.count == 2 ? directory.path : nil }
+                await home.send(text: "what time is it", images: [])
+                let unrouted = home.cwd == "/" && folders.last == "/"
+                home.event(["method": "turn/completed", "params": ["turn": ["id": "turn", "status": "completed"]]])
+                await home.send(text: "now fix the fixture", images: [])
+                Session.router = router
+                let input = fixtures.last?.sent.last?["input"] as? [JSON]
+                check(unrouted && asked == [["what time is it"], ["what time is it", "now fix the fixture"]] && home.cwd == directory.path
+                      && fixtures.count == 2 && (input?.first?["text"] as? String)?.contains("cd there") == true,
+                      "a prompt no project fits starts at /, and a later prompt that names one moves the chat there")
+                home.close()
+            }
+            do {
                 let resumed = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("resume-state"))
                 var connection: FixtureConnection?
                 resumed.connectionFactory = { account, _ in let fixture = FixtureConnection(account); connection = fixture; return fixture }

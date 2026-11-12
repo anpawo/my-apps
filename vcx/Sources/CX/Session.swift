@@ -294,7 +294,7 @@ final class Session: ObservableObject {
     var connectionFactory: ((Account, String) -> any Connection)?
     private var startingConnection: (any Connection)?
     static var testConnectionFactory: ((Account, String) -> any Connection)?
-    static var router: (String, Account?) async -> String? = { await routeProject($0, account: $1) }
+    static var router: ([String], Account?) async -> String? = { await routeProject($0, account: $1) }
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
     private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
     private var nativePointer: URL { pointer.deletingPathExtension().appendingPathExtension("native.json") }
@@ -794,8 +794,8 @@ final class Session: ObservableObject {
             if next.id != account.id { nextAccount = next }
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty else { return }
-        // A window opened at / or ~ starts its first task in the task's project.
-        let routes = !testing && !retry && !busy && ["/", NSHomeDirectory()].contains(cwd) && !text.isEmpty && !rows.contains(where: { $0.kind == "user" })
+        // A window opened at / or ~ starts its first task in the task's project, / when none fits; each later prompt asks again while it stays at /.
+        let earlier = sentPrompts, routes = !testing && !retry && !busy && routable && !text.isEmpty
         let wasBusy = busy, savedDraft = submissionDraft
         guard !busy || turnID != nil else { notice("The current turn is still starting. Your draft has been kept."); return }
         submitting = true
@@ -840,7 +840,12 @@ final class Session: ObservableObject {
             // The prompt is already in the chat; the agent moves to its project behind it.
             if routes {
                 status = "Choosing the project…"
-                if let project = await projectRoute(for: text), project != cwd {
+                let project = await projectRoute(for: text, after: earlier) ?? "/"
+                if project != cwd, !earlier.isEmpty {
+                    // The agent already holds the chat where it stands: it is told to cd, as a session that found its project itself.
+                    params["input"] = [["type": "text", "text": "This chat's project folder is " + project + ": cd there before working on it."]] + outgoing
+                    params["cwd"] = project; moveDirectory(project); status = "Working…"
+                } else if project != cwd {
                     let previous = (cwd, conversationDirectory), stopping = stopRequested
                     cwd = project; conversationDirectory = project
                     do { try await activate(account, resume: nil, keepRows: true) }
@@ -1336,26 +1341,35 @@ final class Session: ObservableObject {
             restoreDraft(previous.2, since: previous.3); throw error }
     }
 
-    // The router takes 2 to 3 s; started while the first prompt is typed, Enter rarely waits on it.
+    private var sentPrompts: [String] {
+        rows.filter { $0.kind == "user" }.flatMap(\.items).compactMap { item in
+            (item.data["content"] as? [JSON])?.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        }.filter { !$0.isEmpty }
+    }
+
+    private var routable: Bool { cwd == "/" || cwd == NSHomeDirectory() && !rows.contains(where: { $0.kind == "user" }) }
+
+    // The router takes 2 to 3 s; started while the prompt is typed, Enter rarely waits on it.
     private func guessProject() {
         projectGuessDelay?.cancel()
-        guard !testing, runtimeClient == nil, !busy, ["/", NSHomeDirectory()].contains(cwd), !rows.contains(where: { $0.kind == "user" }) else { return }
+        guard !testing, runtimeClient == nil, !busy, routable else { return }
         let text = draft.commandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.hasPrefix("/"), projectGuess?.text != text else { return }
         projectGuessDelay = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard let self, !Task.isCancelled else { return }
-            let account = self.routeAccount
-            self.projectGuess = (text, Task { await Session.router(text, account) })
+            let account = self.routeAccount, prompts = self.sentPrompts + [text]
+            self.projectGuess = (text, Task { await Session.router(prompts, account) })
         }
     }
 
-    private func projectRoute(for prompt: String) async -> String? {
+    private func projectRoute(for prompt: String, after earlier: [String]) async -> String? {
         projectGuessDelay?.cancel()
+        defer { projectGuess = nil }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         // A guess from three quarters of the prompt stands: its last words rarely change the project.
         if let guess = projectGuess, text.hasPrefix(guess.text), guess.text.count * 4 >= text.count * 3 { return await guess.route.value }
-        return await Session.router(text, routeAccount)
+        return await Session.router(earlier + [text], routeAccount)
     }
 
     func editDraft(_ value: NSAttributedString, refresh: Bool = true) {

@@ -454,7 +454,7 @@ if args.first == "--set-model" { exit(ModelControl.request(Array(args.dropFirst(
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.first == "--route-project" {
     let prompt = args.dropFirst().joined(separator: " ")
-    Task { print(await routeProject(prompt, account: Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }) ?? "none"); exit(0) }
+    Task { print(await routeProject([prompt], account: Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }) ?? "none"); exit(0) }
     dispatchMain()
 }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included."); exit(0) }

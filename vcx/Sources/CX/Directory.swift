@@ -97,10 +97,10 @@ private func literalShellWords(_ command: String) -> [String]? {
     return words
 }
 
-/// The folder under ~/self a window's first prompt is about, nil for none or several: Haiku
+/// The folder under ~/self a window's prompts are about, the first weighing most; nil for none or several: Haiku
 /// picks it from the self-map's table. Agents left in / cd'd late or never, so Fleet showed /
 /// and the project's CLAUDE.md missed the start (asked 2026-11-07).
-func routeProject(_ prompt: String, account: Account?) async -> String? {
+func routeProject(_ prompts: [String], account: Account?) async -> String? {
     let root = NSHomeDirectory() + "/self"
     let map = (try? String(contentsOfFile: NSHomeDirectory() + "/.claude/skills/self-map/SKILL.md", encoding: .utf8)) ?? ""
     let rows = map.split(separator: "\n").filter { $0.hasPrefix("| ") && !$0.hasPrefix("| Folder") }.joined(separator: "\n")
@@ -119,9 +119,10 @@ func routeProject(_ prompt: String, account: Account?) async -> String? {
         }
         return name + ": " + value.prefix(160)
     }.joined(separator: "\n")
+    let later = prompts.dropFirst().suffix(5).map { "\n<later>" + $0.prefix(1000) + "</later>" }.joined()
     // Measured on 42 of his first prompts that later cd'd: 22 to 26 right, 1 to 2 wrong folder, the rest none (median 3 s).
     let question = """
-    Pick the project folder under ~/self that this request is about. It is the first message of a new chat window, so it rarely names its folder: judge from what it talks about.
+    Pick the project folder under ~/self that this chat is about. <request> is the first message of a new chat window and weighs most; <later> holds the messages that followed, if any. They rarely name their folder: judge from what they talk about.
     Reply with the folder's path relative to ~/self and nothing else (e.g. s14, my-apps/vcx, epitech), or none.
     Reply none when the request is general (a question, an errand, mail, money, papers, the Mac itself), spans several folders, or when you are unsure: a wrong folder is worse than none.
     The chat window is VCX (my-apps/vcx). Fleet (my-apps/fleet) is the separate board that shows every session as a card, in groups, beside his mail, todos and crons: a request about those cards, groups or that board is my-apps/fleet.
@@ -130,7 +131,7 @@ func routeProject(_ prompt: String, account: Account?) async -> String? {
     Apps inside my-apps, each its own folder: \(apps)
     His skills, whose descriptions say which work belongs where:
     \(skills)
-    <request>\(prompt.prefix(4000))</request>
+    <request>\(prompts.first?.prefix(4000) ?? "")</request>\(later)
     """
     let process = Process(), output = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
