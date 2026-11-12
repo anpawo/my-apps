@@ -305,33 +305,34 @@ const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 await page.keyboard.press('Escape');
 
-// Tabs: favorites in no tab stay on top; "+" names a tab, right-click → Add to it moves her under the tabs; clicking the open tab closes it.
+// Groups: favorites in no group stay on top; "+ New group" names one; Add to it moves her into it; every group stays open.
 const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
-const shownFavs = () => page.$$eval('#tabfavs:not([hidden]) .fav', fs => fs.map(f => f.title));
+const groupFavs = name => page.$$eval(`.group[data-name="${name}"] .strip:not([hidden]) .fav`, fs => fs.map(f => f.title));
 const topBefore = await topFavs();
-await page.click('#tabs .add');
+await page.click('#tabbox .newgroup');
 await page.keyboard.type('Family');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
-const tabNames = () => page.$$eval('#tabs .tab[data-name]', ts => ts.map(t => t.textContent + (t.classList.contains('on') ? '*' : '')));
-check(JSON.stringify(await tabNames()) === '["Family*"]' && !!(await page.$('#tabfavs .favs-empty')) && JSON.stringify(await topFavs()) === JSON.stringify(topBefore), `a new tab opens empty under the favorites in no tab (${await tabNames()}; ${topBefore})`);
+check(!!(await page.$('.group[data-name="Family"] .favs-empty')) && JSON.stringify(await topFavs()) === JSON.stringify(topBefore), `a new group shows under the favorites in no group (${topBefore})`);
 await page.click('#people .row:has-text("Lea Martin")', { button: 'right' });
 await page.click('.menu .item:has-text("Add to Family")');
 await page.waitForTimeout(400);
-check(JSON.stringify(await shownFavs()) === '["Lea Martin"]' && !(await topFavs()).includes('Lea Martin'), `Add to Family puts her in the tab, not on top (${await shownFavs()} / ${await topFavs()})`);
-const order = await page.evaluate(() => ['#favs', '#tabs', '#tabfavs', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
-check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no tab, then tabs, then the tab's favorites, then the list (${order})`);
-await page.screenshot({ path: join(out, '7-tabs.png') });
-await page.click('#tabs .tab[data-name="Family"]');
-await page.waitForTimeout(500);
-check((await shownFavs()).length === 0 && !(await topFavs()).includes('Lea Martin'), 'clicking the open tab closes it');
-await page.keyboard.press('Meta+1');
-await page.waitForTimeout(400);
-check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', 'Cmd+1 opens the first tab');
-await page.reload();
-await page.waitForSelector('#tabs .tab');
+check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && !(await topFavs()).includes('Lea Martin'), `Add to Family moves her into the group (${await groupFavs('Family')} / ${await topFavs()})`);
+await page.click('#tabbox .newgroup');
+await page.keyboard.type('Work');
+await page.keyboard.press('Enter');
 await page.waitForTimeout(300);
-check(JSON.stringify(await shownFavs()) === '["Lea Martin"]', 'tabs are kept after a restart');
+await page.click('#people .row:has-text("Tom B")', { button: 'right' });
+await page.click('.menu .item:has-text("Add to Work")');
+await page.waitForTimeout(400);
+check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'two groups are open at once');
+const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
+check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no group, then each group, then pinned groups, then the list (${order})`);
+await page.screenshot({ path: join(out, '7-groups.png') });
+await page.reload();
+await page.waitForSelector('.group');
+await page.waitForTimeout(300);
+check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'groups are kept after a restart');
 
 // The list holds as many people as fit (10 at most), and a wheel turn at its end shows twice as many.
 const before = await page.evaluate(() => {
