@@ -624,6 +624,15 @@ await page.waitForTimeout(400);
 const person = await page.$eval('#profile', p => [p.querySelector('h2').textContent, [...p.querySelectorAll('section h3 > span:not(.net)')].map(s => s.textContent), [...p.querySelectorAll('.line b')].map(b => b.textContent), !!p.querySelector('.back')]);
 await page.screenshot({ path: join(out, 'profile-person.png') });
 check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
+// Merge with… from the profile: the same picker as the ⋯ menu, under the button.
+await page.click('#profile .merge');
+await page.waitForSelector('.menu .found .item');
+const mergeWith = await page.$eval('.menu .found .item span', s => s.textContent);
+await page.click('.menu .found .item >> nth=0');
+await page.waitForFunction(() => __log.filter(([c]) => c === 'set_overrides').at(-1)?.[1].value.merges?.length);
+const saved = await page.evaluate(() => [profile.view.chats[0].id, __log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.merges.at(-1)]);
+check(saved[1]?.[0] === saved[0], `Merge with… in a profile merges that person with the one picked (${mergeWith}: ${JSON.stringify(saved)})`);
+await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.click('#profile .back');
 await page.waitForSelector('#profile .member');
 await page.keyboard.press('Escape');

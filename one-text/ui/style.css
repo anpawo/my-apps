@@ -236,8 +236,9 @@ header .who > .av:not(.faces):hover, header .who > .av.faces:hover .tile { box-s
 #profile .head .av.faces.members { width: auto; height: auto; max-width: none; margin: 0 0 6px; padding: 0; }
 #profile h2 { font-size: 18px; font-weight: 600; }
 #profile .head p { color: var(--muted); font-size: 13px; }
-#profile .open { display: block; margin: 0 auto 14px; padding: 7px 14px; border-radius: 999px; background: var(--field); font-size: 13px; font-weight: 600; transition: background-color 150ms; }
-#profile .open:hover { background: #363636; }
+#profile .actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+#profile .actions button { padding: 7px 14px; border-radius: 999px; background: var(--field); font-size: 13px; font-weight: 600; transition: background-color 150ms; }
+#profile .actions button:hover, #profile .merge.open { background: #363636; }
 #profile section { padding: 12px 0; border-top: 1px solid var(--line); }
 #profile h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
 #profile h3 .net { width: 18px; height: 18px; border-radius: 4.5px; }

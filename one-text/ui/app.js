@@ -468,6 +468,12 @@ async function refreshList() {
       const now = state.byId.get(state.cur.id) || [...state.byId.values()].find(i => i.chats.some(c => c.id === first));
       if (now) { const changed = now.id !== state.cur.id || now.chats.length !== state.cur.chats.length; state.cur = now; if (changed) drawHeader(); }
     }
+    // The open profile follows a merge or a split the same way, showing the apps it now has.
+    const shown = !profile.box.hidden && !profile.closing && profile.view?.chats && profile.view;
+    if (shown) {
+      const now = [...state.byId.values()].find(i => i.chats.some(c => c.id === shown.chats[0].id));
+      if (now && (now.id !== shown.id || now.chats.length !== shown.chats.length)) showProfile(now);
+    }
     requestAnimationFrame(() => movePill(300));
     seedReactions();
   } catch (e) {
@@ -1473,7 +1479,7 @@ async function showProfile(view, delay = 0) {
   const who = member ? { name: view.p.fullName || view.p.username || 'Unknown', imgs: view.p.imgURL ? [view.p.imgURL] : [] } : view;
   profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
     + `<div class="head">${avatar(who)}<h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div>`
-    + (view.kind === 'person' && view.id !== state.cur?.id ? '<button class="open">Open conversation</button>' : '')
+    + (member ? '' : `<div class="actions">${view.kind === 'person' && view.id !== state.cur?.id ? '<button class="open">Open conversation</button>' : ''}<button class="merge">Merge with…</button></div>`)
     + '<div class="details" hidden></div>';
   profile.body.scrollTop = 0;
   anim(profile.body, { opacity: [0, 1], transform: ['translateY(6px)', 'none'] }, 200).effect.updateTiming({ delay, fill: 'backwards' });
@@ -1517,6 +1523,8 @@ profile.box.addEventListener('click', e => {
     return showProfile(personOf(v.p.id) || v);
   }
   if (e.target.closest('.back')) return showProfile(profile.stack.pop());
+  const merging = e.target.closest('.merge');
+  if (merging) return openMenu?._anchor === merging ? closeMenu() : menu(merging, m => mergePicker(m, profile.view));
   if (e.target.closest('.open')) select(profile.view.id);
 });
 addEventListener('keydown', e => { if (e.key === 'Escape' && !profile.box.hidden && !profile.closing && !openMenu) { e.preventDefault(); e.stopPropagation(); closeProfile(); } }, true);
