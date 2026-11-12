@@ -8,6 +8,8 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 
 - One list, people and groups together, newest first: as many as fit in the window (10 at most, fewer under many favorites), plus anyone with unread messages; scrolling past the end shows twice as many.
 - A conversation opens on its last messages; scrolling up loads older ones, a page at a time from each app, kept in time order.
+- ⌘F finds a word in the open conversation (case and accents aside): ↵ goes to the older match, loading older messages past the last one, ⇧↵ to the newer; esc closes. Over a row or a favorite, ⌘F still adds or removes the favorite.
+- Voice messages play in the thread. The mic button beside send records one: click it again to send, esc to drop (macOS asks once for the microphone).
 - ⌘R replies to the message under the pointer (or to their last one), on its app; esc cancels. A reply shows the message it answers above it, behind a white line (in a group, with who wrote it).
 - `:` and two letters list emoji by name (`:joy` → 😂), the emoji on the right: ↑ ↓ to pick, ↵ or tab to put it in.
 - ⌘M (or right-click → Alias…) gives a person or a group an alias, shown in place of the apps' name; ⌘D finds them by either name and shows both. In the ⌘D search, ⌘M aliases the highlighted row.
@@ -17,7 +19,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - The logos at the top right are the apps that person is on; the highlighted one is where your reply goes (by default the app they last wrote from). Click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm` or `/mx`.
 - Right-click → Change picture… gives a person or a group a picture of your own (kept in the app's `overrides.json`).
 - A reaction to one of your messages does not count as unread, and a muted chat shows no count.
-- A badge stays until you answer (here or on the app, a reaction included) or press ⌘K for "seen, nothing to say" (over a row, or on the open one). Opening a conversation clears nothing and sends no read receipt.
+- A badge stays until you answer (here or on the app, a reaction included) or press ⌘K for "seen, nothing to say" (over a row, or on the open one); both send the read receipt. Opening a conversation clears nothing and sends none.
 - It opens at login, and ⌘Q or the close button only hide it, unless Allow Quitting is ticked in the one-text menu.
 - Drag the sidebar's right edge to widen or narrow it; the width is kept.
 - ⌘D opens a search over everyone in the middle of the window: ↑ ↓ to pick, ↵ to open, esc to close. `/discord`, `/whatsapp` (or `/dc`, `/wh`…) before a name keeps only those on that app.

@@ -58,7 +58,7 @@ const LOOK = { ƒ: 'f', α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', ν
 const fold = s => String(s || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/./g, c => LOOK[c] || c);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const linkify = s => esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noreferrer">${u}</a>`);
-const asset = url => url.startsWith('data:') ? url : `beeper://localhost/asset?url=${enc(url)}`;
+const asset = url => /^(data|blob):/.test(url) ? url : `beeper://localhost/asset?url=${enc(url)}`;
 const netMark = key => { const n = NETS[key]; return `<span class="net" style="background:${n.color}" title="${n.label}">${n.logo}</span>`; };
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
@@ -484,6 +484,8 @@ addEventListener('keydown', e => {
   // ⌘F over a person or a favorite adds or removes the favorite.
   const over = e.metaKey && e.key.toLowerCase() === 'f' && document.querySelector('#list .row:hover, .fav:hover');
   if (over) { e.preventDefault(); toggleFav(state.byId.get(over.dataset.id)); }
+  // ⌘F anywhere else finds a word in the open conversation.
+  else if (e.metaKey && e.key.toLowerCase() === 'f' && state.cur && palette.hidden) { e.preventDefault(); openFind(); }
   // ⌘K: seen, nothing to say. Clears the badge of the person or group under the pointer, or of the open one.
   if (e.metaKey && e.key.toLowerCase() === 'k') {
     e.preventDefault();
@@ -510,6 +512,100 @@ addEventListener('keydown', e => {
     if (item) { e.preventDefault(); moveFav(item, e.key); }
   }
 });
+/* ---------- Voice messages ---------- */
+
+// Fetched whole into a blob: WebKit streams media from a custom scheme only with range requests, which beeper:// lacks.
+const clock = t => (isFinite(t) ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` : '');
+$('#thread').addEventListener('click', async e => {
+  const v = e.target.closest('.bubble.voice');
+  if (!v) return;
+  let au = v._audio;
+  if (au && e.target.closest('.track')) {
+    const r = v.querySelector('.track').getBoundingClientRect();
+    au.currentTime = ((e.clientX - r.left) / r.width) * au.duration;
+    return;
+  }
+  if (!au) {
+    if (v.classList.contains('loading')) return;
+    v.classList.add('loading');
+    const blob = await fetch(v.dataset.src).then(r => (r.ok ? r.blob() : null)).catch(() => null);
+    v.classList.remove('loading');
+    if (!blob) { v.classList.add('failed'); v.title = 'Could not load this voice message'; return; }
+    au = v._audio = new Audio(URL.createObjectURL(new Blob([blob], { type: v.dataset.type || blob.type })));
+    const show = () => {
+      v.querySelector('.track i').style.width = `${(au.currentTime / au.duration) * 100 || 0}%`;
+      v.querySelector('.time').textContent = clock(au.paused && !au.currentTime ? au.duration : au.currentTime);
+    };
+    au.ontimeupdate = au.onloadedmetadata = show;
+    au.onplay = () => { v.classList.add('playing'); v.querySelector('.toggle').innerHTML = PAUSE; };
+    au.onpause = au.onended = () => { v.classList.remove('playing'); v.querySelector('.toggle').innerHTML = PLAY; };
+  }
+  document.querySelectorAll('.bubble.voice.playing').forEach(o => o !== v && o._audio.pause());
+  if (au.paused) au.play().catch(() => v.classList.add('failed')); else au.pause();
+});
+
+/* ---------- Find in the conversation (⌘F) ---------- */
+
+// Matches are painted with the CSS Custom Highlight API, so the bubbles' DOM is left alone. Lowercase and accents off,
+// one character for one, so a match's offsets are the text node's.
+const find = { box: $('#find'), input: $('#find input'), hits: [], at: -1 };
+const norm = s => [...s].map(c => (c.length > 1 ? c : c.normalize('NFD')[0].toLowerCase()[0])).join('');
+function findRun() {
+  const q = norm(find.input.value.trim());
+  find.hits = [];
+  if (q) {
+    const walk = document.createTreeWalker($('#thread'), NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement.closest('.bubble') ? 1 : 2) });
+    for (let n; (n = walk.nextNode()); ) {
+      const t = norm(n.data);
+      for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+        const r = new Range();
+        r.setStart(n, i);
+        r.setEnd(n, i + q.length);
+        find.hits.push(r);
+      }
+    }
+  }
+  find.at = find.hits.length - 1;
+  findShow();
+}
+function findShow() {
+  CSS.highlights.set('find', new Highlight(...find.hits));
+  CSS.highlights.set('find-cur', new Highlight(...(find.hits[find.at] ? [find.hits[find.at]] : [])));
+  const n = find.hits.length;
+  find.box.querySelector('.count').textContent = !find.input.value.trim() ? '' : n ? `${n - find.at} of ${n}` : 'No match';
+  find.hits[find.at]?.startContainer.parentElement.closest('.msg').scrollIntoView({ block: 'center', behavior: RM.matches ? 'auto' : 'smooth' });
+}
+// Enter goes back in time; past the oldest loaded match, older messages are loaded to look further.
+async function findStep(dir) {
+  const n = find.hits.length;
+  if (!n) return;
+  if (dir < 0 && find.at === 0) {
+    let more;
+    do { more = await loadOlder(); findRun(); } while (more && find.hits.length === n);
+    find.at = find.hits.length > n ? find.hits.length - n - 1 : n - 1;
+    return findShow();
+  }
+  find.at = (find.at + dir + n) % n;
+  findShow();
+}
+function openFind() {
+  collapse(find.box, false, 200);
+  find.input.focus();
+  find.input.select();
+  findRun();
+}
+function closeFind() {
+  collapse(find.box, true, 200);
+  find.input.value = '';
+  findRun();
+  input.focus();
+}
+find.input.addEventListener('input', findRun);
+find.input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? 1 : -1); }
+  if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+
 /* ---------- Conversation ---------- */
 
 async function select(id) {
@@ -518,6 +614,7 @@ async function select(id) {
   state.cur = item;
   state.target = null;
   setReply(null);
+  if (!find.box.hidden) closeFind();
   // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
   showLists();
   document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
@@ -570,6 +667,7 @@ function highlightTarget(animate) {
 const plain = s => (s && /<\/?[a-z][^>]*>/i.test(s) ? new DOMParser().parseFromString(s, 'text/html').body.textContent : s);
 const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p)\/[\w-]+\/?\S*/;
 const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
+const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
 
 function bubbleHTML(m) {
   if (m.isDeleted) return `<div class="bubble note">Message deleted</div>`;
@@ -585,7 +683,10 @@ function bubbleHTML(m) {
       + (rest ? `<div class="bubble">${linkify(rest)}</div>` : '');
   }
   for (const a of m.attachments || []) {
-    if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}" loading="lazy"></div>`);
+    if (a.srcURL && (a.isVoiceNote || a.type === 'audio')) {
+      parts.push(`<div class="bubble voice" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span></div>`);
+      if (a.transcription) parts.push(`<div class="bubble note">${esc(a.transcription)}</div>`);
+    } else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}" loading="lazy"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
   if (text) parts.push(`<div class="bubble">${linkify(text)}</div>`);
@@ -714,16 +815,19 @@ async function pollThread() {
 }
 
 // A badge stays until I answer (a message of mine, here or elsewhere; a reaction elsewhere clears Beeper's count) or
-// press ⌘K for "seen, nothing to say". It clears here only: nothing goes to Beeper, so the sender gets no read receipt.
+// press ⌘K for "seen, nothing to say"; opening a chat sends no read receipt, those two do.
 const seen = JSON.parse(localStorage.seen || '{}');
+// What I marked seen tells Beeper too, so the sender gets the read receipt; a chat still unread there is sent again.
+const sendRead = c => api('POST', `/v1/chats/${enc(c.id)}/read`, {}).catch(() => {});
 function applySeen(item) {
-  for (const c of item.chats) if (c.unread && Date.parse(seen[c.id]) >= Date.parse(c.last)) c.unread = 0;
+  for (const c of item.chats) if (c.unread && Date.parse(seen[c.id]) >= Date.parse(c.last)) { c.unread = 0; sendRead(c); }
   item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
 }
 function markRead(item) {
   for (const c of item.chats) {
     const newest = state.msgs.filter(m => m.chatID === c.id && !m.isSender).at(-1)?.timestamp;
     seen[c.id] = [seen[c.id], c.last, newest].filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    if (c.unread) sendRead(c);
     c.unread = 0;
   }
   localStorage.seen = JSON.stringify(seen);
@@ -856,12 +960,17 @@ $('#send').disabled = true;
 async function send() {
   const text = input.value.trim();
   if (!text || !state.target) return;
+  input.value = '';
+  autosize();
+  post({ text });
+}
+
+// Shows the message at once, faded, then sends it to the chosen app; `upload` (a voice message) goes to Beeper first.
+async function post(m, upload) {
   const chat = state.target.chat;
   const reply = state.reply?.chatID === chat.id ? state.reply.id : undefined;
   setReply(null);
-  input.value = '';
-  autosize();
-  const m = { id: 'pending-' + Date.now(), text, linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' };
+  Object.assign(m, { id: 'pending-' + Date.now(), linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' });
   const [row] = msgNodes(m, state.msgs[state.msgs.length - 1]).slice(-1);
   row.classList.add('pending');
   row._chat = chat.id;
@@ -871,7 +980,8 @@ async function send() {
   const box = $('#msgs');
   box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
   try {
-    await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text, replyToMessageID: reply });
+    const attachment = upload && (await upload());
+    await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text: m.text, attachment, replyToMessageID: reply });
     markRead(state.cur);
     setTimeout(pollThread, 600);
   } catch (e) {
@@ -880,6 +990,54 @@ async function send() {
     row.title = `Not sent: ${e}`;
   }
 }
+
+/* ---------- Voice messages out: click the mic, click again to send, esc to drop ---------- */
+
+const rec = { mr: null, chunks: [], t0: 0, timer: 0 };
+async function toggleRecord() {
+  if (rec.mr) return stopRecord(true);
+  if (!state.target) return;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    return toast(`No microphone: ${e.message || e}`);
+  }
+  const type = ['audio/mp4', 'audio/webm;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t));
+  rec.mr = new MediaRecorder(stream, type ? { mimeType: type } : {});
+  rec.chunks = [];
+  rec.mr.ondataavailable = e => e.data.size && rec.chunks.push(e.data);
+  rec.mr.start();
+  rec.t0 = Date.now();
+  $('#mic').classList.add('recording');
+  const tick = () => (input.placeholder = `Recording ${clock((Date.now() - rec.t0) / 1000)}: click the mic to send, esc to drop`);
+  tick();
+  rec.timer = setInterval(tick, 500);
+}
+function stopRecord(keep) {
+  const mr = rec.mr;
+  if (!mr) return;
+  rec.mr = null;
+  clearInterval(rec.timer);
+  $('#mic').classList.remove('recording');
+  input.placeholder = `Message on ${NETS[netOf(state.target.chat)].label}`;
+  const secs = (Date.now() - rec.t0) / 1000;
+  mr.onstop = () => {
+    mr.stream.getTracks().forEach(t => t.stop());
+    if (keep && rec.chunks.length) sendVoice(new Blob(rec.chunks, { type: mr.mimeType.split(';')[0] || 'audio/mp4' }), secs);
+  };
+  mr.stop();
+}
+function sendVoice(blob, secs) {
+  post({ attachments: [{ type: 'audio', isVoiceNote: true, srcURL: URL.createObjectURL(blob), mimeType: blob.type }] }, async () => {
+    const content = await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result.split(',')[1]); f.readAsDataURL(blob); });
+    const up = await api('POST', '/v1/assets/upload/base64', { content, mimeType: blob.type, fileName: `voice.${blob.type.includes('webm') ? 'webm' : 'm4a'}` });
+    if (!up.uploadID) throw up.error || 'upload failed';
+    return { uploadID: up.uploadID, type: 'voice-note', duration: up.duration || secs };
+  });
+}
+$('#mic').onclick = toggleRecord;
+addEventListener('keydown', e => { if (e.key === 'Escape' && rec.mr) { e.preventDefault(); stopRecord(false); } }, true);
 
 /* ---------- Menus ---------- */
 

@@ -458,7 +458,7 @@ fn main() {
                         let kind = r.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
                         match r.bytes().await {
                             Ok(bytes) if is_default_picture(&bytes) => fail(404),
-                            Ok(bytes) =>Response::builder().header("content-type", kind).header("cache-control", "max-age=86400").body(bytes.to_vec()).unwrap(),
+                            Ok(bytes) =>Response::builder().header("content-type", kind).header("cache-control", "max-age=86400").header("access-control-allow-origin", "*").body(bytes.to_vec()).unwrap(),
                             Err(_) => fail(502),
                         }
                     }

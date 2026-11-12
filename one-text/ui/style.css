@@ -81,6 +81,19 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .more { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; transition: background-color 150ms; }
 .more:hover, .more.open { background: var(--tint); }
 .more svg { width: 16px; height: 16px; fill: #f5f5f5; }
+#find { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
+#find input { flex: 1; min-width: 0; padding: 6px 12px; border-radius: 14px; border: 0; background: var(--field); color: inherit; font: inherit; font-size: 13px; outline: none; }
+#find .count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+::highlight(find) { background-color: rgb(255 214 10 / .35); }
+::highlight(find-cur) { background-color: #ffd60a; color: #000; }
+.bubble.voice { display: flex; align-items: center; gap: 10px; min-width: 220px; padding: 6px 12px 6px 6px; cursor: pointer; }
+.bubble.voice .toggle { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgb(255 255 255 / .15); }
+.bubble.voice .toggle svg { position: static; width: 14px; height: 14px; fill: #fff; filter: none; transform: none; }
+.bubble.voice .track { flex: 1; height: 4px; border-radius: 2px; background: rgb(255 255 255 / .2); overflow: hidden; }
+.bubble.voice .track i { display: block; height: 100%; width: 0; background: #fff; transition: width .25s linear; }
+.bubble.voice .time { font-size: 12px; opacity: .7; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+.bubble.voice.loading .toggle { opacity: .5; }
+.bubble.voice.failed { opacity: .5; }
 #msgs { flex: 1; padding: 14px 20px 8px; }
 #thread { display: flex; flex-direction: column; }
 .day { align-self: center; font-size: 11.5px; color: var(--muted); padding: 12px 0 6px; }
@@ -123,6 +136,9 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 #input:focus { box-shadow: 0 0 0 3px var(--tint); }
 .send { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--me);
   transition: opacity 200ms var(--ease), scale 200ms var(--ease); }
+.send.mic { background: var(--field); transition: background .2s ease-out; }
+.send.mic.recording { background: #ff3b30; animation: rec 1.2s ease-in-out infinite alternate; }
+@keyframes rec { to { box-shadow: 0 0 0 6px rgb(255 59 48 / .25); } }
 .send:disabled { opacity: .35; scale: .92; }
 .send svg { width: 15px; height: 15px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #empty { position: absolute; inset: 56px 0 0; display: grid; place-items: center; color: var(--muted); font-size: 13.5px; pointer-events: none;

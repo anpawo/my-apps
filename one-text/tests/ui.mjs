@@ -25,7 +25,7 @@ const stub = () => {
   const msgs = {
     'wa-lea': [msg('wa-lea', 'w1', 'dinner tonight still on?', 50), msg('wa-lea', 'w2', 'yes! where?', 45, true), msg('wa-lea', 'w3', 'the usual place', 30)],
     'ig-lea': [msg('ig-lea', 'i1', 'did you see the reel I sent?', 1500), msg('ig-lea', 'i2', 'haha yes, too good', 1490, true), { ...msg('ig-lea', 'i2r', '<p><a href="https://www.instagram.com/reel/ABC123/?id=1&amp;x=y" rel="noopener">https://www.instagram.com/reel/ABC123/</a></p>', 1480), attachments: [{ type: 'img', srcURL: 'mxc://thumb' }] }, msg('ig-lea', 'i3', 'see you at 8 then', 5)],
-    'dc-tom': [msg('dc-tom', 'd1', 'gg last night', 60)],
+    'dc-tom': [{ ...msg('dc-tom', 'v1', '', 120), attachments: [{ type: 'audio', isVoiceNote: true, srcURL: 'mxc://voice', mimeType: 'audio/wav' }] }, msg('dc-tom', 'd1', 'gg last night', 60)],
     'wa-tom': [msg('wa-tom', 't1', 'call me when you can', 90)],
     'ig-hugo': [msg('ig-hugo', 'h1', 'sent you the deck', 200)], 'li-hugo': [msg('li-hugo', 'l1', 'congrats on the new role', 300)],
     'te-sarah': [msg('te-sarah', 's1', 'meeting moved to 3pm', 400)],
@@ -62,6 +62,7 @@ const stub = () => {
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
     if (cmd === 'api') {
+      if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
       const [path, query] = args.path.split('?');
       const m = path.match(/^\/v1\/chats\/([^/]+)\/(messages|read)$/);
       const id = m && decodeURIComponent(m[1]);
@@ -71,7 +72,7 @@ const stub = () => {
         const items = all.slice(0, window.__page || 20);
         return { items, hasMore: all.length > items.length, oldestCursor: items.at(-1)?.sortKey };
       }
-      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push(msg(id, 'sent-' + msgs[id].length, args.body.text.replace(/^- /, ''), 0, true)); return { id: 'ok' }; }
+      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push({ ...msg(id, 'sent-' + id + '-' + msgs[id].length, (args.body.text || '').replace(/^- /, ''), 0, true), attachments: args.body.attachment && [{ type: 'audio', isVoiceNote: true, srcURL: 'mxc://up', mimeType: 'audio/mp4' }] }); return { id: 'ok' }; }
       if (args.method === 'POST' && m[2] === 'read') { const c = chats.find(c => c.id === id); if (c) c.unread = 0; return {}; }
     }
     throw new Error('unexpected ' + cmd + ' ' + JSON.stringify(args));
@@ -147,6 +148,31 @@ await page.keyboard.press('Meta+k');
 await page.waitForTimeout(300);
 await page.evaluate(() => refreshList());
 check(!(await page.$('#people .row[data-id="ig-lea"] .badge')), '⌘K clears the badge, and it stays cleared after a refresh');
+const readSent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path).sort());
+check(JSON.stringify(readSent) === JSON.stringify(['/v1/chats/ig-lea/read', '/v1/chats/wa-lea/read']), `⌘K sends the read receipt to each app (${readSent})`);
+// ⌘F finds a word in the open conversation, accents and case aside; Enter goes to the older match.
+await page.mouse.move(900, 300);
+await page.keyboard.press('Meta+f');
+await page.keyboard.type('YES');
+await page.waitForTimeout(300);
+const found1 = await page.evaluate(() => [CSS.highlights.get('find').size, document.querySelector('#find .count').textContent, CSS.highlights.get('find-cur').values().next().value.startContainer.data]);
+await page.keyboard.press('Enter');
+const found2 = await page.evaluate(() => [document.querySelector('#find .count').textContent, CSS.highlights.get('find-cur').values().next().value.startContainer.data]);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+check(JSON.stringify([found1, found2]) === JSON.stringify([[2, '1 of 2', 'yes! where?'], ['2 of 2', 'haha yes, too good']]) && (await page.$eval('#find', f => f.hidden)) && !(await page.evaluate(() => isFav(state.cur))), `⌘F finds and steps back through matches (${JSON.stringify([found1, found2])})`);
+// A voice message: the mic records, the upload goes to Beeper, then the message carries it as a voice note.
+await page.evaluate(() => {
+  window.MediaRecorder = class { constructor(s) { this.stream = s; this.mimeType = 'audio/mp4'; } static isTypeSupported(t) { return t === 'audio/mp4'; } start() {} stop() { this.ondataavailable({ data: new Blob(['abc'], { type: 'audio/mp4' }) }); this.onstop(); } };
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async () => ({ getTracks: () => [] }) }, configurable: true });
+});
+await page.click('#mic');
+await page.waitForTimeout(200);
+const recording = await page.evaluate(() => [document.querySelector('#mic').classList.contains('recording'), document.querySelector('#input').placeholder]);
+await page.click('#mic');
+await page.waitForTimeout(400);
+const voiceOut = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && /upload|messages$/.test(a.path)).slice(-2).map(([, a]) => [a.path, a.body.mimeType || a.body.attachment]));
+check(recording[0] && recording[1].startsWith('Recording') && JSON.stringify(voiceOut) === JSON.stringify([['/v1/assets/upload/base64', 'audio/mp4'], ['/v1/chats/ig-lea/messages', { uploadID: 'up1', type: 'voice-note', duration: 1.5 }]]), `the mic records and sends a voice note (${JSON.stringify([recording, voiceOut])})`);
 // ":" and a few letters list emoji by name, the emoji on the right; Enter puts it in place of what was typed.
 await page.click('#input');
 await page.keyboard.type('so :joy');
@@ -178,7 +204,7 @@ await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() =>
 await page.waitForTimeout(1500);
 const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => b.textContent.trim()), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
 await page.evaluate(() => { window.__page = 0; });
-check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
+check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '', '8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
@@ -227,13 +253,14 @@ await page.keyboard.type('/ws ');
 check(await on() === 'whatsapp' && (await page.inputValue('#input')) === '', '/ws switches to WhatsApp and clears the command');
 await page.keyboard.type('- on my way');
 await page.keyboard.press('Enter');
+const pend = await page.$$eval('#thread .msg.pending', ms => ms.map(m => m.textContent.trim()));
 await page.waitForTimeout(100);
 const sent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path, a.body.text]));
 check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', '- on my way']), 'message sent to the WhatsApp chat');
-check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 1, 'pending bubble shown at once');
+check(JSON.stringify(pend) === '["- on my way"]', `pending bubble shown at once (${JSON.stringify(pend)})`);
 await page.waitForTimeout(1200);
 const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => m.textContent.trim()).filter(t => t.includes('on my way')));
-check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && JSON.stringify(mine) === '["on my way"]', `pending bubble replaced by the sent message, even when the app rewrote it (${mine})`);
+check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && JSON.stringify(mine) === '["on my way"]', `pending bubble replaced by the sent message, even when the app rewrote it (${mine} ${await page.$$eval('#thread .msg.failed', ms => ms.map(m => m.title))})`);
 check(await on() === 'whatsapp', 'manual choice holds after sending');
 
 // Merge Tom (Discord) with Tom B (WhatsApp) through the ⋯ menu, then Undo.
@@ -496,6 +523,20 @@ await page.mouse.wheel(0, 200);
 await page.waitForTimeout(400);
 const after = await page.evaluate(() => document.querySelectorAll('#people .row:not([data-leaving])').length);
 check(before[1] && before[0] > 0 && before[0] <= 10 && after === before[0] * 2, `the list fits the window (${before}) and a wheel turn doubles it (${after})`);
+
+// A voice message plays in the thread: its file is fetched whole, then a play button, a track and the time.
+await page.evaluate(() => {
+  const wav = (() => { const n = 8000, b = new DataView(new ArrayBuffer(44 + n)); const w = (o, s) => [...s].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); b.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); w(36, 'data'); b.setUint32(40, n, true); for (let i = 0; i < n; i++) b.setUint8(44 + i, 128); return b.buffer; })();
+  const real = fetch;
+  window.fetch = (u, o) => (String(u).startsWith('beeper://') ? Promise.resolve(new Response(wav)) : real(u, o));
+  return refreshList().then(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'dc-tom')).id));
+});
+await page.waitForSelector('#thread .bubble.voice');
+await page.click('#thread .bubble.voice .toggle');
+await page.waitForTimeout(600);
+const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
+check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
