@@ -134,6 +134,36 @@ fn pictures(chats: &[Value]) -> Vec<&str> {
 /// People from one-to-one chats: chats sharing a name or a phone number are one person, except a chat in
 /// `overrides.splits`, which stands alone; each pair in `overrides.merges` is then joined whatever its keys.
 /// Group chats come back one by one.
+/// Bits apart, out of 64, under which two profile pictures are the same photo: 13 for one photo cropped by
+/// Instagram and WhatsApp, 16 for two different photos of the same first name (measured on his chats).
+const SAME_PICTURE: u32 = 13;
+
+fn first_name(chat: &Value) -> Option<String> {
+    words(&name_of(chat)).into_iter().next().filter(|w| w.chars().count() >= 3)
+}
+
+/// A single chat's picture worth hashing: another app has a chat under the same first name.
+pub fn picture_candidates(chats: &[Value]) -> Vec<String> {
+    let mut nets: HashMap<String, std::collections::HashSet<&str>> = HashMap::new();
+    for c in chats.iter().filter(|c| c["type"] == "single") {
+        if let Some(f) = first_name(c) {
+            nets.entry(f).or_default().insert(c["network"].as_str().unwrap_or(""));
+        }
+    }
+    chats.iter().filter(|c| c["type"] == "single" && first_name(c).is_some_and(|f| nets[&f].len() > 1))
+        .filter_map(|c| other(c)?["imgURL"].as_str().map(String::from)).collect()
+}
+
+fn pictures_may_meet(a: &Value, b: &Value) -> bool {
+    a["network"] != b["network"] && a["pictureHash"].is_array() && b["pictureHash"].is_array() && first_name(a).is_some() && first_name(a) == first_name(b)
+}
+
+fn picture_distance(a: &Value, b: &Value) -> u32 {
+    let h = |c: &Value| c["pictureHash"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect::<Vec<_>>();
+    let (a, b) = (h(a), h(b));
+    a.iter().flat_map(|x| b.iter().map(move |y| (x ^ y).count_ones())).min().unwrap_or(64)
+}
+
 pub fn build(chats: &[Value], overrides: &Value) -> Value {
     let singles: Vec<&Value> = chats.iter().filter(|c| c["type"] == "single").collect();
     let index: HashMap<&str, usize> = singles.iter().enumerate().map(|(i, c)| (id(c), i)).collect();
@@ -185,6 +215,20 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
         let names: std::collections::HashSet<Option<String>> = fits.iter().map(|&j| name_key(&name_of(singles[j]))).collect();
         if names.len() == 1 {
             for &j in &fits {
+                let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                parent[a] = b;
+            }
+        }
+    }
+    // Instagram gives no phone number to meet WhatsApp on: the same profile photo (each app crops it its own way)
+    // under the same first name on two apps is one person, when each is the other's closest picture.
+    let near: Vec<Option<usize>> = (0..singles.len()).map(|i| {
+        (0..singles.len()).filter(|&j| j != i && pictures_may_meet(singles[i], singles[j]) && !splits.contains(&id(singles[j])))
+            .map(|j| (picture_distance(singles[i], singles[j]), j)).min().filter(|&(d, _)| d <= SAME_PICTURE).map(|(_, j)| j)
+    }).collect();
+    for (i, n) in near.iter().enumerate() {
+        if let Some(j) = *n {
+            if near[j] == Some(i) && !splits.contains(&id(singles[i])) {
                 let (a, b) = (find(&mut parent, i), find(&mut parent, j));
                 parent[a] = b;
             }
@@ -315,6 +359,21 @@ mod tests {
     fn lookalike_letters_read_as_latin() {
         assert_eq!(one_word("ƒαustine"), Some("faustine".into()));
         assert_eq!(name_key("Lεa Martιn"), name_key("lea martin"));
+    }
+
+    #[test]
+    fn same_picture_on_another_app_is_one_person() {
+        let at = "2026-11-12T00:00:00Z";
+        let mut rsst = chat("ig-rsst", "Instagram", "ƒαustine", None, at);
+        let mut wa = chat("wa-f", "WhatsApp", "Faustine", None, at);
+        let mut lcll = chat("ig-lcll", "Instagram", "Faustine", None, at);
+        rsst["pictureHash"] = json!([0u64, 1u64 << 63]);
+        wa["pictureHash"] = json!([(1u64 << 13) - 1]);
+        lcll["pictureHash"] = json!([0xFFFFu64 << 40]);
+        let all = [rsst, wa, lcll];
+        assert_eq!(picture_candidates(&all).len(), 3);
+        assert_eq!(people(&build(&all, &json!({}))), vec![vec!["ig-lcll".to_string()], vec!["ig-rsst".into(), "wa-f".into()]]);
+        assert_eq!(people(&build(&all, &json!({ "splits": ["wa-f"] }))).len(), 3);
     }
 
     #[test]

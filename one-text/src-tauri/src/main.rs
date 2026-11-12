@@ -15,6 +15,9 @@ struct Beeper {
     http: reqwest::Client,
     overrides: PathBuf,
     unread: Mutex<std::collections::HashMap<String, i64>>,
+    /// Profile picture → its dHashes (null: unreadable), kept in pictures.json beside overrides.json.
+    hashes: Mutex<serde_json::Map<String, Value>>,
+    hashing: AtomicBool,
 }
 
 fn home() -> PathBuf {
@@ -31,7 +34,8 @@ fn read_target() -> Option<(String, String)> {
 }
 
 fn beeper(overrides: PathBuf) -> Beeper {
-    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::new(), overrides, unread: Default::default() }
+    let hashes = fs::read_to_string(overrides.with_file_name("pictures.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::new(), overrides, unread: Default::default(), hashes: Mutex::new(hashes), hashing: AtomicBool::new(false) }
 }
 
 impl Beeper {
@@ -97,8 +101,85 @@ async fn api(b: State<'_, Beeper>, method: String, path: String, body: Option<Va
 
 /// Every chat, newest first, grouped into people and group chats.
 #[tauri::command]
-async fn people(b: State<'_, Beeper>) -> Result<Value, String> {
-    Ok(group::build(&all_chats(&b).await?, &b.overrides()))
+async fn people(app: tauri::AppHandle, b: State<'_, Beeper>) -> Result<Value, String> {
+    let mut chats = all_chats(&b).await?;
+    // Pictures not hashed yet are hashed in the background; the list's next refresh uses them.
+    let missing = with_hashes(&b, &mut chats);
+    if !missing.is_empty() && !b.hashing.swap(true, Ordering::Relaxed) {
+        tauri::async_runtime::spawn(async move {
+            let b = app.state::<Beeper>();
+            for url in missing {
+                let h = picture_hash(&b, &url).await.map_or(Value::Null, |h| json!(h));
+                b.hashes.lock().unwrap().insert(url, h);
+            }
+            let all = Value::Object(b.hashes.lock().unwrap().clone());
+            let _ = fs::write(b.overrides.with_file_name("pictures.json"), all.to_string());
+            b.hashing.store(false, Ordering::Relaxed);
+        });
+    }
+    Ok(group::build(&chats, &b.overrides()))
+}
+
+/// Gives each chat its picture's known hashes; returns the pictures worth hashing that are not known yet.
+fn with_hashes(b: &Beeper, chats: &mut [Value]) -> Vec<String> {
+    let hashes = b.hashes.lock().unwrap();
+    for c in chats.iter_mut() {
+        let url = c["participants"]["items"].as_array().and_then(|ps| ps.iter().find(|p| p["isSelf"] != true && p["isNetworkBot"] != true))
+            .and_then(|p| p["imgURL"].as_str()).map(String::from);
+        if let Some(h) = url.and_then(|u| hashes.get(&u).cloned()).filter(|h| !h.is_null()) {
+            c["pictureHash"] = h;
+        }
+    }
+    group::picture_candidates(chats).into_iter().filter(|u| !hashes.contains_key(u)).collect()
+}
+
+/// dHashes of a profile picture's centre at 100, 80 and 65 %, so one photo cropped differently by two apps still meets.
+async fn picture_hash(b: &Beeper, url: &str) -> Option<Vec<u64>> {
+    let (base, token) = b.target().ok()?;
+    let res = b.http.get(format!("{base}/v1/assets/serve?url={}", urlencode(url))).bearer_auth(&token).send().await.ok()?;
+    let bytes = res.error_for_status().ok()?.bytes().await.ok()?;
+    if is_default_picture(&bytes) {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = std::env::temp_dir().join(format!("one-text-{}", std::process::id()));
+        fs::create_dir_all(&dir).ok()?;
+        let (src, out) = (dir.join("picture"), dir.join("picture.png"));
+        fs::write(&src, &bytes).ok()?;
+        let ok = std::process::Command::new("/usr/bin/sips").args(["-s", "format", "png", "-z", "64", "64"]).arg(&src).arg("--out").arg(&out)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().ok()?.success();
+        let gray = ok.then(|| gray64(&fs::read(&out).ok()?)).flatten()?;
+        Some([64usize, 51, 42].iter().map(|&c| dhash(&gray, c)).collect())
+    }).await.ok()?
+}
+
+/// A 64×64 PNG as 4096 gray levels.
+fn gray64(png_bytes: &[u8]) -> Option<Vec<f32>> {
+    let mut d = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    d.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut r = d.read_info().ok()?;
+    let mut buf = vec![0; r.output_buffer_size()?];
+    let info = r.next_frame(&mut buf).ok()?;
+    let n = info.color_type.samples();
+    if info.width != 64 || info.height != 64 {
+        return None;
+    }
+    let color = n.min(3);
+    Some(buf[..info.buffer_size()].chunks(n).map(|p| p[..color].iter().map(|&v| v as f32).sum::<f32>() / color as f32).collect())
+}
+
+/// 64 bits: is each of 9×8 cells over the centred c×c square darker than its right neighbour.
+fn dhash(gray: &[f32], c: usize) -> u64 {
+    let o = (64 - c) / 2;
+    let cell = |x: usize, y: usize| {
+        let (x0, x1, y0, y1) = (o + x * c / 9, o + (x + 1) * c / 9, o + y * c / 8, o + (y + 1) * c / 8);
+        let mut sum = 0.0;
+        for yy in y0..y1 { for xx in x0..x1 { sum += gray[yy * 64 + xx]; } }
+        sum / ((x1 - x0) * (y1 - y0)) as f32
+    };
+    let mut h = 0u64;
+    for y in 0..8 { for x in 0..8 { h = h << 1 | (cell(x, y) < cell(x + 1, y)) as u64; } }
+    h
 }
 
 async fn all_chats(b: &Beeper) -> Result<Vec<Value>, String> {
@@ -225,8 +306,22 @@ mod live {
     #[ignore]
     fn people_from_beeper() {
         let b = super::beeper(std::env::temp_dir().join("chats-no-overrides.json"));
-        let rt = tauri::async_runtime::block_on(super::all_chats(&b)).unwrap();
+        let mut rt = tauri::async_runtime::block_on(super::all_chats(&b)).unwrap();
+        let ids = |out: &serde_json::Value| -> Vec<String> { out["people"].as_array().unwrap().iter().map(|p| p["chats"].to_string()).collect() };
+        let first = ids(&super::group::build(&rt, &serde_json::json!({})));
+        let before = first.len();
+        for url in super::with_hashes(&b, &mut rt) {
+            let h = tauri::async_runtime::block_on(super::picture_hash(&b, &url)).map_or(serde_json::Value::Null, |h| serde_json::json!(h));
+            b.hashes.lock().unwrap().insert(url, h);
+        }
+        super::with_hashes(&b, &mut rt);
+        let _ = std::fs::write(b.overrides.with_file_name("pictures.json"), serde_json::Value::Object(b.hashes.lock().unwrap().clone()).to_string());
         let out = super::group::build(&rt, &serde_json::json!({}));
+        println!("people before pictures {before}, hashed {}", rt.iter().filter(|c| c["pictureHash"].is_array()).count());
+        for p in out["people"].as_array().unwrap().iter().filter(|p| !first.contains(&p["chats"].to_string()) && p["chats"].as_array().unwrap().len() > 1) {
+            let chats: Vec<String> = p["chats"].as_array().unwrap().iter().map(|c| format!("{} {}", c["network"], c["title"])).collect();
+            println!("joined by picture: {chats:?}");
+        }
         let people = out["people"].as_array().unwrap();
         let merged = people.iter().filter(|p| p["chats"].as_array().unwrap().len() > 1).count();
         println!("chats {} people {} merged-people {} groups {}", rt.len(), people.len(), merged, out["groups"].as_array().unwrap().len());
