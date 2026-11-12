@@ -97,14 +97,14 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs
 /* ---------- Sidebar ---------- */
 
 function fill(n, item) {
-  const nets = item.kind === 'person' ? netsOf(item) : [];
+  // A person: the logo of the app with their latest message only.
+  const nets = item.kind === 'person' ? [netOf(item.chats.reduce((a, c) => (c.last > a.last ? c : a)))] : [];
   const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
-  // A person: the logos of the apps they are on, then their picture, as a group shows its app's logo then its members.
   const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item);
   n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;

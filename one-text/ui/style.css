@@ -49,8 +49,7 @@ aside { position: relative; width: 313px; flex: none; display: flex; flex-direct
 .av.faces > img { width: var(--s, 40px); height: var(--s, 40px); border-radius: 50%; object-fit: cover; background: #363636; }
 /* A group chat: its app's logo, then its members' pictures overlapping, as many as the row has room for. */
 .av.faces.members { gap: 0; max-width: 55%; overflow: hidden; border-radius: 0; align-items: center; padding: 2px; margin: -2px; }
-.av.faces.members > .net { flex: none; width: 15px; height: 15px; border-radius: 4px; margin-right: 5px; }
-.av.faces.members > .net + .net { margin-left: -2px; }
+.av.faces.members > .net { flex: none; width: 26px; height: 26px; border-radius: 7px; margin-right: 6px; }
 .av.faces.members > .av { --s: inherit; width: var(--s, 40px); height: var(--s, 40px); }
 .av.faces.members > img + img { margin-left: calc(var(--s, 40px) * -.35); }
 .av.faces.members > img { flex: none; box-shadow: 0 0 0 2px #000; }
