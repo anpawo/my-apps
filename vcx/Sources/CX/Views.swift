@@ -870,7 +870,7 @@ struct CommandPalette: View {
             }.frame(height: min(max(CGFloat(session.commandOptions.count) * 51 + 12, 65), maxListHeight))
             Divider().overlay(.black.opacity(0.03))
             HStack {
-                Text("↑ ↓ navigate"); Text("Return select"); Text("Tab complete")
+                Keycap("↑"); Keycap("↓"); Text("navigate").padding(.trailing, 6); Keycap("↩"); Text("select").padding(.trailing, 6); Keycap("⇥"); Text("complete")
                 Spacer(minLength: 0)
             }.font(.system(size: 9)).foregroundStyle(.black.opacity(0.6)).padding(.horizontal, 14).padding(.vertical, 9)
         }.background(Color.white, in: RoundedRectangle(cornerRadius: 14))
@@ -1013,6 +1013,16 @@ struct ActionView: View {
     }
 }
 
+struct Keycap: View {
+    let key: String
+    init(_ key: String) { self.key = key }
+    var body: some View {
+        Text(key).font(.system(size: 9, weight: .medium)).padding(.horizontal, 3).frame(minWidth: 15, minHeight: 15)
+            .background(RoundedRectangle(cornerRadius: 4).fill(.black.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(.black.opacity(0.2), lineWidth: 0.5))
+    }
+}
+
 struct UserBubble: View {
     @ObservedObject var item: Item
     let session: Session
@@ -1074,7 +1084,11 @@ struct UserBubble: View {
                     // Not onHover: opening into its own scroll view over the transcript's table, it reported the pointer gone while it stayed.
                     .onContinuousHover { phase in FreezeTrace.note("question hover " + item.id); if case .ended = phase, hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = false } } }
                     .opacity(sending.hides(item) ? 0 : unread ? 0.5 : 1)
-                if unread { Text("Not read yet · ↑ to edit · ⇧↩ to send now").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6) }
+                if unread {
+                    HStack(spacing: 4) {
+                        Text("Not read yet"); Keycap("↑").padding(.leading, 6); Text("edit"); Keycap("⇧").padding(.leading, 6); Keycap("↩"); Text("send now")
+                    }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.trailing, 6)
+                }
             }.column(pinnedIn.map { $0.width * 0.85 })
         }
     }
