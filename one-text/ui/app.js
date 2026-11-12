@@ -119,7 +119,8 @@ function renderList(box, items) {
       n = document.createElement('div');
       n.className = 'row';
       n.dataset.id = item.id;
-      n.onclick = () => select(n.dataset.id);
+      n.onclick = () => n._dragged || select(n.dataset.id);
+      if (box.id === 'people') dragFrom(n);
       n.oncontextmenu = e => { e.preventDefault(); select(n.dataset.id); openMore(n); };
     }
     fill(n, item);
@@ -225,9 +226,10 @@ function drawFavs(box, items, tab) {
   box._closing = false;
   box._drawn = true;
   box.hidden = false;
-  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Right-click someone → Add to ${esc(tab.name)}</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
+  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Drag someone here</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
   box.querySelectorAll('.fav').forEach(b => {
-    b.onclick = () => select(b.dataset.id);
+    b.onclick = () => b._dragged || select(b.dataset.id);
+    dragFrom(b);
     b.oncontextmenu = e => { e.preventDefault(); select(b.dataset.id); openMore(b); };
     if (had.size && !had.has(b.dataset.id)) anim(b, { scale: [0.5, 1], opacity: [0, 1] }, 260);
     const old = was.get(b.dataset.id), now = b.getBoundingClientRect();
@@ -238,6 +240,8 @@ function drawFavs(box, items, tab) {
 
 // Groups: named sets of favorites, each always open under the favorites in no group.
 state.tabs = JSON.parse(localStorage.tabs || '[]');
+// Groups made before "one group at most" could share people: each stays in the first one.
+{ const seen = new Set(); for (const t of state.tabs) { t.ids = t.ids.filter(id => !seen.has(id)); t.ids.forEach(id => seen.add(id)); } }
 const saveTabs = () => { localStorage.tabs = JSON.stringify(state.tabs); };
 const tabOf = name => state.tabs.find(t => t.name === name);
 const inTab = (item, tab) => item.chats.some(c => tab.ids.includes(c.id));
@@ -298,13 +302,55 @@ function newTab(button, person) {
     if (person) addToTab(person, name);
   });
 }
+// One group at most: joining one leaves the other.
 function addToTab(item, name, on = true) {
-  const tab = tabOf(name);
   if (on && !isFav(item)) toggleFav(item);
-  tab.ids = tab.ids.filter(id => !item.chats.some(c => c.id === id));
-  if (on) tab.ids.push(...item.chats.map(c => c.id));
+  for (const t of state.tabs) t.ids = t.ids.filter(id => !item.chats.some(c => c.id === id));
+  if (on) tabOf(name).ids.push(...item.chats.map(c => c.id));
   saveTabs();
   showLists();
+}
+// Drag a favorite or a person of the list onto a group to move them there, or onto the top strip to take them out of their group.
+function dragFrom(el) {
+  el.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const item = state.byId.get(el.dataset.id);
+    if (!item || item.kind !== 'person') return;
+    const x0 = e.clientX, y0 = e.clientY;
+    let ghost = null, over = null;
+    const move = ev => {
+      if (!ghost) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        ghost = el.querySelector('.av').cloneNode(true);
+        ghost.classList.add('ghost');
+        document.body.append(ghost);
+        el.classList.add('dragging');
+        const top = $('#favs');
+        if (top.hidden) { top.hidden = false; top.innerHTML = '<div class="favs-empty">Drop here to take them out of their group</div>'; collapse(top, false); }
+        anim(ghost, { scale: [0.8, 1] }, 160);
+      }
+      ghost.style.left = ev.clientX - 24 + 'px';
+      ghost.style.top = ev.clientY - 24 + 'px';
+      const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.group, #favs, #tabbox .newgroup') || null;
+      if (t !== over) { over?.classList.remove('drop'); over = t; over?.classList.add('drop'); }
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      if (!ghost) return;
+      ghost.remove();
+      el.classList.remove('dragging');
+      over?.classList.remove('drop');
+      el._dragged = true;
+      setTimeout(() => (el._dragged = false));
+      if (!over) return showLists();
+      if (over.id === 'favs') { if (!isFav(item)) toggleFav(item); addToTab(item, '', false); }
+      else if (over.classList.contains('newgroup')) newTab(over, item);
+      else addToTab(item, over.dataset.name);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  });
 }
 
 // ⌘D: a search palette in the middle of the window, over everyone; ↑ ↓ pick, ↵ opens, esc closes.
@@ -707,7 +753,7 @@ function openMore(anchor) {
     m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
     for (const t of state.tabs) {
       const on = inTab(person, t);
-      m.append(item(on ? `Remove from ${t.name}` : `Add to ${t.name}`, { action: () => { closeMenu(); addToTab(person, t.name, !on); } }));
+      m.append(item(on ? `Remove from ${t.name}` : `Move to ${t.name}`, { action: () => { closeMenu(); addToTab(person, t.name, !on); } }));
     }
     m.append(item('New group with them…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
