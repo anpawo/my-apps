@@ -698,12 +698,16 @@ const plain = s => (s && /<\/?[a-z][^>]*>/i.test(s) ? new DOMParser().parseFromS
 const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p)\/[\w-]+\/?\S*/;
 const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
 const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
+// Instagram view-once media reach Beeper as this sentence only: shown as Instagram's own grey "Photo" pill instead.
+const once = s => { const k = s?.match(/^This (\w+) can only be (?:re)?played once/)?.[1]; return k && (/video/i.test(k) ? 'Video' : 'Photo'); };
+const ONCE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3.2 2.4"/><path d="M10.5 9.5 12 8v8"/></svg>';
 
 function bubbleHTML(m) {
   if (m.isDeleted) return `<div class="bubble note">Message deleted</div>`;
   const parts = [];
   const text = plain(m.text)?.trim();
-  const share = m.net === 'instagram' && text?.match(SHARE)?.[0];
+  if (once(text)) return `<div class="bubble once">${ONCE}${once(text)}</div>`;
+  const share =m.net === 'instagram' && text?.match(SHARE)?.[0];
   const thumb = share && (m.attachments || []).find(a => a.type === 'img' && a.srcURL);
   // A shared reel or post: its cover as a card that opens it, like Instagram's own, instead of the raw link.
   if (thumb) {
@@ -731,7 +735,7 @@ function quoteHTML(m) {
   if (!m.linkedMessageID || m.type === 'REACTION') return '';
   const q = state.msgs.find(x => x.id === m.linkedMessageID) || state.pool.find(x => x.id === m.linkedMessageID);
   const who = q && state.cur.kind === 'group' ? `<b>${esc(q.isSender ? 'You' : q.senderName)}</b>` : '';
-  return `<div class="quote">${who}<span>${q ? esc(plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
+  return `<div class="quote">${who}<span>${q ? esc(once(plain(q.text)?.trim()) || plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
 }
 
 function msgNodes(m, prev) {
