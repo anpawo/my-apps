@@ -65,10 +65,14 @@ function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) %
 function avatar(item) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
-  const faces = item.imgs?.length ? [] : item.faces || [];
-  // A small group with no picture: its members' pictures side by side.
-  if (faces.length > 1) return `<div class="av faces">${faces.map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
-  const [first, ...rest] = faces.length ? faces : item.imgs || [];
+  // A group chat: the logo of the app it comes from, then its members' pictures (its own picture when none has one).
+  if (item.kind === 'group' && !item._plain) {
+    const faces = item.faces || [];
+    const logo = netMark(netOf(item.chats[0]));
+    if (!faces.length) return `<div class="av faces members">${logo}${avatar({ ...item, _plain: true })}</div>`;
+    return `<div class="av faces members">${logo}${faces.map(f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`).join('')}</div>`;
+  }
+  const [first, ...rest] = item.imgs || [];
   if (!first) return `<div class="av" style="background:${color}">${esc(initials)}</div>`;
   return `<div class="av" data-initials="${esc(initials)}" data-color="${color}"><img src="${esc(asset(first))}" data-next="${esc(JSON.stringify(rest))}" onerror="nextPicture(this)"></div>`;
 }

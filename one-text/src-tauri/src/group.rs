@@ -113,14 +113,11 @@ fn summary(chat: &Value) -> Value {
     })
 }
 
-/// A small Instagram or WhatsApp group (4 people or fewer) with no picture of its own shows its members'.
+/// Every member's picture, for the row that shows them after the app's logo.
+// ponytail: 12 at most, enough to fill a row; a 200-person Discord would otherwise load 200 pictures per draw.
 fn faces(chat: &Value) -> Vec<&str> {
-    let small = ["Instagram", "WhatsApp"].iter().any(|n| chat["network"] == *n) && chat["participants"]["total"].as_u64().is_some_and(|n| n <= 4);
-    if !small || chat["imgURL"].is_string() {
-        return vec![];
-    }
     let members = chat["participants"]["items"].as_array().into_iter().flatten().filter(|p| p["isSelf"] != true && p["isNetworkBot"] != true);
-    members.filter_map(|p| p["imgURL"].as_str()).take(3).collect()
+    members.filter_map(|p| p["imgURL"].as_str()).take(12).collect()
 }
 
 /// Profile pictures to try in turn: Instagram, then WhatsApp, then Google Messages, then the rest by recency.
@@ -419,10 +416,7 @@ mod tests {
     fn small_groups_show_members() {
         let g = |net: &str, total: u64, img: Option<&str>| json!({ "id": "g", "type": "group", "network": net, "imgURL": img,
             "participants": { "total": total, "items": [{ "isSelf": true, "imgURL": "mxc://me" }, { "imgURL": "mxc://a" }, { "imgURL": "mxc://b" }, { "imgURL": "mxc://c" }] } });
-        assert_eq!(faces(&g("Instagram", 4, None)), vec!["mxc://a", "mxc://b", "mxc://c"]);
-        assert!(faces(&g("Instagram", 5, None)).is_empty());
-        assert!(faces(&g("WhatsApp", 3, Some("mxc://group"))).is_empty());
-        assert!(faces(&g("Discord", 3, None)).is_empty());
+        assert_eq!(faces(&g("Discord", 30, Some("mxc://group"))), vec!["mxc://a", "mxc://b", "mxc://c"]);
     }
 
     #[test]

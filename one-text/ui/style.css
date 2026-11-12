@@ -47,6 +47,12 @@ aside { position: relative; width: 313px; flex: none; display: flex; flex-direct
 .av img { width: 100%; height: 100%; object-fit: cover; }
 .av.faces, header .who .av.faces, .menu .item .av.faces, .fav .av.faces { width: auto; height: auto; display: flex; gap: 3px; overflow: visible; background: none; }
 .av.faces img { width: var(--s, 40px); height: var(--s, 40px); border-radius: 50%; object-fit: cover; background: #363636; }
+/* A group chat: its app's logo, then its members' pictures overlapping, as many as the row has room for. */
+.av.faces.members { gap: 0; max-width: 55%; overflow: hidden; border-radius: 0; align-items: center; padding: 2px; margin: -2px; }
+.av.faces.members > .net { flex: none; width: var(--s, 40px); height: var(--s, 40px); border-radius: 28%; margin-right: 4px; }
+.av.faces.members > .av { --s: inherit; width: var(--s, 40px); height: var(--s, 40px); }
+.av.faces.members img + img { margin-left: calc(var(--s, 40px) * -.35); }
+.av.faces.members img { flex: none; box-shadow: 0 0 0 2px #000; }
 #pinned.some { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--rule); }
 .net { width: 14px; height: 14px; border-radius: 3.5px; display: inline-grid; place-items: center; color: #fff; font-size: 8.5px; font-weight: 700;
   flex: none; letter-spacing: -.04em; overflow: hidden; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .08); }

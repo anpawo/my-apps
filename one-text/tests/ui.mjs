@@ -94,9 +94,9 @@ const names = await page.$$eval('#people .row .name', ns => ns.map(n => n.textCo
 check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')})`);
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
-check(!(await page.$('#people .net')), 'no network logos in the list');
-const faces = await page.$$eval('#people .row[data-id="grp-1"] .av.faces img', is => is.map(i => i.getBoundingClientRect()).map(r => [r.left, r.right]));
-check(faces.length === 2 && faces[0][1] <= faces[1][0] && faces.every(([l, r]) => r - l === 40), `a small group shows its members' pictures side by side (${JSON.stringify(faces)})`);
+check(!(await page.$('#people .row:not([data-id^="grp"]) .net')), 'no network logos on people in the list');
+const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, ...[...a.querySelectorAll('img')].map(i => i.getBoundingClientRect()).map(r => [r.left, r.width])]);
+check(faces[0] === 'net' && faces[1] === 40 && faces.length === 4 && faces[2][1] === 40 && faces[3][0] < faces[2][0] + 40, `a group shows its app's logo, then its members' pictures overlapping (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
