@@ -43,6 +43,19 @@ func pinnedNote() {
     glyph("pin.fill", box: 300, at: NSPoint(x: 560, y: 700), angle: -35)
 }
 
+// one-text's: one bubble with a 1 cut out of it, every chat in one.
+func oneBubble() {
+    NSImage(size: NSSize(width: 1024, height: 1024), flipped: false) { _ in
+        glyph("bubble.fill", box: 520)
+        NSGraphicsContext.current!.compositingOperation = .destinationOut
+        let font = NSFont.systemFont(ofSize: 300, weight: .bold)
+        let one = NSAttributedString(string: "1", attributes: [.font: NSFont(descriptor: font.fontDescriptor.withDesign(.rounded)!, size: 300)!])
+        let s = one.size()
+        one.draw(at: NSPoint(x: 512 - s.width / 2, y: 548 - s.height / 2))
+        return true
+    }.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), from: .zero, operation: .sourceOver, fraction: 1)
+}
+
 let apps: [(dir: String, draw: () -> Void)] = [
     ("alt-tab", { glyph("macwindow.on.rectangle", box: 480) }),
     ("opener", { glyph("magnifyingglass", box: 470, weight: .semibold) }),
@@ -50,7 +63,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("screenshot", { glyph("camera.viewfinder", box: 500) }),
     ("watcher", pinnedNote),
     ("paperclip", { glyph("paperclip", box: 500) }),
-    ("one-text", { glyph("bubble.left.and.text.bubble.right.fill", box: 500) }),
+    ("one-text", oneBubble),
     ("mac-guard", guardedApple),
 ]
 
