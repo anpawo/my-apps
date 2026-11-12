@@ -96,7 +96,7 @@ function when(iso, long) {
 }
 const netsOf = item => [...new Set(item.chats.map(netOf))];
 
-const state = { byId: new Map(), cur: null, seq: 0, msgs: [], target: null, favs: new Set(JSON.parse(localStorage.favs || '[]')) };
+const state = { byId: new Map(), cur: null, seq: 0, msgs: [], older: {}, pool: [], target: null, favs: new Set(JSON.parse(localStorage.favs || '[]')) };
 
 /* ---------- Sidebar ---------- */
 
@@ -532,7 +532,10 @@ async function select(id) {
   const [msgs] = await Promise.all([loadMessages(item), fade?.finished]);
   if (seq !== state.seq) return;
   state.msgs = msgs;
+  state.older = {};
+  state.pool = [];
   drawThread(true);
+  fillUp();
   fade?.cancel();
   pickTarget();
   $('#input').focus();
@@ -571,7 +574,7 @@ const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z
 function bubbleHTML(m) {
   if (m.isDeleted) return `<div class="bubble note">Message deleted</div>`;
   const parts = [];
-  const text = plain(m.text);
+  const text = plain(m.text)?.trim();
   const share = m.net === 'instagram' && text?.match(SHARE)?.[0];
   const thumb = share && (m.attachments || []).find(a => a.type === 'img' && a.srcURL);
   // A shared reel or post: its cover as a card that opens it, like Instagram's own, instead of the raw link.
@@ -590,12 +593,12 @@ function bubbleHTML(m) {
   return parts.join('');
 }
 
-// A reply shows what it answers above its bubble; only the last messages are loaded, so an older one is just named a reply.
+// A reply shows the message it answers above its bubble, behind a white line; in a group, with who wrote it.
 function quoteHTML(m) {
   if (!m.linkedMessageID || m.type === 'REACTION') return '';
-  const q = state.msgs.find(x => x.id === m.linkedMessageID);
-  const who = q && (q.isSender ? 'you' : state.cur.kind === 'group' ? q.senderName : state.cur.name);
-  return `<div class="quote"><b>${who ? `Reply to ${esc(who)}` : 'Reply'}</b>${q ? `<span>${esc(plain(q.text) || 'Attachment')}</span>` : ''}</div>`;
+  const q = state.msgs.find(x => x.id === m.linkedMessageID) || state.pool.find(x => x.id === m.linkedMessageID);
+  const who = q && state.cur.kind === 'group' ? `<b>${esc(q.isSender ? 'You' : q.senderName)}</b>` : '';
+  return `<div class="quote">${who}<span>${q ? esc(plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
 }
 
 function msgNodes(m, prev) {
@@ -619,7 +622,9 @@ function msgNodes(m, prev) {
   return nodes;
 }
 
-function drawThread(enter) {
+function drawThread(enter, keep) {
+  const box = $('#msgs');
+  const fromEnd = box.scrollHeight - box.scrollTop;
   const thread = $('#thread');
   thread.classList.remove('in');
   thread.replaceChildren(...state.msgs.flatMap((m, i) => msgNodes(m, state.msgs[i - 1])));
@@ -630,9 +635,48 @@ function drawThread(enter) {
     void thread.offsetWidth;
     thread.classList.add('in');
   }
-  const box = $('#msgs');
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = keep ? box.scrollHeight - fromEnd : box.scrollHeight;
 }
+
+// Scrolling up loads older messages, a page per app. One app's page reaches further back than another's, so only what is
+// newer than every app's oldest loaded message is shown; the rest waits in state.pool.
+async function loadOlder() {
+  const item = state.cur, seq = state.seq;
+  if (state.olderBusy || !item) return false;
+  const left = item.chats.filter(c => state.older[c.id]?.more !== false);
+  if (!left.length && !state.pool.length) return false;
+  state.olderBusy = true;
+  try {
+    await Promise.all(left.map(async c => {
+      const o = state.older[c.id];
+      const cursor = o?.cursor || state.msgs.find(m => m.chatID === c.id)?.sortKey;
+      const r = await api('GET', `/v1/chats/${enc(c.id)}/messages` + (cursor ? `?cursor=${enc(cursor)}&direction=before` : ''));
+      const items = (r.items || []).map(m => ({ ...m, net: netOf(c) }));
+      state.older[c.id] = { cursor: r.oldestCursor || items.at(-1)?.sortKey, more: !!r.hasMore && items.length > 0, oldest: items.reduce((t, m) => (m.timestamp < t ? m.timestamp : t), o?.oldest || '9') };
+      state.pool.push(...items);
+    }));
+  } catch {
+    return false;
+  } finally {
+    state.olderBusy = false;
+  }
+  if (seq !== state.seq) return false;
+  const cut = item.chats.map(c => state.older[c.id]).filter(o => o?.more).map(o => o.oldest).sort().at(-1) || '';
+  const known = new Set(state.msgs.map(m => m.id));
+  const add = [...new Map(state.pool.filter(m => !known.has(m.id) && !m.isHidden && m.timestamp >= cut).map(m => [m.id, m])).values()];
+  state.pool = state.pool.filter(m => !known.has(m.id) && m.timestamp < cut);
+  if (add.length) {
+    state.msgs = [...add, ...state.msgs].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey));
+    drawThread(false, true);
+  }
+  return true;
+}
+// Until the thread fills the window, or reaches above the top, nothing can be scrolled: load until it does.
+async function fillUp() {
+  const box = $('#msgs');
+  while (box.scrollTop < 300 && (await loadOlder()));
+}
+$('#msgs').addEventListener('scroll', () => { if ($('#msgs').scrollTop < 300) fillUp(); }, { passive: true });
 
 async function pollThread() {
   const item = state.cur;
@@ -647,12 +691,14 @@ async function pollThread() {
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const lastKnown = state.msgs[state.msgs.length - 1]?.timestamp || '';
   if (fresh.some(m => m.timestamp < lastKnown)) {
-    state.msgs = msgs;
-    drawThread(false);
+    const fresh = new Set(msgs.map(m => m.id));
+    state.msgs = [...state.msgs.filter(m => !fresh.has(m.id)), ...msgs].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey));
+    drawThread(false, true);
     return;
   }
   for (const m of fresh) {
-    const pending = [...document.querySelectorAll('#thread .msg.pending')].find(p => m.isSender && p._text === m.text);
+    // The app can rewrite what was sent (Instagram drops a leading "- "): the oldest pending row on that chat is this one.
+    const pending = !m.isSender ? null : [...document.querySelectorAll('#thread .msg.pending')].find(p => p._chat === m.chatID);
     pending?.remove();
     const nodes = msgNodes(m, state.msgs[state.msgs.length - 1]);
     state.msgs.push(m);
@@ -818,7 +864,7 @@ async function send() {
   const m = { id: 'pending-' + Date.now(), text, linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' };
   const [row] = msgNodes(m, state.msgs[state.msgs.length - 1]).slice(-1);
   row.classList.add('pending');
-  row._text = text;
+  row._chat = chat.id;
   $('#thread').append(row);
   row.hidden = true;
   collapse(row, false, 260);

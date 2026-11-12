@@ -7,7 +7,8 @@ One conversation per person, whatever app they wrote from: WhatsApp, Instagram, 
 It reads and sends through the local [Beeper](https://www.beeper.com) Server API (its address and token come from `~/.beeper/targets/background.json` at launch; nothing is stored in the app), and starts Beeper Server when it is not answering.
 
 - One list, people and groups together, newest first: as many as fit in the window (10 at most, fewer under many favorites), plus anyone with unread messages; scrolling past the end shows twice as many.
-- ⌘R replies to the message under the pointer (or to their last one), on its app; esc cancels. A reply shows what it answers above it, behind a white line.
+- A conversation opens on its last messages; scrolling up loads older ones, a page at a time from each app, kept in time order.
+- ⌘R replies to the message under the pointer (or to their last one), on its app; esc cancels. A reply shows the message it answers above it, behind a white line (in a group, with who wrote it).
 - `:` and two letters list emoji by name (`:joy` → 😂), the emoji on the right: ↑ ↓ to pick, ↵ or tab to put it in.
 - ⌘M (or right-click → Alias…) gives a person or a group an alias, shown in place of the apps' name; ⌘D finds them by either name and shows both. In the ⌘D search, ⌘M aliases the highlighted row.
 - A group can be hidden from the list (right-click, Hide from the list); ⌘D still finds it. A group chat shows the small logo of the app it comes from, then up to 4 of its members' pictures in one round tile (the picture their person has, yours or another app's, first); a person shows the logo of the app of their latest message, then their picture.

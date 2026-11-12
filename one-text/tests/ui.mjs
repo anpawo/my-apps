@@ -62,10 +62,16 @@ const stub = () => {
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
     if (cmd === 'api') {
-      const m = args.path.match(/^\/v1\/chats\/([^/]+)\/(messages|read)$/);
+      const [path, query] = args.path.split('?');
+      const m = path.match(/^\/v1\/chats\/([^/]+)\/(messages|read)$/);
       const id = m && decodeURIComponent(m[1]);
-      if (args.method === 'GET' && m) return { items: [...msgs[id]].reverse() };
-      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push(msg(id, 'sent-' + msgs[id].length, args.body.text, 0, true)); return { id: 'ok' }; }
+      if (args.method === 'GET' && m) {
+        const before = new URLSearchParams(query).get('cursor');
+        const all = [...msgs[id]].reverse().filter(x => !before || Number(x.sortKey) < Number(before));
+        const items = all.slice(0, window.__page || 20);
+        return { items, hasMore: all.length > items.length, oldestCursor: items.at(-1)?.sortKey };
+      }
+      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push(msg(id, 'sent-' + msgs[id].length, args.body.text.replace(/^- /, ''), 0, true)); return { id: 'ok' }; }
       if (args.method === 'POST' && m[2] === 'read') { const c = chats.find(c => c.id === id); if (c) c.unread = 0; return {}; }
     }
     throw new Error('unexpected ' + cmd + ' ' + JSON.stringify(args));
@@ -164,8 +170,15 @@ const replied = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' &
 const quote = await page.$eval('#thread .msg.me:last-child .quote', q => q.textContent);
 await page.evaluate(() => { const b = document.querySelector('#msgs'); b.scrollTop = b.scrollHeight; });
 await page.screenshot({ path: join(out, '1b-reply.png'), clip: { x: 600, y: 440, width: 500, height: 200 } });
-check(quote === 'Reply to Lea Martindinner tonight still on?', `a reply shows what it answers above it (${quote})`);
+check(quote === 'dinner tonight still on?', `a reply shows what it answers above it (${quote})`);
 check(!bar[0] && bar[1].includes('dinner tonight') && bar[2] === 'input' && replied[0] === 'wa-lea' && !!replied[1] && (await page.$eval('#reply', r => r.hidden)), `⌘R replies to the hovered message on its app (${JSON.stringify([bar, replied])})`);
+
+// Older messages come a page at a time as the thread is scrolled up, or until it fills the window; both apps stay in time order.
+await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() => select('ig-lea')); });
+await page.waitForTimeout(1500);
+const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => b.textContent.trim()), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
+await page.evaluate(() => { window.__page = 0; });
+check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
@@ -212,14 +225,15 @@ check(await on() === 'instagram', 'clicking the other logo picks it back');
 await page.click('#input');
 await page.keyboard.type('/ws ');
 check(await on() === 'whatsapp' && (await page.inputValue('#input')) === '', '/ws switches to WhatsApp and clears the command');
-await page.keyboard.type('on my way');
+await page.keyboard.type('- on my way');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(100);
 const sent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path, a.body.text]));
-check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', 'on my way']), 'message sent to the WhatsApp chat');
+check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', '- on my way']), 'message sent to the WhatsApp chat');
 check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 1, 'pending bubble shown at once');
 await page.waitForTimeout(1200);
-check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && (await page.$$eval('#thread .msg.me', ms => ms.at(-1).textContent)).includes('on my way'), 'pending bubble replaced by the sent message');
+const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => m.textContent.trim()).filter(t => t.includes('on my way')));
+check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && JSON.stringify(mine) === '["on my way"]', `pending bubble replaced by the sent message, even when the app rewrote it (${mine})`);
 check(await on() === 'whatsapp', 'manual choice holds after sending');
 
 // Merge Tom (Discord) with Tom B (WhatsApp) through the ⋯ menu, then Undo.
