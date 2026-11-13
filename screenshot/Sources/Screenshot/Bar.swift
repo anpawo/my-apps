@@ -1,17 +1,15 @@
 import AppKit
 import ScreenshotCore
 
-/// The ⌘⇧5 strip, laid out like the system's: ✕, the stills, the recordings, Options, the
-/// button. Never key: keys go to the overlay.
-final class Bar: NSPanel, NSMenuDelegate {
+/// The ⌘⇧5 strip, laid out like the system's: ✕, the stills, the button, with every setting
+/// above it. Never key: keys go to the overlay.
+final class Bar: NSPanel {
     // Apple's geometry, measured on the system bar at 2×: 53 pt tall, ✕ at 14.5, stills on a
-    // 50 pt pitch in 44×36 buttons, recordings on a 59.25 pt pitch in 53-wide ones, dividers
-    // 10 and 7 pt after the groups, Options 17.5 pt after, the button 15 pt after that.
+    // 50 pt pitch in 44×36 buttons, a divider 7 pt after them, the button 17.5 pt after that.
     static let height: CGFloat = 53
     private unowned let session: Session
     private(set) var buttons: [ModeButton] = []
     let go = NSButton()
-    private let options = NSButton()
     let hint = Hint()
     let strip = Strip()
 
@@ -48,35 +46,15 @@ final class Bar: NSPanel, NSMenuDelegate {
             let b = ModeButton(state: state, target: self, action: #selector(pick(_:)))
             b.onHover = { [weak self, weak b] over in
                 guard let self, let b else { return }
-                if over && !self.strip.shown { self.hint.show(b.toolTip!, above: b, in: self) } else { self.hint.hide() }
+                if over { self.hint.show(b.toolTip!, above: b, in: self) } else { self.hint.hide() }
             }
-            let wide = state.kind == .video
-            if wide && buttons.last?.mode.kind == .photo {
-                back.addSubview(Bar.divider(at: x + 4))       // 10 pt after the last still
-                x += 16.5
-            }
-            b.frame = CGRect(x: x, y: mid - 18, width: wide ? 53 : 44, height: 36)
-            x += wide ? 59.25 : 50
+            b.frame = CGRect(x: x, y: mid - 18, width: 44, height: 36)
+            x += 50
             back.addSubview(b)
             buttons.append(b)
         }
-        back.addSubview(Bar.divider(at: x + 0.75))            // 7 pt after the last recording
+        back.addSubview(Bar.divider(at: x + 0.75))            // 7 pt after the last still
         x += 18.25
-
-        options.title = "Options"
-        options.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
-        options.imagePosition = .imageTrailing
-        options.imageHugsTitle = true
-        options.isBordered = false
-        options.font = .systemFont(ofSize: 15)
-        options.contentTintColor = .labelColor
-        options.target = self
-        options.action = #selector(showOptions)
-        options.sizeToFit()
-        options.frame = CGRect(x: x, y: mid - options.frame.height / 2, width: options.frame.width + 4, height: options.frame.height)
-        back.addSubview(options)
-        x = options.frame.maxX + 15
 
         // Painted by hand: AppKit only tints a default button in a key window, and this one never is.
         go.isBordered = false
@@ -85,9 +63,8 @@ final class Bar: NSPanel, NSMenuDelegate {
         go.layer?.cornerRadius = 8
         go.target = self
         go.action = #selector(commit)
-        // As wide as its widest title: the bar keeps one width from stills to recordings.
-        let widest = ["Capture", "Record"].map { ($0 as NSString).size(withAttributes: [.font: go.font!]).width }.max()!
-        go.frame = CGRect(x: x, y: mid - 18.25, width: widest + 30, height: 36.5)
+        go.attributedTitle = NSAttributedString(string: "Capture", attributes: [.foregroundColor: NSColor.white, .font: go.font!])
+        go.frame = CGRect(x: x, y: mid - 18.25, width: go.attributedTitle.size().width + 30, height: 36.5)
         back.addSubview(go)
         refresh()
 
@@ -95,40 +72,42 @@ final class Bar: NSPanel, NSMenuDelegate {
         back.frame = CGRect(x: 0, y: 0, width: width, height: Bar.height)
         let v = screen.visibleFrame
         setFrame(CGRect(x: (v.midX - width / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
+        strip.place(above: self)
     }
 
     override var canBecomeKey: Bool { false }
-    override func orderOut(_ sender: Any?) { hint.hide(); strip.hide(); super.orderOut(sender) }
+    override func orderFrontRegardless() { super.orderFrontRegardless(); strip.reload(); strip.place(above: self); strip.orderFrontRegardless() }
+    override func orderOut(_ sender: Any?) { hint.hide(); strip.orderOut(nil); super.orderOut(sender) }
     override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
-
-    /// ⌘ down: the settings strip; ⌘ up: gone.
-    func showSettings(_ on: Bool) {
-        if on { hint.hide() }
-        strip.show(on, above: self)
-    }
 
     func refresh() {
         let s = session.state
         for b in buttons { b.isSelected = b.mode == s }
-        let title = s.kind == .photo ? "Capture" : "Record"
-        go.attributedTitle = NSAttributedString(string: title, attributes: [.foregroundColor: NSColor.white, .font: go.font!])
         go.isEnabled = !(s.needsSelection && session.selection == nil)
         go.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(go.isEnabled ? 1 : 0.4).cgColor
     }
 
-    /// The bar as pixels, at 2×, without ever being on screen.
-    func render() -> Data? { Bar.pixels(contentView!).representation(using: .png, properties: [:]) }
+    /// The bar and its settings as PNG, at 2×, without ever being on screen.
+    func render() -> Data? { picture().0.representation(using: .png, properties: [:]) }
 
-    /// The bar with the hint of button `i` above it, as the hover shows them, still never on screen.
-    func render(hovering i: Int) -> NSBitmapImageRep {
-        let b = buttons[i]
-        hint.place(b.toolTip!, above: b, in: self)
-        let all = frame.union(hint.frame)
-        return Bar.canvas(all.size) {
-            Bar.pixels(contentView!).draw(in: frame.offsetBy(dx: -all.minX, dy: -all.minY))
-            Bar.pixels(hint.contentView!).draw(in: hint.frame.offsetBy(dx: -all.minX, dy: -all.minY))
+    /// The bar, its settings and, given `i`, the hint of button `i`, as the screen shows them,
+    /// still never on screen; with the frame they cover.
+    func picture(hovering i: Int? = nil) -> (NSBitmapImageRep, CGRect) {
+        var parts: [NSWindow] = [self, strip]
+        if let i {
+            hint.place(buttons[i].toolTip!, above: buttons[i], in: self)
+            parts.append(hint)
         }
+        let all = parts.reduce(frame) { $0.union($1.frame) }
+        let rep = Bar.canvas(all.size) {
+            // draw(in:) copies, alpha and all: rounded corners would come out black.
+            for w in parts {
+                Bar.pixels(w.contentView!).draw(in: w.frame.offsetBy(dx: -all.minX, dy: -all.minY), from: .zero,
+                                                operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            }
+        }
+        return (rep, all)
     }
 
     static func pixels(_ view: NSView) -> NSBitmapImageRep {
@@ -157,71 +136,9 @@ final class Bar: NSPanel, NSMenuDelegate {
         return v
     }
 
-    @objc private func showOptions() {
-        let menu = optionsMenu()
-        menu.delegate = self
-        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: options.bounds.height + 6), in: options)
-    }
-
-    func menuWillOpen(_ menu: NSMenu) { session.unregisterChords() }
-    func menuDidClose(_ menu: NSMenu) { session.registerChords() }
-
-    /// The system's three sections, filled with what this app actually does. Save targets
-    /// add up: several folders and the clipboard can all be on.
-    private func optionsMenu() -> NSMenu {
-        let menu = NSMenu()
-        func header(_ t: String) { menu.addItem(withTitle: t, action: nil, keyEquivalent: "") }
-        func item(_ t: String, _ sel: Selector, on: Bool, tag: Int = 0, object: Any? = nil) {
-            let m = menu.addItem(withTitle: t, action: sel, keyEquivalent: "")
-            m.target = self
-            m.state = on ? .on : .off
-            m.tag = tag
-            m.representedObject = object
-            m.indentationLevel = 1
-        }
-        header("Save to")
-        var known = Settings.standardFolders
-        for f in Settings.folders where !known.contains(where: { $0.1.path == f.path }) { known.append((f.lastPathComponent, f)) }
-        for (name, dir) in known {
-            item(name, #selector(toggleFolder(_:)), on: Settings.folders.contains { $0.path == dir.path }, object: dir)
-        }
-        item("Clipboard", #selector(toggleCopy), on: Settings.copies)
-        item("Other Folder…", #selector(pickFolder), on: false)
-        menu.addItem(.separator())
-        header("Timer")
-        for (t, secs) in [("None", 0), ("5 Seconds", 5), ("10 Seconds", 10)] {
-            item(t, #selector(setTimer(_:)), on: Settings.timer == secs, tag: secs)
-        }
-        menu.addItem(.separator())
-        header("Options")
-        item("Show Floating Thumbnail", #selector(toggleThumbnail), on: Settings.thumbnail)
-        item("Show Mouse Pointer", #selector(toggleCursor), on: Settings.cursor)
-        if session.state.kind == .video { item("Record Microphone", #selector(toggleMic), on: Settings.microphone) }
-        return menu
-    }
-
-    @objc private func toggleFolder(_ item: NSMenuItem) { Settings.toggle(folder: item.representedObject as! URL) }
-    @objc private func toggleThumbnail() { Settings.thumbnail.toggle() }
-    @objc private func toggleCopy() { Settings.copies.toggle() }
-
     @objc private func pick(_ b: ModeButton) { session.state = b.mode; session.refresh() }
     @objc private func cancel() { session.close() }
     @objc private func commit() { session.commit() }
-    @objc private func setTimer(_ item: NSMenuItem) { Settings.timer = item.tag }
-    @objc private func toggleCursor() { Settings.cursor.toggle() }
-    @objc private func toggleMic() { Settings.microphone.toggle() }
-
-    @objc private func pickFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.directoryURL = Settings.folder
-        panel.level = level
-        NSApp.activate()
-        if panel.runModal() == .OK, let url = panel.url, !Settings.folders.contains(where: { $0.path == url.path }) {
-            Settings.folders.append(url)
-        }
-    }
 }
 
 /// The bar's ground: one opaque gray. A material let the desktop show through and changed
@@ -253,7 +170,7 @@ final class ModeButton: NSButton {
         isBordered = false
         imagePosition = .imageOnly
         contentTintColor = NSColor.labelColor.withAlphaComponent(0.7)
-        toolTip = (state.kind == .video ? "Record " : "Capture ") + Glyph.tip[state.target]!
+        toolTip = "Capture " + Glyph.tip[state.target]!
         wantsLayer = true
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         layer?.cornerRadius = 8
@@ -293,49 +210,48 @@ final class Hint: NSPanel {
 
     override var canBecomeKey: Bool { false }
 
-    func show(_ s: String, above button: NSView, in bar: NSWindow) {
+    func show(_ s: String, above button: NSView, in bar: Bar) {
         place(s, above: button, in: bar)
         orderFrontRegardless()
     }
 
-    func place(_ s: String, above button: NSView, in bar: NSWindow) {
+    /// Above the button, and above the settings that sit over it.
+    func place(_ s: String, above button: NSView, in bar: Bar) {
         text.stringValue = s
         text.sizeToFit()
         let size = CGSize(width: text.frame.width + 16, height: text.frame.height + 8)
         text.frame.origin = CGPoint(x: 8, y: 4)
         let b = bar.convertToScreen(button.convert(button.bounds, to: nil))
-        setFrame(CGRect(x: (b.midX - size.width / 2).rounded(), y: b.maxY + 12, width: size.width, height: size.height), display: true)
+        setFrame(CGRect(x: (b.midX - size.width / 2).rounded(), y: bar.strip.frame.maxY + 8, width: size.width, height: size.height), display: true)
     }
 
     func hide() { orderOut(nil) }
 }
 
-/// ⌘ held: every setting in a strip above the bar, each with its letter; ⌘ + that letter flips it.
+/// Every setting, always above the bar: three titled columns of three. A click or ⌘ + its key
+/// flips one; the timer's three are one choice.
 final class Strip: NSPanel {
     struct Item {
-        let key: String, title: String, widest: String, on: Bool
+        let key: String, title: String, on: Bool
         let flip: () -> Void
     }
 
-    static let height: CGFloat = 42
-    private(set) var shown = false
+    private static let pad: CGFloat = 8, titleHeight: CGFloat = 20, row: CGFloat = 30, gap: CGFloat = 2
+    static let height = pad + titleHeight + 3 * row + 2 * gap + pad
 
-    static func items() -> [Item] {
-        var out = zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
-            Item(key: key, title: f.0, widest: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
+    static func sections() -> [(String, [Item])] {
+        let folders = zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
+            Item(key: key, title: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
         }
-        let t = Settings.timer
-        out += [
-            Item(key: "C", title: "Clipboard", widest: "", on: Settings.copies) { Settings.copies.toggle() },
-            // None → 5 s → 10 s → None, like the menu's three choices.
-            Item(key: "T", title: t == 0 ? "No Timer" : "\(t)s Timer", widest: "10s Timer", on: t > 0) {
-                Settings.timer = [0: 5, 5: 10][Settings.timer] ?? 0
-            },
-            Item(key: "F", title: "Thumbnail", widest: "", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
-            Item(key: "P", title: "Pointer", widest: "", on: Settings.cursor) { Settings.cursor.toggle() },
-            Item(key: "M", title: "Microphone", widest: "", on: Settings.microphone) { Settings.microphone.toggle() },
+        let timer = [("0", "None", 0), ("5", "5 Seconds", 5), ("1", "10 Seconds", 10)].map { key, title, secs in
+            Item(key: key, title: title, on: Settings.timer == secs) { Settings.timer = secs }
+        }
+        let options = [
+            Item(key: "C", title: "Clipboard", on: Settings.copies) { Settings.copies.toggle() },
+            Item(key: "F", title: "Thumbnail", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
+            Item(key: "P", title: "Pointer", on: Settings.cursor) { Settings.cursor.toggle() },
         ]
-        return out
+        return [("Save in", folders), ("Timer", timer), ("Options", options)]
     }
 
     init() {
@@ -349,29 +265,43 @@ final class Strip: NSPanel {
         isReleasedWhenClosed = false
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        alphaValue = 0
         contentView = Ground()
+        contentView!.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
         reload()
     }
 
     override var canBecomeKey: Bool { false }
+    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
 
     func reload() {
         let back = contentView!
         back.subviews.forEach { $0.removeFromSuperview() }
-        var x: CGFloat = 6
-        for item in Strip.items() {
-            let v = StripKey(item) { [weak self] in item.flip(); self?.reload() }
-            v.frame.origin = CGPoint(x: x, y: (Strip.height - v.frame.height) / 2)
-            back.addSubview(v)
-            x = v.frame.maxX + 2
+        var x = Strip.pad
+        for (name, items) in Strip.sections() {
+            let title = NSTextField(labelWithString: name)
+            title.font = .systemFont(ofSize: 11, weight: .semibold)
+            title.textColor = .secondaryLabelColor
+            title.sizeToFit()
+            title.setFrameOrigin(CGPoint(x: x + 6, y: Strip.height - Strip.pad - Strip.titleHeight + 3))
+            back.addSubview(title)
+            let keys = items.map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
+            let width = keys.map(\.frame.width).max()!
+            var y = Strip.height - Strip.pad - Strip.titleHeight
+            for k in keys {
+                y -= Strip.row
+                k.frame = CGRect(x: x, y: y, width: width, height: Strip.row)
+                back.addSubview(k)
+                y -= Strip.gap
+            }
+            x += width + 12
         }
-        setContentSize(CGSize(width: x + 4, height: Strip.height))
+        setContentSize(CGSize(width: x - 12 + Strip.pad, height: Strip.height))
     }
 
     /// ⌘ + `key`; false when no setting has that letter.
     func flip(_ key: String) -> Bool {
-        guard let item = Strip.items().first(where: { $0.key == key.uppercased() }) else { return false }
+        guard let item = Strip.sections().flatMap(\.1).first(where: { $0.key == key.uppercased() }) else { return false }
         item.flip()
         reload()
         return true
@@ -381,48 +311,23 @@ final class Strip: NSPanel {
         setFrameOrigin(CGPoint(x: (bar.frame.midX - frame.width / 2).rounded(), y: bar.frame.maxY + 8))
     }
 
-    /// Fades in rising 6 pt and out sinking back; Reduce Motion keeps the fade alone.
-    func show(_ on: Bool, above bar: NSWindow) {
-        guard on != shown else { return }
-        shown = on
-        if on { reload() }
-        place(above: bar)
-        let rest = frame
-        let low = rest.offsetBy(dx: 0, dy: -6)
-        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if on {
-            if alphaValue == 0 && !still { setFrame(low, display: false) }
-            orderFrontRegardless()
-        }
-        NSAnimationContext.runAnimationGroup({ c in
-            c.duration = 0.2
-            c.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().alphaValue = on ? 1 : 0
-            if !still { animator().setFrame(on ? rest : low, display: true) }
-        }, completionHandler: { [weak self] in
-            if let self, !self.shown { self.orderOut(nil) }
-        })
-    }
-
-    func hide() {
-        shown = false
-        alphaValue = 0
-        orderOut(nil)
-    }
+    func hide() { orderOut(nil) }
 }
 
-/// One setting: its letter on a key cap, then its name; on, both sit on the accent colour.
+/// One setting: its key on a cap, its name, and a tick when it is on; on, the row sits on the
+/// accent colour.
 private final class StripKey: NSView {
     private let item: Strip.Item
     private let flip: () -> Void
     private static let font = NSFont.systemFont(ofSize: 13)
     private static let keyFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private static let tick = NSFont.systemFont(ofSize: 13, weight: .bold)
 
     init(_ item: Strip.Item, flip: @escaping () -> Void) {
         self.item = item
         self.flip = flip
-        let text = [item.title, item.widest].map { ($0 as NSString).size(withAttributes: [.font: StripKey.font]).width }.max()!
-        super.init(frame: CGRect(x: 0, y: 0, width: 32 + ceil(text) + 10, height: 30))
+        let text = (item.title as NSString).size(withAttributes: [.font: StripKey.font]).width
+        super.init(frame: CGRect(x: 0, y: 0, width: 32 + ceil(text) + 30, height: 30))
     }
     required init?(coder: NSCoder) { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -452,19 +357,21 @@ private final class StripKey: NSView {
                           .foregroundColor: on ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.6)], in: cap)
         centre(item.title, [.font: StripKey.font,
                             .foregroundColor: NSColor.labelColor.withAlphaComponent(on ? 0.95 : 0.5)], x: 32, in: bounds)
+        if on {
+            centre("✓", [.font: StripKey.tick, .foregroundColor: NSColor.controlAccentColor],
+                   in: CGRect(x: bounds.maxX - 24, y: 0, width: 18, height: bounds.height))
+        }
     }
 }
 
 /// The system's glyphs, traced from its bar: a 28.5 × 22.5 rounded rect with a 2 pt stroke and
 /// 4.5 pt corners; a menu-bar line and a dock for the display, three dots for the window,
-/// dashes for the area; the recordings add a ring badge that punches through the corner.
+/// dashes for the area.
 enum Glyph {
     static let tip: [Target: String] = [.screen: "Entire Screen", .window: "Selected Window", .area: "Selected Portion"]
 
     static func image(for s: BarState) -> NSImage {
-        let recording = s.kind == .video
-        let size = recording ? CGSize(width: 34, height: 25) : CGSize(width: 29, height: 22.5)
-        let img = NSImage(size: size, flipped: true) { _ in
+        let img = NSImage(size: CGSize(width: 29, height: 22.5), flipped: true) { _ in
             let r = CGRect(x: 1, y: 1, width: 26.5, height: 20.5)      // 2 pt stroke, centred on 1
             let stroke = NSBezierPath()
             stroke.lineWidth = 2
@@ -488,16 +395,6 @@ enum Glyph {
             case .window:
                 for i in 0..<3 { NSBezierPath(ovalIn: CGRect(x: 4.2 + CGFloat(i) * 3.4, y: 4.2, width: 2.2, height: 2.2)).fill() }
             case .area: break
-            }
-            if recording {
-                let ctx = NSGraphicsContext.current!
-                ctx.compositingOperation = .destinationOut
-                NSBezierPath(ovalIn: CGRect(x: 19.75, y: 10.75, width: 15.5, height: 15.5)).fill()
-                ctx.compositingOperation = .sourceOver
-                let ring = NSBezierPath(ovalIn: CGRect(x: 22.25, y: 13.25, width: 10.5, height: 10.5))
-                ring.lineWidth = 2
-                ring.stroke()
-                NSBezierPath(ovalIn: CGRect(x: 24, y: 15, width: 7, height: 7)).fill()
             }
             return true
         }

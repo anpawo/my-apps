@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import Carbon.HIToolbox
 import ScreenCaptureKit
 import ScreenshotCore
@@ -19,14 +18,12 @@ final class Session {
     private var stills: [CGWindowID: CGImage] = [:]
     private var overlays: [Overlay] = []
     private var bar: Bar?
-    private let recorder = Recorder()
     private var opening = false
 
     var isOpen: Bool { !overlays.isEmpty }
 
-    /// ⌘⇧5: open; open again: photo ↔ video; while recording: stop.
+    /// ⌘⇧5: open; open again: close.
     func toggle() {
-        if recorder.isRecording { stopRecording(); return }
         // Without the grant ScreenCaptureKit fails silently; this opens the right Settings pane.
         NSLog("screenshot: ⌘⇧5")
         guard CGPreflightScreenCaptureAccess() else {
@@ -37,7 +34,7 @@ final class Session {
             }
             return
         }
-        if isOpen { state.toggleKind(); refresh(); return }
+        if isOpen { close(); return }
         open()
     }
 
@@ -84,8 +81,7 @@ final class Session {
     }
 
     /// Escape and Return as system-wide chords while the overlay is up: a non-activating panel
-    /// does not always get key events, and these two must never depend on it. Suspended while
-    /// the Options menu is open, so Escape closes the menu instead of the session.
+    /// does not always get key events, and these two must never depend on it.
     func registerChords() {
         HotKey.register(key: kVK_Escape, modifiers: 0, id: 2) { Task { @MainActor in Session.shared.close() } }
         HotKey.register(key: kVK_Return, modifiers: 0, id: 3) { Task { @MainActor in Session.shared.commit() } }
@@ -109,10 +105,8 @@ final class Session {
     }
 
     func step(_ delta: Int) { state.step(delta); refresh() }
-    func showSettings(_ on: Bool) { bar?.showSettings(on) }
     func flipSetting(_ key: String) { _ = bar?.strip.flip(key) }
     func set(_ target: Target) { state.target = target; refresh() }
-    func toggleKind() { state.toggleKind(); refresh() }
 
     /// The arrows glide the drawn box to `selection`, which stays the truth for hits and the shot.
     /// Each press restarts the glide from where the box is drawn, so a held key moves it smoothly.
@@ -184,7 +178,6 @@ final class Session {
         let frozen = Dictionary(uniqueKeysWithValues: overlays.map { ($0.display.displayID, $0.frozen) })
         let stills = stills
         close()
-        if state.kind == .video { startRecording(state.target, screen: screen, window: window, rect: selection); return }
 
         Task {
             do {
@@ -213,49 +206,6 @@ final class Session {
             } catch {
                 NSLog("screenshot: \(error.localizedDescription)")
             }
-            Capture.prefetch()
-        }
-    }
-
-    // MARK: Video
-
-    private func startRecording(_ target: Target, screen: NSScreen?, window: WindowInfo?, rect: CGRect?) {
-        Task {
-            do {
-                switch target {
-                case .screen:
-                    let s = screen ?? NSScreen.underMouse
-                    let (_, filter) = try await Capture.displayFilter(s)
-                    try await recorder.start(filter: filter, size: s.frame.size, scale: s.backingScaleFactor)
-                case .window:
-                    guard let w = window else { return }
-                    let filter = SCContentFilter(desktopIndependentWindow: try await Capture.window(w.id))
-                    try await recorder.start(filter: filter, size: filter.contentRect.size, scale: CGFloat(filter.pointPixelScale))
-                case .area:
-                    let r = rect!.integral
-                    let s = NSScreen.containing(r)
-                    let (_, filter) = try await Capture.displayFilter(s)
-                    try await recorder.start(filter: filter, size: r.size, scale: s.backingScaleFactor,
-                                             sourceRect: displayLocal(r, in: s.frame))
-                }
-            } catch {
-                NSLog("screenshot: \(error.localizedDescription)")
-                return
-            }
-        }
-    }
-
-    func stopRecording() {
-        Task {
-            guard let url = await recorder.stop() else { return }
-            for f in Settings.folders.dropFirst() {
-                try? FileManager.default.copyItem(at: url, to: f.appendingPathComponent(url.lastPathComponent))
-            }
-            Output.remember(url)
-            let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-            gen.appliesPreferredTrackTransform = true
-            let frame = try? await gen.image(at: .zero).image
-            Thumbnail.show(.movie(frame, url))
             Capture.prefetch()
         }
     }

@@ -41,13 +41,10 @@ expect(!pickable(layer: 25, frame: CGRect(x: 1341, y: 923, width: 131, height: 3
 expect(pickable(layer: 3, frame: CGRect(x: 0, y: 0, width: 1470, height: 956)), "Fleet's and Watcher's full-screen panels")
 expect(!pickable(layer: -2147483601, frame: CGRect(x: 922, y: 725, width: 180, height: 180)), "not a desktop widget")
 
-var bar = BarState(target: .area, kind: .photo)
-bar.step(1); expect(bar == BarState(target: .screen, kind: .video), "⌘→ goes from the last still to the first recording")
-bar.step(-1); expect(bar == BarState(target: .area, kind: .photo), "⌘← comes back")
-bar = BarState(target: .area, kind: .video)
-bar.step(1); expect(bar == BarState(target: .screen, kind: .photo), "⌘→ wraps around")
-bar.toggleKind(); expect(bar.kind == .video && bar.target == .screen, "⌘⇧5 keeps the target")
-expect(BarState.all.count == 6, "six buttons, like the system")
+var bar = BarState(target: .area)
+bar.step(1); expect(bar == BarState(target: .screen), "⌘→ wraps around")
+bar.step(-1); expect(bar == BarState(target: .area), "⌘← comes back")
+expect(BarState.all.count == 3, "three stills, no recordings")
 
 let name = fileName(kind: "Screenshot", app: "Safari/Beta", ext: "png", at: Date(timeIntervalSince1970: 0))
 expect(name.hasPrefix("Screenshot Safari-Beta 1970-01-01 at ") && name.hasSuffix(".png"), "file name: \(name)")

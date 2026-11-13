@@ -12,34 +12,20 @@ enum Docs {
         let s = screen.frame
         session.selection = CGRect(x: s.minX + s.width * 0.28, y: s.minY + s.height * 0.3,
                                    width: s.width * 0.44, height: s.height * 0.46).integral
-        session.state = BarState(target: .area, kind: .photo)
+        session.state = BarState(target: .area)
         let bar = Bar(session: session, on: screen)
         save(bar.render(), dir, "bar.png")
-        save(bar.render(hovering: 3).representation(using: .png, properties: [:]), dir, "bar-hover.png")
-        session.state = BarState(target: .area, kind: .video)
-        bar.refresh()
-        save(bar.render(), dir, "bar-record.png")
-
-        session.state = BarState(target: .area, kind: .photo)
-        bar.refresh()
-        bar.strip.place(above: bar)
-        let both = bar.frame.union(bar.strip.frame)
-        let held = Bar.canvas(both.size) {
-            for v in [bar.contentView!, bar.strip.contentView!] {
-                Bar.pixels(v).draw(in: v.window!.frame.offsetBy(dx: -both.minX, dy: -both.minY), from: .zero,
-                                   operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
-            }
-        }
-        save(held.representation(using: .png, properties: [:]), dir, "bar-settings.png")
+        save(bar.picture(hovering: 0).0.representation(using: .png, properties: [:]), dir, "bar-hover.png")
         let overlay = Overlay(screen: screen, frozen: wall, session: session)
         overlay.refreshLayers()
         // Cropped to the selection and the bar: the whole 2× screen of wallpaper is a 6 MB PNG.
-        let crop = session.selection!.insetBy(dx: -120, dy: -48).union(bar.frame.insetBy(dx: 0, dy: -24)).intersection(s)
+        let (pic, at) = bar.picture()
+        let crop = session.selection!.insetBy(dx: -120, dy: -48).union(at.insetBy(dx: 0, dy: -24)).intersection(s)
         let shot = Bar.canvas(crop.size) {
             Bar.pixels(overlay.contentView!).draw(in: s.offsetBy(dx: -crop.minX, dy: -crop.minY))
             // draw(in:) copies, alpha and all: the bar's rounded corners would come out black.
-            Bar.pixels(bar.contentView!).draw(in: bar.frame.offsetBy(dx: -crop.minX, dy: -crop.minY), from: .zero,
-                                              operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            pic.draw(in: at.offsetBy(dx: -crop.minX, dy: -crop.minY), from: .zero,
+                     operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
         }
         save(shot.representation(using: .png, properties: [:]), dir, "overlay.png")
 
@@ -51,13 +37,14 @@ enum Docs {
         session.selection = rect(s, 0.22, 0.42, 0.3, 0.3).integral
         let targets: [Target] = [.screen, .window, .area]
         let panels = targets.map { t in
-            session.state = BarState(target: t, kind: .photo)
+            session.state = BarState(target: t)
             bar.refresh()
             modes.refreshLayers()
+            let (pic, at) = bar.picture()
             return Bar.canvas(s.size) {
                 Bar.pixels(modes.contentView!).draw(in: CGRect(origin: .zero, size: s.size))
-                Bar.pixels(bar.contentView!).draw(in: bar.frame.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
-                                                  operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                pic.draw(in: at.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                         operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
             }
         }
         // 1100 px a panel: the full 2× screens made a PNG of over 10 MB.
@@ -89,13 +76,14 @@ enum Docs {
         session.windows = stand(s).enumerated().map { WindowInfo(id: CGWindowID($0.offset + 1), frame: $0.element.1, app: $0.element.0) }
         // It opens as it was left: the area mode and last time's selection.
         session.selection = rect(s, 0.38, 0.4, 0.34, 0.46)
-        session.state = BarState(target: .area, kind: .photo)
+        session.state = BarState(target: .area)
         session.hoverScreen = screen
         let overlay = Overlay(screen: screen, frozen: desk.cgImage!, session: session)
         let bar = Bar(session: session, on: screen)
         overlay.refreshLayers()
         func spot(_ v: NSView) -> CGRect { bar.convertToScreen(v.convert(v.bounds, to: nil)) }
         func centre(_ v: NSView) -> CGPoint { CGPoint(x: spot(v).midX, y: spot(v).midY) }
+        func onBar(_ p: CGPoint) -> Bool { bar.frame.contains(p) || bar.strip.frame.contains(p) }
 
         var p = CGPoint(x: s.minX + s.width * 0.4, y: s.minY + s.height * 0.22)
         var up = false, card: Thumbnail?, pin: Pin?, caption: String?, note: String?, ring = false
@@ -115,12 +103,9 @@ enum Docs {
             let pic = Bar.canvas(s.size) {
                 if up {
                     Bar.pixels(overlay.contentView!).draw(in: CGRect(origin: .zero, size: s.size))
-                    // A hint can stick out of the bar: the picture starts at the corner of both.
-                    let i = bar.buttons.firstIndex { spot($0).contains(p) }
-                    let strip = i.map(bar.render(hovering:)) ?? Bar.pixels(bar.contentView!)
-                    let at = i == nil ? bar.frame.origin : bar.frame.union(bar.hint.frame).origin
-                    strip.draw(in: CGRect(origin: at, size: strip.size).offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
-                               operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                    let (pic, at) = bar.picture(hovering: bar.buttons.firstIndex { spot($0).contains(p) })
+                    pic.draw(in: at.offsetBy(dx: -s.minX, dy: -s.minY), from: .zero,
+                             operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
                 } else {
                     desk.draw(in: CGRect(origin: .zero, size: s.size))
                     // The window server's shadow, which a panel drawn offscreen goes without.
@@ -145,7 +130,7 @@ enum Docs {
                     o.stroke()
                 }
                 // The bar sets the arrow, the overlay its own cursors.
-                let c = up && !bar.frame.contains(p) ? overlay.cursor(at: p) : .arrow
+                let c = up && !onBar(p) ? overlay.cursor(at: p) : .arrow
                 let size = c.image.size
                 c.image.draw(in: CGRect(x: p.x - c.hotSpot.x - s.minX, y: p.y - size.height + c.hotSpot.y - s.minY,
                                         width: size.width, height: size.height))
@@ -168,7 +153,7 @@ enum Docs {
             for k in 1...steps {
                 let t = CGFloat(k) / CGFloat(steps), e = t * t * (3 - 2 * t)
                 p = CGPoint(x: a.x + (q.x - a.x) * e, y: a.y + (q.y - a.y) * e)
-                if up && !bar.frame.contains(p) {
+                if up && !onBar(p) {
                     session.hoverWindow = session.state.target == .window ? session.windows.first { $0.frame.contains(p) } : nil
                     overlay.refreshLayers()
                 }
@@ -314,8 +299,6 @@ enum Docs {
 
         Window mode frames only the part of a window you can see: whatever sits in front of it \
         is cut out of the highlight, round corners included.
-
-        Recordings stop with ⌘⇧5, from anywhere.
         """
         return t
     }

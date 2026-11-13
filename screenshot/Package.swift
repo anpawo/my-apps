@@ -3,7 +3,6 @@ import PackageDescription
 
 let package = Package(
     name: "screenshot",
-    // 15: SCRecordingOutput, the only way to write a movie from ScreenCaptureKit without AVAssetWriter.
     platforms: [.macOS(.v15)],
     targets: [
         // Geometry, naming and the bar's state machine: no AppKit, so `check` can run it headless.

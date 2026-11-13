@@ -1,7 +1,7 @@
 import Foundation
 import ScreenshotCore
 
-/// `defaults write com.mr.screenshot <key> <value>` and the bar's Options menu write the same keys.
+/// `defaults write com.mr.screenshot <key> <value>` and the settings above the bar write the same keys.
 enum Settings {
     private static let d = UserDefaults.standard
 
@@ -40,19 +40,14 @@ enum Settings {
         get { d.object(forKey: "thumbnail") as? Bool ?? true }
         set { d.set(newValue, forKey: "thumbnail") }
     }
-    static var microphone: Bool {
-        get { d.bool(forKey: "microphone") }
-        set { d.set(newValue, forKey: "microphone") }
-    }
 
     /// The built-in panel's corner radius in points. No API reports it, 12 got cut: a calibration
     /// knob, `defaults write com.mr.screenshot screenCorner -float 20`.
     static var screenCorner: CGFloat { d.object(forKey: "screenCorner") as? CGFloat ?? 18 }
 
     static var bar: BarState {
-        get { BarState(target: Target(rawValue: d.string(forKey: "target") ?? "") ?? .area,
-                       kind: Kind(rawValue: d.string(forKey: "kind") ?? "") ?? .photo) }
-        set { d.set(newValue.target.rawValue, forKey: "target"); d.set(newValue.kind.rawValue, forKey: "kind") }
+        get { BarState(target: Target(rawValue: d.string(forKey: "target") ?? "") ?? .area) }
+        set { d.set(newValue.target.rawValue, forKey: "target") }
     }
     /// The last rectangle, in AppKit global points.
     static var lastRect: CGRect? {

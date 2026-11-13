@@ -8,7 +8,6 @@ import ScreenshotCore
 final class Thumbnail: NSPanel {
     enum Content {
         case image(CGImage, URL, CGRect)
-        case movie(CGImage?, URL)
     }
 
     private static var current: Thumbnail?
@@ -45,17 +44,12 @@ final class Thumbnail: NSPanel {
 
         let view = CardView(frame: CGRect(origin: .zero, size: frame.size), card: self)
         contentView = view
-        switch content {
-        case .image(let img, _, _), .movie(.some(let img), _):
+        if case .image(let img, _, _) = content {
             let iv = NSImageView(frame: view.bounds)
             iv.image = NSImage(cgImage: img, size: .zero)
             iv.imageScaling = .scaleProportionallyUpOrDown
             iv.autoresizingMask = [.width, .height]
             view.addSubview(iv)
-        case .movie(nil, _):
-            view.addSubview(label("Recording", in: view.bounds))
-        }
-        if case .image = content {
             // The whole card is the pin button: a white symbol on a tint, so it reads on any
             // picture. Not an NSButton, which would swallow the drag. Shown while hovered.
             let b = NSImageView(image: NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin")!)
@@ -71,15 +65,6 @@ final class Thumbnail: NSPanel {
 
         // Under the pinned cards, if any.
         setFrameOrigin(CGPoint(x: v.maxX - frame.width - 16, y: Pin.stackBottom(on: screen) - frame.height - 16))
-    }
-
-    private func label(_ s: String, in r: CGRect) -> NSTextField {
-        let t = NSTextField(wrappingLabelWithString: s)
-        t.frame = r
-        t.textColor = .white
-        t.maximumNumberOfLines = 8
-        t.alignment = .center
-        return t
     }
 
     func arm() {
@@ -103,7 +88,7 @@ final class Thumbnail: NSPanel {
 
     var url: URL {
         switch content {
-        case .image(_, let u, _), .movie(_, let u): return u
+        case .image(_, let u, _): return u
         }
     }
 

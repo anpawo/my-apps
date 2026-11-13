@@ -1,14 +1,14 @@
 # screenshot
 
-A ⌘⇧5 replacement for macOS: the same bar, the same six modes, and a file that is on disk the
-moment you click, not five seconds later.
+A ⌘⇧5 replacement for macOS, for stills only: the same bar, the same three modes, every setting
+in view, and a file that is on disk the moment you click, not five seconds later.
 
 ![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](docs/demo.gif)
 
 ![The area mode over a desktop: the screen dimmed, a selection with its handles and its size in pixels, the bar underneath](docs/overlay.png)
 
 Press ⌘⇧5. The screen freezes and dims, the bar comes up at the bottom, and you pick what to
-take: the entire screen, a window, or a portion you drag out — as a still or as a recording.
+take: the entire screen, a window, or a portion you drag out.
 
 ![The three modes over the same windows: the whole screen dimmed in a round white frame; one window washed in blue and framed, minus the corner another window covers; a dashed selection across two windows, the rest dimmed](docs/modes.png)
 
@@ -18,25 +18,17 @@ take: the entire screen, a window, or a portion you drag out — as a still or a
 - **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
-The recordings show the same thing for the same targets.
-
-![The bar: close, three stills, three recordings, Options, Capture](docs/bar.png)
+![The bar: close, three stills, Capture; above it the settings in three columns, Save in, Timer and Options, the ones that are on ticked in blue](docs/bar.png)
 
 Hovering a button names its mode, with none of a tooltip's delay:
 
-![The bar with "Record Entire Screen" shown above the hovered button](docs/bar-hover.png)
-
-Pick a recording and the button says so:
-
-![The bar in the area recording mode, its button reading Record](docs/bar-record.png)
+![The bar with "Capture Entire Screen" shown above the settings](docs/bar-hover.png)
 
 - **Keys.** ⌘← ⌘→ step through the modes, the arrows glide the selection by 20 (⇧ by 100, ⌥ resizes),
-  Return takes it, Escape closes. ⌘⇧5 again flips between still and recording, and stops a
-  recording that is running.
-- **Settings.** Hold ⌘ and every setting comes up above the bar, each with its letter: ⌘ and
-  that letter turns it on or off (⌘T steps the timer through none, 5 and 10 seconds).
-
-  ![The bar with the settings strip above it: Desktop, Downloads, Documents, Clipboard, the timer, Thumbnail, Pointer and Microphone, each on a key cap with its letter, the ones that are on in blue](docs/bar-settings.png)
+  Return takes it, Escape closes, and so does ⌘⇧5 again.
+- **Settings.** Always above the bar, in three columns: **Save in** (Desktop, Downloads,
+  Documents; several at once), **Timer** (None, 5, 10 seconds) and **Options** (Clipboard,
+  Thumbnail, Pointer). A click or ⌘ and the key on its cap flips one.
 
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
   takes the file with it.
@@ -44,16 +36,8 @@ Pick a recording and the button says so:
   file, a right click unpins it.
 - **Nothing in the menu bar.** It runs as a LaunchAgent, invisible, and only answers ⌘⇧5.
 
-## Options
-
-The Options menu, from top to bottom:
-
-- **Save to** — Desktop, Downloads, Documents, Clipboard, Other Folder…; several can be on at once.
-- **Timer** — None, 5 Seconds, 10 Seconds.
-- **Options** — Show Floating Thumbnail, Show Mouse Pointer, and Record Microphone in the
-  recording modes.
-
-The same settings are `defaults write com.mr.screenshot <key> <value>`.
+The same settings are `defaults write com.mr.screenshot <key> <value>`; another folder goes
+in with `defaults write com.mr.screenshot folders -array ~/desk ~/shots`.
 
 ## Install
 

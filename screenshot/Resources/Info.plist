@@ -22,7 +22,5 @@
 	<string>15.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Pour enregistrer le micro avec la vidéo, si l'option est cochée.</string>
 </dict>
 </plist>
