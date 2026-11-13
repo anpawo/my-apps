@@ -136,6 +136,19 @@ const searchCost = await page.evaluate(async () => {
 check(searchCost[0] < 150, `a one-letter search over 1000 people draws in ${searchCost[0]} ms (${searchCost[1]} rows)`);
 const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0, chats: [] }))).map(i => i.id));
 check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus unread (${many.length})`);
+const crossAnswer = await page.evaluate(() => {
+  const p = { chats: [
+    { id: 'x-teams', unread: 1, last: '2026-11-13T14:15:00Z', preview: { isSender: false } },
+    { id: 'x-matrix', unread: 0, last: '2026-11-13T16:34:00Z', preview: { isSender: true } }] };
+  const q = { chats: [
+    { id: 'y-teams', unread: 1, last: '2026-11-13T16:40:00Z', preview: { isSender: false } },
+    { id: 'y-matrix', unread: 0, last: '2026-11-13T16:34:00Z', preview: { isSender: true } }] };
+  const n = __log.length;
+  applySeen(p); applySeen(q);
+  __log.length = n;
+  return [p.unread, q.unread];
+});
+check(crossAnswer[0] === 0 && crossAnswer[1] === 1, `a later reply on another network clears the badge, an earlier one does not (${crossAnswer})`);
 
 // Opening Lea: mixed timeline, marks, auto target = Instagram (her last message), read sent.
 await page.click('#people .row >> nth=0');

@@ -1065,7 +1065,9 @@ const seen = JSON.parse(localStorage.seen || '{}');
 // What I marked seen tells Beeper too, so the sender gets the read receipt; a chat still unread there is sent again.
 const sendRead = c => api('POST', `/v1/chats/${enc(c.id)}/read`, {}).catch(() => {});
 function applySeen(item) {
-  for (const c of item.chats) if (c.unread && Date.parse(seen[c.id]) >= Date.parse(c.last)) { c.unread = 0; sendRead(c); }
+  // An answer on another network of the same person (Teams question, reply on Matrix) answers this chat too.
+  const answered = Math.max(0, ...item.chats.filter(c => c.preview?.isSender).map(c => Date.parse(c.last) || 0));
+  for (const c of item.chats) if (c.unread && (Date.parse(seen[c.id]) >= Date.parse(c.last) || answered > Date.parse(c.last))) { c.unread = 0; sendRead(c); }
   item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
 }
 function markRead(item) {
