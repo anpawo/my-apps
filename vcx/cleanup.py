@@ -3,7 +3,8 @@
 a session closes: cleanup.py <cwd> [--force] [--dry-run]. --selftest checks the sweeps on a scratch tree.
 
 Removed, each only when nothing was written inside it for its idle time and no process works in it:
-- scratch over 100 MB in /tmp (any name, idle 24 h) and mktemp's tmp.* in $TMPDIR; small files are left to reboots;
+- scratch over 100 MB in /tmp (any name, idle 24 h), VCX's own check and render folders (vcx-*) at any size, and
+  mktemp's tmp.* in $TMPDIR; other small files are left to reboots;
 - Rust incremental caches (target/**/incremental/<crate>, idle 24 h): a rebuild only recompiles the workspace crates;
 - target/ and .build/ of the project's other git worktrees (idle 3 days);
 - with Docker already running: dangling images, build cache over 3 days, anonymous unused volumes, and named compose
@@ -15,7 +16,7 @@ HOME = os.path.expanduser("~")
 STATE = os.environ.get("VCX_CLEANUP_STATE", os.path.join(HOME, ".local/state/vcx-cleanup"))
 DAY = 86400
 THROTTLE = 3600
-KEEP_TMP = ("claude", "com.apple", "tmux-", "launch-", "ssh-", "vcx", "fleet", "powerlog", ".")
+KEEP_TMP = ("claude", "com.apple", "tmux-", "launch-", "ssh-", "fleet", "powerlog", ".")
 BUILD_DIRS = ("target", ".build")
 dry = "--dry-run" in sys.argv
 freed = []
@@ -98,7 +99,7 @@ def sweep_tmp(roots, cwds, idle=DAY, min_kb=100 * 1024):
             if st.st_uid != uid or not (is_dir or is_file) or written_within(path, idle) or busy(path, cwds):
                 continue
             kb = size_kb(path)
-            if kb >= min_kb:
+            if kb >= min_kb or name.startswith("vcx-"):
                 remove(path, "idle scratch", kb)
 
 
