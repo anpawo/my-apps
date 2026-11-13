@@ -1601,6 +1601,9 @@ enum Check {
         await part {
             check(capabilityMatches(entries, query: "UI").map(\.name) == ["ui-tweak", "build", "zeta"], "capability search ranks name prefixes before substring matches")
             check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
+            codexCommands.recalledRules = ["12/10, 20/10 — Wait for the window.", "No date here"]
+            check(codexCommands.capabilityItems("Errors").map { [$0.name, $0.detail] } == [["12/10, 20/10", "Wait for the window."], ["No date here", ""]], "the sidebar's ERRORS row lists the recalled lines under their dates")
+            codexCommands.recalledRules = []
             check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
             codexCommands.model = "claude-opus-5-5"
             check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")
@@ -2014,6 +2017,8 @@ enum Render {
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/hooks.png")
         write(CapabilityPopup(session: session, title: "MCP"), size: CGSize(width: 380, height: 440), path: directory + "/mcp.png")
         write(CapabilityPopup(session: session, title: "Instructions"), size: CGSize(width: 380, height: 440), path: directory + "/instructions.png")
+        session.recalledRules = ["01/11: Read back each commit before the push.", "12/10, 20/10 — A screenshot waits for the window to load."]
+        write(CapabilityPopup(session: session, title: "Errors"), size: CGSize(width: 380, height: 440), path: directory + "/errors.png")
         session.hooks.append(hookSummary(["command": "python3 /hooks/command-check.py", "trustStatus": "trusted"], event: "PostToolUse"))
         write(CapabilityPopup(session: session, title: "Hooks"), size: CGSize(width: 380, height: 440), path: directory + "/grouped-hooks.png")
         let catalogHooks = session.hooks

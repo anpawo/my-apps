@@ -371,6 +371,7 @@ struct CXView: View {
                     if !session.builtinCommands.isEmpty { capability("Commands") }
                     capability("MCP")
                     capability("Instructions")
+                    capability("Errors")
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
             Divider().overlay(.black.opacity(0.04))
@@ -425,7 +426,7 @@ struct CXView: View {
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
                     .contentShape(Rectangle())
-            }.buttonStyle(.reactive).help("Browse " + title.lowercased())
+            }.buttonStyle(.reactive).help(title == "Errors" ? "ERRORS lines sent with this session's prompts" : "Browse " + title.lowercased())
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
             }
@@ -809,7 +810,7 @@ struct CapabilityPopup: View {
                                         if parts.contains("disabled") { Text("disabled") }
                                     }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).help(detail).accessibilityLabel(detail)
                                 }
-                            } else {
+                            } else if !item.detail.isEmpty {
                                 Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
@@ -820,7 +821,7 @@ struct CapabilityPopup: View {
                             }
                     }
                     if matches.isEmpty {
-                        Text(query.isEmpty ? "None reported" : "No matches").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(query.isEmpty ? (title == "Errors" ? "No ERRORS line sent yet" : "None reported") : "No matches").font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                 }.padding(16)
             }

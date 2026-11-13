@@ -277,7 +277,7 @@ final class Session: ObservableObject {
     private var pendingInput: (String, [String])?
     private var transferring = false
     private var injectedContext = ""
-    private var recalledRules = Set<String>()
+    @Published var recalledRules: [String] = []
     private var testing = false
     private var suppressSave = false
     private var recordLock: (String, Int32)?
@@ -867,7 +867,7 @@ final class Session: ObservableObject {
             let recalled = ErrorsRecall.recall(text, cwd: params["cwd"] as? String ?? cwd).filter { !recalledRules.contains($0) }
             if !recalled.isEmpty { params["input"] = (params["input"] as? [JSON] ?? []) + [["type": "text", "text": ErrorsRecall.note(recalled)]] }
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
-            recalledRules.formUnion(recalled)
+            recalledRules += recalled
             if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
             injectedContext = ""
             save()

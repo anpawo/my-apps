@@ -73,6 +73,12 @@ func claudeHooks(home: String, folders: [URL], flags: [URL] = []) -> [String] {
 @MainActor
 extension Session {
     func capabilityItems(_ title: String) -> [CapabilityItem] {
+        if title == "Errors" {
+            return recalledRules.map { rule in
+                guard let date = rule.range(of: #"^[0-9/, -]+?(: | — )"#, options: .regularExpression) else { return CapabilityItem(name: rule, detail: "") }
+                return CapabilityItem(name: String(rule[date]).trimmingCharacters(in: CharacterSet(charactersIn: ": —")), detail: String(rule[date.upperBound...]), id: rule)
+            }
+        }
         let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
         let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
