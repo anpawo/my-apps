@@ -878,7 +878,8 @@ $('#thread').addEventListener('pointermove', e => {
   const left = Math.min(...bs.map(b => b.left)), right = Math.max(...bs.map(b => b.right)), fifth = (right - left) * .2;
   if (row.classList.contains('me') ? e.clientX > left + fifth : e.clientX < right - fifth) return;
   const top = bs[0].top, bottom = bs.at(-1).bottom;
-  q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - row.getBoundingClientRect().top - q.offsetHeight / 2)}px`;
+  const rowTop = row.getBoundingClientRect().top + parseFloat(getComputedStyle(row).paddingTop);
+  q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - rowTop - q.offsetHeight / 2)}px`;
   row.classList.add('hot');
   hotRow = row;
 });

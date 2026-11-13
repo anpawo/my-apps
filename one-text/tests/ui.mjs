@@ -238,6 +238,15 @@ await page.waitForTimeout(400);
 await page.$eval('#thread .bubble.reel img', i => (i.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#f58529"/><stop offset=".5" stop-color="#dd2a7b"/><stop offset="1" stop-color="#515bd4"/></linearGradient></defs><rect width="9" height="16" fill="url(#g)"/></svg>')));
 await page.waitForTimeout(100);
 await page.screenshot({ path: join(out, '1-open.png') });
+// The hover reaction bar, level with the bubble's middle, is taller than a one-line bubble: showing it must not grow the row.
+const tallRows = await page.$$eval('#thread .msg:has(.quick)', rs => rs.map(r => {
+  const h0 = r.getBoundingClientRect().height, b = r.querySelector('.bubble').getBoundingClientRect();
+  r.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: r.classList.contains('me') ? b.left + 2 : b.right - 2, clientY: b.top + 2 }));
+  const grew = [r.classList.contains('hot'), r.getBoundingClientRect().height - h0];
+  document.querySelector('#thread').dispatchEvent(new PointerEvent('pointerleave'));
+  return [msgText(r), ...grew];
+}).filter(([, hot, d]) => !hot || d !== 0));
+check(!tallRows.length, `the reaction bar shows on hover without growing the row (${JSON.stringify(tallRows)})`);
 
 // The selection pill glides: sample it every frame while moving to Tom.
 const pillTrack = await page.evaluate(async () => {
