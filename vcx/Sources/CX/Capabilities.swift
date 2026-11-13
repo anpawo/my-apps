@@ -79,7 +79,7 @@ extension Session {
                 return CapabilityItem(name: String(rule[date]).trimmingCharacters(in: CharacterSet(charactersIn: ": —")), detail: String(rule[date.upperBound...]), id: rule)
             }
         }
-        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions
         let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
             let name = parts[0]

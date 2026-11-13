@@ -814,7 +814,11 @@ struct CapabilityPopup: View {
                                 Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                            .padding(12)
+                            .padding(12).contentShape(Rectangle())
+                            .onTapGesture {
+                                let path = (item.detail as NSString).expandingTildeInPath
+                                if title == "Instructions", FileManager.default.fileExists(atPath: path) { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                            }
                             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.12))
