@@ -10,7 +10,7 @@ mkdirSync(out, { recursive: true });
 
 const stub = () => {
   // A message's own text: the hover reactions and the Sent/Seen line are not part of it.
-  window.msgText = m => { const c = m.cloneNode(true); c.querySelectorAll('.quick, .receipt, .reacts').forEach(e => e.remove()); return c.textContent.trim(); };
+  window.msgText = m => { const c = m.cloneNode(true); c.querySelectorAll('.quick, .receipt, .reacts, .at').forEach(e => e.remove()); return c.textContent.trim(); };
   const t = m => new Date(Date.now() - m * 60000).toISOString();
   const chat = (id, network, person, name, last, unread = 0) => ({ id, network, accountID: network.toLowerCase(), person, title: name, last, unread, preview: null });
   const chats = [
@@ -296,6 +296,17 @@ await page.waitForTimeout(400);
 await page.$eval('#thread .bubble.reel img', i => (i.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#f58529"/><stop offset=".5" stop-color="#dd2a7b"/><stop offset="1" stop-color="#515bd4"/></linearGradient></defs><rect width="9" height="16" fill="url(#g)"/></svg>')));
 await page.waitForTimeout(100);
 await page.screenshot({ path: join(out, '1-open.png') });
+// A sideways swipe pulls my bubbles left and each message's time in, then they spring back.
+const atShown = () => page.$eval('#thread .msg:last-child .at', a => { const r = a.getBoundingClientRect(), b = document.querySelector('#msgs').getBoundingClientRect(); return r.right <= b.right && r.left >= b.left; });
+check(!(await atShown()), 'times are hidden before a swipe');
+await page.mouse.move(1000, 160);
+for (let i = 0; i < 6; i++) { await page.mouse.wheel(15, 0); await page.waitForTimeout(16); }
+await page.screenshot({ path: join(out, '1-times.png') });
+check(await atShown() && /^\d\d:\d\d$/.test(await page.textContent('#thread .msg:last-child .at')), 'a sideways swipe shows each message time');
+await page.waitForTimeout(260);
+await page.screenshot({ path: join(out, '1-times-back.png') });
+await page.waitForTimeout(300);
+check(!(await atShown()), 'the thread springs back once the swipe stops');
 // The hover reaction bar, level with the bubble's middle, is taller than a one-line bubble: showing it must not grow the row.
 const tallRows = await page.$$eval('#thread .msg:has(.quick)', rs => rs.map(r => {
   const h0 = r.getBoundingClientRect().height, b = r.querySelector('.bubble').getBoundingClientRect();

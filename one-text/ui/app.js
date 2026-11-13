@@ -814,9 +814,23 @@ function msgNodes(m, prev) {
     row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(m));
     row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}<button class="all" title="All emoji">${PLUS}</button></div>`);
   }
+  row.insertAdjacentHTML('beforeend', `<span class="at">${new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>`);
   nodes.push(row);
   return nodes;
 }
+
+// A sideways swipe pulls my bubbles left and each message's time in, as on the phone; they spring back once the swipe stops.
+let pull = 0, pullEnd = 0;
+$('#msgs').addEventListener('wheel', e => {
+  if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+  e.preventDefault();
+  const t = $('#thread');
+  pull = Math.max(0, Math.min(60, pull + e.deltaX));
+  t.classList.add('swiping');
+  t.style.setProperty('--pull', pull);
+  clearTimeout(pullEnd);
+  pullEnd = setTimeout(() => { pull = 0; t.classList.remove('swiping'); t.style.removeProperty('--pull'); }, 200);
+}, { passive: false });
 
 // One scrollTo when a row starts opening at the end aims at the end before the row has grown: follow it every frame,
 // easing in from wherever the thread was, until it is open and the end reached.
