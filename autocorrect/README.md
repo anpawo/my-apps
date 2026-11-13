@@ -9,7 +9,8 @@ replaced as you go.
 
 | Key | Does |
 |---|---|
-| space, ↵ | fix the word before it, with its punctuation (`tres.` → `très.`) |
+| space, ↵ | fix the word before it, with its punctuation (`tres!` → `très!`) |
+| `.` `,` | fix the word before it at once (`tres,` → `très,`); a letter right after puts it back (`etudiant.gouv.fr`) |
 | ⌫ right after | put back what you typed; that fix waits ten minutes, then comes back a little weaker |
 
 ## How it picks

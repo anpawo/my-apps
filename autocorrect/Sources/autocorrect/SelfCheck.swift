@@ -73,6 +73,7 @@ enum SelfCheck {
             ("github.com/tres ok", "github.com/tres ok", "not after a / (a link)"),
             ("messervices.etudiant.gouv.fr ok", "messervices.etudiant.gouv.fr ok", "nor in a domain"),
             ("e.g. tres", "e.g. très", ""),
+            ("etudiant.gouv.fr tres, ok", "etudiant.gouv.fr très, ok", "a word the period fixed is put back in a link"),
             ("il est tres bien. (tres)", "il est très bien. (très)", "punctuation around the word"),
             ("une côte", "une côte", "a word he typed with its accents stays"),
             ("tres2 ok", "tres2 ok", "not with a digit"),
@@ -103,9 +104,17 @@ enum SelfCheck {
         for c in " ca" { _ = t.handle(.char(c)) }
         expect(t.handle(.char("\r")), .edit(delete: 2, type: "ça", thenKey: true), "Return fixes too")
         expect(t.handle(.backspace), .pass, "but a ⌫ after Return does not take it back")
-        for c in " apres." { _ = t.handle(.char(c)) }
-        expect(t.handle(.char(" ")), .edit(delete: 3, type: "ès.", thenKey: true), "punctuation after the word is typed again")
-        expect(t.handle(.backspace), .edit(delete: 4, type: "es. ", thenKey: false), "and taken back with it")
+        for c in " apres" { _ = t.handle(.char(c)) }
+        expect(t.handle(.char(".")), .edit(delete: 2, type: "ès", thenKey: true), "a period fixes the word at once, as a space does")
+        expect(t.handle(.backspace), .edit(delete: 3, type: "es.", thenKey: false), "and ⌫ takes it back with the period")
+        for c in " tres" { _ = t.handle(.char(c)) }
+        expect(t.handle(.char(",")), .edit(delete: 2, type: "ès", thenKey: true), "so does a comma")
+        expect(t.handle(.char(" ")), .pass, "and the space after it fixes nothing more")
+        for c in "tres" { _ = t.handle(.char(c)) }
+        _ = t.handle(.char("."))
+        expect(t.handle(.char("c")), .edit(delete: 3, type: "es.", thenKey: true), "a letter after that period puts the word back: a link")
+        for c in "om tres!" { _ = t.handle(.char(c)) }
+        expect(t.handle(.char(" ")), .edit(delete: 3, type: "ès!", thenKey: true), "other punctuation after the word is typed again on space")
         for c in " tr" { _ = t.handle(.char(c)) }
         _ = t.handle(.backspace)
         for c in "res" { _ = t.handle(.char(c)) }
