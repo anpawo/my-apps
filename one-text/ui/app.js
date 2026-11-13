@@ -467,6 +467,10 @@ async function refreshList() {
     // Groups sit among the people, by their latest message.
     state.all = [...people, ...groups].sort((a, b) => (b.last || '').localeCompare(a.last || ''));
     showLists();
+    // overrides.json's openAtLaunch (a chat id): the conversation open at launch, on the first list that loads.
+    const launch = state.openAtLaunch && [...state.byId.values()].find(i => i.chats.some(c => c.id === state.openAtLaunch));
+    state.openAtLaunch = null;
+    if (launch && !state.cur) select(launch.id);
     if (state.cur) {
       // A merge or a split gives the person a new id: follow the chat we had open.
       const first = state.cur.chats[0].id;
@@ -1620,6 +1624,9 @@ addEventListener('resize', () => { if (!state.more) showLists(); movePill(0); })
 // ponytail: polling every 3 s / 10 s; switch to the /v1/ws event stream if it ever feels late or heavy.
 setInterval(pollThread, 3000);
 setInterval(refreshList, 10000);
-invoke('overrides').then(o => (state.pictures = o.pictures));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshList(); pollThread(); } });
-refreshList();
+invoke('overrides').then(o => {
+  state.pictures = o.pictures;
+  state.openAtLaunch = o.openAtLaunch;
+  refreshList();
+});

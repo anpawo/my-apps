@@ -39,7 +39,7 @@ const stub = () => {
     { id: 'grp-1', name: 'Climbing crew', imgs: [], faces: ['mxc://nina', 'mxc://paul'], unread: 3, last: t(20), preview: { text: 'who is in for friday?', senderName: 'Nina' }, chats: [{ id: 'grp-1', network: 'WhatsApp', accountID: 'whatsapp', unread: 3, last: t(20) }] },
     { id: 'grp-2', name: 'Rust FR', imgs: [], unread: 0, last: t(700), preview: { text: 'new release is out', senderName: 'Bot' }, chats: [{ id: 'grp-2', network: 'Discord', accountID: 'discordgo', unread: 0, last: t(700) }] },
   ];
-  let overrides = {};
+  let overrides = JSON.parse(sessionStorage.overrides || '{}');
   const log = (window.__log = []);
   function people() {
     const root = {};
@@ -673,6 +673,11 @@ await page.waitForSelector('#profile .member');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
 check(await page.$eval('#profile', p => p.hidden), '‹ goes back to the group, esc closes the profile');
+
+await page.evaluate(() => (sessionStorage.overrides = JSON.stringify({ openAtLaunch: 'te-sarah' })));
+await page.reload();
+await page.waitForSelector('#thread .msg');
+check((await page.textContent('#thread')).includes('meeting moved to 3pm'), "overrides' openAtLaunch opens that chat at launch");
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
