@@ -400,8 +400,8 @@ struct MoneyColumn: View {
     private static let recent = 2
 
     /// What the block costs around its months: the heading, the gap under it, the frame's own
-    /// padding, and the line that dates the file.
-    private static let chrome: CGFloat = 76
+    /// padding, the two rows of tiles and the line that dates the file.
+    private static let chrome: CGFloat = 160
 
     var body: some View {
         let months = Array(store.months.prefix(shown))
@@ -411,29 +411,23 @@ struct MoneyColumn: View {
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
-                  // Folded: what the month spent, the accounts under it. Open: that, then what
-                  // comes back, the month's refunds and last month's paybacks, ~ until the
-                  // paybacks are all in; then what came in, ~ and last month's until the salary
-                  // is in.
+                  // What the month spent and what all the accounts hold: the rest only open.
                   badgeText: months.first.map { month in
                       let spent = Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint)
-                      guard open else { return spent.font(.system(size: 10.5, weight: .medium).monospacedDigit()) }
-                      let dot = Text("  ·  ").foregroundStyle(.white.opacity(0.45))
-                      let last = store.months.dropFirst().first
-                      let awaited = last?.expected ?? 0
-                      let back = (month.repaid >= awaited ? "✓" : "~") + Money.euros(month.refunds + awaited)
-                      let earned = month.salaried ? "+\(Money.euros(month.earned))"
-                          : "~\(Money.euros(last?.earned ?? 0))"
-                      return (spent + dot
-                          + Text(back).foregroundStyle(.orange) + dot
-                          + Text(earned).foregroundStyle(SessionState.ready.tint))
-                          .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                      let all = store.balances.isEmpty ? Text("")
+                          : Text("  ·  ").foregroundStyle(.white.opacity(0.45))
+                              + Text(Money.euros(allHeld)).foregroundStyle(Self.blue)
+                      return (spent + all).font(.system(size: 10.5, weight: .medium).monospacedDigit())
                   },
                   topInset: 5,
-                  collapsed: open ? months.isEmpty : store.balances.isEmpty) {
-            if !open {
-                accounts
-            } else if let current = months.first {
+                  collapsed: months.isEmpty || !open) {
+            if !store.balances.isEmpty {
+                tiles(store.balances.map { ($0.name, Text(Money.euros($0.amount)).foregroundStyle(.white.opacity(0.85))) })
+            }
+            if let month = months.first {
+                tiles(flows(month))
+            }
+            if let current = months.first {
                 if scrolling {
                     // The current month, not drawn, is what the block is measured by: the
                     // list scrolls in the room it takes.
@@ -475,23 +469,40 @@ struct MoneyColumn: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Each account, its name over what it holds, and all of them together.
-    private var accounts: some View {
-        let all = Money.Balance(name: "All", amount: store.balances.reduce(0) { $0 + $1.amount.rounded() }, date: nil)
-        return HStack(alignment: .top, spacing: 0) {
-            ForEach(Array((store.balances + [all]).enumerated()), id: \.offset) { _, balance in
+    private static let blue = Color(red: 0.45, green: 0.68, blue: 1.0)
+
+    /// All the accounts together, as the sum of the figures each tile shows.
+    private var allHeld: Double { store.balances.reduce(0) { $0 + $1.amount.rounded() } }
+
+    /// What left this month; what comes back, its refunds and last month's paybacks, ~ until the
+    /// paybacks are all in; what came in, ~ and last month's until the salary is in.
+    private func flows(_ month: Money.Month) -> [(String, Text)] {
+        let last = store.months.dropFirst().first
+        let awaited = last?.expected ?? 0
+        let back = (month.repaid >= awaited ? "✓" : "~") + Money.euros(month.refunds + awaited)
+        let earned = month.salaried ? "+\(Money.euros(month.earned))" : "~\(Money.euros(last?.earned ?? 0))"
+        return [("Spent", Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint)),
+                ("Back", Text(back).foregroundStyle(.orange)),
+                ("Earned", Text(earned).foregroundStyle(SessionState.ready.tint))]
+    }
+
+    /// A row of small blocks, each a name over its figure.
+    private func tiles(_ items: [(String, Text)]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 VStack(spacing: 2) {
-                    Text(balance.name)
+                    Text(item.0)
                         .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.5))
-                    Text(Money.euros(balance.amount))
-                        .font(.system(size: 10, weight: balance.date == nil ? .semibold : .medium).monospacedDigit())
-                        .foregroundStyle(.white.opacity(balance.date == nil ? 0.95 : 0.75))
+                    item.1
+                        .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                 }
+                .lineLimit(1)
                 .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
             }
         }
-        .lineLimit(1)
     }
 
     private func list(_ months: [Money.Month]) -> some View {
