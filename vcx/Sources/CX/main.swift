@@ -369,12 +369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 do {
                     try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: sender, session: entry.session))
                     _ = try await entry.session.runtimeClient?.perform("close")
-                    closing.insert(ObjectIdentifier(sender)); fadeClose(sender)
+                    closing.insert(ObjectIdentifier(sender)); pressClose(sender)
                 } catch let error where entry.session.runtimeClient.map({ !$0.isAttached }) ?? false {
                     // A dead worker can neither save nor close: the draft stays in the recovery file, marked closed so no launch reopens it.
                     if let client = entry.session.runtimeClient { try? RuntimeRecovery.requestClose(sessionID: client.sessionID) }
                     NSLog("VCX closed a window whose runtime is gone: %@", error.localizedDescription)
-                    closing.insert(ObjectIdentifier(sender)); fadeClose(sender)
+                    closing.insert(ObjectIdentifier(sender)); pressClose(sender)
                 } catch { entry.session.frontendReplacing = false; entry.session.notice("Cannot close before saving the draft: " + error.localizedDescription) }
             }
         }
@@ -383,13 +383,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else { close() }
         return false
     }
-    // A brief fade so closing one of two stacked blank windows visibly lands on the other.
-    private func fadeClose(_ window: NSWindow) {
-        guard !headless else { window.close(); return }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.15; context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().alphaValue = 0
-        }, completionHandler: { window.close() })
+    // The red button shows pressed for a beat so closing one of two stacked blank windows visibly lands on the other.
+    private func pressClose(_ window: NSWindow) {
+        guard !headless, let button = window.standardWindowButton(.closeButton) else { window.close(); return }
+        button.highlight(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { window.close() }
     }
     func runningWork(_ session: Session) -> String? {
         if session.backgroundTasks > 0 { return session.backgroundTasks == 1 ? "A background task is still running." : "\(session.backgroundTasks) background tasks are still running." }
