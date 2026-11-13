@@ -16,6 +16,7 @@ iconutil -c icns .build/VCX.iconset -o "$app/Contents/Resources/VCX.icns"
 cp tests/native_peer.py "$app/Contents/Resources/native_peer.py"
 cp tests/runtime_peer.py tests/runtime_probe.py tests/swap_peer.py "$app/Contents/Resources/"
 cp background.py "$app/Contents/Resources/background.py"
+cp cleanup.py "$app/Contents/Resources/cleanup.py"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 # An ad-hoc signature changes with every build, and Screen Recording and Accessibility grants are pinned to it.
 if [[ "$(security find-identity -v -p codesigning)" == *"Shot Self-Signed"* ]]; then

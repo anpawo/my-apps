@@ -661,6 +661,7 @@ final class Session: ObservableObject {
             flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll()
             if let directory = turnDirectory(turnCommands, current: cwd, initial: conversationDirectory) { moveDirectory(directory) }
             turnCommands = []
+            DiskCleanup.run(cwd)
             pendingInput = nil
             permissions.removeAll()
             let turn = p["turn"] as? JSON ?? [:]
@@ -1695,6 +1696,7 @@ final class Session: ObservableObject {
     }
 
     func close() {
+        DiskCleanup.run(cwd, force: true)
         if let runtimeClient { runtimeClient.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()); return }
         if busy {
             needsAttention = true; status = "Interrupted"; busy = false
