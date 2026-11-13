@@ -18,15 +18,15 @@ take: the entire screen, a window, or a portion you drag out.
 - **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
-![The bar: close, three stills, Capture; above it the settings in three columns, Save in, Timer and Options, the ones that are on ticked in blue](docs/bar.png)
+![The bar: three stills, Capture; on its right the settings in three columns, Save in, Timer and Options, the ones that are on ticked in blue](docs/bar.png)
 
 Hovering a button names its mode, with none of a tooltip's delay:
 
-![The bar with "Capture Entire Screen" shown above the settings](docs/bar-hover.png)
+![The bar with "Capture Entire Screen" shown above the hovered button](docs/bar-hover.png)
 
 - **Keys.** ⌘← ⌘→ step through the modes, the arrows glide the selection by 20 (⇧ by 100, ⌥ resizes),
-  Return takes it, Escape closes, and so does ⌘⇧5 again.
-- **Settings.** Always above the bar, in three columns: **Save in** (Desktop, Downloads,
+  Return takes it, Escape, a right click or ⌘⇧5 again closes.
+- **Settings.** Always on the right of the bar, in three columns: **Save in** (Desktop, Downloads,
   Documents; several at once), **Timer** (None, 5, 10 seconds) and **Options** (Clipboard,
   Thumbnail, Pointer). A click or ⌘ and the key on its cap flips one.
 

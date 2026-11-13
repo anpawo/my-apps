@@ -1,10 +1,10 @@
 import AppKit
 import ScreenshotCore
 
-/// The ⌘⇧5 strip, laid out like the system's: ✕, the stills, the button, with every setting
-/// above it. Never key: keys go to the overlay.
+/// The ⌘⇧5 strip, laid out like the system's: the stills, the button, with every setting on
+/// its right. Never key: keys go to the overlay.
 final class Bar: NSPanel {
-    // Apple's geometry, measured on the system bar at 2×: 53 pt tall, ✕ at 14.5, stills on a
+    // Apple's geometry, measured on the system bar at 2×: 53 pt tall, stills on a
     // 50 pt pitch in 44×36 buttons, a divider 7 pt after them, the button 17.5 pt after that.
     static let height: CGFloat = 53
     private unowned let session: Session
@@ -34,14 +34,7 @@ final class Bar: NSPanel {
         back.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
 
         let mid = Bar.height / 2
-        let close = NSButton(image: Glyph.close, target: self, action: #selector(cancel))
-        close.isBordered = false
-        close.imagePosition = .imageOnly
-        close.contentTintColor = NSColor.labelColor.withAlphaComponent(0.4)
-        close.frame = CGRect(x: 14.5, y: mid - 8.5, width: 17, height: 17)
-        back.addSubview(close)
-
-        var x: CGFloat = 43.75
+        var x: CGFloat = 8.5
         for state in BarState.all {
             let b = ModeButton(state: state, target: self, action: #selector(pick(_:)))
             b.onHover = { [weak self, weak b] over in
@@ -71,12 +64,14 @@ final class Bar: NSPanel {
         let width = go.frame.maxX + 8.5
         back.frame = CGRect(x: 0, y: 0, width: width, height: Bar.height)
         let v = screen.visibleFrame
-        setFrame(CGRect(x: (v.midX - width / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
-        strip.place(above: self)
+        // The bar and its settings, centred together.
+        let both = width + 8 + strip.frame.width
+        setFrame(CGRect(x: (v.midX - both / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
+        strip.place(beside: self)
     }
 
     override var canBecomeKey: Bool { false }
-    override func orderFrontRegardless() { super.orderFrontRegardless(); strip.reload(); strip.place(above: self); strip.orderFrontRegardless() }
+    override func orderFrontRegardless() { super.orderFrontRegardless(); strip.reload(); strip.place(beside: self); strip.orderFrontRegardless() }
     override func orderOut(_ sender: Any?) { hint.hide(); strip.orderOut(nil); super.orderOut(sender) }
     override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
@@ -137,7 +132,6 @@ final class Bar: NSPanel {
     }
 
     @objc private func pick(_ b: ModeButton) { session.state = b.mode; session.refresh() }
-    @objc private func cancel() { session.close() }
     @objc private func commit() { session.commit() }
 }
 
@@ -215,14 +209,13 @@ final class Hint: NSPanel {
         orderFrontRegardless()
     }
 
-    /// Above the button, and above the settings that sit over it.
     func place(_ s: String, above button: NSView, in bar: Bar) {
         text.stringValue = s
         text.sizeToFit()
         let size = CGSize(width: text.frame.width + 16, height: text.frame.height + 8)
         text.frame.origin = CGPoint(x: 8, y: 4)
         let b = bar.convertToScreen(button.convert(button.bounds, to: nil))
-        setFrame(CGRect(x: (b.midX - size.width / 2).rounded(), y: bar.strip.frame.maxY + 8, width: size.width, height: size.height), display: true)
+        setFrame(CGRect(x: (b.midX - size.width / 2).rounded(), y: b.maxY + 12, width: size.width, height: size.height), display: true)
     }
 
     func hide() { orderOut(nil) }
@@ -307,8 +300,9 @@ final class Strip: NSPanel {
         return true
     }
 
-    func place(above bar: NSWindow) {
-        setFrameOrigin(CGPoint(x: (bar.frame.midX - frame.width / 2).rounded(), y: bar.frame.maxY + 8))
+    /// On the bar's right, bottoms level.
+    func place(beside bar: NSWindow) {
+        setFrameOrigin(CGPoint(x: bar.frame.maxX + 8, y: bar.frame.minY))
     }
 
     func hide() { orderOut(nil) }
@@ -425,21 +419,4 @@ enum Glyph {
             p.append(arc)
         }
     }
-
-    /// The ✕: a 17 pt disc with a knocked-out cross.
-    static let close: NSImage = {
-        let img = NSImage(size: CGSize(width: 17, height: 17), flipped: true) { _ in
-            NSBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 17, height: 17)).fill()
-            NSGraphicsContext.current!.compositingOperation = .destinationOut
-            let x = NSBezierPath()
-            x.move(to: CGPoint(x: 5.5, y: 5.5)); x.line(to: CGPoint(x: 11.5, y: 11.5))
-            x.move(to: CGPoint(x: 11.5, y: 5.5)); x.line(to: CGPoint(x: 5.5, y: 11.5))
-            x.lineWidth = 1.8
-            x.lineCapStyle = .round
-            x.stroke()
-            return true
-        }
-        img.isTemplate = true
-        return img
-    }()
 }
