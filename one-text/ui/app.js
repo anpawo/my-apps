@@ -44,8 +44,8 @@ function collapse(el, hide, ms = 240) {
   el._anim?.cancel();
   el.hidden = false;
   const h = el.scrollHeight, cs = getComputedStyle(el);
-  const open = { height: h + 'px', opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom };
-  const shut = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px' };
+  const open = { height: h + 'px', opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom };
+  const shut = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' };
   el.style.overflow = 'hidden';
   const a = (el._anim = anim(el, Object.fromEntries(Object.keys(open).map(k => [k, hide ? [open[k], shut[k]] : [shut[k], open[k]]])), ms));
   return a.finished
@@ -1004,6 +1004,8 @@ async function pollThread() {
   const seq = state.seq;
   const msgs = await loadMessages(item);
   if (seq !== state.seq || !msgs.length) return;
+  // A message still flying or opening is left alone: the next poll swaps it once it stands still.
+  if (document.querySelector('.bubble.flying') || [...document.querySelectorAll('#thread .msg.pending')].some(p => p._anim)) return;
   const known = new Set(state.msgs.map(m => m.id));
   // A reaction or a read marker changes a message already shown: that one is redrawn in place.
   const look = m => JSON.stringify([m.reactions || [], m.seen || null]);
@@ -1211,7 +1213,7 @@ async function send() {
   const from = input.getBoundingClientRect();
   input.value = '';
   autosize();
-  post({ text }, null, from);
+  post({ text }, undefined, from);
 }
 
 // Shows the message at once, faded, then sends it to the chosen app; `upload` (a voice message) goes to Beeper first.

@@ -280,6 +280,9 @@ const pend = await page.$$eval('#thread .msg.pending', ms => ms.map(m => msgText
 await page.waitForTimeout(100);
 const sent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path, a.body.text]));
 check(JSON.stringify(sent.at(-1)) === JSON.stringify(['/v1/chats/wa-lea/messages', '- on my way']), 'message sent to the WhatsApp chat');
+// Beeper refuses a null field: a text message's body holds its text and nothing set to null.
+const sentBody = await page.evaluate(() => JSON.stringify(__log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).at(-1)[1].body));
+check(sentBody === JSON.stringify({ text: '- on my way' }), `a text message's body is its text alone (${sentBody})`);
 check(JSON.stringify(pend) === '["- on my way"]', `pending bubble shown at once (${JSON.stringify(pend)})`);
 await page.waitForTimeout(1200);
 const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => msgText(m)).filter(t => t.includes('on my way')));
@@ -292,13 +295,23 @@ await page.keyboard.type('flying over');
 const flight = await page.evaluate(async () => {
   const f = document.querySelector('#input').getBoundingClientRect(), out = [], rect = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width]; };
   document.querySelector('#send').click();
+  // The message above, every frame: it only moves up. A poll lands mid-flight.
+  const above = document.querySelector('#thread .msg.pending').previousElementSibling, tops = [];
   const t0 = performance.now();
-  while (performance.now() - t0 < 500) { const g = document.querySelector('.bubble.flying'); out.push(g && rect(g)); await new Promise(r => requestAnimationFrame(r)); }
+  let polled = false;
+  while (performance.now() - t0 < 500) {
+    if (!polled && performance.now() - t0 > 150) { polled = true; pollThread(); }
+    const g = document.querySelector('.bubble.flying');
+    out.push(g && rect(g));
+    tops.push(above.getBoundingClientRect().top);
+    await new Promise(r => requestAnimationFrame(r));
+  }
   const b = document.querySelector('#thread .msg.pending .bubble');
-  return { from: [f.left, f.top, f.width], out, landed: b && [...rect(b), b.style.visibility] };
+  return { from: [f.left, f.top, f.width], out, tops, landed: b && [...rect(b), b.style.visibility] };
 });
 const flown = flight.out.filter(Boolean);
-check(flown.length >= 8 && Math.abs(flown[0][0] - flight.from[0]) < 1 && Math.abs(flown[0][2] - flight.from[2]) < 1 && monotonic(flown.map(r => r[0])) && monotonic(flown.map(r => r[2])) && flight.out.at(-1) === null && flight.landed?.[3] === '' && Math.abs(flown.at(-1)[0] - flight.landed[0]) < 2,
+check(flight.tops.every((t, i) => !i || t <= flight.tops[i - 1] + 0.5), `the thread above only moves up while a message is sent (${JSON.stringify(flight.tops.map(Math.round))})`);
+check(flown.length >= 8 && Math.abs(flown[0][0] - flight.from[0]) < 1 && Math.abs(flown[0][2] - flight.from[2]) < 1 && monotonic(flown.map(r => r[0])) && monotonic(flown.map(r => r[1])) && monotonic(flown.map(r => r[2])) && flight.out.at(-1) === null && flight.landed?.[3] === '' && Math.abs(flown.at(-1)[0] - flight.landed[0]) < 2,
   `the bubble flies from the field to its place, one way (${flown.length} frames, ${JSON.stringify([flight.from, flown[0], flown.at(-1), flight.landed])})`);
 const beforeEcho = await page.$eval('#thread .msg.pending .bubble', b => b.getBoundingClientRect().top);
 await page.waitForTimeout(1200);
