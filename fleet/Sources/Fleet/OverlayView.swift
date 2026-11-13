@@ -1361,12 +1361,12 @@ struct DiskStrip: View {
         let (free, total) = reaper.disk
         let used = total - min(free, total)
         let share = total > 0 ? Double(used) / Double(total) : 0
-        // Green with 30 % of the disk free, blue at 20 %, red at 10 % and under, blended between.
+        // Green with 50 % of the disk free, blue at 25 %, red at 10 % and under, blended between.
         let left = 1 - share
         let green = SessionState.ready.tint, blue = SessionState.awaitingAnswer.tint, red = SessionState.running.tint
         let tint = total == 0 ? BlockTint.memory
-            : left >= 0.20 ? blue.mix(with: green, by: min((left - 0.20) / 0.10, 1))
-            : red.mix(with: blue, by: max((left - 0.10) / 0.10, 0))
+            : left >= 0.25 ? blue.mix(with: green, by: min((left - 0.25) / 0.25, 1))
+            : red.mix(with: blue, by: max((left - 0.10) / 0.15, 0))
         let gb = { (b: UInt64) in String(format: "%.0f", Double(b) / 1_000_000_000) }
         return Block(title: "DISK", tint: tint.opacity(0.45), fill: .black.opacity(0.41),
                      level: BlockLevel(share: share, tint: tint.opacity(0.42))) {
