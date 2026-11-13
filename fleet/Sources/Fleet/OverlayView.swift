@@ -1367,8 +1367,8 @@ struct DiskStrip: View {
                      level: BlockLevel(share: share, tint: tint.opacity(0.42))) {
             EmptyView()
         } trailing: {
-            (Text("\(Int((share * 100).rounded()))%").foregroundColor(tint)
-                + Text(" \u{00B7} \(gb(used)) of \(gb(total)) GB").foregroundColor(.white.opacity(0.9)))
+            (Text("\(gb(min(free, total))) GB").foregroundColor(tint)
+                + Text(" free of \(gb(total)) GB").foregroundColor(.white.opacity(0.9)))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .titleGround()
         } content: {
