@@ -206,6 +206,8 @@ await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const replied = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path.split('/')[3], a.body.replyToMessageID]).at(-1));
 const quote = await page.$eval('#thread .msg.me:last-child .quote', q => q.textContent);
+const sentEnd = await page.evaluate(() => { const b = document.querySelector('#msgs'); return [b.scrollHeight > b.clientHeight, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop)]; });
+check(sentEnd[0] && sentEnd[1] < 2, `the thread follows a sent message to its end while it opens (${JSON.stringify(sentEnd)})`);
 await page.evaluate(() => { const b = document.querySelector('#msgs'); b.scrollTop = b.scrollHeight; });
 await page.screenshot({ path: join(out, '1b-reply.png'), clip: { x: 600, y: 440, width: 500, height: 200 } });
 check(quote === 'dinner tonight still on?', `a reply shows what it answers above it (${quote})`);

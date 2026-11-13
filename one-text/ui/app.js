@@ -768,6 +768,18 @@ function msgNodes(m, prev) {
   return nodes;
 }
 
+// One scrollTo when a row starts opening at the end aims at the end before the row has grown: follow it every frame,
+// easing in from wherever the thread was, until it is open and the end reached.
+function followEnd(el) {
+  const box = $('#msgs'), stop = performance.now() + 1500;
+  const step = () => {
+    const gap = box.scrollHeight - box.clientHeight - box.scrollTop;
+    if (gap > 0) box.scrollTop += RM.matches || gap < 4 ? gap : Math.ceil(gap * 0.3);
+    if ((el._anim || gap > 1) && performance.now() < stop) requestAnimationFrame(step);
+  };
+  step();
+}
+
 function drawThread(enter, keep) {
   const box = $('#msgs');
   const fromEnd = box.scrollHeight - box.scrollTop;
@@ -984,6 +996,7 @@ async function pollThread() {
     drawThread(false, true);
     return;
   }
+  let last;
   for (const m of fresh) {
     // The app can rewrite what was sent (Instagram drops a leading "- "): the oldest pending row on that chat is this one.
     const pending = !m.isSender ? null : [...document.querySelectorAll('#thread .msg.pending')].find(p => p._chat === m.chatID);
@@ -992,11 +1005,11 @@ async function pollThread() {
     state.msgs.push(m);
     for (const n of nodes) {
       $('#thread').append(n);
-      if (!n.hidden) { n.hidden = true; collapse(n, false, 280); }
+      if (!n.hidden) { n.hidden = true; collapse(n, false, 280); last = n; }
     }
   }
   drawSeen();
-  if (atBottom) box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
+  if (atBottom) followEnd(last || box);
   if (fresh.some(m => !m.isSender)) pickTarget(true);
   // A message of mine, sent from here or from another device, answers what came before it.
   if (fresh.some(m => m.isSender)) markRead(item);
@@ -1179,8 +1192,7 @@ async function post(m, upload) {
   $('#thread').append(row);
   row.hidden = true;
   collapse(row, false, 260);
-  const box = $('#msgs');
-  box.scrollTo({ top: box.scrollHeight, behavior: RM.matches ? 'auto' : 'smooth' });
+  followEnd(row);
   try {
     const attachment = upload && (await upload());
     await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text: m.text, attachment, replyToMessageID: reply });
