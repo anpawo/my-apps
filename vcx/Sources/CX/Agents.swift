@@ -179,9 +179,14 @@ final class ClaudeConnection: Connection {
         })
         self.reader = reader; reader.start()
         // claude -p leaves Remote Control to its host; enabling it again on an adopted process keeps the bridge it has.
+        // Its "Session creation failed" is now and then a one-off on Anthropic's side: the same request seconds later passes.
         if command == nil { Task { [weak self] in
-            do { _ = try await self?.controlResult(["subtype": "remote_control", "enabled": true], timeout: 60) }
-            catch { guard let self, !closed, self.process === process else { return }; emit("warning", ["message": "Remote Control did not start: " + error.localizedDescription]) }
+            for wait in [0, 5, 20] as [UInt64] {
+                try? await Task.sleep(nanoseconds: wait * 1_000_000_000)
+                guard let self, !closed, self.process === process else { return }
+                do { _ = try await controlResult(["subtype": "remote_control", "enabled": true], timeout: 60); return }
+                catch { if wait == 20 { emit("warning", ["message": "Remote Control did not start: " + error.localizedDescription]) } }
+            }
         } }
     }
     private var resumed = false
