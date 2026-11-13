@@ -112,11 +112,10 @@ enum Money {
         /// 1209 (read off a card refund and a health insurer's; a transfer from a person, his
         /// parents' or his own included, is 1214).
         var refunds: Double = 0
-        /// What went to savings (the PEA included) and what came back out of them: neither
-        /// is spent, and neither is his to spend twice.
-        var saved: Double = 0
-        var drawn: Double = 0
+        /// What came in that is his: his salary, and what a sender of `income.json` sent.
+        var earned: Double = 0
         var total: Double { spent.values.reduce(0, +) }
+        var expected: Double { back.values.reduce(0, +) }
         /// What is left of the month his own once all of that is in.
         var yours: Double { max(0, total - back.values.reduce(0, +) - refunds) }
 
@@ -207,11 +206,10 @@ enum Money {
     /// month, a debit of a kind earlier months had covered is not spent either while its cover
     /// is not in: the month's figure would otherwise carry an instalment for the weeks its
     /// cover takes to come.
-    static func months(csv: String, rules: [Rule] = []) -> (months: [Month], latest: String?) {
+    static func months(csv: String, rules: [Rule] = [], income: [String] = []) -> (months: [Month], latest: String?) {
         var months: [String: Month] = [:]
         var covers: [String: [Kind: Double]] = [:]
-        var refunds: [String: Double] = [:]
-        var saved: [String: Double] = [:], drawn: [String: Double] = [:]
+        var refunds: [String: Double] = [:], earned: [String: Double] = [:]
         var latest: String?
         for line in csv.split(whereSeparator: \.isNewline).dropFirst() {
             let row = fields(line, 7)
@@ -222,9 +220,12 @@ enum Money {
             let saving = row[2].localizedCaseInsensitiveContains("saving")
                 || row.dropFirst(3).prefix(2).joined(separator: " ").localizedCaseInsensitiveContains("bourse direct")
             if saving {
-                if amount > 0 { drawn[id, default: 0] += amount } else { saved[id, default: 0] -= amount }
+                continue
             } else if amount > 0 {
                 if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
+                if row[2].localizedCaseInsensitiveContains("salary") || row.count > 3 && income.contains(row[3]) {
+                    earned[id, default: 0] += amount
+                }
                 guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
             } else {
@@ -242,8 +243,7 @@ enum Money {
         let newest = months.keys.max()
         for id in months.keys {
             months[id]?.refunds = refunds[id] ?? 0
-            months[id]?.saved = saved[id] ?? 0
-            months[id]?.drawn = drawn[id] ?? 0
+            months[id]?.earned = earned[id] ?? 0
             for (kind, paid) in months[id]?.spent ?? [:] {
                 let cover = min(paid, covers[id]?[kind] ?? 0)
                 if cover > 0 {
@@ -333,12 +333,15 @@ final class MoneyStore: ObservableObject {
     init() { rereadIfWritten() }
 
     func rereadIfWritten() {
-        let files = [file, file.deletingLastPathComponent().appending(path: "payback.json")]
+        let files = [file] + ["payback.json", "income.json"].map { file.deletingLastPathComponent().appending(path: $0) }
         let dates = files.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
         guard dates != written || dates[0] == nil else { return }
         written = dates
         let rules = (try? Data(contentsOf: files[1])).flatMap { try? JSONDecoder().decode([Money.Rule].self, from: $0) }
-        let read = (try? String(contentsOf: file, encoding: .utf8)).map { Money.months(csv: $0, rules: rules ?? []) }
+        // The exact merchant names whose transfers are his to keep, beside the salary.
+        let income = (try? Data(contentsOf: files[2])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+        let read = (try? String(contentsOf: file, encoding: .utf8))
+            .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? []) }
         months = read?.months ?? []
         latest = read?.latest
     }
@@ -383,6 +386,12 @@ struct MoneyColumn: View {
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
+                  // Folded: what left, what is to come back, what came in.
+                  badgeText: open ? nil : months.first.map {
+                      Text("-\(Money.euros($0.total))").foregroundStyle(.white.opacity(0.45))
+                          + Text("  \(Money.euros($0.expected))").foregroundStyle(.orange)
+                          + Text("  +\(Money.euros($0.earned))").foregroundStyle(SessionState.ready.tint)
+                  },
                   topInset: 5,
                   collapsed: months.isEmpty || !open) {
             if let current = months.first {
@@ -733,9 +742,6 @@ private struct MoneyMonth: View {
                 line("arrow.uturn.backward", "Back", month.back.sorted { $0.value > $1.value }
                      + (month.refunds > 0 ? [("Refunds", month.refunds)] : []))
                 line("equal", "Yours", [("", month.yours)], "once it is all back")
-            }
-            if month.saved > 0 || month.drawn > 0 {
-                line("banknote", "Savings", [("In", month.saved), ("Out", month.drawn)].filter { $0.1 > 0 })
             }
         }
         .onGeometryChange(for: Double.self) { $0.size.width } action: { width = $0 }
