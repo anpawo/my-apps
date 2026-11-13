@@ -68,8 +68,14 @@ final class Words {
         }
         if let learned, let data = try? Data(contentsOf: learned), let saved = try? JSONDecoder().decode(Mine.self, from: data) {
             mine = saved
+            let kept = mine.counts.filter { counted($0.key) }
+            if kept.count != mine.counts.count { mine.counts = kept; dirty = true }
         }
     }
+
+    /// Whether `key` may count as his word: not a spelling missing the marks of another (ca, tres,
+    /// dont). Each one it let through would weigh against the fix until it stopped for good.
+    private func counted(_ key: String) -> Bool { Self.fold(key) != key || (byBase[key] ?? []).allSatisfy { $0 == key } }
 
     var count: Int { entries.count }
 
@@ -338,7 +344,7 @@ final class Words {
 
     func learn(_ word: String) {
         let key = word.lowercased()
-        guard (2...Self.maxLength).contains(key.count) else { return }
+        guard (2...Self.maxLength).contains(key.count), counted(key) else { return }
         mine.counts[key, default: 0] += 1
         dirty = true
     }
@@ -395,7 +401,7 @@ final class Words {
             }
             mine.rejected[key, default: 0] += 1
             mine.refusedAt[key] = Date().timeIntervalSince1970
-            mine.counts[pair[0], default: 0] += 1
+            if counted(pair[0]) { mine.counts[pair[0], default: 0] += 1 }
         }
         dirty = true
     }

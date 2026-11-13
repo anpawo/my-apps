@@ -120,16 +120,19 @@ enum SelfCheck {
         for _ in 0..<20 { words.reject("quil", "qu'il", at: past) }
         expect(words.correct("quil", fr: 0.5), nil, "but each refusal weighs it a little less")
 
+        for _ in 0..<200 { words.learn("ca") }
+        expect([words.mine.counts["ca"] == nil ? "" : "counted", fix("ca va")], ["", "ça va"],
+               "a word missing its marks, kept unfixed, never counts as his: ca stays fixed")
         words.keep("tema", "team")
-        for word in ["team", "epitehc", "dont"] { words.learn(word) }
+        for word in ["team", "epitehc", "dont", "house"] { words.learn(word) }
         words.reject("dont", "don't")
         var seen = Review.Seen()
         let batch = Review.Batch(words.mine, seen)
-        let verdict = Review.Verdict(forget: [.init(word: "epitehc", why: ""), .init(word: "epitehc", why: ""), .init(word: "the", why: "")],
+        let verdict = Review.Verdict(forget: [.init(word: "epitehc", why: ""), .init(word: "epitehc", why: ""), .init(word: "house", why: "")],
                                      reject: [.init(typed: "tema", fixed: "team", why: "")],
                                      unrefuse: [.init(typed: "dont", fixed: "don't", why: "")])
         expect(Review.apply(verdict, batch, to: words, seen: &seen).count, 2, "the review applies its verdict, once, and only")
-        expect(words.mine.counts["the"] != nil && words.mine.rejected["dont\tdon't"] != nil, true, "where the lexicon agrees")
+        expect(words.mine.counts["house"] != nil && words.mine.rejected["dont\tdon't"] != nil, true, "where the lexicon agrees")
         expect(words.correct("tema", fr: 0.5), nil, "a fix it rejects is held off too")
         expect([words.mine.counts["team"], words.mine.counts["epitehc"]], [nil, nil], "nor counted as his word, and a word it forgets is gone")
         expect(Review.Batch(words.mine, seen).isEmpty, true, "and what it read is not sent again")
