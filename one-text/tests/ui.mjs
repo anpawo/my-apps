@@ -198,6 +198,18 @@ await page.click('#mic');
 await page.waitForTimeout(400);
 const voiceOut = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && /upload|messages$/.test(a.path)).slice(-2).map(([, a]) => [a.path, a.body.mimeType || a.body.attachment]));
 check(recording[0] && recording[1].startsWith('Recording') && JSON.stringify(voiceOut) === JSON.stringify([['/v1/assets/upload/base64', 'audio/mp4'], ['/v1/chats/ig-lea/messages', { uploadID: 'up1', type: 'voice-note', duration: 1.5 }]]), `the mic records and sends a voice note (${JSON.stringify([recording, voiceOut])})`);
+// A pasted image goes to Beeper, then the message carries it; the typed text stays in the field.
+const pasted = await page.evaluate(async () => {
+  const field = document.querySelector('#input');
+  field.value = 'draft';
+  const data = new DataTransfer();
+  data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }));
+  field.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  await new Promise(r => setTimeout(r, 400));
+  return [field.value, !!document.querySelector('#thread .bubble.media img'), __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && /upload|messages$/.test(a.path)).slice(-2).map(([, a]) => [a.path, a.body.mimeType || a.body.attachment])];
+});
+check(JSON.stringify(pasted) === JSON.stringify(['draft', true, [['/v1/assets/upload/base64', 'image/png'], ['/v1/chats/ig-lea/messages', { uploadID: 'up1' }]]]), `a pasted image is sent (${JSON.stringify(pasted)})`);
+await page.evaluate(() => { document.querySelector('#input').value = ''; });
 // ":" and a few letters list emoji by name, the emoji on the right; Enter puts it in place of what was typed.
 await page.click('#input');
 await page.keyboard.type('so :joy');

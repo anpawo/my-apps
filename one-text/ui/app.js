@@ -1297,15 +1297,26 @@ function stopRecord(keep) {
   };
   mr.stop();
 }
+async function uploadBlob(blob, fileName) {
+  const content = await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result.split(',')[1]); f.readAsDataURL(blob); });
+  const up = await api('POST', '/v1/assets/upload/base64', { content, mimeType: blob.type, fileName });
+  if (!up.uploadID) throw up.error || 'upload failed';
+  return up;
+}
 function sendVoice(blob, secs) {
   post({ attachments: [{ type: 'audio', isVoiceNote: true, srcURL: URL.createObjectURL(blob), mimeType: blob.type }] }, async () => {
-    const content = await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result.split(',')[1]); f.readAsDataURL(blob); });
-    const up = await api('POST', '/v1/assets/upload/base64', { content, mimeType: blob.type, fileName: `voice.${blob.type.includes('webm') ? 'webm' : 'm4a'}` });
-    if (!up.uploadID) throw up.error || 'upload failed';
+    const up = await uploadBlob(blob, `voice.${blob.type.includes('webm') ? 'webm' : 'm4a'}`);
     return { uploadID: up.uploadID, type: 'voice-note', duration: up.duration || secs };
   });
 }
 $('#mic').onclick = toggleRecord;
+// A pasted image (a screenshot, a copied picture) is sent at once; the text in the field stays.
+input.addEventListener('paste', e => {
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (!file || !state.target) return;
+  e.preventDefault();
+  post({ attachments: [{ type: 'img', srcURL: URL.createObjectURL(file), mimeType: file.type }] }, async () => ({ uploadID: (await uploadBlob(file, file.name || `image.${file.type.split('/')[1]}`)).uploadID }), input.getBoundingClientRect());
+});
 addEventListener('keydown', e => { if (e.key === 'Escape' && rec.mr) { e.preventDefault(); stopRecord(false); } }, true);
 
 /* ---------- Right-click on a message: reply, react, copy, edit, delete ---------- */
