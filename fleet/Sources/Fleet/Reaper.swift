@@ -172,6 +172,13 @@ enum MemoryPressure {
         var total: UInt64 = ProcessInfo.processInfo.physicalMemory
     }
 
+    /// The startup volume's free and total bytes, the figure Finder shows: purgeable space counts as free.
+    static func disk() -> (free: UInt64, total: UInt64) {
+        let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
+        return (UInt64(max(v?.volumeAvailableCapacityForImportantUsage ?? 0, 0)),
+                UInt64(max(v?.volumeTotalCapacity ?? 0, 0)))
+    }
+
     static func footprint() -> Footprint {
         var stats = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size
@@ -272,6 +279,8 @@ final class Reaper: ObservableObject {
     /// machine rather than a row of zeroes.
     @Published private(set) var footprint = MemoryPressure.footprint()
     @Published private(set) var details = MemoryDetails()
+    /// The DISK block under MEMORY, read on the slow half of the tick: it moves in gigabytes an hour.
+    @Published private(set) var disk = MemoryPressure.disk()
     /// Set by the MEMORY block while it is unfolded.
     var detailsOpen = false {
         didSet {
@@ -339,6 +348,7 @@ final class Reaper: ObservableObject {
 
         guard Date().timeIntervalSince(lastScan) >= Config.reapInterval else { return }
         lastScan = Date()
+        disk = MemoryPressure.disk()
 
         let candidates = Reaper.candidates()
         sampleIdleness(candidates)
@@ -787,11 +797,7 @@ final class Reaper: ObservableObject {
         }
         var out = MemoryDetails(kernelZone: MemoryPressure.kernelZone(), wired: footprint.wired,
                                 gpuBusy: gpu.busy, gpuMemory: gpu.inUse)
-        // The figure Finder shows: purgeable space counts as free.
-        if let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]) {
-            out.diskFree = UInt64(max(v.volumeAvailableCapacityForImportantUsage ?? 0, 0))
-            out.diskTotal = UInt64(max(v.volumeTotalCapacity ?? 0, 0))
-        }
+        (out.diskFree, out.diskTotal) = MemoryPressure.disk()
         out.ram = top(ram, floor: 0) { byteLabel(UInt64($0)) }
         // No share before the second sample: the last ones stay rather than blank lines.
         out.cpu = since > 0 ? top(cpuShare, floor: 1) { "\(Int($0.rounded()))%" } : details.cpu

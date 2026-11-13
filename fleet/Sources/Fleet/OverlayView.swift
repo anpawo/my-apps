@@ -208,6 +208,7 @@ struct OverlayView: View {
                 let held = controller.commandHeld
                 sideColumn(keys: ["spending", "mail", "todo"]) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
+                    DiskStrip(reaper: controller.reaper)
                 } blocks: { free in
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
@@ -1340,7 +1341,7 @@ struct MemoryStrip: View {
             ?? SessionState.ready.tint
     }
 
-    private static func scale(_ share: Double, _ ok: Double, _ watch: Double,
+    static func scale(_ share: Double, _ ok: Double, _ watch: Double,
                               _ bad: Double) -> Color? {
         switch share {
         case 0: return nil                      // grey: nothing there to have an opinion about
@@ -1348,6 +1349,30 @@ struct MemoryStrip: View {
         case ..<watch: return SessionState.awaitingAnswer.tint
         case ..<bad: return SessionState.apiError.tint
         default: return SessionState.running.tint
+        }
+    }
+}
+
+/// The startup disk, drawn as MEMORY's gauge right under it (asked 2026-11-13).
+struct DiskStrip: View {
+    @ObservedObject var reaper: Reaper
+
+    var body: some View {
+        let (free, total) = reaper.disk
+        let used = total - min(free, total)
+        let share = total > 0 ? Double(used) / Double(total) : 0
+        let tint = MemoryStrip.scale(share, 0.80, 0.90, 0.95) ?? BlockTint.memory
+        let gb = { (b: UInt64) in String(format: "%.0f", Double(b) / 1_000_000_000) }
+        return Block(title: "DISK", tint: tint.opacity(0.45), fill: .black.opacity(0.41),
+                     level: BlockLevel(share: share, tint: tint.opacity(0.42))) {
+            EmptyView()
+        } trailing: {
+            (Text("\(Int((share * 100).rounded()))%").foregroundColor(tint)
+                + Text(" \u{00B7} \(gb(used)) of \(gb(total)) GB").foregroundColor(.white.opacity(0.9)))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .titleGround()
+        } content: {
+            EmptyView()
         }
     }
 }
