@@ -91,6 +91,9 @@ enum SelfCheck {
             expect(fix(typed), want, what.isEmpty ? typed : "\(what): \(typed)")
         }
 
+        words.learn("manger"); words.learn("manger")
+        expect(fix("j'ai manger"), "j'ai mangé", "a word he types often is still put right where it does not fit")
+
         expect([Words.slip("wnat", "want"), Words.slip("wnat", "what"), Words.slip("wiat", "what")], [0.03, 0.01, 0.002],
                "a swap, then a key next to the right one, then a far one")
 

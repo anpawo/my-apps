@@ -14,9 +14,10 @@ if args.contains("--review") {
     exit(Review.dryRun(Words(file: wordsFile, learned: learnedFile), in: learnedFile.deletingLastPathComponent(), show: args.contains("--show")))
 }
 
-// `--fix`: stdin as it would read once typed, a line at a time. Learns nothing on disk.
+// `--fix`: stdin as it would read once typed, a line at a time. Learns nothing on disk. `--mine`: with
+// what he has taught it, as the app runs.
 if args.contains("--fix") {
-    var typist = Typist(Words(file: wordsFile, learned: nil))
+    var typist = Typist(Words(file: wordsFile, learned: args.contains("--mine") ? learnedFile : nil))
     while let line = readLine() { print(typist.fix(line)) }
     exit(0)
 }

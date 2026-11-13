@@ -126,12 +126,15 @@ final class Words {
     /// How likely `key` is right after `prev`, any word against any other (a typo's readings):
     /// the share pairs.tsv gives it, or, for a pair seen too seldom to be in it, its share of
     /// what is left after `prev` (the endpoint is not ruled out because subtitles lack it).
-    private func context(_ key: String, fr: Double, after prev: String?) -> Double {
-        guard let prev, let m = mass[prev] else { return prior(key, fr: fr) }
+    /// `own`: plus how often he types `key`, which weighs a typo's readings but says nothing of
+    /// which of two real words fits (he types manger 2 times: j'ai manger stayed).
+    private func context(_ key: String, fr: Double, after prev: String?, own: Bool = true) -> Double {
+        let mine = own ? Double(self.mine.counts[key] ?? 0) * 1e-6 : 0
+        guard let prev, let m = mass[prev] else { return prior(key, fr: fr) - (own ? 0 : Double(self.mine.counts[key] ?? 0) * 1e-6) }
         let e = entries[key], p = pairs[Self.pairKey(prev, key)]
         let f = (p?.fr ?? 0) > 0 ? Double(p!.fr) : (1 - Double(m.fr)) * Double(e?.fr ?? 0)
         let n = (p?.en ?? 0) > 0 ? Double(p!.en) : (1 - Double(m.en)) * Double(e?.en ?? 0)
-        return fr * f + (1 - fr) * n + Double(mine.counts[key] ?? 0) * 1e-6
+        return fr * f + (1 - fr) * n + mine
     }
 
     /// The spelling to put in place of `typed`, or nil to leave it. `fr`: how French the
@@ -280,7 +283,7 @@ final class Words {
     static let plural: Set<String> = ["les", "des", "ces", "mes", "tes", "ses", "nos", "vos", "leurs", "plusieurs", "quelques",
                                       "these", "those", "many", "several", "two", "three", "four", "five"]
     static let singular: Set<String> = ["un", "une", "le", "la", "ce", "cet", "cette", "mon", "ton", "son", "ma", "ta", "sa",
-                                        "notre", "votre", "leur", "chaque", "a", "an", "this", "every", "each", "another"]
+                                        "notre", "votre", "leur", "chaque", "this", "every", "each", "another"]
     /// Words a French verb's ending follows: a past participle after avoir (j'ai mangé), an
     /// infinitive after aller, pouvoir, vouloir, devoir or a preposition (je vais manger), -ez after vous.
     static let participle: Set<String> = ["ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "avions", "aviez", "avaient", "été"]
@@ -297,11 +300,13 @@ final class Words {
     func agree(_ a: String, _ b: String, fr: Double, after pp: String?) -> (String, String)? {
         let la = a.lowercased().replacingOccurrences(of: "’", with: "'"), lb = b.lowercased().replacingOccurrences(of: "’", with: "'")
         guard [a, b].allSatisfy({ w in w.allSatisfy { $0.isLetter || $0 == "'" || $0 == "’" } && !w.dropFirst().contains(where: \.isUppercase) }),
-              isWord(la), isWord(lb) else { return nil }
+              isWord(la), isWord(lb),
+              // A name: a Teams chat, a Codex session.
+              b.first?.isLowercase == true else { return nil }
         let usable = { (w: String) in self.isWord(w) && self.frenchAccents(w) }
         var scores: [(String, String, Double)] = []
         for x in Self.confusable[la] ?? [] where usable(x) && pairs[Self.pairKey(x, lb)] != nil {
-            scores.append((x, lb, context(x, fr: fr, after: pp) * context(lb, fr: fr, after: x) / (context(la, fr: fr, after: pp) * context(lb, fr: fr, after: la))))
+            scores.append((x, lb, context(x, fr: fr, after: pp, own: false) * context(lb, fr: fr, after: x, own: false) / (context(la, fr: fr, after: pp, own: false) * context(lb, fr: fr, after: la, own: false))))
         }
         if lb.count >= 3 {
             var other = Self.plural.contains(la) ? [lb + "s", lb + "x"].filter { _ in lb.last != "s" && lb.last != "x" }
@@ -315,7 +320,7 @@ final class Words {
                 other.removeAll { $0 == lb }
             }
             for y in other where usable(y) && pairs[Self.pairKey(la, y)] != nil {
-                scores.append((la, y, context(y, fr: fr, after: la) / context(lb, fr: fr, after: la)))
+                scores.append((la, y, context(y, fr: fr, after: la, own: false) / context(lb, fr: fr, after: la, own: false)))
             }
         }
         scores.sort { $0.2 > $1.2 }
