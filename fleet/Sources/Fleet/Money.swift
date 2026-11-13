@@ -99,6 +99,13 @@ enum Money {
         let from: String?
     }
 
+    /// One account and what it held on `date`, written by whatever reads that account.
+    struct Balance: Decodable {
+        let name: String
+        let amount: Double
+        let date: String?
+    }
+
     struct Month: Identifiable, Equatable {
         /// `2026-10`.
         let id: String
@@ -335,6 +342,8 @@ enum Money {
 final class MoneyStore: ObservableObject {
     @Published private(set) var months: [Money.Month] = []
     @Published private(set) var latest: String?
+    /// What each account holds, from `balances.json` beside the export, in its order.
+    @Published private(set) var balances: [Money.Balance] = []
 
     /// The real export, unless a picture of an invented one is being drawn — see
     /// `DemoFleet.fill`. Kept, so the next tick does not read the real one back over it.
@@ -344,7 +353,7 @@ final class MoneyStore: ObservableObject {
     init() { rereadIfWritten() }
 
     func rereadIfWritten() {
-        let files = [file] + ["payback.json", "income.json", "payers.json"]
+        let files = [file] + ["payback.json", "income.json", "payers.json", "balances.json"]
             .map { file.deletingLastPathComponent().appending(path: $0) }
         let dates = files.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
         guard dates != written || dates[0] == nil else { return }
@@ -358,6 +367,8 @@ final class MoneyStore: ObservableObject {
             .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? [], payers: payers ?? []) }
         months = read?.months ?? []
         latest = read?.latest
+        balances = (try? Data(contentsOf: files[4]))
+            .flatMap { try? JSONDecoder().decode([Money.Balance].self, from: $0) } ?? []
     }
 }
 
@@ -395,29 +406,34 @@ struct MoneyColumn: View {
     var body: some View {
         let months = Array(store.months.prefix(shown))
         let room = max(40, limit - Self.chrome)
-        HubColumn(title: "SPENDING",
+        HubColumn(title: "MONEY",
                   count: 0,
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
-                  // Folded: what left; what comes back, the month's refunds and last month's
-                  // paybacks, ~ until the paybacks are all in; what came in, ~ and last month's
-                  // until the salary is in.
-                  badgeText: open ? nil : months.first.map { month in
+                  // Folded: what the month spent, the accounts under it. Open: that, then what
+                  // comes back, the month's refunds and last month's paybacks, ~ until the
+                  // paybacks are all in; then what came in, ~ and last month's until the salary
+                  // is in.
+                  badgeText: months.first.map { month in
+                      let spent = Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint)
+                      guard open else { return spent.font(.system(size: 10.5, weight: .medium).monospacedDigit()) }
                       let dot = Text("  ·  ").foregroundStyle(.white.opacity(0.45))
                       let last = store.months.dropFirst().first
                       let awaited = last?.expected ?? 0
                       let back = (month.repaid >= awaited ? "✓" : "~") + Money.euros(month.refunds + awaited)
-                      let earned = month.salaried ? "✓+\(Money.euros(month.earned))"
-                          : "~+\(Money.euros(last?.earned ?? 0))"
-                      return (Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint) + dot
+                      let earned = month.salaried ? "+\(Money.euros(month.earned))"
+                          : "~\(Money.euros(last?.earned ?? 0))"
+                      return (spent + dot
                           + Text(back).foregroundStyle(.orange) + dot
                           + Text(earned).foregroundStyle(SessionState.ready.tint))
                           .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                   },
                   topInset: 5,
-                  collapsed: months.isEmpty || !open) {
-            if let current = months.first {
+                  collapsed: open ? months.isEmpty : store.balances.isEmpty) {
+            if !open {
+                accounts
+            } else if let current = months.first {
                 if scrolling {
                     // The current month, not drawn, is what the block is measured by: the
                     // list scrolls in the room it takes.
@@ -451,12 +467,31 @@ struct MoneyColumn: View {
                         .clipped()
                 }
             }
-            if let latest = store.latest {
+            if open, let latest = store.latest {
                 HubEmptyLine(text: "Last payment read: \(Money.day(latest))")
             }
         }
         .onChange(of: open) { if !open { shown = Self.recent } }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Each account, its name over what it holds, and all of them together.
+    private var accounts: some View {
+        let all = Money.Balance(name: "All", amount: store.balances.reduce(0) { $0 + $1.amount }, date: nil)
+        return HStack(alignment: .top, spacing: 0) {
+            ForEach(Array((store.balances + [all]).enumerated()), id: \.offset) { _, balance in
+                VStack(spacing: 2) {
+                    Text(balance.name)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Text(Money.euros(balance.amount))
+                        .font(.system(size: 10, weight: balance.date == nil ? .semibold : .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(balance.date == nil ? 0.95 : 0.75))
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .lineLimit(1)
     }
 
     private func list(_ months: [Money.Month]) -> some View {
