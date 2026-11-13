@@ -59,6 +59,8 @@ const fold = s => String(s || '').normalize('NFKD').replace(/\p{M}/gu, '').toLow
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const linkify = s => esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noreferrer">${u}</a>`);
 const asset = url => /^(data|blob):/.test(url) ? url : `beeper://localhost/asset?url=${enc(url)}`;
+// A picture's box is sized from its known dimensions (280 × 320 at most) before it loads, so nothing below it moves.
+const fit = s => { if (!s?.width || !s?.height) return ''; const k = Math.min(1, 280 / s.width, 320 / s.height); return ` width="${Math.round(s.width * k)}" height="${Math.round(s.height * k)}"`; };
 const netMark = key => { const n = NETS[key]; return `<span class="net" style="background:${n.color}" title="${n.label}">${n.logo}</span>`; };
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
@@ -774,7 +776,7 @@ function bubbleHTML(m) {
       parts.push(`<div class="bubble voice${m.isSender || heard.has(id) ? ' heard' : ''}" data-id="${esc(id)}" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span><b class="dot" title="Not played yet"></b></div>`);
       if (a.transcription) parts.push(`<div class="bubble note">${esc(a.transcription)}</div>`);
     } else if (a.isSticker && a.srcURL) parts.push(`<div class="bubble media sticker"><img src="${esc(asset(a.srcURL))}" loading="lazy" alt="Sticker"></div>`);
-    else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}" loading="lazy"></div>`);
+    else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}"${fit(a.size)} loading="lazy" decoding="async"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
   if (text) parts.push(`<div class="bubble">${linkify(text)}</div>`);
@@ -1088,6 +1090,9 @@ async function pollThread() {
     const pending = !m.isSender ? null : [...document.querySelectorAll('#thread .msg.pending')].find(p => p._chat === m.chatID);
     const nodes = msgNodes(m, state.msgs[state.msgs.length - 1]);
     state.msgs.push(m);
+    // A picture sent from here moves over as it stands, already decoded, instead of loading Beeper's.
+    const local = [...(pending?.querySelectorAll('.bubble.media img') || [])];
+    nodes.at(-1).querySelectorAll('.bubble.media img').forEach((i, k) => local[k] && i.replaceWith(local[k]));
     // The sent row takes the pending one's place as it stands, only its fade lifted: nothing moves.
     if (pending && !pending._anim) {
       const row = nodes.pop();
@@ -1362,7 +1367,11 @@ input.addEventListener('paste', e => {
   const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
   if (!file || !state.target) return;
   e.preventDefault();
-  post({ attachments: [{ type: 'img', srcURL: URL.createObjectURL(file), mimeType: file.type }] }, async () => ({ uploadID: (await uploadBlob(file, file.name || `image.${file.type.split('/')[1]}`)).uploadID }), input.getBoundingClientRect());
+  // Decoded off the main thread first: its row then opens at the picture's own height.
+  const from = input.getBoundingClientRect(), img = new Image();
+  img.src = URL.createObjectURL(file);
+  img.decode().catch(() => {}).then(() => post({ attachments: [{ type: 'img', srcURL: img.src, mimeType: file.type, size: { width: img.naturalWidth, height: img.naturalHeight } }] },
+    async () => ({ uploadID: (await uploadBlob(file, file.name || `image.${file.type.split('/')[1]}`)).uploadID }), from));
 });
 addEventListener('keydown', e => { if (e.key === 'Escape' && rec.mr) { e.preventDefault(); stopRecord(false); } }, true);
 
