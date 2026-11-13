@@ -16,7 +16,8 @@ replaced as you go.
 
 Each spelling the word could be gets a score: how often it is said (French and English counts, weighed by
 how French the sentence is so far, plus how often you use it) times how likely you typed it that way when you
-meant it (as is, without its accents or apostrophe, one letter off, two pairs swapped). The best one replaces the word only when
+meant it (as is, without its accents or apostrophe, one letter off, two pairs swapped). A typo of two letters swapped
+counts most, then a key next to the right one, then a farther slip: `wnat` is not made `what`. The best one replaces the word only when
 it scores five times higher, and three times higher than the next best: `verifie` could be `vérifie` or
 `vérifié`, so it is left as typed. Between spellings of one word, the word right before counts too:
 `j'ai verifie` becomes `j'ai vérifié`, `il verifie` `il vérifie`, `je vais a` `je vais à` while `il a`
@@ -24,7 +25,9 @@ stays. Mixed sentences work: `dont` is `don't` after `i`, and stays `dont` after
 `la maison`.
 
 It never changes a word it knows into another one (`chat`, `scan` stay), a word typed with its accents
-(`côte` stays), nor a word the macOS spell checker knows (`plugin`, `hotkey`, `tutoriels`). It leaves alone
+(`côte` stays), nor a word the macOS spell checker knows (`plugin`, `hotkey`, `tutoriels`). A typo is not made into a
+rare word you never type (`aveen` is not `aven`), a rude one, a word with accents French lacks or that the French
+dictionary does not take (`theyâ`), nor an English word after `d'` or `l'` (`dand` is `dans`, not `d'and`). It leaves alone
 words with a digit or a capital inside (`GitHub`), links and addresses (`etudiant.gouv.fr`), a word begun
 after an arrow key (it sees keys, not the text), password fields, and terminals (but
 Ghostty, where Claude Code runs), code editors and password managers (the list is in

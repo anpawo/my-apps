@@ -52,6 +52,11 @@ enum SelfCheck {
             ("la maison dont je parle", "la maison dont je parle", "French after French: dont stays"),
             ("im tired", "I'm tired", ""),
             ("teh cat", "the cat", "a typo, one letter off"),
+            ("wnat wiat", "wnat wiat", "a swap against a likelier word a far key away: too close to call, not what"),
+            ("aveen theya", "aveen they", "never into a rare word he does not type (aven), nor a junk accent (theyâ)"),
+            ("dand la maison", "dans la maison", "no elision before an English word: not d'and"),
+            ("tils", "t-ils", "t' never before a pronoun"),
+            ("blojob", "blojob", "never into a rude word"),
             ("c'est vraiemtn cool", "c'est vraiment cool", "two swaps"),
             ("it should dispaear", "it should disappear", "a swap and a missed double letter"),
             ("for thew height", "for the height", "a word too rare to count, though macOS knows it"),
@@ -71,6 +76,9 @@ enum SelfCheck {
         ] {
             expect(fix(typed), want, what.isEmpty ? typed : "\(what): \(typed)")
         }
+
+        expect([Words.slip("wnat", "want"), Words.slip("wnat", "what"), Words.slip("wiat", "what")], [0.03, 0.01, 0.002],
+               "a swap, then a key next to the right one, then a far one")
 
         var t = Typist(words)
         t.clean = true

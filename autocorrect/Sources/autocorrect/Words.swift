@@ -25,7 +25,8 @@ struct Mine: Codable {
 /// A spelling's score is how likely the word is (French and English frequencies, weighed by
 /// the language of the sentence so far, plus his own use) times how likely he typed it that way
 /// when he meant it: as is 1, without its accents or apostrophe 0.7 (the U.S. layout has no
-/// accent keys), one letter off 0.01. Between spellings of one word (a/à, ou/où, vérifie/vérifié),
+/// accent keys), two letters swapped 0.03, a key next to the right one 0.01, a farther slip 0.002
+/// (`slip`). Between spellings of one word (a/à, ou/où, vérifie/vérifié),
 /// how likely each is is read after the word before it too (je vais à, il a). The best
 /// spelling replaces the typed one only when it scores five times higher, and three times higher
 /// than the next best. A word of his own (typed and kept) is never fixed, but is not a spelling
@@ -132,7 +133,7 @@ final class Words {
         func consider(_ key: String, _ score: Double) {
             // Taken back: held off ten minutes, then a little weaker for each time it was.
             let pair = lower + "\t" + key
-            guard !refused(pair) else { return }
+            guard !refused(pair), frenchAccents(key) else { return }
             let weaker = score * pow(Self.refusalWeight, Double(mine.rejected[pair] ?? 0))
             scores[key] = max(scores[key] ?? 0, weaker)
         }
@@ -151,7 +152,9 @@ final class Words {
             for prefix in Self.elisions where prefix != "c" && base.count > prefix.count && base.hasPrefix(prefix) {
                 let rest = String(base.dropFirst(prefix.count))
                 guard rest.count >= 3, let first = rest.first, "aeiouyh".contains(first) else { continue }
-                for key in byBase[rest] ?? [] where Self.stripped(lower, of: prefix + "'" + key) && known(key, in: ["fr"]) {
+                // Not before a word English says far more (d'and, d'hâve), nor t' before a pronoun: a-t-il.
+                for key in byBase[rest] ?? [] where Self.stripped(lower, of: prefix + "'" + key) && known(key, in: ["fr"])
+                    && (entries[rest]?.en ?? 0) <= 50 * (entries[key]?.fr ?? 0) && !(prefix == "t" && ["il", "ils", "elle", "elles", "on"].contains(key)) {
                     consider(prefix + "'" + key, 0.05 * fr * Double(entries[key]?.fr ?? 0) * 0.7)
                 }
             }
@@ -168,14 +171,17 @@ final class Words {
             // One macOS knows that the lexicon has, too rare to count, gives way only to a far
             // likelier word: thew to the, not unset to upset nor deriving to driving.
             if known(lower) { bar = 1000 }
-            for (second, channel) in [(false, 0.01), (true, 0.0001)] where scores.isEmpty {
+            for second in [false, true] where scores.isEmpty {
                 if second && chars.count < 5 { break }
                 let edits = second
                     ? Set(Self.edits(base, swapsOnly: true).flatMap { Self.edits($0, swapsOnly: true) }).union(Self.swapsDoubled(base))
                     : Self.edits(base, swapsOnly: chars.count < 4)
                 for edit in edits {
-                    for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key)) && known(key) {
-                        consider(key, prior(key, fr: fr) * channel)
+                    for key in byBase[edit] ?? [] where !key.contains("-") && !Self.inflected(base, Self.fold(key))
+                        && !Self.rude.contains(key) && known(key)
+                        // A rare word only if he types it himself: not aven, clade, letup.
+                        && (mine.counts[key] != nil || max(entries[key]?.fr ?? 0, entries[key]?.en ?? 0) >= 3e-7) {
+                        consider(key, prior(key, fr: fr) * (second ? 0.0001 : Self.slip(base, edit)))
                     }
                 }
             }
@@ -263,6 +269,49 @@ final class Words {
         out.remove(word)
         let swapped = w.count > 1 ? String([w[1], w[0]] + w.dropFirst(2)) : word
         return out.filter { $0.first == w.first || $0 == swapped }
+    }
+
+    private static let rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"].map(Array.init)
+
+    /// Whether two keys touch on a U.S. keyboard, or are the same key.
+    static func near(_ a: Character, _ b: Character) -> Bool {
+        guard let r = rows.firstIndex(where: { $0.contains(a) }), let i = rows[r].firstIndex(of: a),
+              let s = rows.firstIndex(where: { $0.contains(b) }), let j = rows[s].firstIndex(of: b) else { return false }
+        if r == s { return abs(i - j) <= 1 }
+        // Each row sits half a key right of the one above: a is under q and w.
+        if s == r + 1 { return j == i || j == i - 1 }
+        if s == r - 1 { return j == i || j == i + 1 }
+        return false
+    }
+
+    /// How likely `typed` is a one-slip typo of `meant`: a swap most of all, then a key next to
+    /// the right one, a letter left out or one struck twice; a far key least (wnat is not made what).
+    static func slip(_ typed: String, _ meant: String) -> Double {
+        let t = Array(typed), m = Array(meant)
+        if t.count == m.count {
+            let diff = t.indices.filter { t[$0] != m[$0] }
+            if diff.count == 2, diff[1] == diff[0] + 1 { return 0.03 }
+            if diff.count == 1 { return near(t[diff[0]], m[diff[0]]) ? 0.01 : 0.002 }
+            return 0.002
+        }
+        if t.count + 1 == m.count { return 0.01 }
+        // A letter too many: struck with its neighbour, or twice.
+        guard let i = t.indices.first(where: { $0 >= m.count || t[$0] != m[$0] }) else { return 0.002 }
+        return (i > 0 && near(t[i], t[i - 1])) || (i + 1 < t.count && near(t[i], t[i + 1])) ? 0.01 : 0.002
+    }
+
+    /// Never a fix into one of these as a typo: he typed them as is or not at all.
+    static let rude: Set<String> = ["blowjob", "tits", "dick", "cock", "pussy", "fuck", "shit", "bitch", "cunt",
+                                    "bite", "chatte", "pute", "salope", "connard", "conne", "enculé", "putain", "merde"]
+
+    /// Accents only French has (English has none), on a word the macOS French dictionary takes:
+    /// not theyâ nor ïun, which the subtitles spelled.
+    private func frenchAccents(_ key: String) -> Bool {
+        let marked = key.filter { !$0.isASCII && $0 != "’" }
+        guard !marked.isEmpty else { return true }
+        guard marked.allSatisfy({ "àâäçéèêëîïôöùûüÿœæ".contains($0) }) else { return false }
+        let word = key.split(separator: "'").last.map(String.init) ?? key
+        return word.allSatisfy(\.isASCII) || known(word, in: ["fr"]) || known(word.capitalized, in: ["fr"])
     }
 
     /// Two letters swapped, one of which was also meant twice (dispaear: disappear), keeping
