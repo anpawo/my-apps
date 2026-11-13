@@ -1356,10 +1356,14 @@ function menu(anchor, build, { up = false, right = false } = {}) {
   const m = document.createElement('div');
   m.className = 'menu';
   m._anchor = anchor;
-  m._up = up;
   build(m);
   document.body.append(m);
-  const r = anchor.getBoundingClientRect();
+  const r = anchor.getBoundingClientRect(), below = innerHeight - r.bottom - 14, above = r.top - 14;
+  // It opens on the side it fits, else on the roomier one, scrolling past what the window cannot hold.
+  if (m.offsetHeight > (up ? above : below)) up = (up ? above : below) < (up ? below : above) ? !up : up;
+  m._up = up;
+  m.style.maxHeight = (up ? above : below) + 'px';
+  m.style.overflowY = 'auto';
   if (up) m.style.bottom = innerHeight - r.top + 6 + 'px'; else m.style.top = r.bottom + 6 + 'px';
   if (right) m.style.right = Math.max(8, innerWidth - r.right) + 'px';
   else m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + 'px';

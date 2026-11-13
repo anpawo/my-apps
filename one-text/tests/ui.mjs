@@ -360,6 +360,17 @@ await page.hover(`#favs .fav[data-id="${tomB}"]`);
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(400);
 
+// A row's menu near the window's bottom opens upward, inside the window.
+await page.setViewportSize({ width: 1100, height: 460 });
+await page.waitForTimeout(300);
+await page.click('#people .row >> nth=-1', { button: 'right' });
+await page.waitForTimeout(250);
+const lowMenu = await page.$eval('body > .menu:not(#picker)', m => { const r = m.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), innerHeight]; });
+await page.keyboard.press('Escape');
+await page.setViewportSize({ width: 1100, height: 720 });
+await page.waitForTimeout(300);
+check(lowMenu[0] >= 0 && lowMenu[1] <= lowMenu[2], `a menu near the bottom stays in the window (${lowMenu})`);
+
 // Hiding a group: right-click → Hide from the list; ⌘D still finds it.
 await page.click('#people .row:has-text("Rust FR")', { button: 'right' });
 await page.click('.menu .item:has-text("Hide from the list")');
