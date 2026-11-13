@@ -191,9 +191,14 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             first.entry(word).or_default().push(i);
         }
     }
-    for same in first.values().filter(|v| v.len() > 1) {
-        let apps: std::collections::HashSet<String> = same.iter().map(|&i| format!("{} {}", singles[i]["network"], singles[i]["accountID"])).collect();
-        if apps.len() == same.len() {
+    for (word, same) in first.iter().filter(|(_, v)| v.len() > 1) {
+        // Every chat under that first name counts, full names too: "Martin" beside "Martin Saldinger" and
+        // "martin__k___" on Instagram could be any of them.
+        let mut per_app: HashMap<String, usize> = HashMap::new();
+        for c in singles.iter().filter(|c| first_name(c).as_ref() == Some(word)) {
+            *per_app.entry(format!("{} {}", c["network"], c["accountID"])).or_default() += 1;
+        }
+        if per_app.values().all(|&n| n == 1) {
             for &i in &same[1..] {
                 let (a, b) = (find(&mut parent, i), find(&mut parent, same[0]));
                 parent[a] = b;
@@ -444,6 +449,8 @@ mod tests {
         assert_eq!(people(&build(&cyp, &json!({ "splits": ["wa-c"] }))).len(), 2);
         let tom = [chat("ig-t", "Instagram", "Tom", None, at), chat("ig-u", "Instagram", "Tom", None, at), chat("wa-t", "WhatsApp", "Tom", None, at)];
         assert_eq!(people(&build(&tom, &json!({}))).len(), 3);
+        let martin = [chat("ig-m", "Instagram", "𝙼𝚊𝚛𝚝𝚒𝚗", None, at), chat("ig-s", "Instagram", "Martin Saldinger", None, at), chat("dc-m", "Discord", "Martin", None, at)];
+        assert_eq!(people(&build(&martin, &json!({}))).len(), 3);
     }
 
     #[test]
