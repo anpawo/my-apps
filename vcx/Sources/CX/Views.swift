@@ -493,6 +493,15 @@ struct CXView: View {
                 Text(session.permissions.isEmpty ? session.status : "Your answer is needed").font(.system(size: 12)).lineLimit(1).foregroundStyle(.black.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            let attached = session.draftImages
+            if !attached.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(attached.enumerated()), id: \.offset) { n, path in PictureView(path: path, title: "Image #\(n + 1)") { session.preview = path } }
+                    }
+                }.scrollIndicators(.hidden).frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
             VStack(spacing: 0) {
                 if let flow = session.questionFlow, !flow.done {
                     QuestionPanel(session: session, flow: flow).padding(.bottom, 14)
@@ -510,7 +519,8 @@ struct CXView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
             statusBar.padding(.leading, 10)
-        }.frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
+        }.animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: session.draftImages)
+            .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
     }
 
     var statusBar: some View {
@@ -1241,10 +1251,11 @@ struct MessageContent: View {
     var preview: (String) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(pieceRuns(item.data["content"] as? [JSON] ?? []).enumerated()), id: \.offset) { n, run in
+            let runs = pieceRuns(item.data["content"] as? [JSON] ?? [])
+            ForEach(Array(runs.enumerated()), id: \.offset) { n, run in
                 if run.count == 1, run[0]["type"] as? String == "text", let text = run[0]["text"] as? String {
                     CollapsibleText(text: text, collapsed: collapsed)
-                } else { PictureRow(pieces: run, preview: preview) }
+                } else { PictureRow(pieces: run, first: runs[..<n].reduce(0) { $0 + $1.filter { $0["type"] as? String != "text" }.count } + 1, preview: preview) }
             }
         }
     }
@@ -1252,6 +1263,7 @@ struct MessageContent: View {
 
 struct PictureRow: View {
     let pieces: [JSON]
+    var first = 1
     var preview: (String) -> Void
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -1261,14 +1273,15 @@ struct PictureRow: View {
     }
     private var cards: some View {
         ForEach(Array(pieces.enumerated()), id: \.offset) { n, piece in
-            if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path) { preview(path) } }
-            else { Label("Image \(n + 1)", systemImage: "photo").font(.system(size: 12)) }
+            if let path = piece["path"] as? String ?? piece["url"] as? String { PictureView(path: path, title: "Image #\(first + n)") { preview(path) } }
+            else { Label("Image #\(first + n)", systemImage: "photo").font(.system(size: 12)) }
         }
     }
 }
 
 struct PictureView: View {
     let path: String
+    var title = "Image"
     var action: () -> Void
     @State private var image: NSImage?
     var body: some View {
@@ -1276,7 +1289,7 @@ struct PictureView: View {
             HStack(spacing: 12) {
                 if let image { Image(nsImage: image).resizable().scaledToFill().frame(width: 64, height: 52).clipped().clipShape(RoundedRectangle(cornerRadius: 7)) }
                 else { Image(systemName: "photo").frame(width: 64, height: 52).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 7)) }
-                VStack(alignment: .leading, spacing: 4) { Text("Image").font(.system(size: 12, weight: .semibold)); Text("Click to preview").font(.system(size: 10)).opacity(0.6) }
+                VStack(alignment: .leading, spacing: 4) { Text(title).font(.system(size: 12, weight: .semibold)); Text("Click to preview").font(.system(size: 10)).opacity(0.6) }
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).opacity(0.5)
             }.padding(8).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
         }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 11))).task(id: path) { image = await Task.detached { thumbnail(path) }.value }

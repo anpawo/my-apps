@@ -253,8 +253,14 @@ final class Session: ObservableObject {
     var mode: String { activeMode == "bypass" ? "Bypass / YOLO" : "Ask for approval" }
     var onDraftConsumed: ((Int) -> Void)?
     var draft = NSAttributedString(string: "") {
-        didSet { if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) }; guessProject() }
+        didSet {
+            if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) }; guessProject()
+            let images = imagePaths(in: draft)
+            if images != draftImages { draftImages = images }
+        }
     }
+    // The draft is not published, so typing does not redraw the window; the images it holds are.
+    @Published private(set) var draftImages: [String] = []
     private var projectGuess: (text: String, route: Task<String?, Never>)?
     private var projectGuessDelay: Task<Void, Never>?
     var routeAccount: Account? { account.provider == "claude" ? account : Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled } }
@@ -1402,13 +1408,7 @@ final class Session: ObservableObject {
         let prompts = rows.filter { $0.kind == "user" }.flatMap(\.items).compactMap { $0.data["content"] as? [JSON] }
         guard !prompts.isEmpty, direction < 0 || promptHistoryIndex != nil else { return false }
         let index = max(0, min(prompts.count, (promptHistoryIndex ?? prompts.count) + direction))
-        let restored = NSMutableAttributedString(string: "")
-        if index < prompts.count {
-            for (n, piece) in prompts[index].enumerated() {
-                if let text = piece["text"] as? String { restored.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])) }
-                else if let path = piece["path"] as? String { restored.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
-            }
-        }
+        let restored = index < prompts.count ? runtimeDraft(inlineImages(prompts[index])) : NSAttributedString(string: "")
         promptHistoryIndex = index < prompts.count ? index : nil
         draft = restored; draftGeneration += 1; draftRevision += 1
         checkpointRuntimeDraft()
@@ -1465,7 +1465,7 @@ final class Session: ObservableObject {
 
     // Up arrow pressed while a withdrawal is in flight already copied the same prompt from history: keep one copy.
     private func withdrawnDraft(_ content: [JSON]) -> NSAttributedString {
-        let restored = NSMutableAttributedString(attributedString: runtimeDraft(content))
+        let restored = NSMutableAttributedString(attributedString: runtimeDraft(inlineImages(content)))
         if !NSArray(array: plainDraftContent(draftContent(draft))).isEqual(to: plainDraftContent(draftContent(restored))) { restored.append(draft) }
         return restored
     }

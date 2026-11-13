@@ -43,7 +43,7 @@ final class ComposerWindow: NSWindow {
 
 final class ImageChip: NSTextAttachment {
     let path: String
-    let number: Int
+    var number: Int { didSet { attachmentCell = chipCell("[Image #\(number)]") } }
     init(path: String, number: Int) {
         self.path = path; self.number = number
         super.init(data: nil, ofType: nil)
@@ -305,6 +305,17 @@ final class ComposerText: NSTextView {
             if let chip = value as? CommandChip { textStorage?.addAttribute(.toolTip, value: chip.value, range: range) }
         }
         highlightCommands()
+        renumberImages()
+    }
+    // "[Image #N]" is the image's place in the message, as the text sent and the row above the composer count them.
+    private func renumberImages() {
+        guard let storage = textStorage else { return }
+        var number = 0
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard let chip = value as? ImageChip else { return }
+            number += 1
+            if chip.number != number { chip.number = number; layoutManager?.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil) }
+        }
     }
     // Words naming a command light up only when typed with "/"; display only, never stored.
     func highlightCommands() {
@@ -316,7 +327,7 @@ final class ComposerText: NSTextView {
         }
     }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
-    override func didChangeText() { highlightCommands(); super.didChangeText(); needsDisplay = true }
+    override func didChangeText() { highlightCommands(); renumberImages(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
@@ -395,7 +406,7 @@ final class ComposerText: NSTextView {
         guard let storage = textStorage else { return ("", []) }
         var text = "", images: [String] = []
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            if let chip = value as? ImageChip { images.append(chip.path) }
+            if let chip = value as? ImageChip { images.append(chip.path); text += "[Image #\(images.count)]" }
             else if let chip = value as? PasteChip { text += chip.text }
             else if let chip = value as? CommandChip { text += text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? chip.value : chip.label }
             else if value == nil { text += (storage.string as NSString).substring(with: range) }
@@ -460,6 +471,33 @@ func draftContent(_ draft: NSAttributedString) -> [JSON] {
         else if value == nil { pieces.append(["type": "text", "text": (draft.string as NSString).substring(with: range)]) }
     }
     return pieces
+}
+
+func imagePaths(in draft: NSAttributedString) -> [String] {
+    var paths: [String] = []
+    draft.enumerateAttribute(.attachment, in: NSRange(location: 0, length: draft.length)) { value, _, _ in if let chip = value as? ImageChip { paths.append(chip.path) } }
+    return paths
+}
+
+private let imageTag = try! NSRegularExpression(pattern: #"\[Image #(\d+)\]"#)
+
+// A sent prompt names its images "[Image #N]" in its text and lists them after it; recalled, each image goes back to its place.
+func inlineImages(_ content: [JSON]) -> [JSON] {
+    let images = content.filter { $0["text"] == nil && $0["path"] != nil }
+    var used: Set<Int> = [], pieces: [JSON] = []
+    func add(_ text: String) { if !text.isEmpty { pieces.append(["type": "text", "text": text]) } }
+    for piece in content {
+        guard let text = piece["text"] as? String else { continue }
+        let string = text as NSString
+        var at = 0
+        for match in imageTag.matches(in: text, range: NSRange(location: 0, length: string.length)) {
+            guard let number = Int(string.substring(with: match.range(at: 1))), number >= 1, number <= images.count, used.insert(number).inserted else { continue }
+            add(string.substring(with: NSRange(location: at, length: match.range.location - at)))
+            pieces.append(images[number - 1]); at = NSMaxRange(match.range)
+        }
+        add(string.substring(from: at))
+    }
+    return pieces + images.enumerated().filter { !used.contains($0.offset + 1) }.map(\.element)
 }
 
 // A runtime worker started before paste chips existed echoes them back as plain text: same draft.

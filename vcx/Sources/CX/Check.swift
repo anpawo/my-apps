@@ -575,6 +575,20 @@ enum Check {
         check(abs((chip.attachmentCell?.cellSize().width ?? 0) - chipLabel.size().width - 12) < 0.01, "image chips reserve six points on each side without changing message text")
         draft.deleteCharacters(in: NSRange(location: draft.length - 1, length: 1))
         check(draftContent(draft).count == 1, "deleting a chip removes its attachment")
+        do {
+            let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 400, height: 1000))
+            storage.addLayoutManager(manager); manager.addTextContainer(container)
+            let field = ComposerText(frame: NSRect(x: 0, y: 0, width: 400, height: 100), textContainer: container); field.heldStorage = storage
+            let first = ImageChip(path: imagePath, number: 3)
+            let two = NSMutableAttributedString(string: "compare ")
+            two.append(NSAttributedString(attachment: first)); two.append(NSAttributedString(string: " with "))
+            two.append(NSAttributedString(attachment: ImageChip(path: "/other.png", number: 1)))
+            field.setDraft(two)
+            let (text, images) = field.message()
+            check(first.number == 1 && text == "compare [Image #1] with [Image #2]" && images == [imagePath, "/other.png"] && imagePaths(in: two) == images, "sent text names each image by its place in the message")
+            let recalled = draftContent(runtimeDraft(inlineImages([["type": "text", "text": text]] + images.map { ["type": "localImage", "path": $0] })))
+            check(recalled.map { $0["type"] as? String ?? "" } == ["text", "localImage", "text", "localImage"] && recalled[3]["path"] as? String == "/other.png", "a recalled prompt puts each image back at its tag")
+        }
         check((try! agentImage(imagePath)).1 == "image/png", "image type is determined from its contents")
         check(tableCells("| Provider | Status |") == ["Provider", "Status"], "native table cells")
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path ?? sourceFixture
