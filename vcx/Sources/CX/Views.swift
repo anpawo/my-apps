@@ -277,6 +277,7 @@ struct CXView: View {
     // Not observed here: the table publishes it on every scroll, for the pinned question alone.
     @State private var geometry = TranscriptGeometry()
     @State private var openCapability: String?
+    @State private var hoveredCapability: String?
     @State private var copiedID = false
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -427,6 +428,11 @@ struct CXView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.1)))
                     .contentShape(Rectangle())
             }.buttonStyle(.reactive).help(title == "RAG" ? "ERRORS lines sent with this session's prompts" : "Browse " + title.lowercased())
+            // A short dwell, so a pointer crossing the sidebar opens nothing.
+            .onHover { inside in
+                hoveredCapability = inside ? title : hoveredCapability == title ? nil : hoveredCapability
+                if inside { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if hoveredCapability == title { openCapability = title } } }
+            }
             .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
                 CapabilityPopup(session: session, title: title) { openCapability = nil }
             }
