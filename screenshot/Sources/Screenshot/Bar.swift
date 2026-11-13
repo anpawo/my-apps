@@ -32,7 +32,7 @@ final class Bar: NSPanel {
         acceptsMouseMovedEvents = true
         let back = Ground()
         contentView = back
-        // The overlay sets its own cursor on every move; the bar takes the arrow back.
+        // The overlay sets its own cursor on every move; the bar takes it back: a hand on a button.
         back.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
 
         let mid = Bar.height / 2
@@ -93,8 +93,14 @@ final class Bar: NSPanel {
 
     private func watchPointer() {
         let p = NSEvent.mouseLocation
-        if sections.map({ $0.hover(p) }).contains(true) { NSCursor.pointingHand.set() }
+        if sections.map({ $0.hover(p) }).contains(true) || onButton(p) { NSCursor.pointingHand.set() }
     }
+
+    /// Over a button that a click would press.
+    func onButton(_ p: CGPoint) -> Bool {
+        (contentView?.hitTest(convertPoint(fromScreen: p)) as? NSButton)?.isEnabled == true
+    }
+    private func pointer() { (onButton(NSEvent.mouseLocation) ? NSCursor.pointingHand : .arrow).set() }
 
     /// 8 pt off each end, bottoms level with the bar's: they grow upward and away from it.
     private func placeSections() {
@@ -105,8 +111,8 @@ final class Bar: NSPanel {
 
     /// ⌥ + `key`; false when no setting has that letter.
     func flip(_ key: String) -> Bool { sections.contains { $0.flip(key) } }
-    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
-    override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseEntered(with event: NSEvent) { pointer() }
+    override func mouseMoved(with event: NSEvent) { pointer() }
 
     func refresh() {
         let s = session.state
