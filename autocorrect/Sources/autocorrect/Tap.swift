@@ -89,7 +89,9 @@ final class Tap {
         return .char(c)
     }
 
-    private static func post(_ proxy: CGEventTapProxy, _ source: CGEventSource?, code: CGKeyCode = 0, text: String? = nil) {
+    // Text rides on the ISO § key (10), never on a letter: typing "ca " fast, the A key is still down when the
+    // fix is typed, and on its key code the ç read as a repeat of it, which press-and-hold drops (VCX, chat apps).
+    private static func post(_ proxy: CGEventTapProxy, _ source: CGEventSource?, code: CGKeyCode = 10, text: String? = nil) {
         let units = text.map { Array($0.utf16) } ?? []
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { continue }
