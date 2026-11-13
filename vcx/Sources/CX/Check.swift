@@ -1240,6 +1240,8 @@ enum Check {
                 await moving.send(text: "Keep working", images: [])
                 check((moving.rpc as? FixtureConnection)?.sent.last?["cwd"] as? String == repoPath, "the next turn uses the selected project directory")
                 check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
+                await moving.refreshCatalog()
+                check(!moving.recent.contains { $0.id == conversation }, "/resume leaves out a conversation still open in a window")
                 moving.close()
                 let resumed = Session(cwd: directory.path, stateDirectory: state)
                 var launchFolder: String?
@@ -1250,6 +1252,11 @@ enum Check {
                 try? await resumed.activate(Account(id: "claude-default", name: "Default Claude", provider: "claude"), resume: resumed.threadID, keepRows: true)
                 check(launchFolder == URL(fileURLWithPath: directory.path).standardized.path && resumed.cwd == repoPath, "a resumed Claude starts in the conversation's folder while VCX shows the selected project")
                 resumed.close()
+                let lister = Session(cwd: directory.path, stateDirectory: state)
+                lister.connectionFactory = { account, _ in FixtureConnection(account) }
+                await lister.connect(resume: nil)
+                check(lister.recent.first?.id == conversation, "/resume lists the last closed conversation first")
+                lister.close()
             }
         }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))

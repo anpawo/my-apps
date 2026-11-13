@@ -419,7 +419,8 @@ final class Session: ObservableObject {
             }
             let local = nativeRecent()
             let savedIDs = Set(local.compactMap(\.backendID))
-            recent = local + external.filter { !savedIDs.contains($0.id) }
+            // A window saves its record when it closes, so once open ones are left out the newest file is the last one closed.
+            recent = local.filter { !isOpen(String($0.id.dropFirst(7))) } + external.filter { !savedIDs.contains($0.id) }
             let entries = catalog["data"] as? [JSON] ?? []
             models = entries.compactMap { $0["id"] as? String }
             modelEfforts = Dictionary(entries.compactMap { entry in
@@ -1263,6 +1264,13 @@ final class Session: ObservableObject {
             throw CXError(message: "This conversation is already open in another window. Use that window, or start a new conversation here.")
         }
         return fd
+    }
+    private func isOpen(_ id: String) -> Bool {
+        if recordLock?.0 == id { return true }
+        let fd = Darwin.open(stateDirectory.appendingPathComponent("locks").appendingPathComponent(id + ".lock").path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        return flock(fd, LOCK_SH | LOCK_NB) != 0
     }
     private func releaseRecord() {
         if let lock = recordLock { flock(lock.1, LOCK_UN); Darwin.close(lock.1); recordLock = nil }
