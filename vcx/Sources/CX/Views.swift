@@ -1056,8 +1056,10 @@ struct UserBubble: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("ERRORS lines VCX added").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(accent)
                             ForEach(Array(recalled.enumerated()), id: \.offset) { _, line in
-                                Text("• " + line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6))
-                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Text("•")
+                                    Text(line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                }.font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6))
                             }
                         }.padding(.top, 4).transition(.opacity)
                     }
