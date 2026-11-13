@@ -41,12 +41,16 @@ struct Typist {
     /// The last word, counted as his once the next key shows he kept it, with what he had typed
     /// when it was a fix.
     private var kept: (word: String, typed: String?)?
+    /// The word before, as typed and as it reads, while the next one follows a single space: the
+    /// two may be one word (infor mation) or a pair to put right (their is).
+    private var pending: Pending?
+    typealias Pending = (typed: String, shown: String, prev: String?, kept: (word: String, typed: String?))
 
     init(_ words: Words) { self.words = words }
 
     mutating func handle(_ key: Key) -> Act {
-        let last = undo, wasEarly = early
-        undo = nil; early = false
+        let last = undo, wasEarly = early, before = pending
+        undo = nil; early = false; pending = nil
         if wasEarly, let u = last, case .char(let c) = key, !Self.ends.contains(c), !Self.after.contains(c) {
             kept = nil
             word = []; tail = []; clean = false; prev = nil
@@ -79,12 +83,13 @@ struct Typist {
                     return .pass
                 }
                 word.append(c)
+                pending = before
                 return .pass
             }
             if tail.isEmpty, clean, !word.isEmpty, c == "." || c == "," {
                 let typed = String(word)
                 word = []; tail = [c]
-                let act = end(typed, "", key: c)
+                let act = end(typed, "", key: c, after: before)
                 early = undo != nil
                 return act
             }
@@ -98,6 +103,7 @@ struct Typist {
                     return .pass
                 }
                 tail.append(c)
+                pending = before
                 return .pass
             }
             guard Self.ends.contains(c) else {
@@ -113,24 +119,42 @@ struct Typist {
                 if !typed.isEmpty || ended { prev = nil }
                 return .pass
             }
-            return end(typed, punctuation, key: c)
+            return end(typed, punctuation, key: c, after: before)
         }
     }
 
-    /// Fixes `typed`, which `punctuation` and then `c` follow.
-    private mutating func end(_ typed: String, _ punctuation: String, key c: Character) -> Act {
+    /// Fixes `typed`, which `punctuation` and then `c` follow, and the word `before` it with it.
+    private mutating func end(_ typed: String, _ punctuation: String, key c: Character,
+                              after before: Pending?) -> Act {
         let ended = punctuation.contains(where: Self.sentenceEnds.contains) || Self.sentenceEnds.contains(c)
-        let fixed = words.correct(typed, fr: fr, after: prev) ?? typed
+        // What is erased (`shown`) and what a ⌫ puts back (`typed`): the word before too, when the fix spans it.
+        let ahead = prev
+        var fixed = words.correct(typed, fr: fr, after: prev) ?? typed, shown = typed, typed = typed
+        if let before {
+            var both: String?
+            if let joined = words.join(before.typed, typed) {
+                both = joined
+                typed = before.typed + " " + typed
+            } else if let (a, b) = words.agree(before.shown, fixed, fr: fr, after: before.prev) {
+                if a == before.shown { fixed = b } else { both = a + " " + b; typed = before.shown + " " + typed }
+            }
+            if let both {
+                words.unlearn(before.kept.word, typed: before.kept.typed)
+                fixed = both
+                shown = before.shown + " " + shown
+            }
+        }
         fr = ended ? 0.5 : fixed.split(separator: " ").reduce(fr) { words.nextFr($0, after: String($1)) }
         prev = ended || !punctuation.isEmpty || !Self.ends.contains(c) ? nil
             : fixed.split(separator: " ").last.map { $0.lowercased().replacingOccurrences(of: "’", with: "'") }
         kept = (fixed, fixed == typed ? nil : typed)
-        guard fixed != typed else { return .pass }
-        let same = zip(typed, fixed).prefix { $0 == $1 }.count
-        let typedTail = String(typed.dropFirst(same)) + punctuation, fixedTail = String(fixed.dropFirst(same)) + punctuation
+        if punctuation.isEmpty, c == " ", !shown.contains(" ") { pending = (typed, fixed, ahead, kept!) }
+        guard fixed != shown else { return .pass }
+        let same = zip(zip(shown, typed), fixed).prefix { $0.0 == $1 && $0.1 == $1 }.count
+        let shownTail = String(shown.dropFirst(same)) + punctuation, fixedTail = String(fixed.dropFirst(same)) + punctuation
         // After Return the message may be gone (sent): a ⌫ there is not about the word.
-        if c != "\r", c != "\n" { undo = (fixedTail.count + 1, typedTail + String(c), typed, fixed) }
-        return .edit(delete: typedTail.count, type: fixedTail, thenKey: true)
+        if c != "\r", c != "\n" { undo = (fixedTail.count + 1, String(typed.dropFirst(same)) + punctuation + String(c), typed, fixed) }
+        return .edit(delete: shownTail.count, type: fixedTail, thenKey: true)
     }
 
     /// `text` as it reads once typed through this, a line at a time.

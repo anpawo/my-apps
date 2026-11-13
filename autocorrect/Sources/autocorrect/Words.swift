@@ -253,6 +253,69 @@ final class Words {
         return spelled == typed ? nil : spelled
     }
 
+    /// `a b` as one word, when a space fell inside it (infor mation): neither half is a word of the
+    /// lexicon, of macOS or his own (the count `learn` just gave `a` aside), and both together are.
+    func join(_ a: String, _ b: String) -> String? {
+        let la = a.lowercased(), joined = la + b
+        guard a.count >= 2, b.count >= 2, joined.count <= Self.maxLength, (a + b).allSatisfy(\.isLetter),
+              b.first!.isLowercase, !a.dropFirst().contains(where: \.isUppercase),
+              (mine.counts[la] ?? 0) <= 1, mine.counts[b] == nil, !isWord(la), !isWord(b), !known(la), !known(b),
+              isWord(joined), known(joined), !Self.rude.contains(joined),
+              mine.rejected[la + " " + b + "\t" + joined] == nil else { return nil }
+        return Self.cased(capital[joined] ?? joined, like: a)
+    }
+
+    /// Real words often written for one another (not ses for ces: both fit nearly anywhere).
+    static let confusable: [String: [String]] = {
+        let groups = [["their", "there", "they're"], ["your", "you're"], ["its", "it's"], ["then", "than"],
+                      ["to", "too"], ["whose", "who's"], ["were", "we're", "where"], ["lose", "loose"],
+                      ["ces", "c'est", "s'est"], ["ses", "c'est", "s'est"], ["et", "est"], ["son", "sont"], ["on", "ont"],
+                      ["ce", "se"], ["mes", "mais"], ["peu", "peux", "peut"], ["quelle", "qu'elle"],
+                      ["sans", "s'en"], ["si", "s'y"], ["ni", "n'y"], ["ma", "m'a"], ["ta", "t'a"]]
+        var out: [String: [String]] = [:]
+        for g in groups { for w in g { out[w, default: []] += g.filter { $0 != w && !(out[w] ?? []).contains($0) } } }
+        return out
+    }()
+    /// Words that only come before a plural noun, or only before a singular one.
+    static let plural: Set<String> = ["les", "des", "ces", "mes", "tes", "ses", "nos", "vos", "leurs", "plusieurs", "quelques",
+                                      "these", "those", "many", "several", "two", "three", "four", "five"]
+    static let singular: Set<String> = ["un", "une", "le", "la", "ce", "cet", "cette", "mon", "ton", "son", "ma", "ta", "sa",
+                                        "notre", "votre", "leur", "chaque", "a", "an", "this", "every", "each", "another"]
+
+    // Clean text (his READMEs and notes, 22k words) gets no change below 100; "courte et évidente" scored 76.
+    static let agreeBar = 100.0
+
+    /// `a` then `b`, two real words, with one put right when that reads far likelier: the one
+    /// before by the words on both sides of it, `pp` and `b` ("their is" is "there is", "il et
+    /// parti" "il est parti"), or a noun by the word that sets its number ("les maison" is "les
+    /// maisons"). Nil to leave them.
+    func agree(_ a: String, _ b: String, fr: Double, after pp: String?) -> (String, String)? {
+        let la = a.lowercased().replacingOccurrences(of: "’", with: "'"), lb = b.lowercased().replacingOccurrences(of: "’", with: "'")
+        guard [a, b].allSatisfy({ w in w.allSatisfy { $0.isLetter || $0 == "'" || $0 == "’" } && !w.dropFirst().contains(where: \.isUppercase) }),
+              isWord(la), isWord(lb) else { return nil }
+        let usable = { (w: String) in self.isWord(w) && self.frenchAccents(w) }
+        var scores: [(String, String, Double)] = []
+        for x in Self.confusable[la] ?? [] where usable(x) && pairs[Self.pairKey(x, lb)] != nil {
+            scores.append((x, lb, context(x, fr: fr, after: pp) * context(lb, fr: fr, after: x) / (context(la, fr: fr, after: pp) * context(lb, fr: fr, after: la))))
+        }
+        if lb.count >= 3 {
+            let other = Self.plural.contains(la) ? [lb + "s", lb + "x"].filter { _ in lb.last != "s" && lb.last != "x" }
+                : Self.singular.contains(la) && (lb.last == "s" || lb.last == "x") ? [String(lb.dropLast())] : []
+            for y in other where usable(y) && pairs[Self.pairKey(la, y)] != nil {
+                scores.append((la, y, context(y, fr: fr, after: la) / context(lb, fr: fr, after: la)))
+            }
+        }
+        scores.sort { $0.2 > $1.2 }
+        guard let best = scores.first, best.2 >= Self.agreeBar, scores.count < 2 || best.2 >= 3 * scores[1].2,
+              mine.rejected[la + " " + lb + "\t" + best.0 + " " + best.1] == nil,
+              best.0 != la || mine.rejected[lb + "\t" + best.1] == nil else { return nil }
+        let spell = { (w: String, like: String) in
+            let s = Self.cased(self.capital[w] ?? w, like: like)
+            return like.contains("’") ? s.replacingOccurrences(of: "'", with: "’") : s
+        }
+        return (best.0 == la ? a : spell(best.0, a), best.1 == lb ? b : spell(best.1, b))
+    }
+
     /// `word` in the case he typed (Deja → Déjà), and a word the lexicon spells with a capital
     /// keeps it (i → I).
     static func cased(_ word: String, like typed: String) -> String {
@@ -392,6 +455,15 @@ final class Words {
         let key = word.lowercased()
         guard (2...Self.maxLength).contains(key.count), counted(key) else { return }
         mine.counts[key, default: 0] += 1
+        dirty = true
+    }
+
+    /// Takes back what `learn` and `keep` counted for a word that turned out to be half of a pair
+    /// put right (infor in infor mation).
+    func unlearn(_ word: String, typed: String?) {
+        let key = word.lowercased()
+        if counted(key), let n = mine.counts[key] { mine.counts[key] = n > 1 ? n - 1 : nil }
+        if let typed, let n = mine.fixes[typed.lowercased() + "\t" + key] { mine.fixes[typed.lowercased() + "\t" + key] = n > 1 ? n - 1 : nil }
         dirty = true
     }
 

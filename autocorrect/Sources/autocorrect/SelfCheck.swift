@@ -77,6 +77,13 @@ enum SelfCheck {
             ("il est tres bien. (tres)", "il est très bien. (très)", "punctuation around the word"),
             ("une côte", "une côte", "a word he typed with its accents stays"),
             ("tres2 ok", "tres2 ok", "not with a digit"),
+            ("une infor mation", "une information", "a space fallen inside a word, taken out"),
+            ("il et parti", "il est parti", "a real word wrong by the words on both sides"),
+            ("their is a cat", "there is a cat", ""),
+            ("ils son partis", "ils sont partis", ""),
+            ("des enfant jouent", "des enfants jouent", "a noun takes the number its determiner sets"),
+            ("une courte et évidente phrase", "une courte et évidente phrase", "et stays where it fits"),
+            ("ses récits et ses demandes", "ses récits et ses demandes", "ses is never made ces"),
         ] {
             expect(fix(typed), want, what.isEmpty ? typed : "\(what): \(typed)")
         }
@@ -91,6 +98,9 @@ enum SelfCheck {
         expect(t.handle(.backspace), .edit(delete: 4, type: "eja ", thenKey: false), "⌫ right after puts back what was typed")
         for c in "deja" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .pass, "and the same word is then left alone")
+        for c in "il et parti" { _ = t.handle(.char(c)) }
+        expect(t.handle(.char(" ")), .edit(delete: 7, type: "st parti", thenKey: true), "the word before is put right once the next one ends")
+        expect(t.handle(.backspace), .edit(delete: 9, type: "t parti ", thenKey: false), "and ⌫ puts both back")
         _ = t.handle(.reset)
         for c in "tres" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .pass, "a word begun after an arrow is never fixed")
