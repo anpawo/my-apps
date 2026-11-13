@@ -1249,7 +1249,7 @@ final class Session: ObservableObject {
         let directory = nativeDirectory
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         return files.sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }.prefix(40).compactMap { url in
-            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == conversationDirectory else { return nil }
+            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == conversationDirectory, (record["rows"] as? [Any])?.isEmpty == false else { return nil }
             return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: record["title"] as? String ?? "New conversation", backendID: record["threadId"] as? String)
         }
     }

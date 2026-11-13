@@ -1255,8 +1255,10 @@ enum Check {
                 let lister = Session(cwd: directory.path, stateDirectory: state)
                 lister.connectionFactory = { account, _ in FixtureConnection(account) }
                 await lister.connect(resume: nil)
+                let empty = lister.currentConversationID
+                lister.save(); lister.close()
                 check(lister.recent.first?.id == conversation, "/resume lists the last closed conversation first")
-                lister.close()
+                check(FileManager.default.fileExists(atPath: lister.nativeDirectory.appendingPathComponent(String(empty.dropFirst(7)) + ".json").path) && !lister.nativeRecent().contains { $0.id == empty }, "/resume leaves out a conversation closed without a message")
             }
         }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))
