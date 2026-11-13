@@ -667,6 +667,7 @@ async function select(id) {
   fillUp();
   fade?.cancel();
   pickTarget();
+  readOnSight(item);
   $('#input').focus();
 }
 
@@ -1054,13 +1055,13 @@ async function pollThread() {
   }
   drawSeen();
   if (atBottom) followEnd(last || box);
-  if (fresh.some(m => !m.isSender)) pickTarget(true);
+  if (fresh.some(m => !m.isSender)) { pickTarget(true); if (document.hasFocus()) readOnSight(item); }
   // A message of mine, sent from here or from another device, answers what came before it.
   if (fresh.some(m => m.isSender)) markRead(item);
 }
 
 // A badge stays until I answer (a message of mine, here or elsewhere; a reaction elsewhere clears Beeper's count) or
-// press ⌘K for "seen, nothing to say"; opening a chat sends no read receipt, those two do.
+// press ⌘K for "seen, nothing to say"; those two send the read receipt, and so does opening a chat anywhere but on Instagram (readOnSight).
 const seen = JSON.parse(localStorage.seen || '{}');
 // What I marked seen tells Beeper too, so the sender gets the read receipt; a chat still unread there is sent again.
 const sendRead = c => api('POST', `/v1/chats/${enc(c.id)}/read`, {}).catch(() => {});
@@ -1070,20 +1071,23 @@ function applySeen(item) {
   for (const c of item.chats) if (c.unread && (Date.parse(seen[c.id]) >= Date.parse(c.last) || answered > Date.parse(c.last))) { c.unread = 0; sendRead(c); }
   item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
 }
-function markRead(item) {
-  for (const c of item.chats) {
+function markRead(item, only = () => true) {
+  for (const c of item.chats.filter(only)) {
     const newest = state.msgs.filter(m => m.chatID === c.id && !m.isSender).at(-1)?.timestamp;
     seen[c.id] = [seen[c.id], c.last, newest].filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     if (c.unread) sendRead(c);
     c.unread = 0;
   }
   localStorage.seen = JSON.stringify(seen);
-  item.unread = 0;
-  document.querySelector(`.fav[data-id="${CSS.escape(item.id)}"]`)?.classList.remove('unread');
+  item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
   const n = document.querySelector(`#list .row[data-id="${CSS.escape(item.id)}"]`);
+  if (item.unread) { if (n) fill(n, item); return; }
+  document.querySelector(`.fav[data-id="${CSS.escape(item.id)}"]`)?.classList.remove('unread');
   const badge = n?.querySelector('.badge');
   if (badge) anim(badge, { scale: [1, 0.4], opacity: [1, 0] }, 180).finished.then(() => fill(n, item)).catch(() => {});
 }
+// Seeing a conversation sends the read receipt like the app does, except on Instagram, read only by an answer or Cmd-K.
+const readOnSight = item => markRead(item, c => netOf(c) !== 'instagram');
 
 /* ---------- Composer ---------- */
 

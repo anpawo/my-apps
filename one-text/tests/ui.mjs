@@ -167,8 +167,8 @@ check(JSON.stringify(thread) === JSON.stringify(['instagram:did you see the reel
 const chips = await page.$$eval('header .chip', cs => cs.map(c => c.dataset.net + (c.classList.contains('on') ? '*' : '') + ':' + c.textContent.trim()));
 check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*:', 'whatsapp:']), `header shows both logos, Instagram highlighted, no names (${chips})`);
 const reads = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path));
-check(reads.length === 0, `no read receipt sent (${reads.length})`);
-check(!!(await page.$('#people .row[data-id="ig-lea"] .badge')), 'opening a conversation keeps its badge');
+check(JSON.stringify(reads) === '["/v1/chats/wa-lea/read"]', `opening sends the read receipt on WhatsApp, not on Instagram (${reads})`);
+check(!!(await page.$('#people .row[data-id="ig-lea"] .badge')), 'opening a conversation keeps its Instagram badge');
 await page.keyboard.press('Meta+k');
 await page.waitForTimeout(300);
 await page.evaluate(() => refreshList());
