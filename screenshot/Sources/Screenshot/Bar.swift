@@ -100,10 +100,11 @@ final class Bar: NSPanel {
         if sections.map({ $0.hover(p) }).contains(true) { NSCursor.pointingHand.set() }
     }
 
-    /// 8 pt off each end, bottoms level: they grow upward and away from the bar.
+    /// 8 pt off each end, centred on the bar's height: they grow upward and away from it.
     private func placeSections() {
-        saveIn.anchor = CGPoint(x: frame.minX - 8, y: frame.minY)
-        options.anchor = CGPoint(x: frame.maxX + 8, y: frame.minY)
+        let y = frame.minY + ((Bar.height - Section.shutHeight) / 2).rounded()
+        saveIn.anchor = CGPoint(x: frame.minX - 8, y: y)
+        options.anchor = CGPoint(x: frame.maxX + 8, y: y)
         for s in sections { s.setFrame(s.target(s.expanded), display: false) }
     }
 
@@ -269,7 +270,7 @@ final class Section: NSPanel {
     private let name: String
     private let growsLeft: Bool
     private let items: () -> [Item]
-    private let label: NSTextField     // the name alone, while shrunk
+    private let label: Title           // the name: centred while shrunk, the header while open
     private let grip: Grip             // in the corner away from the bar, while shrunk
     /// A shortcut opens the block a moment, so the flip shows.
     private var peekUntil: CFTimeInterval = 0
@@ -278,7 +279,8 @@ final class Section: NSPanel {
     /// The x of the side facing the bar, and the bottom: what stays put as it grows.
     var anchor = CGPoint.zero
     private var openSize = CGSize.zero
-    private var shutSize: CGSize { CGSize(width: ceil(label.frame.width) + 32, height: Bar.height) }
+    static let shutHeight: CGFloat = 36
+    private var shutSize: CGSize { CGSize(width: ceil(label.width) + 44, height: Section.shutHeight) }
 
     static func saveIn() -> Section {
         Section("Save in", growsLeft: true) {
@@ -300,7 +302,7 @@ final class Section: NSPanel {
         self.name = name
         self.growsLeft = growsLeft
         self.items = items
-        label = NSTextField(labelWithString: name)
+        label = Title(name)
         grip = Grip(left: growsLeft)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
@@ -314,16 +316,12 @@ final class Section: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         let back = Ground()
         contentView = back
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = NSColor.labelColor.withAlphaComponent(0.85)
-        label.sizeToFit()
         setFrame(target(false), display: false)
-        label.setFrameOrigin(CGPoint(x: 16, y: ((Bar.height - label.frame.height) / 2).rounded()))
-        // Even margins stretch evenly: the name stays centred while it fades out.
-        label.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
+        label.frame = back.bounds
+        label.autoresizingMask = [.width, .height]
         // Pinned to the top and to the side by the bar, so the edges that move clip it.
         body.autoresizingMask = [.minYMargin, growsLeft ? .minXMargin : .maxXMargin]
-        grip.setFrameOrigin(CGPoint(x: growsLeft ? 0 : shutSize.width - grip.frame.width, y: Bar.height - grip.frame.height))
+        grip.setFrameOrigin(CGPoint(x: growsLeft ? 0 : shutSize.width - grip.frame.width, y: Section.shutHeight - grip.frame.height))
         grip.autoresizingMask = [.minYMargin, growsLeft ? .maxXMargin : .minXMargin]
         for v in [label, grip, body] as [NSView] {
             v.wantsLayer = true
@@ -356,13 +354,7 @@ final class Section: NSPanel {
         openSize = CGSize(width: max(width + 2 * Section.pad, shutSize.width), height: h)
         let size = contentView!.frame.size
         body.frame = CGRect(x: growsLeft ? size.width - openSize.width : 0, y: size.height - h, width: openSize.width, height: h)
-        let title = NSTextField(labelWithString: name)
-        title.font = .systemFont(ofSize: 11, weight: .semibold)
-        title.textColor = .secondaryLabelColor
-        title.sizeToFit()
         var y = h - Section.pad - Section.titleHeight
-        title.setFrameOrigin(CGPoint(x: Section.pad + 6, y: y + 3))
-        body.addSubview(title)
         for k in keys {
             y -= Section.row
             k.frame = CGRect(x: Section.pad, y: y, width: width, height: Section.row)
@@ -370,12 +362,12 @@ final class Section: NSPanel {
             y -= Section.gap
         }
         body.alphaValue = expanded ? 1 : 0
-        label.alphaValue = expanded ? 0 : 1
-        grip.alphaValue = label.alphaValue
+        label.progress = expanded ? 1 : 0
+        grip.alphaValue = expanded ? 0 : 1
     }
 
-    /// Grows to its rows or back to its name: an ease-out over 250 ms, the two crossfading;
-    /// Reduce Motion keeps the crossfade alone.
+    /// Grows to its rows or back to its name: an ease-out over 250 ms, the name gliding to the
+    /// header and the rows fading in; Reduce Motion keeps the fade alone.
     func expand(_ on: Bool, animated: Bool = true) {
         guard on != expanded || !animated else { return }
         expanded = on
@@ -383,18 +375,18 @@ final class Section: NSPanel {
         guard animated else {
             setFrame(f, display: true)
             body.alphaValue = on ? 1 : 0
-            label.alphaValue = on ? 0 : 1
-            grip.alphaValue = label.alphaValue
+            label.progress = on ? 1 : 0
+            grip.alphaValue = on ? 0 : 1
             return
         }
         let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if still { setFrame(f, display: true) }
+        if still { setFrame(f, display: true); label.progress = on ? 1 : 0 }
         NSAnimationContext.runAnimationGroup { c in
             c.duration = 0.25
             c.timingFunction = CAMediaTimingFunction(name: .easeOut)
             if !still { animator().setFrame(f, display: true) }
             body.animator().alphaValue = on ? 1 : 0
-            label.animator().alphaValue = on ? 0 : 1
+            if !still { label.animator().progress = on ? 1 : 0 }
             grip.animator().alphaValue = on ? 0 : 1
         }
     }
@@ -462,6 +454,38 @@ private final class StripKey: NSView {
         NSColor.labelColor.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5).fill()
         put(chord, attrs, in: cap)
+    }
+}
+
+/// A group's name, drawn at `progress` between centred at 15 pt (0) and the header's 11 pt in the
+/// top-left corner (1), so it glides there as the block opens rather than fading into a copy.
+private final class Title: NSView {
+    private let name: String
+    @objc dynamic var progress: CGFloat = 0 { didSet { needsDisplay = true } }
+
+    init(_ name: String) {
+        self.name = name
+        super.init(frame: .zero)
+    }
+    required init?(coder: NSCoder) { nil }
+
+    override static func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+        key == "progress" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+    }
+
+    private func attrs(_ t: CGFloat) -> [NSAttributedString.Key: Any] {
+        [.font: NSFont.systemFont(ofSize: 15 - 4 * t, weight: .semibold),
+         .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85 - 0.3 * t)]
+    }
+    var width: CGFloat { (name as NSString).size(withAttributes: attrs(0)).width }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let t = min(max(progress, 0), 1)
+        let a = attrs(t)
+        let size = (name as NSString).size(withAttributes: a)
+        let shut = CGPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2)
+        let open = CGPoint(x: 14, y: bounds.height - 8 - 17)
+        (name as NSString).draw(at: CGPoint(x: shut.x + (open.x - shut.x) * t, y: shut.y + (open.y - shut.y) * t), withAttributes: a)
     }
 }
 
