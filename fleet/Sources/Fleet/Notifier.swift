@@ -21,6 +21,7 @@ final class Notifier: NSObject {
     /// one banner rather than one per refresh. Cleared when the session stops waiting.
     private var announced: Set<String> = []
     private var authorized = false
+    fileprivate var pendingActivation: NSObjectProtocol?
 
     /// `UNUserNotificationCenter` reads the running process's bundle, and a bare binary — `swift
     /// run`, `--render`, `--scan` — has none, which is a crash rather than a failure. Everything
@@ -130,6 +131,31 @@ extension Notifier: UNUserNotificationCenterDelegate {
             return
         }
         let id = info["sessionId"] as? String ?? (info["pid"] as? Int).map { "pid:\($0)" }
-        await MainActor.run { self.onSelect?(id) }
+        await MainActor.run { self.select(id) }
+    }
+}
+
+extension Notifier {
+    /// usernoted brings Fleet front about 10 ms after this handler runs, which took the focus
+    /// straight back from the session just raised (13-11-2026: VCX front at .817, Fleet at .827).
+    /// So the handoff waits for Fleet to be active, or 1 s if that never comes.
+    fileprivate func select(_ id: String?) {
+        guard !NSApp.isActive else { onSelect?(id); return }
+        pendingActivation.map(NotificationCenter.default.removeObserver)
+        pendingActivation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.handOff(id) } }
+        let token = pendingActivation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, pendingActivation === token else { return }
+            handOff(id)
+        }
+    }
+
+    private func handOff(_ id: String?) {
+        guard let token = pendingActivation else { return }
+        NotificationCenter.default.removeObserver(token)
+        pendingActivation = nil
+        onSelect?(id)
     }
 }
