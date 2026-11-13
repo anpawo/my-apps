@@ -278,6 +278,7 @@ struct CXView: View {
     @State private var geometry = TranscriptGeometry()
     @State private var openCapability: String?
     @State private var hoveredCapability: String?
+    @State private var hoveringCapabilityPanel = false
     @State private var copiedID = false
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -308,6 +309,17 @@ struct CXView: View {
             }
             // The composer box grows with the question it opens, and resizes as each question replaces the last.
             .animation(.smooth(duration: reduceMotion ? 0.1 : 0.3), value: session.questionFlow.flatMap { $0.done ? nil : $0.step })
+            // Drawn in this window rather than a popover, which is a window of its own and slow to come up on hover.
+            .overlay(alignment: .topLeading) {
+                if let title = openCapability {
+                    CapabilityPopup(session: session, title: title) { openCapability = nil }
+                        .clipShape(RoundedRectangle(cornerRadius: 12)).raised(RoundedRectangle(cornerRadius: 12))
+                        .onHover { inside in hoveringCapabilityPanel = inside; if !inside { closeCapabilityLater() } }
+                        .padding(.leading, 8).padding(.top, 10)
+                        .transition(reduceMotion ? .opacity : .offset(x: -16).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.22), value: openCapability != nil)
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
@@ -347,6 +359,7 @@ struct CXView: View {
         .onExitCommand {
             guard !session.frontendReplacing else { return }
             if session.preview != nil { session.preview = nil }
+            else if openCapability != nil { openCapability = nil }
             else if session.commandQuery != nil { session.dismissCommands() }
             else if session.busy { Task { await session.stop(source: "Escape") } }
         }
@@ -432,10 +445,13 @@ struct CXView: View {
             .onHover { inside in
                 hoveredCapability = inside ? title : hoveredCapability == title ? nil : hoveredCapability
                 if inside { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if hoveredCapability == title { openCapability = title } } }
+                else { closeCapabilityLater() }
             }
-            .popover(isPresented: Binding(get: { openCapability == title }, set: { if !$0 { openCapability = nil } }), arrowEdge: .trailing) {
-                CapabilityPopup(session: session, title: title) { openCapability = nil }
-            }
+    }
+
+    // The grace lets the pointer cross from a sidebar button to its panel.
+    private func closeCapabilityLater() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if hoveredCapability == nil && !hoveringCapabilityPanel { openCapability = nil } }
     }
 
     private var loginStatus: some View {
@@ -836,7 +852,7 @@ struct CapabilityPopup: View {
                 }.padding(16)
             }
         }.frame(width: 380, height: 440).background(Color(white: 0.98)).preferredColorScheme(.light)
-            .onAppear { searching = true }.onExitCommand(perform: dismiss)
+            .onExitCommand(perform: dismiss)
     }
 }
 
