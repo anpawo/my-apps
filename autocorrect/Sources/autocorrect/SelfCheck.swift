@@ -84,6 +84,9 @@ enum SelfCheck {
             ("des enfant jouent", "des enfants jouent", "a noun takes the number its determiner sets"),
             ("une courte et évidente phrase", "une courte et évidente phrase", "et stays where it fits"),
             ("ses récits et ses demandes", "ses récits et ses demandes", "ses is never made ces"),
+            ("j'ai manger une pomme", "j'ai mangé une pomme", "a past participle after avoir"),
+            ("je vais mangé", "je vais manger", "an infinitive after aller"),
+            ("le marché de noël", "le marché de noël", "a noun ending in é stays"),
         ] {
             expect(fix(typed), want, what.isEmpty ? typed : "\(what): \(typed)")
         }

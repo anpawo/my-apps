@@ -281,6 +281,11 @@ final class Words {
                                       "these", "those", "many", "several", "two", "three", "four", "five"]
     static let singular: Set<String> = ["un", "une", "le", "la", "ce", "cet", "cette", "mon", "ton", "son", "ma", "ta", "sa",
                                         "notre", "votre", "leur", "chaque", "a", "an", "this", "every", "each", "another"]
+    /// Words a French verb's ending follows: a past participle after avoir (j'ai mangé), an
+    /// infinitive after aller, pouvoir, vouloir, devoir or a preposition (je vais manger), -ez after vous.
+    static let participle: Set<String> = ["ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "avions", "aviez", "avaient", "été"]
+    static let infinitive: Set<String> = ["vais", "vas", "va", "allons", "vont", "pour", "peux", "peut", "pouvons", "peuvent",
+                                          "veux", "veut", "voulons", "veulent", "dois", "doit", "devons", "doivent", "faut", "sans"]
 
     // Clean text (his READMEs and notes, 22k words) gets no change below 100; "courte et évidente" scored 76.
     static let agreeBar = 100.0
@@ -299,8 +304,16 @@ final class Words {
             scores.append((x, lb, context(x, fr: fr, after: pp) * context(lb, fr: fr, after: x) / (context(la, fr: fr, after: pp) * context(lb, fr: fr, after: la))))
         }
         if lb.count >= 3 {
-            let other = Self.plural.contains(la) ? [lb + "s", lb + "x"].filter { _ in lb.last != "s" && lb.last != "x" }
+            var other = Self.plural.contains(la) ? [lb + "s", lb + "x"].filter { _ in lb.last != "s" && lb.last != "x" }
                 : Self.singular.contains(la) && (lb.last == "s" || lb.last == "x") ? [String(lb.dropLast())] : []
+            let verb = String(la.split(separator: "'").last ?? ""), stem = lb.hasSuffix("er") || lb.hasSuffix("ez") ? String(lb.dropLast(2))
+                : lb.hasSuffix("é") ? String(lb.dropLast()) : nil
+            if let stem, stem.count >= 2 {
+                if Self.participle.contains(verb) { other.append(stem + "é") }
+                if Self.infinitive.contains(verb) { other.append(stem + "er") }
+                if verb == "vous" { other.append(stem + "ez") }
+                other.removeAll { $0 == lb }
+            }
             for y in other where usable(y) && pairs[Self.pairKey(la, y)] != nil {
                 scores.append((la, y, context(y, fr: fr, after: la) / context(lb, fr: fr, after: la)))
             }

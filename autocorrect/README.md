@@ -31,7 +31,8 @@ neither half is a word: `infor mation` becomes `information`.
 A real word is changed only once the next one is typed, when the words on both sides make another
 spelling a hundred times likelier: `il et parti` becomes `il est parti`, `their is` `there is`, `ils son
 partis` `ils sont partis`. A noun takes the number of the word before it: `des enfant` becomes `des
-enfants`. `courte et évidente` stays, and `ses` is never made `ces`. On 22,000 words of clean English and
+enfants`, and a French verb the ending the word before it calls for: `j'ai manger` becomes `j'ai mangé`,
+`je vais mangé` `je vais manger`. `courte et évidente` stays, and `ses` is never made `ces`. On 47,000 words of clean English and
 French it changes nothing.
 
 It never changes a word it knows into another one (`chat`, `scan` stay), a word typed with its accents
