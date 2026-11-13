@@ -18,7 +18,7 @@ take: the entire screen, a window, or a portion you drag out.
 - **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
-![The bar: three stills and Capture, between Save in on the left and Options on the right, each shrunk to its name](docs/bar.png)
+![The bar: three stills and Capture, between Save in on the left and Options on the right, each shrunk to its name with a grip in its outer corner](docs/bar.png)
 
 Hovering a button names its mode, with none of a tooltip's delay:
 
@@ -28,9 +28,10 @@ Hovering a button names its mode, with none of a tooltip's delay:
   Return takes it, Escape, a right click or ⌘⇧5 again closes.
 - **Settings.** **Save in** sits on the left of the bar (Desktop, Downloads, Documents; several
   at once), **Options** on its right (Copy to Clipboard, Pin Thumbnail, Capture Mouse). Each
-  shows only its name and opens when hovered; a click or ⌘ and the key on a cap flips one.
+  shows only its name and opens when hovered; a click, or ⌥ and the letter shown on its row
+  (⌥D, ⌥L, ⌥O, ⌥C, ⌥P, ⌥M), flips one.
 
-  ![Both groups open: each setting on a row with its key, the ones that are on ticked in blue](docs/bar-settings.png)
+  ![Both groups open: each setting on a row with a tick box and its ⌥ shortcut grayed on the right, the ones that are on ticked in blue](docs/bar-settings.png)
 
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
   takes the file with it.

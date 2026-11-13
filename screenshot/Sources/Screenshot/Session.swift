@@ -80,16 +80,24 @@ final class Session {
         }
     }
 
-    /// Escape and Return as system-wide chords while the overlay is up: a non-activating panel
-    /// does not always get key events, and these two must never depend on it.
+    /// Escape, Return and the settings' ⌥ chords, system-wide while the overlay is up: a
+    /// non-activating panel does not always get key events, and none of these may depend on it.
     func registerChords() {
         HotKey.register(key: kVK_Escape, modifiers: 0, id: 2) { Task { @MainActor in Session.shared.close() } }
         HotKey.register(key: kVK_Return, modifiers: 0, id: 3) { Task { @MainActor in Session.shared.commit() } }
+        for (i, (code, letter)) in Session.settingKeys.enumerated() {
+            HotKey.register(key: code, modifiers: optionKey, id: 10 + UInt32(i)) { Task { @MainActor in Session.shared.flipSetting(letter) } }
+        }
     }
+
+    /// ⌥ + these flips the setting whose row shows the letter.
+    private static let settingKeys = [(kVK_ANSI_D, "D"), (kVK_ANSI_L, "L"), (kVK_ANSI_O, "O"),
+                                      (kVK_ANSI_C, "C"), (kVK_ANSI_P, "P"), (kVK_ANSI_M, "M")]
 
     func unregisterChords() {
         HotKey.unregister(id: 2)
         HotKey.unregister(id: 3)
+        for i in Session.settingKeys.indices { HotKey.unregister(id: 10 + UInt32(i)) }
     }
 
     func close() {

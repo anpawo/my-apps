@@ -107,7 +107,7 @@ final class Bar: NSPanel {
         for s in sections { s.setFrame(s.target(s.expanded), display: false) }
     }
 
-    /// ⌘ + `key`; false when no setting has that letter.
+    /// ⌥ + `key`; false when no setting has that letter.
     func flip(_ key: String) -> Bool { sections.contains { $0.flip(key) } }
     override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
@@ -258,7 +258,7 @@ final class Hint: NSPanel {
 }
 
 /// One group of settings beside the bar, shrunk to its name. Hovered, it grows upward and away
-/// from the bar to a row per setting. A click or ⌘ + the key on its cap flips one.
+/// from the bar to a row per setting. A click or ⌥ + the letter shown on its row flips one.
 final class Section: NSPanel {
     struct Item {
         let key: String, title: String, on: Bool
@@ -270,6 +270,9 @@ final class Section: NSPanel {
     private let growsLeft: Bool
     private let items: () -> [Item]
     private let label: NSTextField     // the name alone, while shrunk
+    private let grip: Grip             // in the corner away from the bar, while shrunk
+    /// A shortcut opens the block a moment, so the flip shows.
+    private var peekUntil: CFTimeInterval = 0
     private let body = NSView()        // the small name and the rows, while open
     private(set) var expanded = false
     /// The x of the side facing the bar, and the bottom: what stays put as it grows.
@@ -298,6 +301,7 @@ final class Section: NSPanel {
         self.growsLeft = growsLeft
         self.items = items
         label = NSTextField(labelWithString: name)
+        grip = Grip(left: growsLeft)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         isOpaque = false
@@ -319,7 +323,9 @@ final class Section: NSPanel {
         label.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
         // Pinned to the top and to the side by the bar, so the edges that move clip it.
         body.autoresizingMask = [.minYMargin, growsLeft ? .minXMargin : .maxXMargin]
-        for v in [label, body] {
+        grip.setFrameOrigin(CGPoint(x: growsLeft ? 0 : shutSize.width - grip.frame.width, y: Bar.height - grip.frame.height))
+        grip.autoresizingMask = [.minYMargin, growsLeft ? .maxXMargin : .minXMargin]
+        for v in [label, grip, body] as [NSView] {
             v.wantsLayer = true
             back.addSubview(v)
         }
@@ -335,7 +341,7 @@ final class Section: NSPanel {
 
     /// Opens while the pointer is on it, shut or open; true when it is.
     func hover(_ p: CGPoint) -> Bool {
-        let inside = target(expanded).contains(p)
+        let inside = target(expanded).contains(p) || CACurrentMediaTime() < peekUntil
         if inside != expanded { expand(inside) }
         return inside
     }
@@ -365,6 +371,7 @@ final class Section: NSPanel {
         }
         body.alphaValue = expanded ? 1 : 0
         label.alphaValue = expanded ? 0 : 1
+        grip.alphaValue = label.alphaValue
     }
 
     /// Grows to its rows or back to its name: an ease-out over 250 ms, the two crossfading;
@@ -377,6 +384,7 @@ final class Section: NSPanel {
             setFrame(f, display: true)
             body.alphaValue = on ? 1 : 0
             label.alphaValue = on ? 0 : 1
+            grip.alphaValue = label.alphaValue
             return
         }
         let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -387,13 +395,15 @@ final class Section: NSPanel {
             if !still { animator().setFrame(f, display: true) }
             body.animator().alphaValue = on ? 1 : 0
             label.animator().alphaValue = on ? 0 : 1
+            grip.animator().alphaValue = on ? 0 : 1
         }
     }
 
-    /// ⌘ + `key`; false when no setting here has that letter.
+    /// ⌥ + `key`; false when no setting here has that letter.
     func flip(_ key: String) -> Bool {
         guard let item = items().first(where: { $0.key == key.uppercased() }) else { return false }
         item.flip()
+        peekUntil = CACurrentMediaTime() + 1.2
         reload()
         return true
     }
@@ -405,14 +415,16 @@ private final class StripKey: NSView {
     private let item: Section.Item
     private let flip: () -> Void
     private static let font = NSFont.systemFont(ofSize: 13)
-    private static let keyFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
-    private static let tick = NSFont.systemFont(ofSize: 13, weight: .bold)
+    private static let keyFont = NSFont.systemFont(ofSize: 12)
+    private static let tick = NSFont.systemFont(ofSize: 11, weight: .bold)
+    private var chord: String { "⌥" + item.key }
 
     init(_ item: Section.Item, flip: @escaping () -> Void) {
         self.item = item
         self.flip = flip
         let text = (item.title as NSString).size(withAttributes: [.font: StripKey.font]).width
-        super.init(frame: CGRect(x: 0, y: 0, width: 32 + ceil(text) + 30, height: 30))
+        let key = ("⌥" + item.key as NSString).size(withAttributes: [.font: StripKey.keyFont]).width
+        super.init(frame: CGRect(x: 0, y: 0, width: 34 + ceil(text) + 18 + ceil(key) + 10, height: 30))
     }
     required init?(coder: NSCoder) { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -424,28 +436,52 @@ private final class StripKey: NSView {
             NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
         }
-        let cap = CGRect(x: 6, y: (bounds.height - 20) / 2, width: 20, height: 20)
+        let box = CGRect(x: 8, y: (bounds.height - 18) / 2, width: 18, height: 18)
         if on {
             NSColor.controlAccentColor.setFill()
-            NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5).fill()
+            NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
         } else {
             NSColor.labelColor.withAlphaComponent(0.3).setStroke()
-            let p = NSBezierPath(roundedRect: cap.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
+            let p = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)
             p.lineWidth = 1
             p.stroke()
         }
-        func centre(_ s: String, _ attrs: [NSAttributedString.Key: Any], x: CGFloat? = nil, in r: CGRect) {
+        func put(_ s: String, _ attrs: [NSAttributedString.Key: Any], x: CGFloat? = nil, right: CGFloat? = nil, in r: CGRect) {
             let size = (s as NSString).size(withAttributes: attrs)
-            (s as NSString).draw(at: CGPoint(x: x ?? r.midX - size.width / 2, y: r.midY - size.height / 2), withAttributes: attrs)
+            let left = right.map { $0 - size.width } ?? x ?? r.midX - size.width / 2
+            (s as NSString).draw(at: CGPoint(x: left, y: r.midY - size.height / 2), withAttributes: attrs)
         }
-        centre(item.key, [.font: StripKey.keyFont,
-                          .foregroundColor: on ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.6)], in: cap)
-        centre(item.title, [.font: StripKey.font,
-                            .foregroundColor: NSColor.labelColor.withAlphaComponent(on ? 0.95 : 0.5)], x: 32, in: bounds)
-        if on {
-            centre("✓", [.font: StripKey.tick, .foregroundColor: NSColor.controlAccentColor],
-                   in: CGRect(x: bounds.maxX - 24, y: 0, width: 18, height: bounds.height))
+        if on { put("✓", [.font: StripKey.tick, .foregroundColor: NSColor.white], in: box) }
+        put(item.title, [.font: StripKey.font,
+                         .foregroundColor: NSColor.labelColor.withAlphaComponent(on ? 0.95 : 0.6)], x: 34, in: bounds)
+        put(chord, [.font: StripKey.keyFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.4)],
+            right: bounds.maxX - 10, in: bounds)
+    }
+}
+
+/// Two short diagonals across a corner, like a resize grip: the block opens.
+private final class Grip: NSView {
+    private let left: Bool
+    init(left: Bool) {
+        self.left = left
+        super.init(frame: CGRect(x: 0, y: 0, width: 16, height: 16))
+    }
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = NSBezierPath()
+        // Across the top corner, 5 pt in: clear of the 12 pt rounding.
+        for a: CGFloat in [10, 5] {
+            let x0: CGFloat = left ? 5 : bounds.maxX - 5
+            let edge = CGPoint(x: x0, y: bounds.maxY - 5 - a)
+            let top = CGPoint(x: left ? x0 + a : x0 - a, y: bounds.maxY - 5)
+            p.move(to: edge)
+            p.line(to: top)
         }
+        p.lineWidth = 1.5
+        p.lineCapStyle = .round
+        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+        p.stroke()
     }
 }
 
