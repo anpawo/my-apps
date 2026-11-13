@@ -415,9 +415,10 @@ struct MoneyColumn: View {
                   badgeText: months.first.map { month in
                       let spent = Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint)
                       let all = store.balances.isEmpty ? Text("")
-                          : Text("  ·  ").foregroundStyle(.white.opacity(0.45))
+                          : Text(" \u{00B7} ").foregroundStyle(.white.opacity(0.9))
                               + Text(Money.euros(allHeld)).foregroundStyle(Self.blue)
-                      return (spent + all).font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                      // MEMORY's own figure: its font, its dot.
+                      return (spent + all).font(.system(size: 11, weight: .medium, design: .monospaced))
                   },
                   topInset: 5,
                   collapsed: months.isEmpty || !open) {
