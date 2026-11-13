@@ -1650,7 +1650,7 @@ enum Check {
             check(capabilityMatches(entries, query: "UI").map(\.name) == ["ui-tweak", "build", "zeta"], "capability search ranks name prefixes before substring matches")
             check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
             codexCommands.recalledRules = ["12/10, 20/10 — Wait for the window.", "No date here"]
-            check(codexCommands.capabilityItems("RAG").map { [$0.name, $0.detail] } == [["12/10, 20/10", "Wait for the window."], ["Undated", "No date here"]], "the sidebar's RAG row lists the recalled lines under their dates, an undated one under a title too")
+            check(codexCommands.capabilityItems("RAG").map { [$0.name, $0.detail] } == [["ERRORS line", "Wait for the window."], ["ERRORS line", "No date here"]], "the sidebar's RAG row titles a line found in no ERRORS section, dated or not, without its date")
             check(codexCommands.runtimeMetadata()["recalledRules"] as? [String] == codexCommands.recalledRules, "the worker sends its recalled lines to the window, so the RAG count is not 0")
             codexCommands.recalledRules = []
             codexCommands.show(["id": "resumed-recall", "type": "userMessage", "content": [["type": "text", "text": "Fix it\n" + ErrorsRecall.note(["01/11: Read back each commit.", "02/11: Wait for the window."])]]])

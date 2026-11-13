@@ -49,6 +49,22 @@ enum ErrorsRecall {
         return scored.filter { $0.0 >= minimum }.sorted { $0.0 > $1.0 }.prefix(limit).map(\.1)
     }
 
+    // The heading a line sits under says what it is for ("Shell and quoting"); cached because the sidebar counts on every render.
+    @MainActor private static var sections: [String: String] = [:]
+    @MainActor static func section(of rule: String, cwd: String) -> String? {
+        if let known = sections[rule] { return known.isEmpty ? nil : known }
+        var found = ""
+        search: for path in files(cwd: cwd) {
+            var heading = ""
+            for line in ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").split(separator: "\n") {
+                if line.hasPrefix("## ") { heading = String(line.dropFirst(3)) }
+                else if line == "- " + rule { found = heading; break search }
+            }
+        }
+        sections[rule] = found
+        return found.isEmpty ? nil : found
+    }
+
     static func note(_ lines: [String]) -> String {
         lines.isEmpty ? "" : marker + " past mistakes from Marius's ERRORS files that may apply to it.\n" + lines.map { "- " + $0 }.joined(separator: "\n")
     }

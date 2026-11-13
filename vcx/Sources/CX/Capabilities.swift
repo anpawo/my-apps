@@ -75,8 +75,9 @@ extension Session {
     func capabilityItems(_ title: String) -> [CapabilityItem] {
         if title == "RAG" {
             return recalledRules.map { rule in
-                guard let date = rule.range(of: #"^[0-9/, -]+?(: | — )"#, options: .regularExpression) else { return CapabilityItem(name: "Undated", detail: rule, id: rule) }
-                return CapabilityItem(name: String(rule[date]).trimmingCharacters(in: CharacterSet(charactersIn: ": —")), detail: String(rule[date.upperBound...]), id: rule)
+                let name = ErrorsRecall.section(of: rule, cwd: cwd) ?? "ERRORS line"
+                guard let date = rule.range(of: #"^[0-9/, -]+?(: | — )"#, options: .regularExpression) else { return CapabilityItem(name: name, detail: rule, id: rule) }
+                return CapabilityItem(name: name, detail: String(rule[date.upperBound...]), id: rule)
             }
         }
         let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions

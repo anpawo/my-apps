@@ -279,6 +279,8 @@ struct CXView: View {
     @State private var openCapability: String?
     @State private var hoveredCapability: String?
     @State private var hoveringCapabilityPanel = false
+    @State private var hoveredRule: String?
+    @State private var hoveredRuleTop: CGFloat = 0
     @State private var copiedID = false
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -319,14 +321,29 @@ struct CXView: View {
             // Drawn in this window rather than a popover, which is a window of its own and slow to come up on hover.
             .overlay(alignment: .topLeading) {
                 if let title = openCapability {
-                    CapabilityPopup(session: session, title: title) { openCapability = nil }
-                        .clipShape(RoundedRectangle(cornerRadius: 12)).raised(RoundedRectangle(cornerRadius: 12))
-                        .onHover { inside in hoveringCapabilityPanel = inside; if !inside { closeCapabilityLater() } }
+                    ZStack(alignment: .topLeading) {
+                        CapabilityPopup(session: session, title: title, dismiss: { openCapability = nil }, hoverRule: { rule, top in
+                            if let rule { hoveredRuleTop = top }
+                            hoveredRule = rule
+                        })
+                            .clipShape(RoundedRectangle(cornerRadius: 12)).raised(RoundedRectangle(cornerRadius: 12))
+                            .onHover { inside in hoveringCapabilityPanel = inside; if !inside { closeCapabilityLater() } }
+                        if title == "RAG", let rule = hoveredRule {
+                            Text(rule).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 300, alignment: .leading).padding(12)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 10)).raised(RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.12)))
+                                .offset(x: 388, y: hoveredRuleTop).allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }.coordinateSpace(name: "capabilityPanel")
+                        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.2), value: hoveredRule)
                         .padding(.leading, 8).padding(.top, 10)
                         .transition(reduceMotion ? .opacity : .offset(x: -16).combined(with: .opacity))
                 }
             }
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.22), value: openCapability != nil)
+            .onChange(of: openCapability) { hoveredRule = nil }
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
@@ -828,6 +845,8 @@ struct CapabilityPopup: View {
     @ObservedObject var session: Session
     let title: String
     var dismiss: () -> Void = {}
+    var hoverRule: (String?, CGFloat) -> Void = { _, _ in }
+    @State private var hovered: String?
     @State private var query = ""
     @FocusState private var searching: Bool
     private var matches: [CapabilityItem] { capabilityMatches(session.capabilityItems(title), query: query) }
@@ -856,10 +875,18 @@ struct CapabilityPopup: View {
                                     }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).help(detail).accessibilityLabel(detail)
                                 }
                             } else if !item.detail.isEmpty {
-                                Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                                Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).lineLimit(title == "RAG" ? 2 : nil).fixedSize(horizontal: false, vertical: true)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                             .padding(12).contentShape(Rectangle())
+                            // The full line shows beside the card, level with the pointer where it entered.
+                            .onContinuousHover(coordinateSpace: .named("capabilityPanel")) { phase in
+                                guard title == "RAG" else { return }
+                                switch phase {
+                                case .active(let point): if hovered != item.id { hovered = item.id; hoverRule(item.id, max(0, point.y - 20)) }
+                                case .ended: if hovered == item.id { hovered = nil; hoverRule(nil, 0) }
+                                }
+                            }
                             .onTapGesture {
                                 let path = (item.detail as NSString).expandingTildeInPath
                                 if title == "Instructions", FileManager.default.fileExists(atPath: path) { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
