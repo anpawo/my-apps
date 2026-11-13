@@ -100,11 +100,10 @@ final class Bar: NSPanel {
         if sections.map({ $0.hover(p) }).contains(true) { NSCursor.pointingHand.set() }
     }
 
-    /// 8 pt off each end, centred on the bar's height: they grow upward and away from it.
+    /// 8 pt off each end, bottoms level with the bar's: they grow upward and away from it.
     private func placeSections() {
-        let y = frame.minY + ((Bar.height - Section.shutHeight) / 2).rounded()
-        saveIn.anchor = CGPoint(x: frame.minX - 8, y: y)
-        options.anchor = CGPoint(x: frame.maxX + 8, y: y)
+        saveIn.anchor = CGPoint(x: frame.minX - 8, y: frame.minY)
+        options.anchor = CGPoint(x: frame.maxX + 8, y: frame.minY)
         for s in sections { s.setFrame(s.target(s.expanded), display: false) }
     }
 
@@ -500,15 +499,15 @@ private final class Grip: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = NSBezierPath()
-        // Across the top corner, 5 pt in: clear of the 12 pt rounding.
-        for a: CGFloat in [10, 5] {
-            let x0: CGFloat = left ? 5 : bounds.maxX - 5
-            let edge = CGPoint(x: x0, y: bounds.maxY - 5 - a)
-            let top = CGPoint(x: left ? x0 + a : x0 - a, y: bounds.maxY - 5)
+        // Across the top corner, 4 pt in: still inside the 12 pt rounding.
+        for a: CGFloat in [7.5, 3.75] {
+            let x0: CGFloat = left ? 4 : bounds.maxX - 4
+            let edge = CGPoint(x: x0, y: bounds.maxY - 4 - a)
+            let top = CGPoint(x: left ? x0 + a : x0 - a, y: bounds.maxY - 4)
             p.move(to: edge)
             p.line(to: top)
         }
-        p.lineWidth = 1.5
+        p.lineWidth = 1
         p.lineCapStyle = .round
         NSColor.labelColor.withAlphaComponent(0.35).setStroke()
         p.stroke()
