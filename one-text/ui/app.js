@@ -804,6 +804,14 @@ function fly(bubble, from) {
   step(t0);
 }
 
+// At the end, the thread stays at its end as it grows or its box shrinks: pictures loading after it is drawn, the window
+// laid out after launch, the field growing.
+let atEnd = true;
+$('#msgs').addEventListener('scroll', () => { const b = $('#msgs'); atEnd = b.scrollHeight - b.clientHeight - b.scrollTop < 2; }, { passive: true });
+const endKeeper = new ResizeObserver(() => { if (atEnd) $('#msgs').scrollTop = $('#msgs').scrollHeight; });
+endKeeper.observe($('#msgs'));
+endKeeper.observe($('#thread'));
+
 function drawThread(enter, keep) {
   const box = $('#msgs');
   const fromEnd = box.scrollHeight - box.scrollTop;
@@ -819,6 +827,7 @@ function drawThread(enter, keep) {
   }
   drawSeen();
   box.scrollTop = keep ? box.scrollHeight - fromEnd : box.scrollHeight;
+  if (!keep) atEnd = true;
 }
 
 /* ---------- Read markers and reactions ---------- */

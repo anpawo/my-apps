@@ -732,6 +732,15 @@ await page.evaluate(() => (sessionStorage.overrides = JSON.stringify({ openAtLau
 await page.reload();
 await page.waitForSelector('#thread .msg');
 check((await page.textContent('#thread')).includes('meeting moved to 3pm'), "overrides' openAtLaunch opens that chat at launch");
+// A picture loading after the thread is drawn grows it: the thread stays at its end.
+const grown = await page.evaluate(async () => {
+  const pic = Object.assign(document.createElement('div'), { style: 'height: 1500px' });
+  document.querySelector('#thread .msg .bubble').append(pic);
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const m = document.querySelector('#msgs');
+  return [m.scrollHeight > m.clientHeight, Math.round(m.scrollHeight - m.clientHeight - m.scrollTop)];
+});
+check(grown[0] && grown[1] < 2, `the open conversation stays at its end as a picture loads (${grown})`);
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
