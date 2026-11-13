@@ -1525,7 +1525,7 @@ final class Session: ObservableObject {
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
             "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts, "modelAliases": modelAliases,
             "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
-            "recordID": recordID, "fleetContext": fleetContext,
+            "recordID": recordID, "fleetContext": fleetContext, "recalledRules": recalledRules,
             "recent": recent.map { ["id": $0.id, "title": $0.title, "backendID": $0.backendID as Any? ?? NSNull()] },
             "permissions": permissions.map { ["id": $0.id.uuidString, "rpcID": $0.rpcID, "method": $0.method, "params": $0.params] },
             "providerCommands": providerCommands.map { ["name": $0.name, "detail": $0.detail, "source": $0.source, "insert": $0.insert, "isCurrent": $0.isCurrent] }
@@ -1571,6 +1571,7 @@ final class Session: ObservableObject {
         hooks = value["hooks"] as? [String] ?? []; skills = value["skills"] as? [String] ?? []
         builtinCommands = value["builtinCommands"] as? [String] ?? []
         mcp = value["mcp"] as? [String] ?? []; instructions = value["instructions"] as? [String] ?? []
+        recalledRules = value["recalledRules"] as? [String] ?? recalledRules
         activeMode = value["activeMode"] as? String ?? activeMode
         providerLabel = value["providerLabel"] as? String ?? providerLabel
         models = value["models"] as? [String] ?? []

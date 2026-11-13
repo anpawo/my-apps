@@ -1609,6 +1609,7 @@ enum Check {
             check(capabilityMatches(entries, query: "inspect layout").map(\.name) == ["zeta"], "capability search matches multiple description terms")
             codexCommands.recalledRules = ["12/10, 20/10 — Wait for the window.", "No date here"]
             check(codexCommands.capabilityItems("RAG").map { [$0.name, $0.detail] } == [["12/10, 20/10", "Wait for the window."], ["No date here", ""]], "the sidebar's RAG row lists the recalled lines under their dates")
+            check(codexCommands.runtimeMetadata()["recalledRules"] as? [String] == codexCommands.recalledRules, "the worker sends its recalled lines to the window, so the RAG count is not 0")
             codexCommands.recalledRules = []
             check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
             codexCommands.model = "claude-opus-5-5"
