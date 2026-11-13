@@ -31,7 +31,7 @@ Hovering a button names its mode, with none of a tooltip's delay:
   shows only its name and opens when hovered; a click, or ⌥ and the letter shown on its row
   (⌥D, ⌥L, ⌥O, ⌥C, ⌥P, ⌥M), flips one.
 
-  ![Both groups open: each setting on a row with a tick box and its ⌥ shortcut grayed on the right, the ones that are on ticked in blue](docs/bar-settings.png)
+  ![Both groups open: each setting on a row with a tick box, the folders by their full path, and its ⌥ shortcut on a light key cap on the right, the ones that are on ticked in blue](docs/bar-settings.png)
 
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
   takes the file with it.

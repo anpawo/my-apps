@@ -283,7 +283,7 @@ final class Section: NSPanel {
     static func saveIn() -> Section {
         Section("Save in", growsLeft: true) {
             zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
-                Item(key: key, title: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
+                Item(key: key, title: (f.1.path as NSString).abbreviatingWithTildeInPath, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
             }
         }
     }
@@ -418,13 +418,14 @@ private final class StripKey: NSView {
     private static let keyFont = NSFont.systemFont(ofSize: 12)
     private static let tick = NSFont.systemFont(ofSize: 11, weight: .bold)
     private var chord: String { "⌥" + item.key }
+    /// One width for every cap, the widest letter's, so they line up.
+    private static let capWidth = ceil(("⌥M" as NSString).size(withAttributes: [.font: keyFont]).width) + 12
 
     init(_ item: Section.Item, flip: @escaping () -> Void) {
         self.item = item
         self.flip = flip
         let text = (item.title as NSString).size(withAttributes: [.font: StripKey.font]).width
-        let key = ("⌥" + item.key as NSString).size(withAttributes: [.font: StripKey.keyFont]).width
-        super.init(frame: CGRect(x: 0, y: 0, width: 34 + ceil(text) + 18 + ceil(key) + 10, height: 30))
+        super.init(frame: CGRect(x: 0, y: 0, width: 34 + ceil(text) + 18 + StripKey.capWidth + 8, height: 30))
     }
     required init?(coder: NSCoder) { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -454,8 +455,13 @@ private final class StripKey: NSView {
         if on { put("✓", [.font: StripKey.tick, .foregroundColor: NSColor.white], in: box) }
         put(item.title, [.font: StripKey.font,
                          .foregroundColor: NSColor.labelColor.withAlphaComponent(on ? 0.95 : 0.6)], x: 34, in: bounds)
-        put(chord, [.font: StripKey.keyFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.4)],
-            right: bounds.maxX - 10, in: bounds)
+        // The shortcut on a small light key cap.
+        let attrs: [NSAttributedString.Key: Any] = [.font: StripKey.keyFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.7)]
+        let w = StripKey.capWidth
+        let cap = CGRect(x: bounds.maxX - 8 - w, y: (bounds.height - 20) / 2, width: w, height: 20)
+        NSColor.labelColor.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5).fill()
+        put(chord, attrs, in: cap)
     }
 }
 
