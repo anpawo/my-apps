@@ -540,14 +540,17 @@ final class Session: ObservableObject {
             content[index]["text"] = "/" + text.dropFirst(); data["content"] = content
         }
         if data["type"] as? String == "userMessage", let content = data["content"] as? [JSON] {
+            var lines: [String] = []
             data["content"] = content.compactMap { piece -> JSON? in
                 guard let text = piece["text"] as? String, text.contains(ErrorsRecall.marker) else { return piece }
+                lines += ErrorsRecall.lines(text)
                 let kept = ErrorsRecall.strip(text)
                 return kept.isEmpty ? nil : piece.merging(["text": kept]) { $1 }
             }
+            if !lines.isEmpty { data["recalled"] = lines; recalledRules += lines.filter { !recalledRules.contains($0) } }
         }
         guard let id = data["id"] as? String, let kind = data["type"] as? String else { return }
-        if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; item.data = data; return }
+        if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; data["recalled"] = data["recalled"] ?? item.data["recalled"]; item.data = data; return }
         if kind == "userMessage" {
             let client = data["clientId"] as? String ?? id
             guard !seen.contains(id), !seen.contains(client) else { return }
@@ -868,6 +871,7 @@ final class Session: ObservableObject {
             if !recalled.isEmpty { params["input"] = (params["input"] as? [JSON] ?? []) + [["type": "text", "text": ErrorsRecall.note(recalled)]] }
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
             recalledRules += recalled
+            if !recalled.isEmpty { itemMap[id]?.data["recalled"] = recalled }
             if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
             injectedContext = ""
             save()

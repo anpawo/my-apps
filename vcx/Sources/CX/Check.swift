@@ -1611,6 +1611,10 @@ enum Check {
             check(codexCommands.capabilityItems("RAG").map { [$0.name, $0.detail] } == [["12/10, 20/10", "Wait for the window."], ["No date here", ""]], "the sidebar's RAG row lists the recalled lines under their dates")
             check(codexCommands.runtimeMetadata()["recalledRules"] as? [String] == codexCommands.recalledRules, "the worker sends its recalled lines to the window, so the RAG count is not 0")
             codexCommands.recalledRules = []
+            codexCommands.show(["id": "resumed-recall", "type": "userMessage", "content": [["type": "text", "text": "Fix it\n" + ErrorsRecall.note(["01/11: Read back each commit.", "02/11: Wait for the window."])]]])
+            let resumedRecall = codexCommands.rows.last?.items.first?.data
+            check((resumedRecall?["content"] as? [JSON])?.first?["text"] as? String == "Fix it" && resumedRecall?["recalled"] as? [String] == ["01/11: Read back each commit.", "02/11: Wait for the window."] && codexCommands.recalledRules.count == 2, "a prompt read back keeps its ERRORS lines for its arrow and the RAG row")
+            codexCommands.recalledRules = []
             check(mcpSummary(["name": "Fixture", "runtimeStatus": "ready", "tools": ["read": [:], "write": [:]]]) == "Fixture · ready · Tools: read, write", "MCP popup summaries include available tools")
             codexCommands.model = "claude-opus-5-5"
             check(codexCommands.modelLabel == "Opus 5.5", "sidebar model omits the provider prefix")

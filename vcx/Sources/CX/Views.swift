@@ -1034,6 +1034,7 @@ struct UserBubble: View {
     @State private var hovering = false
     @State private var stuck = false
     @State private var hides = false
+    @State private var showsRecall = false
     @State private var closing: Timer?
     @State private var size = CGSize.zero
     @EnvironmentObject private var sending: SendAnimation
@@ -1047,14 +1048,24 @@ struct UserBubble: View {
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 5) {
+                let recalled = item.data["recalled"] as? [String] ?? []
                 let content = VStack(alignment: .leading, spacing: 6) {
                     if let message { AgentMessageContent(message: message, collapsed: collapsed) }
                     else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                    if showsRecall, !recalled.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ERRORS lines VCX added").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(accent)
+                            ForEach(Array(recalled.enumerated()), id: \.offset) { _, line in
+                                Text("• " + line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.black.opacity(0.6))
+                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                            }
+                        }.padding(.top, 4).transition(.opacity)
+                    }
                 }
                 // Only the arrow opens it: the pointer crossing the text to read the answer under it leaves it shut.
                 // A question of fifteen lines or less shows whole, with no arrow; open, the arrow is gone until the pointer leaves.
                 // The arrow is an overlay on a reserved row, not a row of its own coming and going in the stack.
-                .padding(.bottom, edge && !hovering ? 6 + CollapsibleText.line : 0)
+                .padding(.bottom, (edge && !hovering) || !recalled.isEmpty ? 6 + CollapsibleText.line : 0)
                 .overlay(alignment: .bottomLeading) {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(message == nil ? accent : agentPink)
@@ -1062,6 +1073,18 @@ struct UserBubble: View {
                         .contentShape(Rectangle())
                         .onHover { inside in FreezeTrace.note("question arrow hover " + item.id); if inside, !hovering { withAnimation(Self.opening(reduceMotion: reduceMotion)) { hovering = true } } }
                         .opacity(edge && !hovering ? 1 : 0).allowsHitTesting(edge && !hovering)
+                }
+                // The ERRORS lines sent with this prompt, folded away behind their own arrow.
+                .overlay(alignment: .bottomTrailing) {
+                    if !recalled.isEmpty {
+                        Button { withAnimation(Self.opening(reduceMotion: reduceMotion)) { showsRecall.toggle() } } label: {
+                            HStack(spacing: 4) {
+                                Text("\(recalled.count)")
+                                Image(systemName: "chevron.down").rotationEffect(.degrees(showsRecall ? 180 : 0))
+                            }.font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(accent.opacity(0.7))
+                                .frame(height: CollapsibleText.line).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("ERRORS lines VCX added to this prompt")
+                    }
                 }
                 .padding(16)
                 Group {

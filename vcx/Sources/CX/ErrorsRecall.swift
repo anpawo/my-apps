@@ -53,6 +53,11 @@ enum ErrorsRecall {
         lines.isEmpty ? "" : marker + " past mistakes from Marius's ERRORS files that may apply to it.\n" + lines.map { "- " + $0 }.joined(separator: "\n")
     }
 
+    static func lines(_ text: String) -> [String] {
+        guard let range = text.range(of: marker) else { return [] }
+        return text[range.upperBound...].split(separator: "\n").filter { $0.hasPrefix("- ") }.map { String($0.dropFirst(2)) }
+    }
+
     // The note rides at the end of a prompt; a conversation read back from its provider shows the prompt without it.
     static func strip(_ text: String) -> String {
         guard let range = text.range(of: marker) else { return text }
