@@ -661,7 +661,16 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
             delegate.restoreFile = args[restore + 1]
         } else {
             let options = try LaunchOptions(args)
-            guard let lock = try RuntimeUpdate.lockFrontend() else { try RuntimeUpdate.forward(options); exit(0) }
+            guard let lock = try RuntimeUpdate.lockFrontend() else {
+                try RuntimeUpdate.forward(options)
+                // The running frontend cannot take focus from the background (WindowServer: "activation count being 0"
+                // with One Text in front, 2026-11-13); this launch, which he asked for, can, so it hands focus over.
+                if options.focus, let frontend = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+                    .first(where: { $0.processIdentifier != getpid() && $0.activationPolicy == .regular }) {
+                    NSLog("VCX: focus to frontend %d -> %d", frontend.processIdentifier, frontend.activate(from: .current, options: []) ? 1 : 0)
+                }
+                exit(0)
+            }
             delegate.frontendLock = lock; delegate.options = options
         }
     }
