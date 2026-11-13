@@ -68,6 +68,16 @@ const stub = () => {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
       if (args.method === 'DELETE' && !args.path.includes('/reactions')) { const [, c, id] = args.path.match(/chats\/([^/]+)\/messages\/([^/]+)/); msgs[decodeURIComponent(c)] = msgs[decodeURIComponent(c)].filter(x => x.id !== decodeURIComponent(id)); return {}; }
       if (args.path.includes('/reactions') || ['PATCH', 'PUT'].includes(args.method)) return {};
+      if (args.path === '/v1/accounts') return [{ accountID: 'discordgo', network: 'Discord' }, { accountID: 'matrix', network: 'Beeper' }];
+      if (args.path.startsWith('/v1/accounts/matrix/')) throw new Error('Beeper account searched');
+      if (args.path.startsWith('/v1/accounts/discordgo/contacts?query=')) {
+        const q = decodeURIComponent(args.path.split('=')[1]);
+        return { items: 'le_tamanoir martin'.includes(q) ? [{ id: '777', fullName: 'Martin', username: 'le_tamanoir' }] : [] };
+      }
+      if (args.method === 'POST' && args.path === '/v1/chats') {
+        if (!chats.some(c => c.id === 'dc-martin')) { chats.push({ ...chat('dc-martin', 'Discord', 'martin', 'Martin', t(0)), accountID: 'discordgo', pid: '@discordgo_777:beeper.local' }); msgs['dc-martin'] = []; }
+        return { id: 'dc-martin' };
+      }
       const [path, query] = args.path.split('?');
       const one = path.match(/^\/v1\/chats\/([^/]+)$/);
       if (args.method === 'GET' && one) {
@@ -210,6 +220,8 @@ const pasted = await page.evaluate(async () => {
 });
 check(JSON.stringify(pasted) === JSON.stringify(['draft', true, [['/v1/assets/upload/base64', 'image/png'], ['/v1/chats/ig-lea/messages', { uploadID: 'up1' }]]]), `a pasted image is sent (${JSON.stringify(pasted)})`);
 await page.evaluate(() => { document.querySelector('#input').value = ''; });
+const boxed = await page.evaluate(() => [fit({ width: 2880, height: 1800 }), fit({ width: 600, height: 1200 }), fit(undefined)]);
+check(JSON.stringify(boxed) === JSON.stringify([' width="280" height="175"', ' width="160" height="320"', '']), `a picture's box is sized before it loads (${boxed})`);
 // ":" and a few letters list emoji by name, the emoji on the right; Enter puts it in place of what was typed.
 await page.click('#input');
 await page.keyboard.type('so :joy');
@@ -752,6 +764,33 @@ await page.waitForSelector('#profile .member');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
 check(await page.$eval('#profile', p => p.hidden), '‹ goes back to the group, esc closes the profile');
+
+// Someone with no chat yet: ⌘D finds them by their Discord tag, ↵ starts the chat and opens it.
+await page.keyboard.press('Meta+d');
+await page.fill('#search', 'le_ta');
+await page.waitForSelector('#results .row:has-text("le_tamanoir")');
+await page.screenshot({ path: join(out, '9-contact.png') });
+await page.keyboard.press('Enter');
+await page.waitForFunction(() => state.cur?.id === 'dc-martin');
+const started = await page.evaluate(() => JSON.stringify(__log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path === '/v1/chats').map(([, a]) => a.body)));
+check(started === '[{"accountID":"discordgo","type":"single","participantIDs":["777"]}]', 'Cmd+D finds a Discord tag with no chat yet; Enter starts the chat on Discord and opens it');
+// Merge with… finds them too, now as the person their new chat belongs to, not a second contact.
+await page.evaluate(() => select('ig-lea'));
+await page.waitForTimeout(400);
+await page.click('.more');
+await page.waitForTimeout(250);
+await page.click('.menu .item:has-text("Merge with")');
+await page.waitForTimeout(300);
+await page.keyboard.type('le_tam');
+await page.waitForTimeout(500);
+const tagRows = await page.$$eval(".menu .found .item", is => is.map(i => i.textContent));
+await page.click('.menu .found .item:has-text("Martin")');
+await page.waitForFunction(() => __log.filter(([c]) => c === 'set_overrides').at(-1)?.[1].value.merges?.some(m => m.includes('dc-martin')));
+const posts = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path === '/v1/chats').length);
+check(tagRows.length === 1 && posts === 1, `Merge with… finds a Discord tag as the person its chat now belongs to, and merges it (${tagRows}, ${posts} chat started)`);
+check(await page.evaluate(() => !__log.some(([c, a]) => c === 'api' && a.path.startsWith('/v1/accounts/matrix/'))), "Beeper's own account is never searched for contacts");
+await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
+await page.waitForTimeout(300);
 
 await page.evaluate(() => (sessionStorage.overrides = JSON.stringify({ openAtLaunch: 'te-sarah' })));
 await page.reload();

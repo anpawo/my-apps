@@ -414,8 +414,48 @@ function closePalette() {
   anim(palette.firstElementChild, { opacity: [1, 0], scale: [1, 0.96] }, 160);
   anim(palette, { opacity: [1, 0] }, 160).finished.then(done, done);
 }
+// Someone with no chat yet (a Discord tag, a name on an app never written on): Beeper's contact search on each account,
+// after a pause in typing. `show` gets each account's matches as they come; one already in a chat is that person.
+let accounts, contactSeq = 0;
+function findContacts(q, show) {
+  const seq = ++contactSeq;
+  if (fold(q).length < 3) return;
+  setTimeout(async () => {
+    if (seq !== contactSeq) return;
+    // Beeper's own account searches its whole directory for 7 s: not people one writes to from here.
+    accounts ||= api('GET', '/v1/accounts').then(a => a.filter(x => x.network !== 'Beeper')).catch(() => { accounts = null; return []; });
+    for (const a of await accounts) {
+      api('GET', `/v1/accounts/${enc(a.accountID)}/contacts?query=${enc(q)}`).then(r => {
+        if (seq === contactSeq) show((r.items || []).map(p => contactItem(a, p)));
+      }).catch(() => {});
+    }
+  }, 250);
+}
+function contactItem(a, p) {
+  // A chat's participant id holds the contact's: "@discordgo_<id>:beeper.local".
+  const known = state.all.find(i => i.kind === 'person' && i.chats.some(c => c.accountID === a.accountID && c.pid?.includes(`_${p.id}:`)));
+  const name = p.fullName || p.username || 'Unnamed';
+  return known || { id: `contact:${a.accountID}:${p.id}`, kind: 'person', name, original: p.username && p.username !== name ? p.username : null,
+    imgs: p.imgURL ? [p.imgURL] : [], unread: 0, last: '', chats: [{ network: a.network, accountID: a.accountID, last: '' }], contact: { accountID: a.accountID, id: p.id } };
+}
+// Starts the chat on that app (no message is sent), then gives back the person it belongs to.
+async function startChat(c) {
+  const chat = await api('POST', '/v1/chats', { accountID: c.contact.accountID, type: 'single', participantIDs: [c.contact.id] }).catch(e => toast(`${c.name}: ${e}`));
+  if (!chat) return;
+  for (let i = 0; i < 20 && loading; i++) await new Promise(r => setTimeout(r, 100));
+  await refreshList();
+  return [...state.byId.values()].find(i => i.chats.some(x => x.id === chat.id)) || toast(`${c.name}: the chat was started but is not in the list yet`);
+}
+let contacts = [];
+async function openResult(id) {
+  closePalette();
+  const c = contacts.find(c => c.id === id);
+  const person = c?.contact ? await startChat(c) : c;
+  select(person?.id || id);
+}
+
 // "/whatsapp lea", "/wh lea" or "/ws lea": only those on that app.
-function drawResults() {
+function drawResults(e) {
   let q = search.value.trim().toLowerCase(), net = null;
   const m = q.match(/^\/([a-z]+)\s*/);
   if (m) {
@@ -423,10 +463,17 @@ function drawResults() {
     if (net) q = q.slice(m[0].length);
   }
   const all = net ? (state.all || []).filter(i => netsOf(i).includes(net)) : state.all || [];
+  if (e) {
+    contacts = [];
+    findContacts(q, more => { contacts.push(...more.filter(c => !net || netsOf(c).includes(net))); drawResults(); });
+  }
+  const typed = q;
   q = fold(q);
   const items = (q ? all.filter(i => fold(i.name).includes(q) || fold(i.original).includes(q)) : all).slice(0, q || net ? 30 : 8);
+  if (typed) for (const c of contacts) if (!items.some(i => i.id === c.id)) items.push(c);
+  const hot = !e && $('#results .row.hot')?.dataset.id;
   renderList($('#results'), items);
-  $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => { closePalette(); select(r.dataset.id); }; });
+  $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', hot ? r.dataset.id === hot : i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => openResult(r.dataset.id); });
 }
 search.addEventListener('input', drawResults);
 search.addEventListener('keydown', e => {
@@ -437,15 +484,15 @@ search.addEventListener('keydown', e => {
     const to = rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
     rows.forEach(r => r.classList.toggle('hot', r === to));
     to?.scrollIntoView({ block: 'nearest' });
-  } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); closePalette(); select(rows[at].dataset.id); }
+  } else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); openResult(rows[at].dataset.id); }
   else if (e.key === 'Escape') closePalette();
-  else if (e.metaKey && e.key.toLowerCase() === 'm' && rows[at]) {
+  else if (e.metaKey && e.key.toLowerCase() === 'm' && state.byId.has(rows[at]?.dataset.id)) {
     e.preventDefault(); e.stopPropagation();
     const id = rows[at].dataset.id;
     closePalette();
     select(id).then(rename);
   }
-  else if (e.metaKey && e.key.toLowerCase() === 'f' && rows[at]) {
+  else if (e.metaKey && e.key.toLowerCase() === 'f' && state.byId.has(rows[at]?.dataset.id)) {
     e.preventDefault(); e.stopPropagation();
     toggleFav(state.byId.get(rows[at].dataset.id));
     rows[at].classList.toggle('faved', isFav(state.byId.get(rows[at].dataset.id)));
@@ -1461,8 +1508,21 @@ function mergePicker(m, person) {
   const draw = () => {
     const q = field.value.trim().toLowerCase();
     const others = [...state.byId.values()].filter(i => (i.kind === 'person' ? 'person' : 'group') === kind && i.id !== person.id && (!q || fold(i.name).includes(fold(q)) || fold(i.original).includes(fold(q)))).slice(0, 30);
-    found.replaceChildren(...others.map(o => item(o.name || 'Unnamed', { icon: avatar(o), hint: netsOf(o).map(k => NETS[k].label).join(', '), action: () => { closeMenu(); (kind === 'person' ? merge : mergeGroups)(person, o); } })));
+    const row = o => item(o.name || 'Unnamed', { icon: avatar(o), hint: [...netsOf(o).map(k => NETS[k].label), o.contact && o.original].filter(Boolean).join(', '), action: async () => {
+      closeMenu();
+      const b = o.contact ? await startChat(o) : o;
+      if (b) (kind === 'person' ? merge : mergeGroups)(person, b);
+    } });
+    found.replaceChildren(...others.map(row));
     if (!others.length) found.innerHTML = `<div class="none">${kind === 'person' ? 'Nobody' : 'No group'} by that name</div>`;
+    // Someone with no chat yet, found by their name or handle on an app (a Discord tag): picking them starts that chat.
+    const listed = new Set([person.id, ...others.map(o => o.id)]);
+    if (kind === 'person') findContacts(field.value.trim(), more => {
+      more = more.filter(o => !listed.has(o.id) && listed.add(o.id));
+      if (!more.length) return;
+      found.querySelector('.none')?.remove();
+      found.append(...more.map(row));
+    });
   };
   field.oninput = draw;
   field.onkeydown = e => { if (e.key === 'Enter') found.querySelector('.item')?.click(); };
