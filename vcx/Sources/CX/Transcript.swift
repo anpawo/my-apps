@@ -167,6 +167,7 @@ final class TranscriptController: NSObject {
         let session = parent.session
         session.scrollToExchange = { [weak self] in self?.scroll(to: .exchange($0), bottom: false, animated: false) }
         session.landOnEnd = { [weak self] in session.follow.attached = true; self?.scrollToEnd(animated: false) }
+        session.find.reveal = { [weak self] in self?.reveal($0) }
         sync()
         return scroll
     }
@@ -287,6 +288,8 @@ final class TranscriptController: NSObject {
             // Row-local frames also reach the window's own preference, where the flight read them as conversation frames.
             .transformPreference(MessageFrames.self) { $0 = [:] }
             .environmentObject(parent.sending)
+            .environment(parent.session.find)
+            .environment(\.findLanded) { [weak self] in self?.landed(key, at: $0) }
             .disabled(parent.replacing)
             .fontDesign(.monospaced)
             .foregroundStyle(.black.opacity(0.92))
@@ -492,6 +495,29 @@ final class TranscriptController: NSObject {
         let rect = table.rect(ofRow: target)
         setOrigin(bottom ? rect.maxY - clip.bounds.height : rect.minY, duration: animated ? 0.3 : 0)
         updateGeometry()
+    }
+
+    // A find match: its row is brought near first, so it is built and drawn; the text holding the match then says where it is.
+    private var finding: TranscriptKey?
+    func reveal(_ item: String) {
+        guard let key = keys.first(where: {
+            switch $0 {
+            case .question(let id): return sections[id]?.question?.items.first?.id == item
+            case .exchange(let id): return sections[id].flatMap { sectionParts($0.rows).last?.items.first?.id } == item
+            default: return false
+            }
+        }) else { return }
+        finding = key
+        if cells[key]?.superview !== table { scroll(to: key, bottom: false, animated: false) }
+    }
+
+    private func landed(_ key: TranscriptKey, at y: CGFloat) {
+        guard finding == key, let row = index[key] else { return }
+        finding = nil
+        let target = table.rect(ofRow: row).minY + y - clip.bounds.height / 3
+        if abs(target - clip.bounds.minY) < 1 { return }
+        setOrigin(target, duration: parent.reduceMotion ? 0 : 0.25)
+        parent.session.userScroll(distance: max(0, contentHeight - min(max(0, target), end) - clip.bounds.height))
     }
 
     private func top(of key: TranscriptKey) -> CGFloat? { index[key].map { table.rect(ofRow: $0).minY - clip.bounds.minY } }

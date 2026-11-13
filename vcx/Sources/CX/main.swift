@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); edit.submenu = editMenu; menu.addItem(edit)
         for (name, selector, key) in [("Undo", #selector(UndoManager.undo), "z"), ("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] { editMenu.addItem(withTitle: name, action: selector, keyEquivalent: key) }
+        editMenu.addItem(.separator()); editMenu.addItem(withTitle: "Find", action: #selector(ComposerWindow.toggleFind(_:)), keyEquivalent: "f")
         NSApp.mainMenu = menu
     }
 
@@ -162,6 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.chooseOption = { [weak session] in session?.chooseOption($0) ?? false }
+        window.find = session.find
+        window.closeFind = { [weak session] in session?.find.toggle(); session?.focusComposer() }
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .aqua)

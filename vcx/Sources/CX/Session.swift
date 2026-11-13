@@ -188,6 +188,7 @@ final class Session: ObservableObject {
     @Published var usage = ""
     @Published var usageLoading = true
     @Published var revision = 0
+    let find = TranscriptFind()
     @Published var follow = FollowState()
     // Scrolling calls this every frame; assigning follow republishes the session and rebuilds the window even when nothing changed.
     func userScroll(distance: CGFloat) {

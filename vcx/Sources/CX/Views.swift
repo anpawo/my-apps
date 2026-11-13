@@ -298,8 +298,15 @@ struct CXView: View {
                             .transition(reduceMotion ? .opacity : .offset(y: 70).combined(with: .opacity))
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if session.find.open {
+                            FindBar(find: session.find, search: searchTranscript, close: closeFind).padding(.top, 10).padding(.trailing, 24)
+                                .transition(reduceMotion ? .opacity : .offset(y: -50).combined(with: .opacity))
+                        }
+                    }
                     .clipped()
                     .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.24), value: session.commandQuery != nil)
+                    .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.22), value: session.find.open)
                 if let permission = session.permissions.first, permission.method != "item/tool/requestUserInput" {
                     PermissionView(session: session, request: permission).id(permission.id).frame(maxHeight: 240).padding(.horizontal, 24).padding(.bottom, 10)
                 }
@@ -356,14 +363,20 @@ struct CXView: View {
         }
         .disabled(session.frontendReplacing)
         .onChange(of: session.editorHeight) { FreezeTrace.shape(of: session) }
+        .environment(session.find)
+        .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
         .onExitCommand {
             guard !session.frontendReplacing else { return }
-            if session.preview != nil { session.preview = nil }
+            if session.find.open { closeFind() }
+            else if session.preview != nil { session.preview = nil }
             else if openCapability != nil { openCapability = nil }
             else if session.commandQuery != nil { session.dismissCommands() }
             else if session.busy { Task { await session.stop(source: "Escape") } }
         }
     }
+
+    private func searchTranscript() { session.find.search(session.rows, visible: Set(session.questionTops.keys).union(session.exchangeTops.keys)) }
+    private func closeFind() { session.find.toggle(); session.focusComposer() }
 
     private var sessionPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1086,8 +1099,10 @@ struct UserBubble: View {
             VStack(alignment: .trailing, spacing: 5) {
                 let recalled = item.data["recalled"] as? [String] ?? []
                 let content = VStack(alignment: .leading, spacing: 6) {
-                    if let message { AgentMessageContent(message: message, collapsed: collapsed) }
-                    else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                    Group {
+                        if let message { AgentMessageContent(message: message, collapsed: collapsed) }
+                        else { MessageContent(item: item, collapsed: collapsed) { session.preview = $0 } }
+                    }.environment(\.findItem, item.id)
                     if showsRecall, !recalled.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("ERRORS lines VCX added").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(accent)
@@ -1192,6 +1207,8 @@ struct CollapsibleText: View {
     let text: String
     let collapsed: Bool
     @State private var open: CGSize
+    @Environment(TranscriptFind.self) private var find: TranscriptFind?
+    @Environment(\.findItem) private var findItem
     // The new pinned view starts with the size already measured in the transcript.
     // shortcut: shared text at different widths remeasures next frame; key by width if those views need independent initial sizes.
     private static var measured: [String: CGSize] = [:]
@@ -1205,11 +1222,13 @@ struct CollapsibleText: View {
             Text(text.prefix(10_000)).font(.system(size: Self.size, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { FreezeTrace.note("text open size"); open = $0; if Self.measured.count > 500 { Self.measured = [:] }; Self.measured[text] = $0 }
                 .hidden().frame(height: 0, alignment: .top)
-            // Up to fifteen lines, it stays whole.
+            // Up to fifteen lines, it stays whole; it opens to show the current match.
+            let collapsed = collapsed && find?.currentIn(findItem, text) == nil
             let shown = collapsed && open.width > 0 && open.height > Self.line * 15.5 ? firstLine(text, width: open.width) : text
-            Text(shown).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
+            Text(find?.highlight(AttributedString(shown), fragment: text, item: findItem) ?? AttributedString(shown)).font(.system(size: Self.size, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(collapsed && (open.width == 0 || shown != text) ? 1 : nil).fixedSize(horizontal: false, vertical: true)
                 .preference(key: HidesText.self, value: shown != text)
+                .modifier(FindMarker(find: find, item: findItem, fragment: text))
                 .clipped() // opening, the lines appear as the bubble grows instead of under the pictures that follow
         }
     }
@@ -1301,7 +1320,7 @@ struct AssistantBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 7) { Image(systemName: "sparkle").foregroundStyle(accent); Text(item.data["provider"] as? String ?? "Codex").foregroundStyle(.black.opacity(0.6)) }.font(.system(size: 11, weight: .medium))
-            MarkdownBody(text: item.text.isEmpty ? "…" : item.text)
+            MarkdownBody(text: item.text.isEmpty ? "…" : item.text).environment(\.findItem, item.id)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1360,6 +1379,8 @@ struct CodeBlock: View {
     @State private var draft = ""
     @State var editing = false
     @FocusState private var focused: Bool
+    @Environment(TranscriptFind.self) private var find: TranscriptFind?
+    @Environment(\.findItem) private var findItem
     var body: some View {
         let code = edited ?? block.text, mono = Font.system(size: 12, design: .monospaced)
         VStack(alignment: .leading, spacing: 0) {
@@ -1395,7 +1416,7 @@ struct CodeBlock: View {
                 .onChange(of: draft) { _, now in edited = now == block.text ? nil : now; edits?.set(block.text, now) }
                 .onChange(of: focused) { _, now in if !now { editing = false } }
             }
-            else { Text(code).font(mono).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
+            else { Text(find?.highlight(AttributedString(code), fragment: code, item: findItem) ?? AttributedString(code)).font(mono).textSelection(.enabled).modifier(FindMarker(find: find, item: findItem, fragment: code)).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
         }.background(.black.opacity(editing ? 0.02 : 0.045), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(editing ? accent.opacity(0.4) : .black.opacity(0.06)))
         .animation(.easeOut(duration: 0.25), value: editing)
         .onAppear { edited = edits?.text[block.text] }
@@ -1506,13 +1527,16 @@ func answerParagraphs(_ text: String) -> [String] {
 
 struct ProseView: View {
     let text: String
+    @Environment(TranscriptFind.self) private var find: TranscriptFind?
+    @Environment(\.findItem) private var findItem
     private var paragraphs: [String] { answerParagraphs(text) }
-    private func rich(_ text: String) -> AttributedString { (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
-        let value = rich(text)
-        if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
-        else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+        let plain = richText(text), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
+        Group {
+            if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
+            else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+        }.modifier(FindMarker(find: find, item: findItem, fragment: fragment))
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1536,7 +1560,7 @@ struct ProseView: View {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
                     prose(String(title), weight: .semibold)
                 } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-                    prose(paragraph.replacingOccurrences(of: "⟶ Next:", with: "+ Next:").replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines), weight: .medium, lineSpacing: 5).fixedSize(horizontal: false, vertical: true)
+                    prose(answerLine(paragraph), weight: .medium, lineSpacing: 5).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.hasPrefix("⟶ Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                     prose(paragraph, lineSpacing: 6).tint(accent).fixedSize(horizontal: false, vertical: true)
@@ -1580,6 +1604,7 @@ struct LinkText: NSViewRepresentable {
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
             if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let link = run.link { attributes[.link] = link }
+            if let tint = run[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] { attributes[.backgroundColor] = NSColor(tint) }
             string.append(NSAttributedString(string: String(text[run.range].characters), attributes: attributes))
         }
         if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string); context.coordinator.sizes = [:] }

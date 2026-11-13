@@ -5,8 +5,13 @@ import ImageIO
 final class ComposerWindow: NSWindow {
     var focusComposer: () -> Void = {}
     var chooseOption: (Int) -> Bool = { _ in false }
+    var find: TranscriptFind?
+    var closeFind: () -> Void = {}
     private var clickStart: NSPoint?
+    @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     override func sendEvent(_ event: NSEvent) {
+        // Escape shuts the find bar before the composer, a command list or a running turn sees it.
+        if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.
         if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil,
            let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: event.keyCode) ?? [83, 84, 85, 86, 87, 88, 89, 91, 92].firstIndex(of: event.keyCode),

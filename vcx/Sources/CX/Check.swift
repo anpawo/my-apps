@@ -300,6 +300,34 @@ enum Check {
             check(!clickWindow.isVisible, "the click fixture stays off screen")
             clickWindow.close()
         }
+        do {
+            let findSession = Session(cwd: "/tmp", stateDirectory: URL(fileURLWithPath: NSTemporaryDirectory() + "vcx-find-" + UUID().uuidString))
+            findSession.show(["id": "q1", "type": "userMessage", "content": [["type": "text", "text": "Where is the needle?"]]])
+            findSession.show(["id": "a1", "type": "commandExecution", "command": "grep needle", "aggregatedOutput": "needle", "status": "completed", "exitCode": 0])
+            findSession.show(["id": "n1", "type": "agentMessage", "text": "Looking for the needle first."])
+            findSession.show(["id": "a2", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0])
+            findSession.show(["id": "r1", "type": "agentMessage", "text": "The **Needle** is here.\n\n```\nlet needle = 1\n```"])
+            let find = findSession.find
+            find.toggle(); find.query = "needle"; find.search(findSession.rows, visible: [])
+            check(find.matches.map(\.item) == ["q1", "r1", "r1"], "find matches the question and the answer, not the actions or notes")
+            check(find.current?.item == "r1" && find.current?.fragment == "let needle = 1", "with nothing on screen, find starts at the last match")
+            find.move(1)
+            check(find.current?.item == "q1", "the next match after the last wraps to the first")
+            check(find.highlight(richText("The **Needle** is here."), fragment: "The Needle is here.", item: "r1").runs.compactMap { $0[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] }.count == 1, "an answer's match is tinted once")
+            inputWindow.find = find
+            var closed = 0
+            inputWindow.closeFind = { closed += 1; find.toggle() }
+            inputWindow.makeFirstResponder(typingField)
+            typingField.setDraft(NSAttributedString(string: "keep"))
+            inputWindow.sendEvent(key(53, "\u{1b}"))
+            check(closed == 1 && !find.open && typingField.string == "keep", "Escape closes the find bar before the composer sees it")
+            inputWindow.toggleFind(nil)
+            check(find.open, "⌘F opens the find bar")
+            inputWindow.toggleFind(nil)
+            check(closed == 2 && !find.open, "⌘F again closes it")
+            inputWindow.find = nil
+            typingField.setDraft(NSAttributedString(string: ""))
+        }
         inputWindow.focusComposer = {}; inputWindow.close()
         typingField.setDraft(NSAttributedString(string: ""))
         typingField.insertText("Typed after clearing", replacementRange: NSRange(location: 0, length: 0))
@@ -2065,6 +2093,11 @@ enum Render {
         let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])
         session.draft = NSAttributedString(attributedString: draft)
         write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
+        session.find.toggle(); session.find.query = "workspace"; session.find.search(session.rows, visible: [])
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find.png")
+        session.find.move(-2)
+        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find-previous.png")
+        session.find.toggle()
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         draft.append(NSAttributedString(string: "next characters"))
         session.draft = draft; session.draftRevision += 1
