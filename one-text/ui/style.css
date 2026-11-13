@@ -213,7 +213,7 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .receipt { font-size: 11px; color: var(--muted); margin: 3px 6px 0; }
 .reacts { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 8px 2px; position: relative; }
 .reacts button { display: flex; align-items: center; gap: 3px; height: 22px; padding: 0 7px; border-radius: 11px; background: #262626; box-shadow: 0 0 0 2px #000; font-size: 13px; }
-.reacts button.me { background: rgb(10 132 255 / .35); }
+.reacts button.me { background: rgb(4 46 89); }
 .reacts button i { font-style: normal; font-size: 11px; color: var(--muted); }
 .reacts button img { width: 16px; height: 16px; }
 /* Its 32px (26 + 2 × 3) are taken back below, so a one-line bubble, shorter than the bar, keeps its row's height. */
