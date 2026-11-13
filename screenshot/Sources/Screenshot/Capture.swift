@@ -47,16 +47,6 @@ enum Capture {
         return try await shoot(filter, config)
     }
 
-    /// `rect` in AppKit global points, inside `screen`.
-    static func area(_ rect: CGRect, on screen: NSScreen) async throws -> CGImage {
-        let (_, filter) = try await displayFilter(screen)
-        let config = SCStreamConfiguration()
-        config.sourceRect = displayLocal(rect, in: screen.frame)
-        config.width = Int(rect.width * screen.backingScaleFactor)
-        config.height = Int(rect.height * screen.backingScaleFactor)
-        return try await shoot(filter, config)
-    }
-
     /// With its shadow on a transparent background, like ⌘⇧4-space; without, like ⌥-click there.
     static func window(_ w: WindowInfo, shadow: Bool) async throws -> CGImage {
         let filter = SCContentFilter(desktopIndependentWindow: try await window(w.id))

@@ -23,11 +23,6 @@ enum Settings {
     static func toggle(folder dir: URL) {
         if let i = folders.firstIndex(where: { $0.path == dir.path }) { folders.remove(at: i) } else { folders.append(dir) }
     }
-    /// Seconds before a timed capture; 0 is immediate.
-    static var timer: Int {
-        get { d.integer(forKey: "timer") }
-        set { d.set(newValue, forKey: "timer") }
-    }
     static var cursor: Bool {
         get { d.bool(forKey: "cursor") }
         set { d.set(newValue, forKey: "cursor") }

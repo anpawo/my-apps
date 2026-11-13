@@ -254,12 +254,12 @@ private final class OverlayView: NSView {
         if let cut, target != .screen { path.addRect(cut) }
         hole.path = path
         if target == .window, let text {
-            // The window's name sits above the bar and its settings, centred on the screen.
+            // The window's name sits above the bar, centred on the screen.
             frameLayer.path = nil; frameBase.path = nil; handlesLayer.path = nil; handleDots.path = nil
             label.string = text
             let size = (text as NSString).size(withAttributes: [.font: label.font as! NSFont])
             let box = CGRect(x: (bounds.midX - size.width / 2 - 6).rounded(),
-                             y: local(screen.visibleFrame).minY + 24 + max(Bar.height, Strip.height) + 12,
+                             y: local(screen.visibleFrame).minY + 24 + Bar.height + 12,
                              width: size.width + 12, height: size.height + 6)
             labelBack.frame = box
             label.frame = box.insetBy(dx: 0, dy: 3)

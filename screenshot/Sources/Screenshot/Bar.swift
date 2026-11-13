@@ -1,8 +1,8 @@
 import AppKit
 import ScreenshotCore
 
-/// The ⌘⇧5 strip, laid out like the system's: the stills, the button, with every setting on
-/// its right. Never key: keys go to the overlay.
+/// The ⌘⇧5 strip, laid out like the system's: the stills and the button, between Save in on
+/// its left and Options on its right. Never key: keys go to the overlay.
 final class Bar: NSPanel {
     // Apple's geometry, measured on the system bar at 2×: 53 pt tall, stills on a
     // 50 pt pitch in 44×36 buttons, a divider 7 pt after them, the button 17.5 pt after that.
@@ -11,7 +11,9 @@ final class Bar: NSPanel {
     private(set) var buttons: [ModeButton] = []
     let go = NSButton()
     let hint = Hint()
-    let strip = Strip()
+    let saveIn = Section.saveIn()
+    let options = Section.options()
+    var sections: [Section] { [saveIn, options] }
 
     init(session: Session, on screen: NSScreen) {
         self.session = session
@@ -64,15 +66,27 @@ final class Bar: NSPanel {
         let width = go.frame.maxX + 8.5
         back.frame = CGRect(x: 0, y: 0, width: width, height: Bar.height)
         let v = screen.visibleFrame
-        // The bar and its settings, centred together.
-        let both = width + 8 + strip.frame.width
-        setFrame(CGRect(x: (v.midX - both / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
-        strip.place(beside: self)
+        setFrame(CGRect(x: (v.midX - width / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
+        placeSections()
     }
 
     override var canBecomeKey: Bool { false }
-    override func orderFrontRegardless() { super.orderFrontRegardless(); strip.reload(); strip.place(beside: self); strip.orderFrontRegardless() }
-    override func orderOut(_ sender: Any?) { hint.hide(); strip.orderOut(nil); super.orderOut(sender) }
+    override func orderFrontRegardless() {
+        super.orderFrontRegardless()
+        for s in sections { s.reload(); s.expand(false, animated: false) }
+        placeSections()
+        sections.forEach { $0.orderFrontRegardless() }
+    }
+    override func orderOut(_ sender: Any?) { hint.hide(); sections.forEach { $0.orderOut(nil) }; super.orderOut(sender) }
+
+    /// 8 pt off each end, bottoms level: they grow upward.
+    private func placeSections() {
+        saveIn.setFrameOrigin(CGPoint(x: frame.minX - 8 - saveIn.frame.width, y: frame.minY))
+        options.setFrameOrigin(CGPoint(x: frame.maxX + 8, y: frame.minY))
+    }
+
+    /// ⌘ + `key`; false when no setting has that letter.
+    func flip(_ key: String) -> Bool { sections.contains { $0.flip(key) } }
     override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
 
@@ -89,7 +103,7 @@ final class Bar: NSPanel {
     /// The bar, its settings and, given `i`, the hint of button `i`, as the screen shows them,
     /// still never on screen; with the frame they cover.
     func picture(hovering i: Int? = nil) -> (NSBitmapImageRep, CGRect) {
-        var parts: [NSWindow] = [self, strip]
+        var parts: [NSWindow] = [self] + sections
         if let i {
             hint.place(buttons[i].toolTip!, above: buttons[i], in: self)
             parts.append(hint)
@@ -221,33 +235,41 @@ final class Hint: NSPanel {
     func hide() { orderOut(nil) }
 }
 
-/// Every setting, always above the bar: three titled columns of three. A click or ⌘ + its key
-/// flips one; the timer's three are one choice.
-final class Strip: NSPanel {
+/// One group of settings beside the bar, as tall as the bar: its title and what is on. Hovered,
+/// it grows upward to a row per setting. A click or ⌘ + the key on its cap flips one.
+final class Section: NSPanel {
     struct Item {
         let key: String, title: String, on: Bool
         let flip: () -> Void
     }
 
     private static let pad: CGFloat = 8, titleHeight: CGFloat = 20, row: CGFloat = 30, gap: CGFloat = 2
-    static let height = pad + titleHeight + 3 * row + 2 * gap + pad
+    private let name: String
+    private let items: () -> [Item]
+    private let body = NSView()
+    private let summary = NSTextField(labelWithString: "")
+    private let rows = NSView()
+    private(set) var expanded = false
 
-    static func sections() -> [(String, [Item])] {
-        let folders = zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
-            Item(key: key, title: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
+    static func saveIn() -> Section {
+        Section("Save in") {
+            zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
+                Item(key: key, title: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
+            }
         }
-        let timer = [("0", "None", 0), ("5", "5 Seconds", 5), ("1", "10 Seconds", 10)].map { key, title, secs in
-            Item(key: key, title: title, on: Settings.timer == secs) { Settings.timer = secs }
-        }
-        let options = [
-            Item(key: "C", title: "Clipboard", on: Settings.copies) { Settings.copies.toggle() },
-            Item(key: "F", title: "Thumbnail", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
-            Item(key: "P", title: "Pointer", on: Settings.cursor) { Settings.cursor.toggle() },
-        ]
-        return [("Save in", folders), ("Timer", timer), ("Options", options)]
     }
 
-    init() {
+    static func options() -> Section {
+        Section("Options") {
+            [Item(key: "C", title: "Copy to Clipboard", on: Settings.copies) { Settings.copies.toggle() },
+             Item(key: "P", title: "Pin Thumbnail", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
+             Item(key: "M", title: "Capture Mouse", on: Settings.cursor) { Settings.cursor.toggle() }]
+        }
+    }
+
+    private init(_ name: String, items: @escaping () -> [Item]) {
+        self.name = name
+        self.items = items
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         isOpaque = false
@@ -258,66 +280,104 @@ final class Strip: NSPanel {
         isReleasedWhenClosed = false
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        contentView = Ground()
-        contentView!.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+        let back = Ground()
+        contentView = back
+        back.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+        // Pinned to the top, so the window's edge clips it as it grows and shrinks.
+        body.autoresizingMask = [.minYMargin]
+        back.addSubview(body)
+        summary.font = .systemFont(ofSize: 13)
+        summary.textColor = NSColor.labelColor.withAlphaComponent(0.85)
+        summary.lineBreakMode = .byTruncatingTail
+        for v in [summary, rows] as [NSView] { v.wantsLayer = true }
         reload()
+        setContentSize(CGSize(width: body.frame.width, height: Bar.height))
+        body.setFrameOrigin(CGPoint(x: 0, y: Bar.height - body.frame.height))
     }
 
     override var canBecomeKey: Bool { false }
-    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set(); expand(true) }
     override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
+    override func mouseExited(with event: NSEvent) { expand(false) }
 
-    func reload() {
-        let back = contentView!
-        back.subviews.forEach { $0.removeFromSuperview() }
-        var x = Strip.pad
-        for (name, items) in Strip.sections() {
-            let title = NSTextField(labelWithString: name)
-            title.font = .systemFont(ofSize: 11, weight: .semibold)
-            title.textColor = .secondaryLabelColor
-            title.sizeToFit()
-            title.setFrameOrigin(CGPoint(x: x + 6, y: Strip.height - Strip.pad - Strip.titleHeight + 3))
-            back.addSubview(title)
-            let keys = items.map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
-            let width = keys.map(\.frame.width).max()!
-            var y = Strip.height - Strip.pad - Strip.titleHeight
-            for k in keys {
-                y -= Strip.row
-                k.frame = CGRect(x: x, y: y, width: width, height: Strip.row)
-                back.addSubview(k)
-                y -= Strip.gap
-            }
-            x += width + 12
-        }
-        setContentSize(CGSize(width: x - 12 + Strip.pad, height: Strip.height))
+    private var tall: CGFloat {
+        let n = CGFloat(items().count)
+        return 2 * Section.pad + Section.titleHeight + n * Section.row + (n - 1) * Section.gap
     }
 
-    /// ⌘ + `key`; false when no setting has that letter.
+    func reload() {
+        body.subviews.forEach { $0.removeFromSuperview() }
+        rows.subviews.forEach { $0.removeFromSuperview() }
+        let all = items()
+        let keys = all.map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
+        let width = keys.map(\.frame.width).max()!
+        let h = tall
+        body.frame = CGRect(x: body.frame.minX, y: frame.height - h, width: width + 2 * Section.pad, height: h)
+        let title = NSTextField(labelWithString: name)
+        title.font = .systemFont(ofSize: 11, weight: .semibold)
+        title.textColor = .secondaryLabelColor
+        title.sizeToFit()
+        let below = h - Section.pad - Section.titleHeight
+        title.setFrameOrigin(CGPoint(x: Section.pad + 6, y: below + 3))
+        let on = all.filter(\.on).map(\.title)
+        summary.stringValue = on.isEmpty ? "None" : on.joined(separator: ", ")
+        summary.frame = CGRect(x: Section.pad + 6, y: below - 18, width: width - 12, height: 17)
+        rows.frame = CGRect(x: Section.pad, y: 0, width: width, height: below)
+        var y = below
+        for k in keys {
+            y -= Section.row
+            k.frame = CGRect(x: 0, y: y, width: width, height: Section.row)
+            rows.addSubview(k)
+            y -= Section.gap
+        }
+        for v in [title, summary, rows] as [NSView] { body.addSubview(v) }
+        rows.alphaValue = expanded ? 1 : 0
+        summary.alphaValue = expanded ? 0 : 1
+    }
+
+    /// Grows upward to its rows, or back to the bar's height: an ease-out over 250 ms, the rows
+    /// and the summary crossfading; Reduce Motion keeps the crossfade alone.
+    func expand(_ on: Bool, animated: Bool = true) {
+        guard on != expanded || !animated else { return }
+        expanded = on
+        var f = frame
+        f.size.height = on ? tall : Bar.height
+        guard animated else {
+            setFrame(f, display: true)
+            rows.alphaValue = on ? 1 : 0
+            summary.alphaValue = on ? 0 : 1
+            return
+        }
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if still { setFrame(f, display: true) }
+        NSAnimationContext.runAnimationGroup { c in
+            c.duration = 0.25
+            c.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            if !still { animator().setFrame(f, display: true) }
+            rows.animator().alphaValue = on ? 1 : 0
+            summary.animator().alphaValue = on ? 0 : 1
+        }
+    }
+
+    /// ⌘ + `key`; false when no setting here has that letter.
     func flip(_ key: String) -> Bool {
-        guard let item = Strip.sections().flatMap(\.1).first(where: { $0.key == key.uppercased() }) else { return false }
+        guard let item = items().first(where: { $0.key == key.uppercased() }) else { return false }
         item.flip()
         reload()
         return true
     }
-
-    /// On the bar's right, bottoms level.
-    func place(beside bar: NSWindow) {
-        setFrameOrigin(CGPoint(x: bar.frame.maxX + 8, y: bar.frame.minY))
-    }
-
-    func hide() { orderOut(nil) }
 }
 
 /// One setting: its key on a cap, its name, and a tick when it is on; on, the row sits on the
 /// accent colour.
 private final class StripKey: NSView {
-    private let item: Strip.Item
+    private let item: Section.Item
     private let flip: () -> Void
     private static let font = NSFont.systemFont(ofSize: 13)
     private static let keyFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
     private static let tick = NSFont.systemFont(ofSize: 13, weight: .bold)
 
-    init(_ item: Strip.Item, flip: @escaping () -> Void) {
+    init(_ item: Section.Item, flip: @escaping () -> Void) {
         self.item = item
         self.flip = flip
         let text = (item.title as NSString).size(withAttributes: [.font: StripKey.font]).width

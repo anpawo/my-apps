@@ -105,7 +105,7 @@ final class Session {
     }
 
     func step(_ delta: Int) { state.step(delta); refresh() }
-    func flipSetting(_ key: String) { _ = bar?.strip.flip(key) }
+    func flipSetting(_ key: String) { _ = bar?.flip(key) }
     func set(_ target: Target) { state.target = target; refresh() }
 
     /// The arrows glide the drawn box to `selection`, which stays the truth for hits and the shot.
@@ -181,13 +181,11 @@ final class Session {
 
         Task {
             do {
-                let live = Settings.timer > 0
-                if live { try await Task.sleep(for: .seconds(Settings.timer)) }
                 switch state.target {
                 case .screen:
                     var last: (URL, CGImage, CGRect)?
                     for s in screen.map({ [$0] }) ?? NSScreen.screens {
-                        let image = live ? try await Capture.screen(s) : frozen[s.displayID]!
+                        let image = frozen[s.displayID]!
                         last = (try Output.save(image, scale: s.backingScaleFactor), image, s.frame)
                     }
                     if let (url, image, rect) = last { Thumbnail.show(.image(image, url, rect)) }
@@ -199,8 +197,7 @@ final class Session {
                 case .area:
                     let r = selection!.integral
                     let s = NSScreen.containing(r)
-                    let image = live ? try await Capture.area(r, on: s)
-                        : frozen[s.displayID]!.cropping(to: pixelCrop(r, in: s.frame, scale: s.backingScaleFactor))!
+                    let image = frozen[s.displayID]!.cropping(to: pixelCrop(r, in: s.frame, scale: s.backingScaleFactor))!
                     Thumbnail.show(.image(image, try Output.save(image, scale: s.backingScaleFactor), r))
                 }
             } catch {
