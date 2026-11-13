@@ -18,7 +18,7 @@ take: the entire screen, a window, or a portion you drag out.
 - **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
-![The bar: three stills and Capture, between Save in on the left and Options on the right, each shrunk to its name with a grip in its outer corner](docs/bar.png)
+![The bar: three stills and Capture, between Save in on the left and Options on the right, each shrunk to its name](docs/bar.png)
 
 Hovering a button names its mode, with none of a tooltip's delay:
 

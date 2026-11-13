@@ -9,7 +9,7 @@ final class Bar: NSPanel {
     static let height: CGFloat = 53
     private unowned let session: Session
     private(set) var buttons: [ModeButton] = []
-    let go = NSButton()
+    let go = CaptureButton()
     let hint = Hint()
     let saveIn = Section.saveIn()
     let options = Section.options()
@@ -51,11 +51,7 @@ final class Bar: NSPanel {
         back.addSubview(Bar.divider(at: x + 0.75))            // 7 pt after the last still
         x += 18.25
 
-        // Painted by hand: AppKit only tints a default button in a key window, and this one never is.
-        go.isBordered = false
         go.font = .systemFont(ofSize: 15)
-        go.wantsLayer = true
-        go.layer?.cornerRadius = 8
         go.target = self
         go.action = #selector(commit)
         go.attributedTitle = NSAttributedString(string: "Capture", attributes: [.foregroundColor: NSColor.white, .font: go.font!])
@@ -116,7 +112,6 @@ final class Bar: NSPanel {
         let s = session.state
         for b in buttons { b.isSelected = b.mode == s }
         go.isEnabled = !(s.needsSelection && session.selection == nil)
-        go.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(go.isEnabled ? 1 : 0.4).cgColor
     }
 
     /// The bar and its settings as PNG, at 2×, without ever being on screen.
@@ -181,38 +176,69 @@ private final class Ground: NSView {
     }
 }
 
+/// A button whose ground lightens under the pointer, fading over 150 ms.
+class HoverButton: NSButton {
+    private(set) var hovered = false { didSet { paint() } }
+    var onHover: ((Bool) -> Void)?
+
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    required init?(coder: NSCoder) { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseEntered(with event: NSEvent) { hovered = true; onHover?(true) }
+    override func mouseExited(with event: NSEvent) { hovered = false; onHover?(false) }
+
+    var ground: NSColor? { nil }
+    func paint() {
+        guard let layer else { return }
+        // A view's own layer takes no implicit animation.
+        let fade = CABasicAnimation(keyPath: "backgroundColor")
+        fade.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        fade.duration = 0.15
+        layer.backgroundColor = ground?.cgColor
+        layer.add(fade, forKey: "ground")
+    }
+}
+
 /// One mode. The selected one sits on a rounded tint, like the system's.
-final class ModeButton: NSButton {
+final class ModeButton: HoverButton {
     let mode: BarState
     var isSelected = false {
         didSet {
-            layer?.backgroundColor = isSelected ? NSColor.labelColor.withAlphaComponent(0.1).cgColor : nil
+            paint()
             contentTintColor = NSColor.labelColor.withAlphaComponent(isSelected ? 0.95 : 0.7)
         }
     }
 
     init(state: BarState, target: AnyObject, action: Selector) {
         self.mode = state
-        super.init(frame: .zero)
+        super.init()
         self.target = target
         self.action = action
         image = Glyph.image(for: state)
-        isBordered = false
         imagePosition = .imageOnly
         contentTintColor = NSColor.labelColor.withAlphaComponent(0.7)
         toolTip = "Capture " + Glyph.tip[state.target]!
-        wantsLayer = true
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-        layer?.cornerRadius = 8
     }
     required init?(coder: NSCoder) { nil }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// The system shows the mode's name above the button as soon as the mouse is on it, with
-    /// none of a tooltip's delay.
-    var onHover: ((Bool) -> Void)?
-    override func mouseEntered(with event: NSEvent) { onHover?(true) }
-    override func mouseExited(with event: NSEvent) { onHover?(false) }
+    override var ground: NSColor? {
+        isSelected ? NSColor.labelColor.withAlphaComponent(hovered ? 0.14 : 0.1) : hovered ? NSColor.labelColor.withAlphaComponent(0.06) : nil
+    }
+}
+
+/// Painted by hand: AppKit only tints a default button in a key window, and this one never is.
+final class CaptureButton: HoverButton {
+    override var isEnabled: Bool { didSet { paint() } }
+    override var ground: NSColor? {
+        let accent = NSColor.controlAccentColor
+        return !isEnabled ? accent.withAlphaComponent(0.4) : hovered ? accent.blended(withFraction: 0.18, of: .white) : accent
+    }
 }
 
 /// The little dark label above a hovered button.
@@ -265,12 +291,11 @@ final class Section: NSPanel {
         let flip: () -> Void
     }
 
-    private static let pad: CGFloat = 8, titleHeight: CGFloat = 20, row: CGFloat = 30, gap: CGFloat = 2
+    private static let pad: CGFloat = 8, titleHeight: CGFloat = 24, row: CGFloat = 30, gap: CGFloat = 2
     private let name: String
     private let growsLeft: Bool
     private let items: () -> [Item]
     private let label: Title           // the name: centred while shrunk, the header while open
-    private let grip: Grip             // in the corner away from the bar, while shrunk
     /// A shortcut opens the block a moment, so the flip shows.
     private var peekUntil: CFTimeInterval = 0
     private let body = NSView()        // the small name and the rows, while open
@@ -279,7 +304,7 @@ final class Section: NSPanel {
     var anchor = CGPoint.zero
     private var openSize = CGSize.zero
     static let shutHeight: CGFloat = 36
-    private var shutSize: CGSize { CGSize(width: ceil(label.width) + 44, height: Section.shutHeight) }
+    private var shutSize: CGSize { CGSize(width: ceil(label.width) + 32, height: Section.shutHeight) }
 
     static func saveIn() -> Section {
         Section("Save in", growsLeft: true) {
@@ -302,7 +327,7 @@ final class Section: NSPanel {
         self.growsLeft = growsLeft
         self.items = items
         label = Title(name)
-        grip = Grip(left: growsLeft)
+        label.header = (Section.pad, Section.titleHeight)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         isOpaque = false
@@ -320,9 +345,7 @@ final class Section: NSPanel {
         label.autoresizingMask = [.width, .height]
         // Pinned to the top and to the side by the bar, so the edges that move clip it.
         body.autoresizingMask = [.minYMargin, growsLeft ? .minXMargin : .maxXMargin]
-        grip.setFrameOrigin(CGPoint(x: growsLeft ? 0 : shutSize.width - grip.frame.width, y: Section.shutHeight - grip.frame.height))
-        grip.autoresizingMask = [.minYMargin, growsLeft ? .maxXMargin : .minXMargin]
-        for v in [label, grip, body] as [NSView] {
+        for v in [label, body] as [NSView] {
             v.wantsLayer = true
             back.addSubview(v)
         }
@@ -362,7 +385,6 @@ final class Section: NSPanel {
         }
         body.alphaValue = expanded ? 1 : 0
         label.progress = expanded ? 1 : 0
-        grip.alphaValue = expanded ? 0 : 1
     }
 
     /// Grows to its rows or back to its name: an ease-out over 250 ms, the name gliding to the
@@ -375,7 +397,6 @@ final class Section: NSPanel {
             setFrame(f, display: true)
             body.alphaValue = on ? 1 : 0
             label.progress = on ? 1 : 0
-            grip.alphaValue = on ? 0 : 1
             return
         }
         let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -386,7 +407,6 @@ final class Section: NSPanel {
             if !still { animator().setFrame(f, display: true) }
             body.animator().alphaValue = on ? 1 : 0
             if !still { label.animator().progress = on ? 1 : 0 }
-            grip.animator().alphaValue = on ? 0 : 1
         }
     }
 
@@ -412,22 +432,39 @@ private final class StripKey: NSView {
     /// One width for every cap, the widest letter's, so they line up.
     private static let capWidth = ceil(("⌥M" as NSString).size(withAttributes: [.font: keyFont]).width) + 12
 
+    /// 0 to 1 as the pointer comes on the row: its ground deepens.
+    @objc dynamic var glow: CGFloat = 0 { didSet { needsDisplay = true } }
+
     init(_ item: Section.Item, flip: @escaping () -> Void) {
         self.item = item
         self.flip = flip
         let text = (item.title as NSString).size(withAttributes: [.font: StripKey.font]).width
         super.init(frame: CGRect(x: 0, y: 0, width: 34 + ceil(text) + 18 + StripKey.capWidth + 8, height: 30))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
     required init?(coder: NSCoder) { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { flip() }
 
+    override static func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+        key == "glow" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+    }
+    private func light(_ on: Bool) {
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.15; animator().glow = on ? 1 : 0 }
+    }
+    override func mouseEntered(with event: NSEvent) { light(true) }
+    override func mouseExited(with event: NSEvent) { light(false) }
+    /// A click rebuilds the rows under the pointer: the new one starts lit, with no enter to say so.
+    override func viewDidMoveToWindow() {
+        guard let window else { return }
+        glow = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) ? 1 : 0
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let on = item.on
-        if on {
-            NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
-        }
+        let ground = on ? NSColor.controlAccentColor.withAlphaComponent(0.16 + 0.1 * glow) : NSColor.labelColor.withAlphaComponent(0.07 * glow)
+        ground.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
         let box = CGRect(x: 8, y: (bounds.height - 18) / 2, width: 18, height: 18)
         if on {
             NSColor.controlAccentColor.setFill()
@@ -456,8 +493,8 @@ private final class StripKey: NSView {
     }
 }
 
-/// A group's name, drawn at `progress` between centred at 15 pt (0) and the header's 11 pt in the
-/// top-left corner (1), so it glides there as the block opens rather than fading into a copy.
+/// A group's name, centred in the block at `progress` between its middle (0) and the header (1),
+/// so it glides up as the block opens rather than fading into a copy.
 private final class Title: NSView {
     private let name: String
     @objc dynamic var progress: CGFloat = 0 { didSet { needsDisplay = true } }
@@ -472,45 +509,20 @@ private final class Title: NSView {
         key == "progress" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
     }
 
-    private func attrs(_ t: CGFloat) -> [NSAttributedString.Key: Any] {
-        [.font: NSFont.systemFont(ofSize: 15 - 4 * t, weight: .semibold),
-         .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85 - 0.3 * t)]
+    private var attrs: [NSAttributedString.Key: Any] {
+        [.font: NSFont.systemFont(ofSize: 15, weight: .semibold), .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85)]
     }
-    var width: CGFloat { (name as NSString).size(withAttributes: attrs(0)).width }
+    var width: CGFloat { size.width }
+    private var size: CGSize { (name as NSString).size(withAttributes: attrs) }
+
+    /// `header` is the band under the top padding the open block keeps for the name.
+    var header: (pad: CGFloat, height: CGFloat) = (0, 0)
 
     override func draw(_ dirtyRect: NSRect) {
         let t = min(max(progress, 0), 1)
-        let a = attrs(t)
-        let size = (name as NSString).size(withAttributes: a)
-        let shut = CGPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2)
-        let open = CGPoint(x: 14, y: bounds.height - 8 - 17)
-        (name as NSString).draw(at: CGPoint(x: shut.x + (open.x - shut.x) * t, y: shut.y + (open.y - shut.y) * t), withAttributes: a)
-    }
-}
-
-/// Two short diagonals across a corner, like a resize grip: the block opens.
-private final class Grip: NSView {
-    private let left: Bool
-    init(left: Bool) {
-        self.left = left
-        super.init(frame: CGRect(x: 0, y: 0, width: 16, height: 16))
-    }
-    required init?(coder: NSCoder) { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let p = NSBezierPath()
-        // Across the top corner, 4 pt in: still inside the 12 pt rounding.
-        for a: CGFloat in [7.5, 3.75] {
-            let x0: CGFloat = left ? 4 : bounds.maxX - 4
-            let edge = CGPoint(x: x0, y: bounds.maxY - 4 - a)
-            let top = CGPoint(x: left ? x0 + a : x0 - a, y: bounds.maxY - 4)
-            p.move(to: edge)
-            p.line(to: top)
-        }
-        p.lineWidth = 1
-        p.lineCapStyle = .round
-        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
-        p.stroke()
+        let shut = (bounds.height - size.height) / 2
+        let open = bounds.height - header.pad - (header.height + size.height) / 2
+        (name as NSString).draw(at: CGPoint(x: (bounds.width - size.width) / 2, y: shut + (open - shut) * t), withAttributes: attrs)
     }
 }
 
