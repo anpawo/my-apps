@@ -286,6 +286,25 @@ const mine = await page.$$eval('#thread .msg.me', ms => ms.map(m => msgText(m)).
 check(await page.$$eval('#thread .msg.pending', ms => ms.length) === 0 && JSON.stringify(mine) === '["on my way"]', `pending bubble replaced by the sent message, even when the app rewrote it (${mine} ${await page.$$eval('#thread .msg.failed', ms => ms.map(m => m.title))})`);
 check(await on() === 'whatsapp', 'manual choice holds after sending');
 
+// A sent message flies from the field to its place, every frame one way, and the app's confirmation then moves nothing.
+await page.click('#input');
+await page.keyboard.type('flying over');
+const flight = await page.evaluate(async () => {
+  const f = document.querySelector('#input').getBoundingClientRect(), out = [], rect = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width]; };
+  document.querySelector('#send').click();
+  const t0 = performance.now();
+  while (performance.now() - t0 < 500) { const g = document.querySelector('.bubble.flying'); out.push(g && rect(g)); await new Promise(r => requestAnimationFrame(r)); }
+  const b = document.querySelector('#thread .msg.pending .bubble');
+  return { from: [f.left, f.top, f.width], out, landed: b && [...rect(b), b.style.visibility] };
+});
+const flown = flight.out.filter(Boolean);
+check(flown.length >= 8 && Math.abs(flown[0][0] - flight.from[0]) < 1 && Math.abs(flown[0][2] - flight.from[2]) < 1 && monotonic(flown.map(r => r[0])) && monotonic(flown.map(r => r[2])) && flight.out.at(-1) === null && flight.landed?.[3] === '' && Math.abs(flown.at(-1)[0] - flight.landed[0]) < 2,
+  `the bubble flies from the field to its place, one way (${flown.length} frames, ${JSON.stringify([flight.from, flown[0], flown.at(-1), flight.landed])})`);
+const beforeEcho = await page.$eval('#thread .msg.pending .bubble', b => b.getBoundingClientRect().top);
+await page.waitForTimeout(1200);
+const afterEcho = await page.evaluate(() => { const b = [...document.querySelectorAll('#thread .msg.me:not(.pending) .bubble')].find(b => b.textContent.includes('flying over')); return b && [b.getBoundingClientRect().top, b.closest('.msg').querySelector('.receipt')?.textContent]; });
+check(afterEcho && Math.abs(afterEcho[0] - beforeEcho) < 0.5 && afterEcho[1] === 'Sent', `the confirmed message stays where it landed, Sent under it (${beforeEcho} → ${JSON.stringify(afterEcho)})`);
+
 // Merge Tom (Discord) with Tom B (WhatsApp) through the ⋯ menu, then Undo.
 await page.click('#people .row:has-text("tom")');
 await page.waitForTimeout(500);

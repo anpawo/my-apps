@@ -780,6 +780,30 @@ function followEnd(el) {
   step();
 }
 
+// The text leaves the field as a bubble: from the field's box to the bubble's place, which it tracks every frame while
+// the row opens, the thread scrolls and the field shrinks. Its text keeps the bubble's width, so it never rewraps.
+function fly(bubble, from) {
+  if (!bubble || !from || RM.matches) return;
+  const w = bubble.getBoundingClientRect().width, ghost = bubble.cloneNode(true);
+  ghost.className = 'bubble flying';
+  ghost.innerHTML = `<div style="width:${w - 24}px">${bubble.innerHTML}</div>`;
+  document.body.append(ghost);
+  bubble.style.visibility = 'hidden';
+  const t0 = performance.now(), ms = 380;
+  const step = now => {
+    const p = Math.min(1, (now - t0) / ms), e = 1 - (1 - p) ** 4, to = bubble.getBoundingClientRect();
+    const mix = (a, b) => a + (b - a) * e;
+    Object.assign(ghost.style, {
+      left: `${mix(from.left, to.left)}px`, top: `${mix(from.top, to.top)}px`, width: `${mix(from.width, to.width)}px`, height: `${mix(from.height, to.height)}px`,
+      background: `rgb(${mix(38, 55)} ${mix(38, 151)} ${mix(38, 240)})`, opacity: mix(1, 0.55),
+    });
+    if (p < 1) return requestAnimationFrame(step);
+    bubble.style.visibility = '';
+    ghost.remove();
+  };
+  step(t0);
+}
+
 function drawThread(enter, keep) {
   const box = $('#msgs');
   const fromEnd = box.scrollHeight - box.scrollTop;
@@ -803,6 +827,8 @@ const selfIn = chatID => new Set(state.msgs.filter(m => m.isSender && m.chatID =
 // Under my last message, when nobody wrote after it: Seen (at what time; in a group, by how many) once the other side's
 // read marker (Beeper's `seen`, on that message or a later one) reaches it, else Sent.
 function drawSeen() {
+  // While a message is on its way, its row holds the receipt's place; moving it now would shift the thread.
+  if (document.querySelector('#thread .msg.pending')) return;
   document.querySelectorAll('#thread .receipt').forEach(r => r.remove());
   const last = state.msgs.at(-1);
   if (!last?.isSender) return;
@@ -1001,9 +1027,15 @@ async function pollThread() {
   for (const m of fresh) {
     // The app can rewrite what was sent (Instagram drops a leading "- "): the oldest pending row on that chat is this one.
     const pending = !m.isSender ? null : [...document.querySelectorAll('#thread .msg.pending')].find(p => p._chat === m.chatID);
-    pending?.remove();
     const nodes = msgNodes(m, state.msgs[state.msgs.length - 1]);
     state.msgs.push(m);
+    // The sent row takes the pending one's place as it stands, only its fade lifted: nothing moves.
+    if (pending && !pending._anim) {
+      const row = nodes.pop();
+      row.querySelector('.col').insertAdjacentHTML('beforeend', '<div class="receipt">&nbsp;</div>');
+      pending.replaceWith(...nodes.splice(0), row);
+      row.querySelectorAll('.bubble').forEach(b => anim(b, { opacity: [0.55, 1] }, 250));
+    } else pending?.remove();
     for (const n of nodes) {
       $('#thread').append(n);
       if (!n.hidden) { n.hidden = true; collapse(n, false, 280); last = n; }
@@ -1176,13 +1208,14 @@ async function send() {
     return;
   }
   if (!text || !state.target) return;
+  const from = input.getBoundingClientRect();
   input.value = '';
   autosize();
-  post({ text });
+  post({ text }, null, from);
 }
 
 // Shows the message at once, faded, then sends it to the chosen app; `upload` (a voice message) goes to Beeper first.
-async function post(m, upload) {
+async function post(m, upload, from) {
   const chat = state.target.chat;
   const reply = state.reply?.chatID === chat.id ? state.reply.id : undefined;
   setReply(null);
@@ -1190,9 +1223,13 @@ async function post(m, upload) {
   const [row] = msgNodes(m, state.msgs[state.msgs.length - 1]).slice(-1);
   row.classList.add('pending');
   row._chat = chat.id;
+  // "Sent" will stand under this one: its place is kept now, the old one folds away.
+  document.querySelectorAll('#thread .receipt').forEach(r => collapse(r, true, 260));
+  row.querySelector('.col').insertAdjacentHTML('beforeend', '<div class="receipt">&nbsp;</div>');
   $('#thread').append(row);
   row.hidden = true;
-  collapse(row, false, 260);
+  collapse(row, false, 300);
+  fly(row.querySelector('.bubble'), from);
   followEnd(row);
   try {
     const attachment = upload && (await upload());

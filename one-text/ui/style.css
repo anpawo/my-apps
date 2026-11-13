@@ -126,6 +126,7 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .msg .bubble.once { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid #363636; color: var(--muted); font-weight: 500; }
 .bubble.once svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .msg.pending .bubble { opacity: .55; }
+.bubble.flying { position: fixed; z-index: 30; margin: 0; box-sizing: border-box; overflow: hidden; color: #fff; pointer-events: none; }
 .msg.failed .bubble { box-shadow: 0 0 0 2px #ff3b30; }
 #thread.in .msg, #thread.in .day { animation: stagger-in 220ms ease-out calc(var(--i, 0) * 22ms) backwards; }
 @keyframes stagger-in { from { opacity: 0; } }
