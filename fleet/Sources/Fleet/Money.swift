@@ -477,7 +477,7 @@ struct MoneyColumn: View {
 
     /// Each account, its name over what it holds, and all of them together.
     private var accounts: some View {
-        let all = Money.Balance(name: "All", amount: store.balances.reduce(0) { $0 + $1.amount }, date: nil)
+        let all = Money.Balance(name: "All", amount: store.balances.reduce(0) { $0 + $1.amount.rounded() }, date: nil)
         return HStack(alignment: .top, spacing: 0) {
             ForEach(Array((store.balances + [all]).enumerated()), id: \.offset) { _, balance in
                 VStack(spacing: 2) {
