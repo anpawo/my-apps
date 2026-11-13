@@ -76,13 +76,35 @@ final class Bar: NSPanel {
         for s in sections { s.reload(); s.expand(false, animated: false) }
         placeSections()
         sections.forEach { $0.orderFrontRegardless() }
+        // The pointer is polled, not tracked: a tracking area fired exits while its window was
+        // growing under the pointer, and the group snapped shut and open again.
+        watch?.invalidate()
+        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watchPointer() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        watch = t
     }
-    override func orderOut(_ sender: Any?) { hint.hide(); sections.forEach { $0.orderOut(nil) }; super.orderOut(sender) }
+    override func orderOut(_ sender: Any?) {
+        watch?.invalidate()
+        watch = nil
+        hint.hide()
+        sections.forEach { $0.orderOut(nil) }
+        super.orderOut(sender)
+    }
 
-    /// 8 pt off each end, bottoms level: they grow upward.
+    private var watch: Timer?
+
+    private func watchPointer() {
+        let p = NSEvent.mouseLocation
+        if sections.map({ $0.hover(p) }).contains(true) { NSCursor.pointingHand.set() }
+    }
+
+    /// 8 pt off each end, bottoms level: they grow upward and away from the bar.
     private func placeSections() {
-        saveIn.setFrameOrigin(CGPoint(x: frame.minX - 8 - saveIn.frame.width, y: frame.minY))
-        options.setFrameOrigin(CGPoint(x: frame.maxX + 8, y: frame.minY))
+        saveIn.anchor = CGPoint(x: frame.minX - 8, y: frame.minY)
+        options.anchor = CGPoint(x: frame.maxX + 8, y: frame.minY)
+        for s in sections { s.setFrame(s.target(s.expanded), display: false) }
     }
 
     /// ⌘ + `key`; false when no setting has that letter.
@@ -235,8 +257,8 @@ final class Hint: NSPanel {
     func hide() { orderOut(nil) }
 }
 
-/// One group of settings beside the bar, as tall as the bar: its title and what is on. Hovered,
-/// it grows upward to a row per setting. A click or ⌘ + the key on its cap flips one.
+/// One group of settings beside the bar, shrunk to its name. Hovered, it grows upward and away
+/// from the bar to a row per setting. A click or ⌘ + the key on its cap flips one.
 final class Section: NSPanel {
     struct Item {
         let key: String, title: String, on: Bool
@@ -245,14 +267,18 @@ final class Section: NSPanel {
 
     private static let pad: CGFloat = 8, titleHeight: CGFloat = 20, row: CGFloat = 30, gap: CGFloat = 2
     private let name: String
+    private let growsLeft: Bool
     private let items: () -> [Item]
-    private let body = NSView()
-    private let summary = NSTextField(labelWithString: "")
-    private let rows = NSView()
+    private let label: NSTextField     // the name alone, while shrunk
+    private let body = NSView()        // the small name and the rows, while open
     private(set) var expanded = false
+    /// The x of the side facing the bar, and the bottom: what stays put as it grows.
+    var anchor = CGPoint.zero
+    private var openSize = CGSize.zero
+    private var shutSize: CGSize { CGSize(width: ceil(label.frame.width) + 32, height: Bar.height) }
 
     static func saveIn() -> Section {
-        Section("Save in") {
+        Section("Save in", growsLeft: true) {
             zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
                 Item(key: key, title: f.0, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
             }
@@ -260,16 +286,18 @@ final class Section: NSPanel {
     }
 
     static func options() -> Section {
-        Section("Options") {
+        Section("Options", growsLeft: false) {
             [Item(key: "C", title: "Copy to Clipboard", on: Settings.copies) { Settings.copies.toggle() },
              Item(key: "P", title: "Pin Thumbnail", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
              Item(key: "M", title: "Capture Mouse", on: Settings.cursor) { Settings.cursor.toggle() }]
         }
     }
 
-    private init(_ name: String, items: @escaping () -> [Item]) {
+    private init(_ name: String, growsLeft: Bool, items: @escaping () -> [Item]) {
         self.name = name
+        self.growsLeft = growsLeft
         self.items = items
+        label = NSTextField(labelWithString: name)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         isOpaque = false
@@ -282,70 +310,73 @@ final class Section: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         let back = Ground()
         contentView = back
-        back.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
-        // Pinned to the top, so the window's edge clips it as it grows and shrinks.
-        body.autoresizingMask = [.minYMargin]
-        back.addSubview(body)
-        summary.font = .systemFont(ofSize: 13)
-        summary.textColor = NSColor.labelColor.withAlphaComponent(0.85)
-        summary.lineBreakMode = .byTruncatingTail
-        for v in [summary, rows] as [NSView] { v.wantsLayer = true }
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textColor = NSColor.labelColor.withAlphaComponent(0.85)
+        label.sizeToFit()
+        setFrame(target(false), display: false)
+        label.setFrameOrigin(CGPoint(x: 16, y: ((Bar.height - label.frame.height) / 2).rounded()))
+        // Even margins stretch evenly: the name stays centred while it fades out.
+        label.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
+        // Pinned to the top and to the side by the bar, so the edges that move clip it.
+        body.autoresizingMask = [.minYMargin, growsLeft ? .minXMargin : .maxXMargin]
+        for v in [label, body] {
+            v.wantsLayer = true
+            back.addSubview(v)
+        }
         reload()
-        setContentSize(CGSize(width: body.frame.width, height: Bar.height))
-        body.setFrameOrigin(CGPoint(x: 0, y: Bar.height - body.frame.height))
     }
 
     override var canBecomeKey: Bool { false }
-    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set(); expand(true) }
-    override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
-    override func mouseExited(with event: NSEvent) { expand(false) }
 
-    private var tall: CGFloat {
-        let n = CGFloat(items().count)
-        return 2 * Section.pad + Section.titleHeight + n * Section.row + (n - 1) * Section.gap
+    func target(_ open: Bool) -> CGRect {
+        let size = open ? openSize : shutSize
+        return CGRect(x: growsLeft ? anchor.x - size.width : anchor.x, y: anchor.y, width: size.width, height: size.height)
+    }
+
+    /// Opens while the pointer is on it, shut or open; true when it is.
+    func hover(_ p: CGPoint) -> Bool {
+        let inside = target(expanded).contains(p)
+        if inside != expanded { expand(inside) }
+        return inside
     }
 
     func reload() {
         body.subviews.forEach { $0.removeFromSuperview() }
-        rows.subviews.forEach { $0.removeFromSuperview() }
         let all = items()
         let keys = all.map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
         let width = keys.map(\.frame.width).max()!
-        let h = tall
-        body.frame = CGRect(x: body.frame.minX, y: frame.height - h, width: width + 2 * Section.pad, height: h)
+        let n = CGFloat(keys.count)
+        let h = 2 * Section.pad + Section.titleHeight + n * Section.row + (n - 1) * Section.gap
+        openSize = CGSize(width: max(width + 2 * Section.pad, shutSize.width), height: h)
+        let size = contentView!.frame.size
+        body.frame = CGRect(x: growsLeft ? size.width - openSize.width : 0, y: size.height - h, width: openSize.width, height: h)
         let title = NSTextField(labelWithString: name)
         title.font = .systemFont(ofSize: 11, weight: .semibold)
         title.textColor = .secondaryLabelColor
         title.sizeToFit()
-        let below = h - Section.pad - Section.titleHeight
-        title.setFrameOrigin(CGPoint(x: Section.pad + 6, y: below + 3))
-        let on = all.filter(\.on).map(\.title)
-        summary.stringValue = on.isEmpty ? "None" : on.joined(separator: ", ")
-        summary.frame = CGRect(x: Section.pad + 6, y: below - 18, width: width - 12, height: 17)
-        rows.frame = CGRect(x: Section.pad, y: 0, width: width, height: below)
-        var y = below
+        var y = h - Section.pad - Section.titleHeight
+        title.setFrameOrigin(CGPoint(x: Section.pad + 6, y: y + 3))
+        body.addSubview(title)
         for k in keys {
             y -= Section.row
-            k.frame = CGRect(x: 0, y: y, width: width, height: Section.row)
-            rows.addSubview(k)
+            k.frame = CGRect(x: Section.pad, y: y, width: width, height: Section.row)
+            body.addSubview(k)
             y -= Section.gap
         }
-        for v in [title, summary, rows] as [NSView] { body.addSubview(v) }
-        rows.alphaValue = expanded ? 1 : 0
-        summary.alphaValue = expanded ? 0 : 1
+        body.alphaValue = expanded ? 1 : 0
+        label.alphaValue = expanded ? 0 : 1
     }
 
-    /// Grows upward to its rows, or back to the bar's height: an ease-out over 250 ms, the rows
-    /// and the summary crossfading; Reduce Motion keeps the crossfade alone.
+    /// Grows to its rows or back to its name: an ease-out over 250 ms, the two crossfading;
+    /// Reduce Motion keeps the crossfade alone.
     func expand(_ on: Bool, animated: Bool = true) {
         guard on != expanded || !animated else { return }
         expanded = on
-        var f = frame
-        f.size.height = on ? tall : Bar.height
+        let f = target(on)
         guard animated else {
             setFrame(f, display: true)
-            rows.alphaValue = on ? 1 : 0
-            summary.alphaValue = on ? 0 : 1
+            body.alphaValue = on ? 1 : 0
+            label.alphaValue = on ? 0 : 1
             return
         }
         let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -354,8 +385,8 @@ final class Section: NSPanel {
             c.duration = 0.25
             c.timingFunction = CAMediaTimingFunction(name: .easeOut)
             if !still { animator().setFrame(f, display: true) }
-            rows.animator().alphaValue = on ? 1 : 0
-            summary.animator().alphaValue = on ? 0 : 1
+            body.animator().alphaValue = on ? 1 : 0
+            label.animator().alphaValue = on ? 0 : 1
         }
     }
 

@@ -108,6 +108,8 @@ private final class OverlayView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let p = global(convert(event.locationInWindow, from: nil))
+        // The key overlay gets every move, even over the bar: its cursor would fight theirs.
+        if session.onBar(p) { return }
         let w = session.state.target == .window ? session.windows.first { $0.frame.contains(p) } : nil
         cursor(at: p).set()
         if session.hoverScreen != screen || session.hoverWindow?.id != w?.id {

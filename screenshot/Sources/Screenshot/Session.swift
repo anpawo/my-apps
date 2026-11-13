@@ -149,11 +149,17 @@ final class Session {
         // The hover is otherwise only set by a mouse move: opening in window mode, or ⌘→ into
         // it, would show nothing until the pointer moves. On the bar it stays as it was.
         let p = NSEvent.mouseLocation
-        if bar?.frame.contains(p) != true {
+        if !onBar(p) {
             hoverWindow = state.target == .window ? windows.first { $0.frame.contains(p) } : nil
         }
         bar?.refresh()
         redraw()
+    }
+
+    /// On the bar or one of its groups, which set their own cursor.
+    func onBar(_ p: CGPoint) -> Bool {
+        guard let bar else { return false }
+        return ([bar] + bar.sections).contains { $0.frame.contains(p) }
     }
 
     /// After a hover change: overlays only. Touching the bar on every mouse move made it flash.
