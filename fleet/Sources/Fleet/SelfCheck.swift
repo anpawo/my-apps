@@ -513,7 +513,10 @@ enum SelfCheck {
         let ai = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-20.00,Subscriptions & apps,Anthropic* Clau\n2026-11-02,-5.00,Other,Openai *chatgpt\n2026-11-03,-3.00,Subscriptions & apps,Spotify\n2026-11-06,-20.00,Transfers to people,VIREMENT,VIR SEPA BOURSE DIRECT PEA\n")
         expect(ai.months.first?.spent == [.ai: 25, .subscriptions: 3], true, "money: Claude and ChatGPT are AI, by their merchant")
         let earned = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-1.00,Train,C\n2026-11-02,100.00,Salary,S14\n2026-11-03,30.00,Other income,Mme X\n2026-11-04,5.00,Other income,Y\n", income: ["Mme X"])
-        expect(earned.months.first?.earned == 130, true, "money: earned is the salary and what an income sender sent")
+        expect(earned.months.first?.earned == 130 && earned.months.first?.salaried == true, true,
+               "money: earned is the salary and what an income sender sent")
+        let repaid = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-1.00,Train,C\n2026-11-02,100.00,Salary,P\n2026-11-03,40.00,Other income,P\n2026-11-04,60.00,\"Parents, loan instalment cover\",P\n", payers: ["P"])
+        expect(repaid.months.first?.repaid == 40, true, "money: a payer's transfer is repaid, not its salary nor its cover")
         let sport = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-53.00,Leisure & sport,Climb,x,700,705\n2026-11-02,-9.00,Leisure & sport,Bowling,x,700,701\n")
         expect(sport.months.first?.spent == [.sport: 53, .other: 9], true, "money: sport is Leisure's code 705, the rest of it Other")
         expect(read.latest == "2026-10-05", true, "money: the day of the newest line, spent or not")

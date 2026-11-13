@@ -114,6 +114,10 @@ enum Money {
         var refunds: Double = 0
         /// What came in that is his: his salary, and what a sender of `income.json` sent.
         var earned: Double = 0
+        /// Whether the month's salary is in.
+        var salaried = false
+        /// What the payers of `payers.json` sent: last month's paybacks coming in.
+        var repaid: Double = 0
         var total: Double { spent.values.reduce(0, +) }
         var expected: Double { back.values.reduce(0, +) }
         /// What is left of the month his own once all of that is in.
@@ -206,10 +210,12 @@ enum Money {
     /// month, a debit of a kind earlier months had covered is not spent either while its cover
     /// is not in: the month's figure would otherwise carry an instalment for the weeks its
     /// cover takes to come.
-    static func months(csv: String, rules: [Rule] = [], income: [String] = []) -> (months: [Month], latest: String?) {
+    static func months(csv: String, rules: [Rule] = [], income: [String] = [],
+                       payers: [String] = []) -> (months: [Month], latest: String?) {
         var months: [String: Month] = [:]
         var covers: [String: [Kind: Double]] = [:]
-        var refunds: [String: Double] = [:], earned: [String: Double] = [:]
+        var refunds: [String: Double] = [:], earned: [String: Double] = [:], salaried: Set<String> = []
+        var repaid: [String: Double] = [:]
         var latest: String?
         for line in csv.split(whereSeparator: \.isNewline).dropFirst() {
             let row = fields(line, 7)
@@ -222,10 +228,14 @@ enum Money {
             if saving {
                 continue
             } else if amount > 0 {
-                if row[2].localizedCaseInsensitiveContains("salary") || row.count > 3 && income.contains(row[3]) {
+                let salary = row[2].localizedCaseInsensitiveContains("salary")
+                if salary { salaried.insert(id) }
+                if salary || row.count > 3 && income.contains(row[3]) {
                     earned[id, default: 0] += amount
                 } else if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
-                guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
+                let cover = row[2].localizedCaseInsensitiveContains("cover")
+                if !salary, !cover, row.count > 3, payers.contains(row[3]) { repaid[id, default: 0] += amount }
+                guard cover else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
             } else {
                 months[id, default: Month(id: id)].spent[kind, default: 0] -= amount
@@ -243,6 +253,8 @@ enum Money {
         for id in months.keys {
             months[id]?.refunds = refunds[id] ?? 0
             months[id]?.earned = earned[id] ?? 0
+            months[id]?.salaried = salaried.contains(id)
+            months[id]?.repaid = repaid[id] ?? 0
             for (kind, paid) in months[id]?.spent ?? [:] {
                 let cover = min(paid, covers[id]?[kind] ?? 0)
                 if cover > 0 {
@@ -332,15 +344,18 @@ final class MoneyStore: ObservableObject {
     init() { rereadIfWritten() }
 
     func rereadIfWritten() {
-        let files = [file] + ["payback.json", "income.json"].map { file.deletingLastPathComponent().appending(path: $0) }
+        let files = [file] + ["payback.json", "income.json", "payers.json"]
+            .map { file.deletingLastPathComponent().appending(path: $0) }
         let dates = files.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
         guard dates != written || dates[0] == nil else { return }
         written = dates
         let rules = (try? Data(contentsOf: files[1])).flatMap { try? JSONDecoder().decode([Money.Rule].self, from: $0) }
         // The exact merchant names whose transfers are his to keep, beside the salary.
         let income = (try? Data(contentsOf: files[2])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+        // The exact merchant names a payback comes from.
+        let payers = (try? Data(contentsOf: files[3])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
         let read = (try? String(contentsOf: file, encoding: .utf8))
-            .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? []) }
+            .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? [], payers: payers ?? []) }
         months = read?.months ?? []
         latest = read?.latest
     }
@@ -385,16 +400,18 @@ struct MoneyColumn: View {
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
-                  // Folded: what left, what came back (✓) and is still to (~), what came in.
-                  // Earned, until this month's comes in, is last month's: what is to come (~).
+                  // Folded: what left; what comes back, the month's refunds and last month's
+                  // paybacks, ~ until the paybacks are all in; what came in, ~ and last month's
+                  // until the salary is in.
                   badgeText: open ? nil : months.first.map { month in
-                      let dot = Text("\u{2009}·\u{2009}").foregroundStyle(.white.opacity(0.45))
-                      let back = [("✓", month.refunds), ("~", month.expected)].filter { $0.1 > 0 }
-                          .map { Text("\($0.0)\(Money.euros($0.1))").foregroundStyle(.orange) + dot }
-                      let earned = month.earned > 0 ? "✓+\(Money.euros(month.earned))"
-                          : "~+\(Money.euros(store.months.dropFirst().first?.earned ?? 0))"
+                      let dot = Text("  ·  ").foregroundStyle(.white.opacity(0.45))
+                      let last = store.months.dropFirst().first
+                      let awaited = last?.expected ?? 0
+                      let back = (month.repaid >= awaited ? "✓" : "~") + Money.euros(month.refunds + awaited)
+                      let earned = month.salaried ? "✓+\(Money.euros(month.earned))"
+                          : "~+\(Money.euros(last?.earned ?? 0))"
                       return (Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint) + dot
-                          + back.reduce(Text(""), +)
+                          + Text(back).foregroundStyle(.orange) + dot
                           + Text(earned).foregroundStyle(SessionState.ready.tint))
                           .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                   },
