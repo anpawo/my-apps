@@ -273,6 +273,24 @@ final class ClaudeConnection: Connection {
         }
         return content
     }
+    private func remoteContent(_ message: JSON) -> [JSON] {
+        let body = (message["message"] as? JSON)?["content"]
+        if let text = body as? String { return [["type": "text", "text": text]] }
+        return (body as? [JSON] ?? []).compactMap { block in
+            if block["type"] as? String == "text" { return ["type": "text", "text": block["text"] as? String ?? ""] }
+            guard block["type"] as? String == "image", let source = block["source"] as? JSON,
+                  let data = (source["data"] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+            let extensions = ["image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"]
+            let directory = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/VCX/Attachments")
+            let url = directory.appendingPathComponent(UUID().uuidString + "." + (extensions[source["media_type"] as? String ?? ""] ?? "png"))
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                try data.write(to: url, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            } catch { return ["type": "text", "text": "[image not saved: \(error.localizedDescription)]"] }
+            return ["type": "localImage", "path": url.path]
+        }
+    }
     func emit(_ method: String, _ params: JSON) {
         var params = params; params["threadId"] = thread
         event(["method": method, "params": params])
@@ -401,6 +419,12 @@ final class ClaudeConnection: Connection {
             if let origin = message["origin"] as? JSON, origin["kind"] as? String == "peer" {
                 if pendingUsers.isEmpty { turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]]) }
                 emit("item/completed", ["item": peerItem(id: message["uuid"] as? String ?? UUID().uuidString, direction: "received", peer: origin["name"] as? String ?? "", pid: origin["verifiedPeerPid"] as? Int, text: origin["body"] as? String ?? "")])
+                return
+            }
+            // A prompt typed in another Remote Control client (the phone app): VCX did not send it, so it has no row yet.
+            if let origin = message["origin"] as? JSON, origin["kind"] as? String == "human", let id = message["uuid"] as? String, !pendingUsers.contains(id) {
+                if pendingUsers.isEmpty { turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]]) }
+                emit("item/completed", ["item": ["id": id, "type": "userMessage", "content": remoteContent(message), "sentAt": Date().timeIntervalSince1970]])
                 return
             }
             for block in (message["message"] as? JSON)?["content"] as? [JSON] ?? [] {

@@ -97,6 +97,12 @@ enum Check {
             check(sent["type"] as? String == "peerMessage" && sent["direction"] as? String == "sent" && sent["pid"] as? Int == me && sent["status"] as? String == "completed", "SendMessage shows as a sent peer message tied to its live session")
             check(received["direction"] as? String == "received" && received["name"] as? String == "fixture-peer" && received["text"] as? String == "Reply please", "a peer session's message shows as received")
             check(emitted.contains { $0["method"] as? String == "turn/started" } && items.count == 3, "a peer message opens a turn and a replayed prompt adds no row")
+            emitted.removeAll()
+            claude.receive(["type": "user", "uuid": "phone-in", "origin": ["kind": "human"] as JSON, "message": ["role": "user", "content": [["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="] as JSON] as JSON, ["type": "text", "text": "let's go!"] as JSON] as [JSON]] as JSON])
+            let phone = (emitted.last { $0["method"] as? String == "item/completed" }?["params"] as? JSON)?["item"] as? JSON ?? [:]
+            let phoneContent = phone["content"] as? [JSON] ?? []
+            check(emitted.first?["method"] as? String == "turn/started" && phone["type"] as? String == "userMessage" && phoneContent.last?["text"] as? String == "let's go!"
+                  && (phoneContent.first?["path"] as? String).map { FileManager.default.contents(atPath: $0)?.count == 8 } == true, "a prompt sent from the phone through Remote Control shows with its picture and opens a turn")
             check(peerTarget(sent) == me && peerItem(id: "uds", direction: "sent", peer: "uds:/tmp/cc-socks/\(me).sock", text: "")["pid"] as? Int == me, "a peer is found by name or by socket address")
             let sid = UUID().uuidString.lowercased(), agents = folder.appendingPathComponent("projects/-fixture/\(sid)/subagents")
             try? FileManager.default.createDirectory(at: agents, withIntermediateDirectories: true)
