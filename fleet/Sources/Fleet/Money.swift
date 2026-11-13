@@ -222,10 +222,9 @@ enum Money {
             if saving {
                 continue
             } else if amount > 0 {
-                if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
                 if row[2].localizedCaseInsensitiveContains("salary") || row.count > 3 && income.contains(row[3]) {
                     earned[id, default: 0] += amount
-                }
+                } else if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
                 guard row[2].localizedCaseInsensitiveContains("cover") else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
             } else {
@@ -386,11 +385,18 @@ struct MoneyColumn: View {
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
-                  // Folded: what left, what is to come back, what came in.
-                  badgeText: open ? nil : months.first.map {
-                      Text("-\(Money.euros($0.total))").foregroundStyle(.white.opacity(0.45))
-                          + Text("  \(Money.euros($0.expected))").foregroundStyle(.orange)
-                          + Text("  +\(Money.euros($0.earned))").foregroundStyle(SessionState.ready.tint)
+                  // Folded: what left, what came back (✓) and is still to (~), what came in.
+                  // Earned, until this month's comes in, is last month's: what is to come (~).
+                  badgeText: open ? nil : months.first.map { month in
+                      let dot = Text("\u{2009}·\u{2009}").foregroundStyle(.white.opacity(0.45))
+                      let back = [("✓", month.refunds), ("~", month.expected)].filter { $0.1 > 0 }
+                          .map { Text("\($0.0)\(Money.euros($0.1))").foregroundStyle(.orange) + dot }
+                      let earned = month.earned > 0 ? "✓+\(Money.euros(month.earned))"
+                          : "~+\(Money.euros(store.months.dropFirst().first?.earned ?? 0))"
+                      return (Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint) + dot
+                          + back.reduce(Text(""), +)
+                          + Text(earned).foregroundStyle(SessionState.ready.tint))
+                          .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                   },
                   topInset: 5,
                   collapsed: months.isEmpty || !open) {
