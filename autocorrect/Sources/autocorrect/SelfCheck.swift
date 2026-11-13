@@ -57,6 +57,9 @@ enum SelfCheck {
             ("dand la maison", "dans la maison", "no elision before an English word: not d'and"),
             ("tils", "t-ils", "t' never before a pronoun"),
             ("blojob", "blojob", "never into a rude word"),
+            ("what isthe plan", "what is the plan", "a space missed, put back"),
+            ("i think ofthe kids", "I think of the kids", "even one the subtitles spell (ofthe)"),
+            ("the worktree is clean", "the worktree is clean", "not into two words seldom said together"),
             ("c'est vraiemtn cool", "c'est vraiment cool", "two swaps"),
             ("it should dispaear", "it should disappear", "a swap and a missed double letter"),
             ("for thew height", "for the height", "a word too rare to count, though macOS knows it"),
@@ -137,7 +140,7 @@ enum SelfCheck {
         expect([words.mine.counts["team"], words.mine.counts["epitehc"]], [nil, nil], "nor counted as his word, and a word it forgets is gone")
         expect(Review.Batch(words.mine, seen).isEmpty, true, "and what it read is not sent again")
 
-        expect(words.correct("enfusion", fr: 0.5), "effusion", "a word the lexicon lacks may be fixed as a typo")
+        expect(words.correct("enfusion", fr: 0.5), "en fusion", "a word the lexicon lacks may be fixed")
         expect(words.seed(["enfusion": 40, "tres": 40, "the": 40, "dautre": 40, "j'aimerais": 40]), 1,
                "a seed takes his own words, not a lexicon word nor one missing its accents or apostrophe")
         expect([words.correct("enfusion", fr: 0.5), words.correct("tres", fr: 0.95), words.correct("dautre", fr: 0.95)], [nil, "très", "d'autre"],

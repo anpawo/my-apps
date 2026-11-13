@@ -19,10 +19,12 @@ how French the sentence is so far, plus how often you use it) times how likely y
 meant it (as is, without its accents or apostrophe, one letter off, two pairs swapped). A typo of two letters swapped
 counts most, then a key next to the right one, then a farther slip: `wnat` is not made `what`. The best one replaces the word only when
 it scores five times higher, and three times higher than the next best: `verifie` could be `vérifie` or
-`vérifié`, so it is left as typed. Between spellings of one word, the word right before counts too:
+`vérifié`, so it is left as typed. The word right before counts too, for typos (`i wnat` is `i want`)
+and between spellings of one word:
 `j'ai verifie` becomes `j'ai vérifié`, `il verifie` `il vérifie`, `je vais a` `je vais à` while `il a`
 stays. Mixed sentences work: `dont` is `don't` after `i`, and stays `dont` after
-`la maison`.
+`la maison`. A missed space is put back when no dictionary knows the word and the two halves are often
+said together: `isthe` becomes `is the`, `jesuis` `je suis`.
 
 It never changes a word it knows into another one (`chat`, `scan` stay), a word typed with its accents
 (`côte` stays), nor a word the macOS spell checker knows (`plugin`, `hotkey`, `tutoriels`). A typo is not made into a

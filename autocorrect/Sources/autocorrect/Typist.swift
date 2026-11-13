@@ -45,7 +45,8 @@ struct Typist {
         let last = undo
         undo = nil
         if case .backspace = key {} else if let k = kept {
-            words.learn(k.word)
+            // A space it put back (isthe: is the) makes two words of his.
+            for word in k.word.split(separator: " ") { words.learn(String(word)) }
             if let typed = k.typed { words.keep(typed, k.word) }
             kept = nil
         }
@@ -98,8 +99,9 @@ struct Typist {
                 return .pass
             }
             let fixed = words.correct(typed, fr: fr, after: prev) ?? typed
-            fr = ended ? 0.5 : words.nextFr(fr, after: fixed)
-            prev = ended || !punctuation.isEmpty ? nil : fixed.lowercased().replacingOccurrences(of: "’", with: "'")
+            fr = ended ? 0.5 : fixed.split(separator: " ").reduce(fr) { words.nextFr($0, after: String($1)) }
+            prev = ended || !punctuation.isEmpty ? nil
+                : fixed.split(separator: " ").last.map { $0.lowercased().replacingOccurrences(of: "’", with: "'") }
             kept = (fixed, fixed == typed ? nil : typed)
             guard fixed != typed else { return .pass }
             let same = zip(typed, fixed).prefix { $0 == $1 }.count

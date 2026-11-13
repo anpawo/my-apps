@@ -11,16 +11,18 @@ closer to chat than books are. Its tokenizer cuts at the apostrophe ("c'est" cou
 "don't" as "don"), so those forms are added back below.
 
 Also rebuilds Resources/pairs.tsv: how likely each word is right after another (je vais à, il a),
-counted on the first lines of the OpenSubtitles 2018 text (OPUS). Only for a word
-that shares its unaccented spelling with another (a/à, ou/où, vérifie/vérifié): the others are
-never chosen between by context, and the file stays small.
+counted on the first lines of the OpenSubtitles 2018 text (OPUS). For a word that shares its
+unaccented spelling with another (a/à, ou/où, vérifie/vérifié), and for every word said at least
+once per million, which a typo may stand for (wnat: want or what, after "i").
 
     ./make-words.py            downloads the sources (the subtitle text is streamed, not saved)
     ./make-words.py <dir>      reads Lexique383.tsv, fr_full.txt, en_full.txt, fr.txt.gz and
-                               en.txt.gz from <dir>
+                               en.txt.gz from <dir>, and keeps the counts there (fr.pairs,
+                               fr.single, en.pairs, en.single) to start from next time
 """
 import gzip
 import re
+import subprocess
 import sys
 import tempfile
 import unicodedata
@@ -103,27 +105,53 @@ def read(folder, lang):
     return {w: n / total * 1e6 for w, n in counts.items()}
 
 
-def pairs(folder, lang, lexicon, ambiguous):
-    """P(word | the word before it), for the words in `ambiguous`; only words of `lexicon` (that
+def pairs(folder, lang, lexicon, wanted):
+    """P(word | the word before it), for the words in `wanted`; only words of `lexicon` (that
     language's) next to each other, with no punctuation between them: French subtitles often
-    write coeur, an English word, which must not outweigh cœur."""
-    path = folder / f"{lang}.txt.gz"
-    source = open(path, "rb") if path.exists() else urllib.request.urlopen(TEXT.format(lang))
+    write coeur, an English word, which must not outweigh cœur. The pairs are counted on disk
+    (tens of millions of them, too many for a dict) and kept in `folder`."""
+    counted, singles = folder / f"{lang}.pairs", folder / f"{lang}.single"
+    if not counted.exists():
+        path = folder / f"{lang}.txt.gz"
+        source = open(path, "rb") if path.exists() else urllib.request.urlopen(TEXT.format(lang))
+        single = {}
+        raw = folder / f"{lang}.pairs.raw"
+        with source, gzip.open(source, "rt", encoding="utf-8", errors="replace") as f, open(raw, "w", encoding="utf-8") as out:
+            for i, line in enumerate(f):
+                if i >= LINES:
+                    break
+                prev = None
+                for token in TOKEN.findall(line.lower().replace("’", "'")):
+                    if not token[0].isalpha() or token not in lexicon:
+                        prev = None
+                        continue
+                    single[token] = single.get(token, 0) + 1
+                    if prev:
+                        out.write(f"{prev}\t{token}\n")
+                    prev = token
+        with open(singles, "w", encoding="utf-8") as out:
+            out.writelines(f"{word}\t{n}\n" for word, n in single.items())
+        # Written beside, then renamed: a run cut short is not taken for a finished count.
+        part = folder / f"{lang}.pairs.part"
+        with open(part, "w", encoding="utf-8") as out:
+            sort = subprocess.Popen(["sort", "-S", "1G", "-T", str(folder), str(raw)], stdout=subprocess.PIPE, env={"LC_ALL": "C"})
+            subprocess.run(["uniq", "-c"], stdin=sort.stdout, stdout=out, check=True)
+            if sort.wait():
+                raise SystemExit(f"sort failed on {raw}")
+        part.rename(counted)
+        raw.unlink()
     single, double = {}, {}
-    with source, gzip.open(source, "rt", encoding="utf-8", errors="replace") as f:
-        for i, line in enumerate(f):
-            if i >= LINES:
-                break
-            prev = None
-            for token in TOKEN.findall(line.lower().replace("’", "'")):
-                if not token[0].isalpha() or token not in lexicon:
-                    prev = None
-                    continue
-                single[token] = single.get(token, 0) + 1
-                if prev and token in ambiguous:
-                    double[prev, token] = double.get((prev, token), 0) + 1
-                prev = token
-    return {(a, b): n / single[a] for (a, b), n in double.items() if n >= PAIR_FLOOR and single[a] >= PREV_FLOOR}
+    with open(singles, encoding="utf-8") as f:
+        for line in f:
+            word, n = line.rstrip("\n").split("\t")
+            single[word] = int(n)
+    with open(counted, encoding="utf-8") as f:
+        for line in f:
+            n, pair = line.strip().split(" ", 1)
+            a, b = pair.split("\t")
+            if int(n) >= PAIR_FLOOR and b in wanted:
+                double[a, b] = int(n)
+    return {(a, b): n / single[a] for (a, b), n in double.items() if single.get(a, 0) >= PREV_FLOOR}
 
 
 def lexique(folder):
@@ -183,7 +211,8 @@ def main():
     for word in fr.keys() | en.keys():
         spellings.setdefault(fold(word).replace("'", "").replace("-", ""), set()).add(word.lower())
     ambiguous = {w for group in spellings.values() if len(group) > 1 for w in group}
-    both = {lang: pairs(folder, lang, {w.lower() for w in words}, ambiguous) for lang, words in (("fr", fr), ("en", en))}
+    wanted = ambiguous | {w.lower() for w in fr.keys() | en.keys() if max(fr.get(w, 0), en.get(w, 0)) >= 1}
+    both = {lang: pairs(folder, lang, {w.lower() for w in words}, wanted) for lang, words in (("fr", fr), ("en", en))}
     out = out.with_name("pairs.tsv")
     with open(out, "w", encoding="utf-8") as f:
         for a, b in sorted(both["fr"].keys() | both["en"].keys()):

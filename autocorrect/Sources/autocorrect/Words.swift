@@ -38,9 +38,12 @@ final class Words {
     private var capital: [String: String] = [:]
     /// Every known word, under its accent-, apostrophe- and hyphen-free form.
     private var byBase: [String: [String]] = [:]
-    /// P(word | the word before), keyed "before\tword" (pairs.tsv). A pair it lacks was seen
-    /// fewer than ten times: 0, in each language.
-    private var pairs: [String: Entry] = [:]
+    /// P(word | the word before), keyed by `pairKey` (pairs.tsv: a million and more, so not by
+    /// string). A pair it lacks was seen fewer than ten times: 0, in each language.
+    private var pairs: [Int: Entry] = [:]
+    /// For each word before, the share of what follows it that `pairs` holds: what is left is
+    /// shared by every other word, as often as it is said (`context`).
+    private var mass: [String: Entry] = [:]
     private(set) var mine = Mine()
     private let learned: URL?
     private var dirty = false
@@ -60,11 +63,23 @@ final class Words {
             entries[key] = Entry(fr: fr / 1e6, en: en / 1e6)
             byBase[Self.fold(key), default: []].append(key)
         }
-        let pairText = (try? String(contentsOf: file.deletingLastPathComponent().appendingPathComponent("pairs.tsv"), encoding: .utf8)) ?? ""
-        for line in pairText.split(separator: "\n") {
-            let cols = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard cols.count == 4, let fr = Float(cols[2]), let en = Float(cols[3]) else { continue }
-            pairs[cols[0] + "\t" + cols[1]] = Entry(fr: fr, en: en)
+        // Read as bytes, a line at a time: split into strings first, the app sat at 197 MB, not 133.
+        let pairData = (try? Data(contentsOf: file.deletingLastPathComponent().appendingPathComponent("pairs.tsv"))) ?? Data()
+        pairs.reserveCapacity(pairData.count / 22)
+        pairData.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            var cols: [Range<Int>] = [], start = 0
+            for i in 0..<bytes.count where bytes[i] == 9 || bytes[i] == 10 {
+                cols.append(start..<i)
+                start = i + 1
+                guard bytes[i] == 10 else { continue }
+                defer { cols.removeAll(keepingCapacity: true) }
+                let field = { (r: Range<Int>) in String(decoding: UnsafeRawBufferPointer(rebasing: bytes[r]), as: UTF8.self) }
+                guard cols.count == 4, let fr = Float(field(cols[2])), let en = Float(field(cols[3])) else { continue }
+                let prev = field(cols[0])
+                pairs[Self.pairKey(prev, field(cols[1]))] = Entry(fr: fr, en: en)
+                mass[prev, default: Entry(fr: 0, en: 0)].fr += fr
+                mass[prev, default: Entry(fr: 0, en: 0)].en += en
+            }
         }
         if let learned, let data = try? Data(contentsOf: learned), let saved = try? JSONDecoder().decode(Mine.self, from: data) {
             mine = saved
@@ -97,8 +112,26 @@ final class Words {
         let e = entries[key]
         let alone = fr * Double(e?.fr ?? 0) + (1 - fr) * Double(e?.en ?? 0) + Double(mine.counts[key] ?? 0) * 1e-6
         guard let prev else { return alone }
-        let p = pairs[prev + "\t" + key], w = Self.contextWeight
+        let p = pairs[Self.pairKey(prev, key)], w = Self.contextWeight
         return (1 - w) * alone + w * (fr * Double(p?.fr ?? 0) + (1 - fr) * Double(p?.en ?? 0))
+    }
+
+    static func pairKey(_ prev: String, _ word: String) -> Int {
+        var h = Hasher()
+        h.combine(prev)
+        h.combine(word)
+        return h.finalize()
+    }
+
+    /// How likely `key` is right after `prev`, any word against any other (a typo's readings):
+    /// the share pairs.tsv gives it, or, for a pair seen too seldom to be in it, its share of
+    /// what is left after `prev` (the endpoint is not ruled out because subtitles lack it).
+    private func context(_ key: String, fr: Double, after prev: String?) -> Double {
+        guard let prev, let m = mass[prev] else { return prior(key, fr: fr) }
+        let e = entries[key], p = pairs[Self.pairKey(prev, key)]
+        let f = (p?.fr ?? 0) > 0 ? Double(p!.fr) : (1 - Double(m.fr)) * Double(e?.fr ?? 0)
+        let n = (p?.en ?? 0) > 0 ? Double(p!.en) : (1 - Double(m.en)) * Double(e?.en ?? 0)
+        return fr * f + (1 - fr) * n + Double(mine.counts[key] ?? 0) * 1e-6
     }
 
     /// The spelling to put in place of `typed`, or nil to leave it. `fr`: how French the
@@ -171,12 +204,13 @@ final class Words {
         // ones (teh) count there. Two swaps (vraiemtn), or one with a letter meant twice (dispaear),
         // when one slip finds nothing, from five letters on: a swap with another slip turns
         // distnoted into distorted, pyright upright.
-        var bar = 5.0
+        var bar = 5.0, typo = false
         if rare, scores.isEmpty, typedMarks.1 == 0, chars.count >= 3, chars[0].isLowercase,
            base.contains(where: { "aeiouy".contains($0) }), entries[lower] != nil || !known(lower) {
             // One macOS knows that the lexicon has, too rare to count, gives way only to a far
             // likelier word: thew to the, not unset to upset nor deriving to driving.
             if known(lower) { bar = 1000 }
+            typo = true
             for second in [false, true] where scores.isEmpty {
                 if second && chars.count < 5 { break }
                 let edits = second
@@ -187,9 +221,21 @@ final class Words {
                         && !Self.rude.contains(key) && known(key)
                         // A rare word only if he types it himself: not aven, clade, letup.
                         && (mine.counts[key] != nil || max(entries[key]?.fr ?? 0, entries[key]?.en ?? 0) >= 3e-7) {
-                        consider(key, prior(key, fr: fr) * (second ? 0.0001 : Self.slip(base, edit)))
+                        consider(key, context(key, fr: fr, after: prev) * (second ? 0.0001 : Self.slip(base, edit)))
                     }
                 }
+            }
+        }
+        // A space missed: isthe is "is the", when the two are said together often enough to be in
+        // pairs.tsv (worktree is not work tree). Even when the subtitles have it (ofthe), as long
+        // as macOS does not.
+        if typedMarks.0 + typedMarks.1 == 0, chars.count >= 4, chars[0].isLowercase, mine.counts[lower] == nil,
+           byBase[base].map({ $0 == [lower] }) ?? true, !known(lower) {
+            typo = true
+            for cut in 2...(chars.count - 2) {
+                let a = String(lower.prefix(cut)), b = String(lower.dropFirst(cut))
+                guard let p = pairs[Self.pairKey(a, b)] else { continue }
+                consider(a + " " + b, context(a, fr: fr, after: prev) * (fr * Double(p.fr) + (1 - fr) * Double(p.en)) * 0.1)
             }
         }
 
@@ -198,11 +244,11 @@ final class Words {
         let ranked = scores.sorted { $0.value > $1.value }
         var chosen = lower
         if let best = ranked.first, best.value > 0,
-           best.value >= bar * prior(lower, fr: fr, after: inContext.contains(best.key) ? prev : nil),
+           best.value >= bar * (typo ? context(lower, fr: fr, after: prev) : prior(lower, fr: fr, after: inContext.contains(best.key) ? prev : nil)),
            ranked.count < 2 || best.value >= 3 * ranked[1].value {
             chosen = best.key
         }
-        var spelled = Self.cased(capital[chosen] ?? chosen, like: typed)
+        var spelled = Self.cased(chosen.split(separator: " ").map { capital[String($0)] ?? String($0) }.joined(separator: " "), like: typed)
         if typed.contains("’") { spelled = spelled.replacingOccurrences(of: "'", with: "’") }
         return spelled == typed ? nil : spelled
     }
