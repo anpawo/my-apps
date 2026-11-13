@@ -262,3 +262,6 @@ header .who > .av:not(.faces):hover, header .who > .av.faces:hover .tile { box-s
 #profile .member small { color: var(--muted); font-size: 12px; }
 #profile .member i { color: var(--muted); font-size: 11px; font-style: normal; }
 #profile .more-members { padding-top: 6px; color: var(--muted); font-size: 12.5px; }
+.bubble.media:not(.sticker) img { cursor: zoom-in; }
+#viewer { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgb(0 0 0 / .82); backdrop-filter: blur(8px); cursor: zoom-out; }
+#viewer img { border-radius: 10px; transform-origin: 0 0; }

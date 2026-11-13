@@ -219,6 +219,27 @@ const pasted = await page.evaluate(async () => {
   return [field.value, !!document.querySelector('#thread .bubble.media img'), __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && /upload|messages$/.test(a.path)).slice(-2).map(([, a]) => [a.path, a.body.mimeType || a.body.attachment])];
 });
 check(JSON.stringify(pasted) === JSON.stringify(['draft', true, [['/v1/assets/upload/base64', 'image/png'], ['/v1/chats/ig-lea/messages', { uploadID: 'up1' }]]]), `a pasted image is sent (${JSON.stringify(pasted)})`);
+// A click on a picture grows it from its bubble to fill the window; esc shrinks it back and leaves the draft alone.
+await page.evaluate(async () => {
+  const c = Object.assign(document.createElement('canvas'), { width: 800, height: 500 }), g = c.getContext('2d');
+  g.fillStyle = '#3a7'; g.fillRect(0, 0, 800, 500); g.fillStyle = '#fff'; g.font = '80px sans-serif'; g.fillText('picture', 250, 280);
+  const img = [...document.querySelectorAll('#thread .bubble.media img')].at(-1);
+  img.src = c.toDataURL();
+  await img.decode();
+  img.scrollIntoView({ block: 'center' });
+});
+await page.click('#thread .bubble.media:not(.sticker) img >> nth=-1');
+for (const ms of [80, 160]) { await page.waitForTimeout(80); await page.screenshot({ path: join(out, `1b-viewer-${ms}.png`) }); }
+await page.waitForTimeout(250);
+await page.screenshot({ path: join(out, '1b-viewer.png') });
+const zoomed = await page.evaluate(() => [!document.querySelector('#viewer').hidden, Math.round(document.querySelector('#viewer img').getBoundingClientRect().width), innerWidth]);
+await page.evaluate(() => { document.querySelector('#input').value = 'draft'; });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(120);
+await page.screenshot({ path: join(out, '1b-viewer-closing.png') });
+await page.waitForTimeout(300);
+const unzoomed = await page.evaluate(() => [document.querySelector('#viewer').hidden, document.querySelector('#input').value, [...document.querySelectorAll('#thread img')].some(i => i.style.visibility)]);
+check(zoomed[0] && zoomed[1] > zoomed[2] * 0.5 && JSON.stringify(unzoomed) === JSON.stringify([true, 'draft', false]), `a clicked picture opens big and esc closes it (${JSON.stringify([zoomed, unzoomed])})`);
 await page.evaluate(() => { document.querySelector('#input').value = ''; });
 const boxed = await page.evaluate(() => [fit({ width: 2880, height: 1800 }), fit({ width: 600, height: 1200 }), fit(undefined)]);
 check(JSON.stringify(boxed) === JSON.stringify([' width="280" height="175"', ' width="160" height="320"', '']), `a picture's box is sized before it loads (${boxed})`);

@@ -977,6 +977,39 @@ $('#thread').addEventListener('click', e => {
   if (m) react(m, b.dataset.e);
 });
 
+// A picture in the conversation grows from its bubble to fill the window; a click or esc shrinks it back.
+const viewer = Object.assign(document.createElement('div'), { id: 'viewer', hidden: true });
+document.body.append(viewer);
+const fromThumb = (thumb, img) => {
+  const t = thumb.getBoundingClientRect(), r = img.getBoundingClientRect();
+  return `translate(${t.left - r.left}px, ${t.top - r.top}px) scale(${t.width / r.width})`;
+};
+$('#thread').addEventListener('click', e => {
+  const thumb = e.target.closest('.bubble.media:not(.sticker) img');
+  if (!thumb || !viewer.hidden) return;
+  const w = thumb.naturalWidth || thumb.width, h = thumb.naturalHeight || thumb.height;
+  const s = Math.min((innerWidth * 0.92) / w, (innerHeight * 0.92) / h, 2);
+  const img = Object.assign(new Image(), { src: thumb.currentSrc || thumb.src });
+  Object.assign(img.style, { width: `${w * s}px`, height: `${h * s}px` });
+  viewer.replaceChildren(img);
+  viewer.hidden = false;
+  viewer._thumb = thumb;
+  thumb.style.visibility = 'hidden';
+  anim(viewer, { opacity: [0, 1] }, 300);
+  anim(img, { transform: [fromThumb(thumb, img), 'none'] }, 320);
+});
+function closeViewer() {
+  if (viewer.hidden || viewer._closing) return;
+  viewer._closing = true;
+  const thumb = viewer._thumb, img = viewer.firstChild;
+  const back = thumb.isConnected ? anim(img, { transform: ['none', fromThumb(thumb, img)] }, 260) : anim(img, { opacity: [1, 0] }, 200);
+  back.effect.updateTiming({ fill: 'forwards' });
+  anim(viewer, { opacity: [1, 0] }, 260).effect.updateTiming({ fill: 'forwards' });
+  back.finished.finally(() => { thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
+}
+viewer.onclick = closeViewer;
+addEventListener('keydown', e => { if (e.key === 'Escape' && !viewer.hidden) { e.preventDefault(); e.stopPropagation(); closeViewer(); } }, true);
+
 // The + at the end of the hover bar opens every emoji: the most used first, a field to search them by name.
 const PLUS = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const picker = $('#picker');
