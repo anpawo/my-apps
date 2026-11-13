@@ -806,7 +806,6 @@ function msgNodes(m, prev) {
   row.className = `msg${m.isSender ? ' me' : ''}`;
   row.dataset.id = m.id;
   row.dataset.net = m.net;
-  row.title = new Date(m.timestamp).toLocaleString('fr-FR');
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
   row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
@@ -963,19 +962,21 @@ function react(m, key) {
   }
   redrawMsg(m);
 }
-// The hover bar shows once the pointer reaches the fifth of the bubble on the bar's side (or past it),
-// stays until it leaves the row, and sits level with the middle of the bubbles (name and reactions left out).
+// The hover bar shows once the pointer reaches the fifth of the bubble on the bar's side or just past it
+// (the empty rest of the row is not the message), stays while it is between there and the bar's far end,
+// and sits level with the middle of the bubbles (name and reactions left out).
 let hotRow = null;
 const unhot = () => { hotRow?.classList.remove('hot'); hotRow = null; };
 $('#thread').addEventListener('pointermove', e => {
   const row = e.target.closest('.msg');
-  if (row === hotRow) return;
-  unhot();
   const q = row?.querySelector('.quick');
-  if (!q) return;
+  if (!q) return unhot();
   const bs = [...row.querySelectorAll('.bubble')].map(b => b.getBoundingClientRect());
   const left = Math.min(...bs.map(b => b.left)), right = Math.max(...bs.map(b => b.right)), fifth = (right - left) * .2;
-  if (row.classList.contains('me') ? e.clientX > left + fifth : e.clientX < right - fifth) return;
+  const me = row.classList.contains('me'), reach = row === hotRow ? q.offsetWidth + 18 : 36;
+  if (me ? e.clientX > left + fifth || e.clientX < left - reach : e.clientX < right - fifth || e.clientX > right + reach) return unhot();
+  if (row === hotRow) return;
+  unhot();
   const top = bs[0].top, bottom = bs.at(-1).bottom;
   const rowTop = row.getBoundingClientRect().top + parseFloat(getComputedStyle(row).paddingTop);
   q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - rowTop - q.offsetHeight / 2)}px`;

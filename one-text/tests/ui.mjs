@@ -682,6 +682,14 @@ await rightFifth('#thread .msg[data-id="h1"]');
 await page.waitForTimeout(250);
 const quick = await page.$eval('#thread .msg[data-id="h1"]', m => { const q = m.querySelector('.quick').getBoundingClientRect(), b = m.querySelector('.bubble').getBoundingClientRect(); return [m.querySelectorAll('.quick button[data-e]').length, q.left >= b.right, Math.abs((q.top + q.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5]; });
 check(offBubble === '0', `the hover bar stays hidden while the pointer is on the left of the bubble (opacity ${offBubble})`);
+// The empty rest of the row is not the message: far right of the bubble, no bar and no date tooltip.
+const farRight = await page.$eval('#thread .msg[data-id="h1"]', m => {
+  const b = m.querySelector('.bubble').getBoundingClientRect(), at = x => m.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: b.top + 4 }));
+  at(b.right + 200); const far = m.classList.contains('hot');
+  at(b.right - 2); at(b.right + 60); const onBar = m.classList.contains('hot');
+  at(b.right + 300); return [far, onBar, m.classList.contains('hot'), !!m.closest('[title]')];
+});
+check(JSON.stringify(farRight) === '[false,true,false,false]', `the hover bar shows only near the bubble's right, and the row has no date tooltip (${farRight})`);
 await page.click('#thread .msg[data-id="h1"] .quick button[data-e="👍"]');
 const pill = await page.$eval('#thread .msg[data-id="h1"] .reacts button', b => [b.textContent, b.classList.contains('me')]);
 const posted = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.includes('/messages/h1/reactions')).map(([, a]) => a.method + ' ' + (a.body?.reactionKey || a.path.split('/').pop())));
