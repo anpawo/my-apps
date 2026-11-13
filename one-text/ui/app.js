@@ -964,7 +964,7 @@ function react(m, key) {
   }
   redrawMsg(m);
 }
-// The hover bar shows once the pointer reaches the fifth of the bubble on the bar's side or just past it
+// The hover bar shows once the pointer reaches the last 5% of the bubble on the bar's side or just past it
 // (the empty rest of the row is not the message), stays while it is between there and the bar's far end,
 // and sits level with the middle of the bubbles (name and reactions left out).
 let hotRow = null;
@@ -974,9 +974,9 @@ $('#thread').addEventListener('pointermove', e => {
   const q = row?.querySelector('.quick');
   if (!q) return unhot();
   const bs = [...row.querySelectorAll('.bubble')].map(b => b.getBoundingClientRect());
-  const left = Math.min(...bs.map(b => b.left)), right = Math.max(...bs.map(b => b.right)), fifth = (right - left) * .2;
+  const left = Math.min(...bs.map(b => b.left)), right = Math.max(...bs.map(b => b.right)), edge = (right - left) * .05;
   const me = row.classList.contains('me'), reach = row === hotRow ? q.offsetWidth + 18 : 36;
-  if (me ? e.clientX > left + fifth || e.clientX < left - reach : e.clientX < right - fifth || e.clientX > right + reach) return unhot();
+  if (me ? e.clientX > left + edge || e.clientX < left - reach : e.clientX < right - edge || e.clientX > right + reach) return unhot();
   if (row === hotRow) return;
   unhot();
   const top = bs[0].top, bottom = bs.at(-1).bottom;

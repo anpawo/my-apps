@@ -673,15 +673,18 @@ await page.waitForTimeout(100);
 const seenNow = await page.$$eval('#thread .receipt', rs => rs.map(r => r.textContent));
 check(JSON.stringify(sentOnly) === '["Sent","l2"]' && seenNow.length === 1 && /^Seen \d\d:\d\d$/.test(seenNow[0]), `my last message says Sent, then Seen at its time (${sentOnly} / ${seenNow})`);
 
-// The pointer in the right fifth of a bubble shows my five most used reactions beside it, level with the bubble; a click reacts, a second click takes it back.
-const rightFifth = async sel => { const [x, y] = await page.$eval(`${sel} .bubble`, r => { const b = r.getBoundingClientRect(); return [b.right - b.width * .1, b.top + b.height / 2]; }); await page.mouse.move(x, y); };
+// The pointer in the right 5% of a bubble (not 10% in) shows my five most used reactions beside it, level with the bubble; a click reacts, a second click takes it back.
+const rightEdge = async (sel, f = .02) => { const [x, y] = await page.$eval(`${sel} .bubble`, (r, f) => { const b = r.getBoundingClientRect(); return [b.right - b.width * f, b.top + b.height / 2]; }, f); await page.mouse.move(x, y); };
 await page.hover('#thread .msg[data-id="h1"] .bubble', { position: { x: 14, y: 14 } });
 await page.waitForTimeout(250);
 const offBubble = await page.$eval('#thread .msg[data-id="h1"] .quick', q => getComputedStyle(q).opacity);
-await rightFifth('#thread .msg[data-id="h1"]');
+await rightEdge('#thread .msg[data-id="h1"]', .1);
+const tenthIn = await page.$eval('#thread .msg[data-id="h1"]', m => m.classList.contains('hot'));
+await rightEdge('#thread .msg[data-id="h1"]');
 await page.waitForTimeout(250);
 const quick = await page.$eval('#thread .msg[data-id="h1"]', m => { const q = m.querySelector('.quick').getBoundingClientRect(), b = m.querySelector('.bubble').getBoundingClientRect(); return [m.querySelectorAll('.quick button[data-e]').length, q.left >= b.right, Math.abs((q.top + q.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5]; });
 check(offBubble === '0', `the hover bar stays hidden while the pointer is on the left of the bubble (opacity ${offBubble})`);
+check(tenthIn === false, 'the hover bar stays hidden 10% inside the bubble\'s right edge');
 // The empty rest of the row is not the message: far right of the bubble, no bar and no date tooltip.
 const farRight = await page.$eval('#thread .msg[data-id="h1"]', m => {
   const b = m.querySelector('.bubble').getBoundingClientRect(), at = x => m.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: b.top + 4 }));
@@ -698,7 +701,7 @@ const undone = await page.evaluate(() => [document.querySelectorAll('#thread .ms
 check(JSON.stringify(quick) === '[5,true,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
 
 // The + at the end of the hover bar opens every emoji, 5 to a row, searchable by name.
-await rightFifth('#thread .msg[data-id="h1"]');
+await rightEdge('#thread .msg[data-id="h1"]');
 await page.waitForTimeout(250);
 await page.click('#thread .msg[data-id="h1"] .quick .all');
 await page.waitForTimeout(250);
