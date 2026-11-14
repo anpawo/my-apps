@@ -130,7 +130,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     launch.runtimeID = id; launch.socketPath = socket
                     createWindow(launch, state: entry["windowState"] as? JSON ?? [:])
                 }
-                if !headless { for entry in windows.reversed() { entry.window.makeKeyAndOrderFront(nil) } }
+                if !headless {
+                    let olds = entries.prefix(windows.count).compactMap { $0["windowNumber"] as? Int }
+                    // Each window goes just above the one it replaces, still on screen: other apps' windows keep their places between them.
+                    if olds.count == windows.count {
+                        for (entry, old) in zip(windows, olds) { entry.window.order(.above, relativeTo: old) }
+                        windows.first?.window.makeKey()
+                    } else { for entry in windows.reversed() { entry.window.makeKeyAndOrderFront(nil) } }
+                }
                 Task {
                     // The old frontend holds the lock until every window here attached, which it allows 15 s: 10 s here cut a slow handover short.
                     for _ in 0..<250 {
@@ -272,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     guard let runtime = entry.session.runtimeClient else { continue }
                     let state = RuntimeUpdate.state(window: entry.window, session: entry.session)
                     try await runtime.checkpointWindow(state)
-                    entries.append(["cwd": entry.session.cwd, "sessionId": runtime.sessionID, "socket": runtime.socketPath, "windowState": state])
+                    entries.append(["cwd": entry.session.cwd, "sessionId": runtime.sessionID, "socket": runtime.socketPath, "windowState": state, "windowNumber": entry.window.windowNumber])
                 }
                 let file = try RuntimeUpdate.writeTicket(["windows": entries], suffix: ".restore.json")
                 handoffFile = file
