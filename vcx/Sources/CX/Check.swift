@@ -179,6 +179,45 @@ enum Check {
             }
         }
         do {
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            let build = UpdateBuild.parse("1000000\t/resume hides closed conversations\n", expected: 200, now: t0)
+            check(build?.words == "/resume hides closed conversations" && build?.expected == 200, "the update file gives its words")
+            check(UpdateBuild.parse("1000000\tx", expected: 200, now: t0.addingTimeInterval(4000)) == nil && UpdateBuild.parse("broken", expected: 200) == nil, "a stale or broken update file shows nothing")
+            if let build {
+                let steps = [0.0, 100, 180, 200, 400, 2000].map { UpdateBuild.progress(build, at: t0.addingTimeInterval($0)) }
+                check(zip(steps, steps.dropFirst()).allSatisfy { $0 < $1 } && steps.last! < 1 && abs(steps[1] - 0.5) < 0.001, "the update line moves forward and never reaches the end (\(steps))")
+            }
+            // Drawn offscreen in the status bar: the chip sits left of the directory and its line grows between two frames.
+            let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: NSTemporaryDirectory() + "vcx-update-" + UUID().uuidString))
+            session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"; session.effort = "high"
+            session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"; session.repositoryDirectory = "atlas"; session.repositoryStatus = "up to date"
+            UpdateBuild.shared.build = .init(started: Date().addingTimeInterval(-60), words: "/resume hides conversations closed without a message", expected: 240)
+            let host = CXView.host(session)
+            host.appearance = NSAppearance(named: .aqua); host.frame = CGRect(x: 0, y: 0, width: 1280, height: 800)
+            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            func frame(_ name: String) -> Int {
+                host.layoutSubtreeIfNeeded()
+                guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: NSTemporaryDirectory() + name))
+                // The line's pink-to-violet pixels along the status bar; the send button is above it.
+                var count = 0
+                for y in (rep.pixelsHigh - 70)..<rep.pixelsHigh { for x in 0..<rep.pixelsWide / 2 {
+                    if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.saturationComponent > 0.5, c.brightnessComponent > 0.5, c.redComponent > c.greenComponent + 0.2, c.blueComponent > c.greenComponent + 0.2 { count += 1 }
+                } }
+                return count
+            }
+            try? await Task.sleep(for: .seconds(1.2))
+            let early = frame("vcx-update-chip-0.png")
+            UpdateBuild.shared.build?.started = Date().addingTimeInterval(-180)
+            try? await Task.sleep(for: .seconds(1.5))
+            let late = frame("vcx-update-chip-1.png")
+            print("Update line pixels: \(early) then \(late), frames in \(NSTemporaryDirectory())vcx-update-chip-*.png")
+            check(early > 0 && late > early, "the update chip's line grows under its words (\(early) then \(late))")
+            UpdateBuild.shared.build = nil; window.close()
+        }
+        do {
             let host = NSHostingView(rootView: ProseView(text: "Open [compare.png](file:///tmp/compare.png) now.\n\n⟶ Next: open [it](file:///tmp/it.png).\n\nNo link here.").frame(width: 500))
             host.layoutSubtreeIfNeeded()
             func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }

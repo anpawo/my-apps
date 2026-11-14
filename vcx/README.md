@@ -31,7 +31,7 @@ commands into `~/.local/bin`.
 
 To keep it current, copy `mac.vcx-update.plist` into `~/Library/LaunchAgents`: on every push from this checkout
 and every 10 minutes, `auto-update.sh` installs the latest `vcx/` from `main`, from a worktree of its own.
-Open windows move to the new build on their own. Log: `~/.local/state/mac.vcx-update.log`.
+While it builds, the status bar shows `updating · <the commit>` left of the folder, its line filling at the pace of the last install. Open windows move to the new build on their own. Log: `~/.local/state/mac.vcx-update.log`.
 
 ## Checking it without a window
 

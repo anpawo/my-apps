@@ -23,8 +23,13 @@ if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
 else git -C "$repo" worktree add -q --detach "$tree" "$head"
 fi || { log "cannot check out ${head:0:7}"; exit 1; }
 log "installing $(git -C "$repo" log -1 --format='%h %s' "$head")"
+# The open windows show this in their status bar while it builds, paced by the last install's duration.
+started=$(date +%s)
+printf '%s\t%s\n' "$started" "$(git -C "$repo" log -1 --format=%s "$head" | sed 's/^vcx: //')" > "$state/building"
+trap 'rm -f "$state/building"' EXIT
 if (cd "$tree/vcx" && python3 install-native.py); then
     echo "$head" > "$state/installed"; rm -f "$state/failed"; log "installed ${head:0:7}"
+    echo $(( $(date +%s) - started )) > "$state/last-duration"
 else
     echo "$head" > "$state/failed"; log "install failed for ${head:0:7}"; exit 1
 fi

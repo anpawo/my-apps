@@ -274,6 +274,7 @@ struct FlyingMessage: View {
 struct CXView: View {
     @ObservedObject var session: Session
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var update = UpdateBuild.shared
     // Not observed here: the table publishes it on every scroll, for the pinned question alone.
     @State private var geometry = TranscriptGeometry()
     @State private var openCapability: String?
@@ -556,6 +557,10 @@ struct CXView: View {
     var statusBar: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
+                if let build = update.build {
+                    UpdateChip(build: build).transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                    separator.transition(.opacity)
+                }
                 identityStatus
                 separator
                 usageStatus
@@ -566,7 +571,7 @@ struct CXView: View {
                     setting("Pull request", value: session.pullRequest, command: session.pullRequestURL, color: Color(red: 0.42, green: 0.25, blue: 0.7))
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                 }
-            }.fixedSize().padding(8).animation(.easeOut(duration: 0.28), value: session.pullRequest.isEmpty)
+            }.fixedSize().padding(8).animation(.easeOut(duration: 0.28), value: session.pullRequest.isEmpty).animation(.easeOut(duration: 0.28), value: update.build == nil)
         // The scroll view clips what it holds: the chips' shadows need room inside it, taken back outside.
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true).padding(-8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -596,6 +601,31 @@ struct CXView: View {
         setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 0.68, green: 0.18, blue: 0.38) : session.repositoryStatus == "unpushed" ? Color(red: 0.55, green: 0.36, blue: 0.08) : session.repositoryStatus == "up to date" ? readyColor : .black.opacity(0.6))
     }
     private var separator: some View { Text("|").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
+}
+
+// Ticks each second and glides between ticks, so the line under the words moves forward without a stop.
+struct UpdateChip: View {
+    let build: UpdateBuild.Build
+    var body: some View {
+        let words = build.words.count > 40 ? build.words.prefix(39).split(separator: " ").dropLast().joined(separator: " ") + "…" : build.words
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 5) {
+                Text("updating").fontWeight(.bold)
+                Text("·").opacity(0.5)
+                Text(words)
+            }.font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(accent).lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).padding(.top, 5).padding(.bottom, 6)
+                .background(accent.opacity(0.1))
+                .overlay(alignment: .bottomLeading) {
+                    GeometryReader { box in
+                        Rectangle().fill(userGradient).frame(width: box.size.width * UpdateBuild.progress(build, at: context.date), height: 2.5)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .animation(.linear(duration: 1), value: context.date)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
+        }.help("Building the VCX update: " + build.words).accessibilityLabel("Building the VCX update: " + build.words)
+    }
 }
 
 extension CXView {
