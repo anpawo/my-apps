@@ -35,6 +35,15 @@ enum ModelControlCheck {
         } catch let error as CXError where !error.message.hasPrefix("FAIL:") {}
         _ = try await backend.perform(action: "setModel", params: ["model": "other-model", "effort": "low"])
         guard session.effort == "low" else { throw CXError(message: "FAIL: model control ignored explicit effort") }
+        session.busy = true
+        _ = try await backend.perform(action: "command", params: ["text": "/model codex fixture-model"])
+        guard session.model == "other-model", session.pendingModelCommand == "/model codex fixture-model" else {
+            throw CXError(message: "FAIL: vcx --set-model on a busy window must wait for the turn to end")
+        }
+        session.busy = false; session.pendingModelCommand = nil
+        _ = try await backend.perform(action: "command", params: ["text": "/model codex fixture-model"])
+        guard session.model == "fixture-model" else { throw CXError(message: "FAIL: vcx --set-model did not switch an idle window") }
+        _ = try await backend.perform(action: "setModel", params: ["model": "other-model", "effort": "low"])
         await session.send(text: "Use the selected model", images: [], retry: true)
         let settings = (connection.sent.last?["collaborationMode"] as? JSON)?["settings"] as? JSON
         guard settings?["model"] as? String == "other-model", settings?["reasoning_effort"] as? String == "low" else {

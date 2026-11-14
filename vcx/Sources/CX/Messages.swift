@@ -55,6 +55,17 @@ enum AgentMessages {
         return named.count == 1 ? named[0] : nil
     }
 
+    // A Claude agent carries its transcript id, a Qwen command the thread VCX gave it; either names the window it runs in.
+    static func caller(_ windows: [Window]) -> Window? {
+        let environment = ProcessInfo.processInfo.environment
+        let threads = [environment["CLAUDE_CODE_SESSION_ID"].map { "claude:" + $0 }, environment["VCX_THREAD_ID"]].compactMap { $0 }
+        return windows.first { window in
+            let data = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + window.id + ".window.json")
+            let thread = ((data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON })?["state"] as? JSON)?["threadID"] as? String
+            return thread.map(threads.contains) ?? false
+        }
+    }
+
     // What another window's agent sent, as he sees it and as the agent reads it.
     struct Message { let provider: String, name: String, body: String }
 
@@ -89,15 +100,7 @@ enum AgentMessages {
             FileHandle.standardError.write(Data((text.isEmpty ? "Empty message.\n" : "No single open window matches \(words[0]). Open windows:\n" + all.map { "  \($0.id.prefix(8))  \($0.provider)  \($0.name)" }.joined(separator: "\n") + "\n").utf8))
             return 1
         }
-        // A Claude agent carries its transcript id, a Qwen command the thread VCX gave it; either names the window it runs in.
-        let environment = ProcessInfo.processInfo.environment
-        let threads = [environment["CLAUDE_CODE_SESSION_ID"].map { "claude:" + $0 }, environment["VCX_THREAD_ID"]].compactMap { $0 }
-        let caller = all.first { window in
-            let data = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + window.id + ".window.json")
-            let thread = ((data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON })?["state"] as? JSON)?["threadID"] as? String
-            return thread.map(threads.contains) ?? false
-        }
-        let sender = from.flatMap { match($0, all) } ?? caller
+        let sender = from.flatMap { match($0, all) } ?? caller(all)
         let message = "\(sender?.provider ?? "agent") from [\(sender?.name ?? "unknown")]: \"\(text)\""
         do {
             let ticket = try RuntimeUpdate.writeTicket(["sessionId": target.id, "text": message, "sentAt": Date().timeIntervalSince1970], suffix: suffix)
