@@ -575,24 +575,22 @@ enum Glyph {
                 p.appendArc(from: CGPoint(x: 1, y: 21.5), to: CGPoint(x: 1, y: 1), radius: 4.5)
                 p.close()
                 // A tick in the body: the folders it saves to.
-                p.move(to: CGPoint(x: 9.5, y: 13.5))
+                p.move(to: CGPoint(x: 10, y: 14))
                 p.line(to: CGPoint(x: 12.75, y: 16.75))
-                p.line(to: CGPoint(x: 19, y: 10.25))
+                p.line(to: CGPoint(x: 18.25, y: 11))
                 p.lineCapStyle = .round
                 p.lineJoinStyle = .round
                 p.stroke()
             } else {
-                // One outline: eight tapered teeth on a ring, a round hub inside.
-                let c = CGPoint(x: 14.5, y: 11.25), tip: CGFloat = 10.25, root: CGFloat = 7.75
-                func at(_ r: CGFloat, _ deg: CGFloat) -> CGPoint {
-                    CGPoint(x: c.x + r * cos(deg * .pi / 180), y: c.y + r * sin(deg * .pi / 180))
-                }
-                for i in 0..<8 {
-                    let a = CGFloat(i) * 45
-                    i == 0 ? p.move(to: at(root, a - 15)) : p.line(to: at(root, a - 15))
-                    p.line(to: at(tip, a - 9))
-                    p.line(to: at(tip, a + 9))
-                    p.line(to: at(root, a + 15))
+                // Six soft lobes, one pointing up, and a round hub: a cosine on the radius, its
+                // peaks flattened so each lobe is broad rather than pointed.
+                let c = CGPoint(x: 14.5, y: 11.25), tip: CGFloat = 10.25, valley: CGFloat = 7.25
+                for deg in 0..<360 {
+                    let a = CGFloat(deg) * .pi / 180
+                    let w = cos(6 * (a + .pi / 2))
+                    let r = valley + (tip - valley) * (1 + copysign(pow(abs(w), 0.6), w)) / 2
+                    let pt = CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
+                    deg == 0 ? p.move(to: pt) : p.line(to: pt)
                 }
                 p.close()
                 p.appendOval(in: CGRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6))
