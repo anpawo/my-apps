@@ -574,12 +574,6 @@ enum Glyph {
                 p.appendArc(from: CGPoint(x: 27.5, y: 21.5), to: CGPoint(x: 1, y: 21.5), radius: 4.5)
                 p.appendArc(from: CGPoint(x: 1, y: 21.5), to: CGPoint(x: 1, y: 1), radius: 4.5)
                 p.close()
-                // A tick in the body: the folders it saves to.
-                p.move(to: CGPoint(x: 10, y: 14))
-                p.line(to: CGPoint(x: 12.75, y: 16.75))
-                p.line(to: CGPoint(x: 18.25, y: 11))
-                p.lineCapStyle = .round
-                p.lineJoinStyle = .round
                 p.stroke()
             } else {
                 // Six soft lobes, one pointing up, and a round hub: a cosine on the radius, its
