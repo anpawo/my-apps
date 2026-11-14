@@ -60,7 +60,7 @@ enum Check {
         // One async function this long took 17 GB to compile (LLVM copies it at every await), so its checks run in closures of their own.
         func part(_ body: @MainActor () async -> Void) async { await body() }
         func step(_ body: @MainActor () async -> Bool) async -> Bool { await body() }
-        Connectivity.online = { true }; Connectivity.poll = 10_000_000
+        Connectivity.online = { true }; Connectivity.poll = 10_000_000; Connectivity.grace = 50_000_000
         do {
             let project = ErrorsRecall.home + "/self/app"
             try? FileManager.default.createDirectory(atPath: ErrorsRecall.home + "/.claude", withIntermediateDirectories: true)
@@ -962,6 +962,31 @@ enum Check {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 check(connection?.sent.count == 1, "other failed turns wait for the user")
                 resumed.close()
+            }
+            do {
+                var up = false
+                Connectivity.online = { up }
+                defer { Connectivity.online = { true } }
+                var fixtures: [String: FixtureConnection] = [:]
+                @MainActor func retrying(_ name: String) async -> Session {
+                    let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("retry-" + name))
+                    session.connectionFactory = { account, _ in let fixture = FixtureConnection(account); fixture.hold = true; fixtures[name] = fixture; return fixture }
+                    await session.connect(resume: nil)
+                    await session.send(text: "Long task", images: [])
+                    return session
+                }
+                let stuck = await retrying("stuck"), recovered = await retrying("recovered"), later = await retrying("later")
+                stuck.event(["method": "cx/apiRetry", "params": ["delay": 0]])
+                recovered.event(["method": "cx/apiRetry", "params": ["delay": 0]]); recovered.event(["method": "cx/apiRetry", "params": ["done": true]])
+                later.event(["method": "cx/apiRetry", "params": ["delay": 600_000]])
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                up = true
+                @MainActor func nudged(_ name: String) -> Bool { fixtures[name]?.sent.contains { ($0["input"] as? [JSON])?.first?["text"] as? String == Session.keepGoing } == true }
+                for _ in 0..<300 where !nudged("stuck") { try? await Task.sleep(nanoseconds: 10_000_000) }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                check(nudged("stuck") && stuck.busy && !nudged("recovered") && recovered.busy && !nudged("later") && later.busy,
+                      "once the network is back, only a turn still waiting on a retry sent while it was down restarts; one the API answered since, or whose retry has not fired, runs on")
+                for session in [stuck, recovered, later] { session.close() }
             }
             do {
                 let throttled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("throttle-state"))

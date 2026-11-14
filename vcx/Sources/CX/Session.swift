@@ -121,6 +121,7 @@ struct FollowState {
 enum Connectivity {
     static var online: () async -> Bool = Session.reachesInternet
     static var poll: UInt64 = 10_000_000_000
+    static var grace: UInt64 = 15_000_000_000
     private static let sessions = NSHashTable<Session>.weakObjects()
     private static var monitor: NWPathMonitor?
     private static var probe: Task<Void, Never>?
@@ -298,6 +299,10 @@ final class Session: ObservableObject {
     var agentLogFile: String { stateDirectory.appendingPathComponent("logs").appendingPathComponent(recordID + ".log").path }
     private var lostConnection = false
     private var resumeWhenBack = false
+    // When the agent's pending API retry fires; nil once it hears from the API again.
+    private var retryAttempt: Date?
+    private var retryStopped = false
+    static let keepGoing = "Keep going: the connection dropped. Retry the step that failed and continue."
     var rateLimitRetries: [Double] = [10, 30, 60]
     var connectionFactory: ((Account, String) -> any Connection)?
     private var startingConnection: (any Connection)?
@@ -624,6 +629,9 @@ final class Session: ObservableObject {
                 contextLimit = limit
                 if let served, contextWindows[served] != limit { contextWindows[served] = limit }
             } else if let served, let known = contextWindows[served] { contextLimit = known }
+        case "cx/apiRetry":
+            if p["done"] as? Bool == true { retryAttempt = nil }
+            else { retryAttempt = Date().addingTimeInterval(Double(p["delay"] as? Int ?? 0) / 1000); Connectivity.lost("an API retry") }
         case "cx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
         case "cx/userQueue":
             if let id = p["id"] as? String, let item = userItem(id) {
@@ -666,7 +674,7 @@ final class Session: ObservableObject {
             if let turn = p["turn"] as? JSON, usageLimit(turn), !stopRequested {
                 queueLimit(turn); return
             }
-            flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll()
+            flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll(); retryAttempt = nil
             if let directory = turnDirectory(turnCommands, current: cwd, initial: conversationDirectory) { moveDirectory(directory) }
             turnCommands = []
             DiskCleanup.run(cwd)
@@ -687,7 +695,7 @@ final class Session: ObservableObject {
             if withdrawn, let prompt, let content = prompt.data["content"] as? [JSON] {
                 rows.removeLast(); itemMap[prompt.id] = nil; revision += 1
                 editDraft(withdrawnDraft(content))
-            } else if outcome == "interrupted", sendingNow != nil {
+            } else if outcome == "interrupted", sendingNow != nil || retryStopped {
             } else if outcome == "interrupted" {
                 notice("Work interrupted. " + (stopSource.map { "Stop requested by " + $0 + "." } ?? "The provider did not report who stopped it.") + " Send a message to continue.")
             } else if needsAttention {
@@ -698,6 +706,10 @@ final class Session: ObservableObject {
             if let waiting = sendingNow {
                 sendingNow = nil
                 if outcome == "interrupted" { Task { await self.continueWith(waiting) } }
+            }
+            if retryStopped {
+                retryStopped = false
+                if outcome == "interrupted" { Task { await self.send(text: Self.keepGoing, images: [], expectedDraft: NSAttributedString(string: "")) } }
             }
             save()
             resumeWhenOnline(after: turn)
@@ -1170,11 +1182,22 @@ final class Session: ObservableObject {
     // Connectivity calls this on every session of the process once the internet answers again; a session that was fine does nothing.
     func networkBack(after cause: String, reconnecting: Bool) async {
         if lostConnection, reconnecting, !changing { await reconnect(reason: "network back after " + cause) }
+        if reconnecting, busy, let attempt = retryAttempt, attempt < Date() { Task { await stopStuckRetry(attempt) } }
         guard resumeWhenBack else { return }
         resumeWhenBack = false
         guard ready, !busy else { return }
         autoResumes += 1
-        await send(text: "Keep going: the connection dropped. Retry the step that failed and continue.", images: [], expectedDraft: NSAttributedString(string: ""))
+        await send(text: Self.keepGoing, images: [], expectedDraft: NSAttributedString(string: ""))
+    }
+
+    // An API retry sent while the network was down waits on a dead socket until its own timeout (70 to 120 s each, up to 10 times),
+    // never noticing the network came back. If the API is still silent after a grace, the turn restarts on the live network.
+    private func stopStuckRetry(_ attempt: Date) async {
+        try? await Task.sleep(nanoseconds: Connectivity.grace)
+        guard busy, retryAttempt == attempt, !stopRequested else { return }
+        retryStopped = true
+        notice("The network is back but \(providerLabel) was still waiting on a request sent while it was down, so VCX restarts the step.")
+        await stop(source: "the network coming back")
     }
 
     nonisolated static func reachesInternet() async -> Bool {

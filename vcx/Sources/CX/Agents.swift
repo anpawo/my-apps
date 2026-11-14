@@ -113,6 +113,7 @@ final class ClaudeConnection: Connection {
     private var servedModel: String?
     private var limit: JSON?
     private var rateLimited = false
+    private var retrying = false
     private var stopped = false
     private var sendingNow = false
     private var command: [String]?
@@ -331,6 +332,8 @@ final class ClaudeConnection: Connection {
         if message["parent_tool_use_id"] is String { return }
         let kind = message["type"] as? String ?? ""
         if ["stream_event", "assistant", "result", "user", "control_request"].contains(kind) || (kind == "system" && message["subtype"] as? String == "api_retry") { firstEvent?.cancel(); firstEvent = nil }
+        if kind == "system", message["subtype"] as? String == "api_retry" { retrying = true; emit("cx/apiRetry", ["delay": message["retry_delay_ms"] as? Int ?? 0]) }
+        else if retrying, ["stream_event", "assistant", "result", "user"].contains(kind) { retrying = false; emit("cx/apiRetry", ["done": true]) }
         switch message["type"] as? String {
         case "control_response":
             let response = message["response"] as? JSON ?? [:]
