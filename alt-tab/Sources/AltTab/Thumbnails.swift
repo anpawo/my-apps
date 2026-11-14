@@ -104,7 +104,13 @@ enum Thumbnails {
     @discardableResult
     static func capture(_ ids: [CGWindowID], onImage: @escaping (CGWindowID, NSImage, Int) -> Void) -> Int {
         generation += 1
-        run(ids, round: generation, onImage: onImage)
+        // A window photographed in the last 10 s keeps its picture. Re-shooting every window on
+        // every ⌘Tab (~250 ms each in replayd) queued sweeps for minutes and starved every other
+        // capture on the machine: Screenshot's ⌘⇧5 hit its 5 s watchdog (13-11).
+        let now = ProcessInfo.processInfo.systemUptime
+        let stale = ids.filter { lastCapture[$0].map { now - $0 >= 10 } ?? true }
+        for id in stale { lastCapture[id] = now }
+        run(stale, round: generation, onImage: onImage)
         return generation
     }
 
