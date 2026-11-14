@@ -66,7 +66,7 @@ final class Bar: NSPanel {
         x += 1 + Bar.gap
 
         for s in sections {
-            s.button.frame = CGRect(x: x, y: mid - 18, width: 36, height: 36)
+            s.button.frame = CGRect(x: x, y: mid - 18, width: 44, height: 36)
             x = s.button.frame.maxX + 6
             back.addSubview(s.button)
         }
@@ -309,14 +309,14 @@ final class IconButton: HoverButton {
 
     init(_ symbol: String, _ name: String) {
         super.init()
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)?
-            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+        image = Glyph.image(for: symbol)
+        setAccessibilityLabel(name)
         imagePosition = .imageOnly
         contentTintColor = NSColor.labelColor.withAlphaComponent(0.7)
     }
     required init?(coder: NSCoder) { nil }
 
-    override var ground: NSColor? { hovered || open ? NSColor.labelColor.withAlphaComponent(0.08) : nil }
+    override var ground: NSColor? { hovered || open ? NSColor.labelColor.withAlphaComponent(0.06) : nil }
 }
 
 /// One group of settings, hidden above its icon on the bar. Hovered, the icon lets it rise and
@@ -552,6 +552,42 @@ enum Glyph {
             case .window:
                 for i in 0..<3 { NSBezierPath(ovalIn: CGRect(x: 4.2 + CGFloat(i) * 3.4, y: 4.2, width: 2.2, height: 2.2)).fill() }
             case .area: break
+            }
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }
+
+    /// The folder and the gear in the stills' hand: the same 2 pt stroke, size and corners.
+    static func image(for symbol: String) -> NSImage {
+        let img = NSImage(size: CGSize(width: 29, height: 22.5), flipped: true) { _ in
+            let p = NSBezierPath()
+            p.lineWidth = 2
+            if symbol == "folder" {
+                // A tab on the top left, the body below it.
+                p.move(to: CGPoint(x: 1, y: 12))
+                p.appendArc(from: CGPoint(x: 1, y: 1), to: CGPoint(x: 11, y: 1), radius: 3.5)
+                p.appendArc(from: CGPoint(x: 11, y: 1), to: CGPoint(x: 14, y: 5), radius: 1.5)
+                p.appendArc(from: CGPoint(x: 14, y: 5), to: CGPoint(x: 27.5, y: 5), radius: 1.5)
+                p.appendArc(from: CGPoint(x: 27.5, y: 5), to: CGPoint(x: 27.5, y: 21.5), radius: 4.5)
+                p.appendArc(from: CGPoint(x: 27.5, y: 21.5), to: CGPoint(x: 1, y: 21.5), radius: 4.5)
+                p.appendArc(from: CGPoint(x: 1, y: 21.5), to: CGPoint(x: 1, y: 1), radius: 4.5)
+                p.close()
+                p.stroke()
+            } else {
+                // A ring with six square teeth.
+                let c = CGPoint(x: 14.5, y: 11.25)
+                p.appendOval(in: CGRect(x: c.x - 6.75, y: c.y - 6.75, width: 13.5, height: 13.5))
+                p.stroke()
+                for i in 0..<6 {
+                    let t = AffineTransform(translationByX: c.x, byY: c.y)
+                    var turn = AffineTransform(rotationByDegrees: CGFloat(i) * 60)
+                    turn.append(t)
+                    let tooth = NSBezierPath(roundedRect: CGRect(x: -1.75, y: -10.75, width: 3.5, height: 4), xRadius: 0.75, yRadius: 0.75)
+                    tooth.transform(using: turn)
+                    tooth.fill()
+                }
             }
             return true
         }
