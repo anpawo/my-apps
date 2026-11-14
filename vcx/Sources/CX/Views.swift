@@ -340,10 +340,11 @@ struct CXView: View {
                     }.coordinateSpace(name: "capabilityPanel")
                         .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.2), value: hoveredRule)
                         .padding(.leading, 8).padding(.top, 10)
-                        .transition(reduceMotion ? .opacity : .offset(x: -16).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .offset(x: -6).combined(with: .opacity))
                 }
             }
-            .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.22), value: openCapability != nil)
+            // The web "Dropdown on hover" curve: most of the way in within the first frames.
+            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: reduceMotion ? 0.1 : 0.2), value: openCapability != nil)
             .onChange(of: openCapability) { hoveredRule = nil }
         }
         .fontDesign(.monospaced)
@@ -475,7 +476,9 @@ struct CXView: View {
             // A short dwell, so a pointer crossing the sidebar opens nothing.
             .onHover { inside in
                 hoveredCapability = inside ? title : hoveredCapability == title ? nil : hoveredCapability
-                if inside { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { if hoveredCapability == title { openCapability = title } } }
+                // Once a panel is open, moving to another button switches at once.
+                if inside, openCapability != nil { openCapability = title }
+                else if inside { DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { if hoveredCapability == title { openCapability = title } } }
                 else { closeCapabilityLater() }
             }
     }
