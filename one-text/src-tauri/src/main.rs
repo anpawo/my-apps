@@ -284,6 +284,22 @@ fn open_url(url: String) -> Result<(), String> {
     std::process::Command::new("/usr/bin/open").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// The update auto-update.sh is building: `building` holds its start time, a tab and the commit's subject while it runs;
+/// the last install's duration paces the line. A file left by a killed run is ignored after an hour.
+#[tauri::command]
+fn update_build() -> Option<Value> {
+    let dir = home().join(".local/share/one-text-update");
+    let text = fs::read_to_string(dir.join("building")).ok()?;
+    let (started, words) = text.trim_end().split_once('\t')?;
+    let started: f64 = started.parse().ok()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64();
+    if now - started > 3600.0 {
+        return None;
+    }
+    let expected = fs::read_to_string(dir.join("last-duration")).ok().and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(300.0).max(30.0);
+    Some(json!({ "started": started, "words": words, "expected": expected }))
+}
+
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
@@ -467,7 +483,7 @@ fn main() {
                 });
             });
         })
-        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url])
+        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url, update_build])
         .run(tauri::generate_context!())
         .expect("error while running one-text");
 }

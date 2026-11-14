@@ -34,6 +34,12 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 
     cd src-tauri && npx @tauri-apps/cli build --bundles app
 
+To keep it current, copy `mac.one-text-update.plist` into `~/Library/LaunchAgents`: on every push from this checkout and
+every 10 minutes, `auto-update.sh` builds the latest `one-text/` from `main` in a worktree of its own, installs it in
+`~/Applications` and restarts the app if it ran (it waits while One Text is the app in front). While it builds, the
+bottom of the list shows `Building update · <the commit>` over a line that fills at the pace of the last install.
+Log: `~/.local/state/mac.one-text-update.log`.
+
 ## Checking it without a window
 
 `node tests/ui.mjs <outdir>` runs the interface in headless WebKit on made-up chats, checks it, and writes screenshots.

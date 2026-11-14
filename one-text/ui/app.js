@@ -1831,3 +1831,24 @@ invoke('overrides').then(o => {
   state.openAtLaunch = o.openAtLaunch;
   refreshList();
 });
+// The update auto-update.sh is building, under the list: its words and a line that fills at the pace of the last install.
+const updateBox = $('#update');
+let building = null;
+function drawUpdate() {
+  if (!building) return;
+  const t = Math.max(0, Date.now() / 1000 - building.started) / building.expected;
+  updateBox.querySelector('i').style.width = `${(t < .9 ? t : 1 - .1 * Math.exp(-(t - .9) * 2)) * 100}%`;
+}
+async function pollUpdate() {
+  building = await invoke('update_build').catch(() => null);
+  if (building) {
+    const words = updateBox.querySelector('.words');
+    words.textContent = `Building update · ${building.words}`;
+    words.title = building.words;
+  }
+  updateBox.classList.toggle('on', !!building);
+  drawUpdate();
+}
+pollUpdate();
+setInterval(pollUpdate, 2000);
+setInterval(drawUpdate, 1000);

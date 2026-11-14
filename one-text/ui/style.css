@@ -28,6 +28,13 @@ aside { position: relative; width: 313px; flex: none; display: flex; flex-direct
 .drag { height: 40px; flex: none; }
 #banner { margin: 0 12px 8px; padding: 8px 11px; border-radius: 9px; background: #3a2a10; color: #ffc46b; font-size: 12.5px; }
 #list { flex: 1; padding: 0 8px 12px; }
+#update { display: grid; grid-template-rows: 0fr; opacity: 0; flex: none; transition: grid-template-rows 280ms var(--ease), opacity 280ms ease-out; }
+#update.on { grid-template-rows: 1fr; opacity: 1; }
+#update > div { overflow: hidden; min-height: 0; padding: 0 20px; }
+#update .words { display: block; padding-top: 10px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#update .bar { height: 3px; margin: 7px 0 16px; border-radius: 2px; background: var(--line); overflow: hidden; }
+#update .bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); transition: width 1s linear; }
+@media (prefers-reduced-motion: reduce) { #update { transition: opacity 150ms ease-out; } }
 .inner { position: relative; }
 .sel { position: absolute; left: 0; right: 0; top: 0; bottom: 100%; border-radius: 10px; background: var(--tint); opacity: 0; pointer-events: none; }
 .row { position: relative; display: flex; gap: 10px; align-items: center; padding: 8px 9px; border-radius: 10px; transition: background-color 150ms; }

@@ -64,6 +64,7 @@ const stub = () => {
     if (cmd === 'overrides') return structuredClone(overrides);
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
+    if (cmd === 'update_build') return window.__update || null;
     if (cmd === 'api') {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
       if (args.method === 'DELETE' && !args.path.includes('/reactions')) { const [, c, id] = args.path.match(/chats\/([^/]+)\/messages\/([^/]+)/); msgs[decodeURIComponent(c)] = msgs[decodeURIComponent(c)].filter(x => x.id !== decodeURIComponent(id)); return {}; }
@@ -848,6 +849,22 @@ const grown = await page.evaluate(async () => {
   return [m.scrollHeight > m.clientHeight, Math.round(m.scrollHeight - m.clientHeight - m.scrollTop)];
 });
 check(grown[0] && grown[1] < 2, `the open conversation stays at its end as a picture loads (${grown})`);
+
+// An update being built shows under the list, growing in: its words, and a line that moves forward; it goes once the build is done.
+const upd = () => page.$eval('#update', u => [u.classList.contains('on'), u.querySelector('.words').textContent, Math.round(u.querySelector('i').getBoundingClientRect().width), Math.round(u.getBoundingClientRect().height)]);
+await page.evaluate(() => { window.__update = { started: Date.now() / 1000 - 6, words: 'Snapchat chats get their logo and /sc', expected: 30 }; pollUpdate(); });
+const grow = [];
+for (let i = 0; i < 5; i++) { await page.waitForTimeout(70); grow.push((await upd())[3]); if (i === 1) await page.screenshot({ path: join(out, '9-update-growing.png') }); }
+await page.waitForTimeout(600);
+const u1 = await upd();
+await page.screenshot({ path: join(out, '9-update.png') });
+await page.waitForTimeout(1500);
+const u2 = await upd();
+await page.evaluate(() => { window.__update = null; pollUpdate(); });
+await page.waitForTimeout(600);
+const u3 = await upd();
+check(grow.every((h, i) => !i || h >= grow[i - 1]) && grow[0] < u1[3] && u1[0] && u1[1] === 'Building update · Snapchat chats get their logo and /sc' && u1[2] > 0 && u2[2] > u1[2] && !u3[0] && u3[3] === 0,
+  `an update being built grows in under the list, its line moves forward, and it goes once done (${grow} / ${u1} / ${u2} / ${u3})`);
 
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
