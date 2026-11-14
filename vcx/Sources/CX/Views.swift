@@ -1586,6 +1586,8 @@ struct ProseView: View {
     let text: String
     @Environment(TranscriptFind.self) private var find: TranscriptFind?
     @Environment(\.findItem) private var findItem
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hoveredRow: [Int]?
     private var paragraphs: [String] { answerParagraphs(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
@@ -1595,24 +1597,39 @@ struct ProseView: View {
             else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
         }.modifier(FindMarker(find: find, item: findItem, fragment: fragment))
     }
+    // The recon dashboard's grid table, light: a framed card, a header bar, every second row banded, the row under the pointer veiled.
+    private func table(_ rows: [[String]], paragraph: Int) -> some View {
+        let widths = tableColumnWidths(rows), shape = RoundedRectangle(cornerRadius: 10)
+        return ScrollView(.horizontal) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { r, cells in
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(Array(cells.enumerated()), id: \.offset) { c, cell in
+                            Group {
+                                if c == 0 { Text(cell).font(.system(size: 12, weight: r == 0 ? .semibold : .regular, design: .monospaced)).foregroundStyle(.black.opacity(0.4)) }
+                                else { prose(cell, weight: r == 0 ? .semibold : .regular) }
+                            }
+                            .frame(width: widths[c] - 24, alignment: c == 0 ? .trailing : .leading).fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 12).padding(.vertical, r == 0 ? 7 : 6)
+                        }
+                    }
+                    .background(r == 0 ? .black.opacity(0.06) : .black.opacity((r.isMultiple(of: 2) ? 0.025 : 0) + (hoveredRow == [paragraph, r] ? 0.05 : 0)))
+                    .overlay(alignment: .top) { Rectangle().fill(.black.opacity(r == 0 ? 0 : 0.06)).frame(height: 1) }
+                    .contentShape(Rectangle())
+                    .onHover { inside in if r > 0 { if inside { hoveredRow = [paragraph, r] } else if hoveredRow == [paragraph, r] { hoveredRow = nil } } }
+                }
+            }
+            .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.3), value: hoveredRow)
+        }
+        .frame(maxWidth: widths.reduce(0, +), alignment: .leading)
+        .background(.white, in: shape).clipShape(shape).overlay(shape.strokeBorder(.black.opacity(0.12)))
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                 let lines = paragraph.components(separatedBy: "\n")
                 if lines.count >= 2, tableRule(lines[1]) {
-                    ScrollView(.horizontal) {
-                        Grid(alignment: .topLeading, horizontalSpacing: 18, verticalSpacing: 10) {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { n, line in
-                                if n != 1 {
-                                    GridRow {
-                                        ForEach(Array(tableCells(line).enumerated()), id: \.offset) { _, cell in
-                                            prose(cell, weight: n == 0 ? .semibold : .regular).frame(width: 280, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                }
-                            }
-                        }.padding(14)
-                    }.background(.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                    table(numberedTable(lines), paragraph: index)
                 } else if paragraph.hasPrefix("#") {
                     let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
                     prose(String(title), weight: .semibold)
@@ -1686,5 +1703,22 @@ func tableCells(_ line: String) -> [String] {
     if text.hasPrefix("|") { text.removeFirst() }
     if text.hasSuffix("|") { text.removeLast() }
     return text.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+}
+
+// Rows numbered by VCX so he can answer "row 3"; a table that already opens on a # column keeps its own.
+func numberedTable(_ lines: [String]) -> [[String]] {
+    let rows = lines.enumerated().filter { $0.offset != 1 }.map { tableCells($0.element) }, count = rows.map(\.count).max() ?? 0
+    let even = rows.map { $0 + Array(repeating: "", count: count - $0.count) }
+    if even.first?.first == "#" { return even }
+    return even.enumerated().map { [$0.offset == 0 ? "#" : "\($0.offset)"] + $0.element }
+}
+
+// Cells are monospaced, so a column is its longest cell wide (up to 320 pt, then its cells wrap), plus 12 pt each side.
+func tableColumnWidths(_ rows: [[String]]) -> [CGFloat] {
+    let glyph = ("0" as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)]).width
+    return (0..<(rows.first?.count ?? 0)).map { c in
+        let longest = rows.map { $0[c] }.map { String(richText($0).characters).count }.max() ?? 0
+        return ceil(min(CGFloat(longest) * glyph, 320)) + 24
+    }
 }
 

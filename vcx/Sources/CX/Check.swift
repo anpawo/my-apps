@@ -658,6 +658,10 @@ enum Check {
         }
         check((try! agentImage(imagePath)).1 == "image/png", "image type is determined from its contents")
         check(tableCells("| Provider | Status |") == ["Provider", "Status"], "native table cells")
+        check(numberedTable(["| A | B |", "|---|---|", "| x | y |", "| z |"]) == [["#", "A", "B"], ["1", "x", "y"], ["2", "z", ""]], "tables get their rows numbered and short rows padded")
+        check(numberedTable(["| # | A |", "|---|---|", "| 1 | x |"]) == [["#", "A"], ["1", "x"]], "a table with its own # column keeps a single one")
+        let widths = tableColumnWidths([["#", "Name"], ["1", String(repeating: "w", count: 200)]])
+        check(widths.count == 2 && widths[0] < widths[1] && widths[1] == 344, "table columns fit their content up to 320 pt")
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path ?? sourceFixture
         let rpc = RPC()
         var notified = false
@@ -2269,6 +2273,8 @@ enum Render {
         write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
         let linkFixture = "Preview the installed logo, fused C and X, white on charcoal black, wrapping onto a second line here."
         write(ProseView(text: [linkFixture, linkFixture.replacingOccurrences(of: "installed logo", with: "[installed logo](file:///tmp/icon.png)"), "⟶ " + linkFixture, "⟶ Next: open " + "[compare.png](file:///tmp/compare.png) and check the C."].joined(separator: "\n\n")).padding(24).background(Color.white), size: CGSize(width: 520, height: 420), path: directory + "/links.png")
+        let tableFixture = "Three providers checked:\n| Provider | Status | Note |\n|---|---|---|\n| Claude | **ready** | Opus 5.5, high effort |\n| Codex | limited | resets at 18:00 |\n| Qwen | ready | local, [model card](https://qwen.ai) |\n\nA wide one scrolls sideways:\n\n| File | Change | Why | Check |\n|---|---|---|---|\n| `Views.swift` | the table is a framed card with a header bar, banded rows and a hover veil | the old grid gave every cell 280 pt and no lines between rows | the render below |\n| `Check.swift` | numbering and column widths | so a table renders the same way twice | `--check` |\n\n⟶ Next: answer with a row number."
+        write(ProseView(text: tableFixture).padding(24).background(Color.white), size: CGSize(width: 900, height: 520), path: directory + "/table.png")
         motion(directory: directory, name: "short", text: "Move this message into the chat.")
         motion(directory: directory, name: "wrapped", text: "Keep the exact text from the composer as this longer message lifts into the conversation, changes size, and settles into its final bubble without jumping between lines.")
         motion(directory: directory, name: "tall", text: (1...20).map { "Line \($0) of a pasted text block." }.joined(separator: "\n"), history: true)

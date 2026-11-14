@@ -485,7 +485,7 @@ enum BugCheck {
             let tabled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("table-wheel"))
             tabled.ready = true; tabled.status = "Ready"
             tabled.show(["id": "table-q", "type": "userMessage", "content": [["type": "text", "text": "compare"]]])
-            tabled.show(["id": "table-a", "type": "agentMessage", "text": "Here:\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n| one | two | three | four | five |\n| six | seven | eight | nine | ten |"])
+            tabled.show(["id": "table-a", "type": "agentMessage", "text": "Here:\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n" + String(repeating: "| " + String(repeating: "a long cell ", count: 4) + " ", count: 5) + "|\n| six | seven | eight | nine | ten |"])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
             defer { window.close() }
@@ -507,7 +507,9 @@ enum BugCheck {
             let tabled = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("table-route-\(columns)"))
             tabled.ready = true; tabled.status = "Ready"
             let head = "| " + (1...columns).map { "H\($0)" }.joined(separator: " | ") + " |\n|" + String(repeating: "---|", count: columns)
-            let body = (1...12).map { r in "\n| " + (1...columns).map { "r\(r)c\($0)" }.joined(separator: " | ") + " |" }.joined()
+            // Columns fit their cells: the 5-column table is wide because its cells are long.
+            let filler = columns == 5 ? " " + String(repeating: "wide ", count: 12) : ""
+            let body = (1...12).map { r in "\n| " + (1...columns).map { "r\(r)c\($0)" + filler }.joined(separator: " | ") + " |" }.joined()
             for n in 0..<6 {
                 tabled.show(["id": "q\(n)", "type": "userMessage", "content": [["type": "text", "text": "question \(n)"]]])
                 tabled.show(["id": "a\(n)", "type": "agentMessage", "text": "Answer \(n):\n\n" + head + body + "\n\nAfter."])
