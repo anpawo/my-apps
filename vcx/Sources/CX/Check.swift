@@ -660,6 +660,7 @@ enum Check {
         check(tableCells("| Provider | Status |") == ["Provider", "Status"], "native table cells")
         check(numberedTable(["| A | B |", "|---|---|", "| x | y |", "| z |"]) == [["#", "A", "B"], ["1", "x", "y"], ["2", "z", ""]], "tables get their rows numbered and short rows padded")
         check(numberedTable(["| # | A |", "|---|---|", "| 1 | x |"]) == [["#", "A"], ["1", "x"]], "a table with its own # column keeps a single one")
+        check([0, 39, 40, 99, 100, 500].map { tableColumn(at: $0, widths: [40, 60, 80]) } == [0, 0, 1, 1, 2, 2], "a click on a table row finds the column under it")
         let widths = tableColumnWidths([["#", "Name"], ["1", String(repeating: "w", count: 200)]])
         check(widths.count == 2 && widths[0] < widths[1] && widths[1] == 344, "table columns fit their content up to 320 pt")
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path ?? sourceFixture

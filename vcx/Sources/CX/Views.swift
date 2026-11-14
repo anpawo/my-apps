@@ -1588,39 +1588,60 @@ struct ProseView: View {
     @Environment(\.findItem) private var findItem
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoveredRow: [Int]?
+    @State private var copiedCell: [Int]?
+    @State private var copyReset: Task<Void, Never>?
     private var paragraphs: [String] { answerParagraphs(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
-    @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
+    @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0, selectable: Bool = true) -> some View {
         let plain = richText(text), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
         Group {
             if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
-            else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+            else if selectable { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
+            else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing) }
         }.modifier(FindMarker(find: find, item: findItem, fragment: fragment))
+    }
+    // A click copies the cell under it, a ⌘-click (or a click on the row number) the row, tab-separated without the number.
+    private func copy(_ rows: [[String]], paragraph: Int, row: Int, x: CGFloat, widths: [CGFloat]) {
+        let column = tableColumn(at: x, widths: widths)
+        let whole = column == 0 || NSEvent.modifierFlags.contains(.command)
+        let plain = { String(richText($0).characters) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(whole ? rows[row].dropFirst().map(plain).joined(separator: "\t") : plain(rows[row][column]), forType: .string)
+        copiedCell = [paragraph, row, whole ? -1 : column]; copyReset?.cancel()
+        copyReset = Task { try? await Task.sleep(nanoseconds: 1_200_000_000); if !Task.isCancelled { copiedCell = nil } }
+    }
+    private func copiedVeil(_ key: [Int]) -> Color { copiedCell == key ? .green.opacity(0.18) : .clear }
+    private func tableRow(_ rows: [[String]], _ r: Int, paragraph: Int, widths: [CGFloat]) -> some View {
+        let cells = rows[r]
+        return HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { c, cell in
+                Group {
+                    if c == 0 { Text(cell).font(.system(size: 12, weight: r == 0 ? .semibold : .regular, design: .monospaced)).foregroundStyle(.black.opacity(0.4)) }
+                    else { prose(cell, weight: r == 0 ? .semibold : .regular, selectable: false) }
+                }
+                .frame(width: widths[c] - 24, alignment: c == 0 ? .trailing : .leading).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, r == 0 ? 7 : 6)
+                .background(copiedVeil([paragraph, r, c]))
+            }
+        }
+        .background(r == 0 ? .black.opacity(0.06) : .black.opacity((r.isMultiple(of: 2) ? 0.025 : 0) + (hoveredRow == [paragraph, r] ? 0.05 : 0)))
+        .overlay(alignment: .top) { Rectangle().fill(.black.opacity(r == 0 ? 0 : 0.06)).frame(height: 1) }
+        .background(copiedVeil([paragraph, r, -1]))
+        .contentShape(Rectangle())
+        .onTapGesture { location in copy(rows, paragraph: paragraph, row: r, x: location.x, widths: widths) }
+        .onHover { inside in if r > 0 { if inside { hoveredRow = [paragraph, r] } else if hoveredRow == [paragraph, r] { hoveredRow = nil } } }
     }
     // The recon dashboard's grid table, light: a framed card, a header bar, every second row banded, the row under the pointer veiled.
     private func table(_ rows: [[String]], paragraph: Int) -> some View {
         let widths = tableColumnWidths(rows), shape = RoundedRectangle(cornerRadius: 10)
         return ScrollView(.horizontal) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { r, cells in
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(Array(cells.enumerated()), id: \.offset) { c, cell in
-                            Group {
-                                if c == 0 { Text(cell).font(.system(size: 12, weight: r == 0 ? .semibold : .regular, design: .monospaced)).foregroundStyle(.black.opacity(0.4)) }
-                                else { prose(cell, weight: r == 0 ? .semibold : .regular) }
-                            }
-                            .frame(width: widths[c] - 24, alignment: c == 0 ? .trailing : .leading).fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 12).padding(.vertical, r == 0 ? 7 : 6)
-                        }
-                    }
-                    .background(r == 0 ? .black.opacity(0.06) : .black.opacity((r.isMultiple(of: 2) ? 0.025 : 0) + (hoveredRow == [paragraph, r] ? 0.05 : 0)))
-                    .overlay(alignment: .top) { Rectangle().fill(.black.opacity(r == 0 ? 0 : 0.06)).frame(height: 1) }
-                    .contentShape(Rectangle())
-                    .onHover { inside in if r > 0 { if inside { hoveredRow = [paragraph, r] } else if hoveredRow == [paragraph, r] { hoveredRow = nil } } }
-                }
+                ForEach(Array(rows.enumerated()), id: \.offset) { r, _ in tableRow(rows, r, paragraph: paragraph, widths: widths) }
             }
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.3), value: hoveredRow)
+            .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: copiedCell)
         }
+        .help("Click copies the cell, ⌘-click the row")
         .frame(maxWidth: widths.reduce(0, +), alignment: .leading)
         .background(.white, in: shape).clipShape(shape).overlay(shape.strokeBorder(.black.opacity(0.12)))
     }
@@ -1711,6 +1732,11 @@ func numberedTable(_ lines: [String]) -> [[String]] {
     let even = rows.map { $0 + Array(repeating: "", count: count - $0.count) }
     if even.first?.first == "#" { return even }
     return even.enumerated().map { [$0.offset == 0 ? "#" : "\($0.offset)"] + $0.element }
+}
+
+func tableColumn(at x: CGFloat, widths: [CGFloat]) -> Int {
+    var edge: CGFloat = 0
+    return widths.firstIndex { edge += $0; return x < edge } ?? widths.count - 1
 }
 
 // Cells are monospaced, so a column is its longest cell wide (up to 320 pt, then its cells wrap), plus 12 pt each side.
