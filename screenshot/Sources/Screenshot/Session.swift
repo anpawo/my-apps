@@ -167,7 +167,7 @@ final class Session {
     /// On the bar or one of its groups, which set their own cursor.
     func onBar(_ p: CGPoint) -> Bool {
         guard let bar else { return false }
-        return ([bar] + bar.sections).contains { $0.frame.contains(p) }
+        return ([bar] + bar.sections.filter(\.expanded)).contains { $0.frame.contains(p) }
     }
 
     /// After a hover change: overlays only. Touching the bar on every mouse move made it flash.

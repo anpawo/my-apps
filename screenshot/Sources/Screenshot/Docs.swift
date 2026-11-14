@@ -15,9 +15,12 @@ enum Docs {
         session.state = BarState(target: .area)
         let bar = Bar(session: session, on: screen)
         save(bar.render(), dir, "bar.png")
-        bar.sections.forEach { $0.expand(true, animated: false) }
-        save(bar.render(), dir, "bar-settings.png")
-        bar.sections.forEach { $0.expand(false, animated: false) }
+        // One at a time: side by side on the bar, the two open groups overlap.
+        for s in bar.sections {
+            s.expand(true, animated: false)
+            save(bar.render(), dir, "bar-" + s.name.lowercased().replacingOccurrences(of: " ", with: "-") + ".png")
+            s.expand(false, animated: false)
+        }
         save(bar.picture(hovering: 0).0.representation(using: .png, properties: [:]), dir, "bar-hover.png")
         let overlay = Overlay(screen: screen, frozen: wall, session: session)
         overlay.refreshLayers()
@@ -86,7 +89,7 @@ enum Docs {
         overlay.refreshLayers()
         func spot(_ v: NSView) -> CGRect { bar.convertToScreen(v.convert(v.bounds, to: nil)) }
         func centre(_ v: NSView) -> CGPoint { CGPoint(x: spot(v).midX, y: spot(v).midY) }
-        func onBar(_ p: CGPoint) -> Bool { ([bar] + bar.sections).contains { $0.frame.contains(p) } }
+        func onBar(_ p: CGPoint) -> Bool { ([bar] + bar.sections.filter(\.expanded)).contains { $0.frame.contains(p) } }
 
         var p = CGPoint(x: s.minX + s.width * 0.4, y: s.minY + s.height * 0.22)
         var up = false, card: Thumbnail?, pin: Pin?, caption: String?, note: String?, ring = false

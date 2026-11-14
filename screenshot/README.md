@@ -18,7 +18,7 @@ take: the entire screen, a window, or a portion you drag out.
 - **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
-![The bar: three stills and Capture, between Save in on the left and Options on the right, each shrunk to its name](docs/bar.png)
+![The bar: three stills, Capture, then a folder icon (Save in) and a gear (Options), each group set apart by a thin line](docs/bar.png)
 
 Hovering a button names its mode, with none of a tooltip's delay:
 
@@ -26,12 +26,14 @@ Hovering a button names its mode, with none of a tooltip's delay:
 
 - **Keys.** ⌘← ⌘→ step through the modes, the arrows glide the selection by 20 (⇧ by 100, ⌥ resizes),
   Return takes it, Escape, a right click or ⌘⇧5 again closes.
-- **Settings.** **Save in** sits on the left of the bar (Desktop, Downloads, Documents; several
-  at once), **Options** on its right (Copy to Clipboard, Pin Thumbnail, Capture Mouse). Each
-  shows only its name and opens when hovered; a click, or ⌥ and the letter shown on its row
-  (⌥D, ⌥L, ⌥O, ⌥C, ⌥P, ⌥M), flips one.
+- **Settings.** Right of Capture, a folder icon holds **Save in** (Desktop, Downloads, Documents;
+  several at once) and a gear holds **Options** (Copy to Clipboard, Pin Thumbnail, Capture Mouse).
+  Hovered, each lets its settings rise and fade in above it; a click, or ⌥ and the letter shown
+  on its row (⌥D, ⌥L, ⌥O, ⌥C, ⌥P, ⌥M), flips one.
 
-  ![Both groups open: each setting on a row with a tick box, the folders by their full path, and its ⌥ shortcut on a light key cap on the right, the ones that are on ticked in blue](docs/bar-settings.png)
+  ![Options open above the gear: each setting on a row with a tick box and its ⌥ shortcut on a light key cap, the ones that are on ticked in blue](docs/bar-options.png)
+
+  ![Save in open above the folder icon: the folders by their full path, each with its ⌥ shortcut](docs/bar-save-in.png)
 
 - **After the shot.** A thumbnail sits in the corner for eight seconds: a click pins it, a drag
   takes the file with it.

@@ -1,12 +1,14 @@
 import AppKit
 import ScreenshotCore
 
-/// The ⌘⇧5 strip, laid out like the system's: the stills and the button, between Save in on
-/// its left and Options on its right. Never key: keys go to the overlay.
+/// The ⌘⇧5 strip: the stills, Capture, then Save in and Options as icons whose settings rise
+/// above them on hover. Never key: keys go to the overlay.
 final class Bar: NSPanel {
     // Apple's geometry, measured on the system bar at 2×: 53 pt tall, stills on a
-    // 50 pt pitch in 44×36 buttons, a divider 7 pt after them, the button 17.5 pt after that.
+    // 50 pt pitch in 44×36 buttons.
     static let height: CGFloat = 53
+    /// Each divider sits this far from the buttons on both of its sides.
+    private static let gap: CGFloat = 10
     private unowned let session: Session
     private(set) var buttons: [ModeButton] = []
     let go = CaptureButton()
@@ -44,12 +46,13 @@ final class Bar: NSPanel {
                 if over { self.hint.show(b.toolTip!, above: b, in: self) } else { self.hint.hide() }
             }
             b.frame = CGRect(x: x, y: mid - 18, width: 44, height: 36)
-            x += 50
+            x = b.frame.maxX + 6
             back.addSubview(b)
             buttons.append(b)
         }
-        back.addSubview(Bar.divider(at: x + 0.75))            // 7 pt after the last still
-        x += 18.25
+        x = buttons.last!.frame.maxX + Bar.gap
+        back.addSubview(Bar.divider(at: x))
+        x += 1 + Bar.gap
 
         go.font = .systemFont(ofSize: 15)
         go.target = self
@@ -58,8 +61,17 @@ final class Bar: NSPanel {
         go.frame = CGRect(x: x, y: mid - 18.25, width: go.attributedTitle.size().width + 30, height: 36.5)
         back.addSubview(go)
         refresh()
+        x = go.frame.maxX + Bar.gap
+        back.addSubview(Bar.divider(at: x))
+        x += 1 + Bar.gap
 
-        let width = go.frame.maxX + 8.5
+        for s in sections {
+            s.button.frame = CGRect(x: x, y: mid - 18, width: 36, height: 36)
+            x = s.button.frame.maxX + 6
+            back.addSubview(s.button)
+        }
+
+        let width = options.button.frame.maxX + 8.5
         back.frame = CGRect(x: 0, y: 0, width: width, height: Bar.height)
         let v = screen.visibleFrame
         setFrame(CGRect(x: (v.midX - width / 2).rounded(), y: v.minY + 24, width: width, height: Bar.height), display: false)
@@ -102,11 +114,13 @@ final class Bar: NSPanel {
     }
     private func pointer() { (onButton(NSEvent.mouseLocation) ? NSCursor.pointingHand : .arrow).set() }
 
-    /// 8 pt off each end, bottoms level with the bar's: they grow upward and away from it.
+    /// Each group 8 pt above the bar, centred on its button.
     private func placeSections() {
-        saveIn.anchor = CGPoint(x: frame.minX - 8, y: frame.minY)
-        options.anchor = CGPoint(x: frame.maxX + 8, y: frame.minY)
-        for s in sections { s.setFrame(s.target(s.expanded), display: false) }
+        for s in sections {
+            s.spot = convertToScreen(s.button.frame)
+            s.floor = frame.maxY + 8
+            s.setFrame(s.target(s.expanded), display: false)
+        }
     }
 
     /// ⌥ + `key`; false when no setting has that letter.
@@ -126,7 +140,7 @@ final class Bar: NSPanel {
     /// The bar, its settings and, given `i`, the hint of button `i`, as the screen shows them,
     /// still never on screen; with the frame they cover.
     func picture(hovering i: Int? = nil) -> (NSBitmapImageRep, CGRect) {
-        var parts: [NSWindow] = [self] + sections
+        var parts: [NSWindow] = [self] + sections.filter(\.expanded)
         if let i {
             hint.place(buttons[i].toolTip!, above: buttons[i], in: self)
             parts.append(hint)
@@ -289,31 +303,44 @@ final class Hint: NSPanel {
     func hide() { orderOut(nil) }
 }
 
-/// One group of settings beside the bar, shrunk to its name. Hovered, it grows upward and away
-/// from the bar to a row per setting. A click or ⌥ + the letter shown on its row flips one.
+/// An icon on the bar whose ground stays lit while its group is open.
+final class IconButton: HoverButton {
+    var open = false { didSet { paint() } }
+
+    init(_ symbol: String, _ name: String) {
+        super.init()
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+        imagePosition = .imageOnly
+        contentTintColor = NSColor.labelColor.withAlphaComponent(0.7)
+    }
+    required init?(coder: NSCoder) { nil }
+
+    override var ground: NSColor? { hovered || open ? NSColor.labelColor.withAlphaComponent(0.08) : nil }
+}
+
+/// One group of settings, hidden above its icon on the bar. Hovered, the icon lets it rise and
+/// fade in, a row per setting. A click or ⌥ + the letter shown on its row flips one.
 final class Section: NSPanel {
     struct Item {
         let key: String, title: String, on: Bool
         let flip: () -> Void
     }
 
-    private static let pad: CGFloat = 8, titleHeight: CGFloat = 24, row: CGFloat = 30, gap: CGFloat = 2
-    private let name: String
-    private let growsLeft: Bool
+    private static let pad: CGFloat = 8, titleHeight: CGFloat = 24, row: CGFloat = 30, gap: CGFloat = 2, rise: CGFloat = 8
+    let name: String
+    let button: IconButton
     private let items: () -> [Item]
-    private let label: Title           // the name: centred while shrunk, the header while open
-    /// A shortcut opens the block a moment, so the flip shows.
+    /// A shortcut opens the group a moment, so the flip shows.
     private var peekUntil: CFTimeInterval = 0
-    private let body = NSView()        // the small name and the rows, while open
     private(set) var expanded = false
-    /// The x of the side facing the bar, and the bottom: what stays put as it grows.
-    var anchor = CGPoint.zero
-    private var openSize = CGSize.zero
-    static let shutHeight: CGFloat = 36
-    private var shutSize: CGSize { CGSize(width: ceil(label.width) + 32, height: Section.shutHeight) }
+    /// Its icon's frame on screen, and the bottom it rises to.
+    var spot = CGRect.zero
+    var floor: CGFloat = 0
+    private var size = CGSize.zero
 
     static func saveIn() -> Section {
-        Section("Save in", growsLeft: true) {
+        Section("Save in", icon: "folder") {
             zip(["D", "L", "O"], Settings.standardFolders).map { key, f in
                 Item(key: key, title: (f.1.path as NSString).abbreviatingWithTildeInPath, on: Settings.folders.contains { $0.path == f.1.path }) { Settings.toggle(folder: f.1) }
             }
@@ -321,19 +348,17 @@ final class Section: NSPanel {
     }
 
     static func options() -> Section {
-        Section("Options", growsLeft: false) {
+        Section("Options", icon: "gearshape") {
             [Item(key: "C", title: "Copy to Clipboard", on: Settings.copies) { Settings.copies.toggle() },
              Item(key: "P", title: "Pin Thumbnail", on: Settings.thumbnail) { Settings.thumbnail.toggle() },
              Item(key: "M", title: "Capture Mouse", on: Settings.cursor) { Settings.cursor.toggle() }]
         }
     }
 
-    private init(_ name: String, growsLeft: Bool, items: @escaping () -> [Item]) {
+    private init(_ name: String, icon: String, items: @escaping () -> [Item]) {
         self.name = name
-        self.growsLeft = growsLeft
         self.items = items
-        label = Title(name)
-        label.header = (Section.pad, Section.titleHeight)
+        button = IconButton(icon, name)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         isOpaque = false
@@ -344,75 +369,72 @@ final class Section: NSPanel {
         isReleasedWhenClosed = false
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        let back = Ground()
-        contentView = back
-        setFrame(target(false), display: false)
-        label.frame = back.bounds
-        label.autoresizingMask = [.width, .height]
-        // Pinned to the top and to the side by the bar, so the edges that move clip it.
-        body.autoresizingMask = [.minYMargin, growsLeft ? .minXMargin : .maxXMargin]
-        for v in [label, body] as [NSView] {
-            v.wantsLayer = true
-            back.addSubview(v)
-        }
+        contentView = Ground()
+        alphaValue = 0
+        ignoresMouseEvents = true
         reload()
     }
 
     override var canBecomeKey: Bool { false }
 
+    /// Open: `floor` up, centred on its icon; shut: `rise` lower, where it fades in from.
     func target(_ open: Bool) -> CGRect {
-        let size = open ? openSize : shutSize
-        return CGRect(x: growsLeft ? anchor.x - size.width : anchor.x, y: anchor.y, width: size.width, height: size.height)
+        CGRect(x: (spot.midX - size.width / 2).rounded(), y: floor - (open ? 0 : Section.rise), width: size.width, height: size.height)
     }
 
-    /// Opens while the pointer is on it, shut or open; true when it is.
+    /// Opens while the pointer is on its icon, on the way up from it, or on the open group.
     func hover(_ p: CGPoint) -> Bool {
-        let inside = target(expanded).contains(p) || CACurrentMediaTime() < peekUntil
+        let open = target(true)
+        let path = CGRect(x: spot.minX, y: spot.minY, width: spot.width, height: open.minY - spot.minY)
+        let inside = path.contains(p) || expanded && open.contains(p) || CACurrentMediaTime() < peekUntil
         if inside != expanded { expand(inside) }
         return inside
     }
 
     func reload() {
-        body.subviews.forEach { $0.removeFromSuperview() }
-        let all = items()
-        let keys = all.map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
-        let width = keys.map(\.frame.width).max()!
+        let back = contentView!
+        back.subviews.forEach { $0.removeFromSuperview() }
+        let keys = items().map { item in StripKey(item) { [weak self] in item.flip(); self?.reload() } }
+        let title = NSTextField(labelWithString: name)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.textColor = NSColor.labelColor.withAlphaComponent(0.6)
+        title.sizeToFit()
+        let width = max(keys.map(\.frame.width).max()!, title.frame.width)
         let n = CGFloat(keys.count)
         let h = 2 * Section.pad + Section.titleHeight + n * Section.row + (n - 1) * Section.gap
-        openSize = CGSize(width: max(width + 2 * Section.pad, shutSize.width), height: h)
-        let size = contentView!.frame.size
-        body.frame = CGRect(x: growsLeft ? size.width - openSize.width : 0, y: size.height - h, width: openSize.width, height: h)
+        size = CGSize(width: width + 2 * Section.pad, height: h)
+        setFrame(target(expanded), display: false)
         var y = h - Section.pad - Section.titleHeight
+        title.frame.origin = CGPoint(x: Section.pad + 4, y: y + (Section.titleHeight - title.frame.height) / 2)
+        back.addSubview(title)
         for k in keys {
             y -= Section.row
             k.frame = CGRect(x: Section.pad, y: y, width: width, height: Section.row)
-            body.addSubview(k)
+            back.addSubview(k)
             y -= Section.gap
         }
-        body.alphaValue = expanded ? 1 : 0
-        label.progress = expanded ? 1 : 0
     }
 
-    /// Grows to its rows or back to its name: an ease-out over 250 ms, the name gliding to the
-    /// header and the rows fading in; Reduce Motion keeps the fade alone.
+    /// Rises 8 pt and fades in over 250 ms, ease-out; shuts the same way back. Reduce Motion
+    /// keeps the fade alone.
     func expand(_ on: Bool, animated: Bool = true) {
         guard on != expanded || !animated else { return }
         expanded = on
-        let f = target(on)
+        button.open = on
+        ignoresMouseEvents = !on
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let f = target(on || still)
         guard animated else {
             setFrame(f, display: true)
-            body.alphaValue = on ? 1 : 0
-            label.progress = on ? 1 : 0
+            alphaValue = on ? 1 : 0
             return
         }
-        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if still { setFrame(f, display: true); label.progress = on ? 1 : 0 }
+        if still { setFrame(f, display: true) }
         NSAnimationContext.runAnimationGroup { c in
-            c.duration = 0.25
+            c.duration = on ? 0.25 : 0.2
             c.timingFunction = CAMediaTimingFunction(name: .easeOut)
             if !still { animator().setFrame(f, display: true) }
-            body.animator().alphaValue = on ? 1 : 0
-            if !still { label.animator().progress = on ? 1 : 0 }
+            animator().alphaValue = on ? 1 : 0
         }
     }
 
@@ -496,39 +518,6 @@ private final class StripKey: NSView {
         NSColor.labelColor.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5).fill()
         put(chord, attrs, in: cap)
-    }
-}
-
-/// A group's name, centred in the block at `progress` between its middle (0) and the header (1),
-/// so it glides up as the block opens rather than fading into a copy.
-private final class Title: NSView {
-    private let name: String
-    @objc dynamic var progress: CGFloat = 0 { didSet { needsDisplay = true } }
-
-    init(_ name: String) {
-        self.name = name
-        super.init(frame: .zero)
-    }
-    required init?(coder: NSCoder) { nil }
-
-    override static func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
-        key == "progress" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
-    }
-
-    private var attrs: [NSAttributedString.Key: Any] {
-        [.font: NSFont.systemFont(ofSize: 15, weight: .semibold), .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85)]
-    }
-    var width: CGFloat { size.width }
-    private var size: CGSize { (name as NSString).size(withAttributes: attrs) }
-
-    /// `header` is the band under the top padding the open block keeps for the name.
-    var header: (pad: CGFloat, height: CGFloat) = (0, 0)
-
-    override func draw(_ dirtyRect: NSRect) {
-        let t = min(max(progress, 0), 1)
-        let shut = (bounds.height - size.height) / 2
-        let open = bounds.height - header.pad - (header.height + size.height) / 2
-        (name as NSString).draw(at: CGPoint(x: (bounds.width - size.width) / 2, y: shut + (open - shut) * t), withAttributes: attrs)
     }
 }
 
