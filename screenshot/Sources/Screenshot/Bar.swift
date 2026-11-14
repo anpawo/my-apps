@@ -574,20 +574,30 @@ enum Glyph {
                 p.appendArc(from: CGPoint(x: 27.5, y: 21.5), to: CGPoint(x: 1, y: 21.5), radius: 4.5)
                 p.appendArc(from: CGPoint(x: 1, y: 21.5), to: CGPoint(x: 1, y: 1), radius: 4.5)
                 p.close()
+                // A tick in the body: the folders it saves to.
+                p.move(to: CGPoint(x: 9.5, y: 13.5))
+                p.line(to: CGPoint(x: 12.75, y: 16.75))
+                p.line(to: CGPoint(x: 19, y: 10.25))
+                p.lineCapStyle = .round
+                p.lineJoinStyle = .round
                 p.stroke()
             } else {
-                // A ring with six square teeth.
-                let c = CGPoint(x: 14.5, y: 11.25)
-                p.appendOval(in: CGRect(x: c.x - 6.75, y: c.y - 6.75, width: 13.5, height: 13.5))
-                p.stroke()
-                for i in 0..<6 {
-                    let t = AffineTransform(translationByX: c.x, byY: c.y)
-                    var turn = AffineTransform(rotationByDegrees: CGFloat(i) * 60)
-                    turn.append(t)
-                    let tooth = NSBezierPath(roundedRect: CGRect(x: -1.75, y: -10.75, width: 3.5, height: 4), xRadius: 0.75, yRadius: 0.75)
-                    tooth.transform(using: turn)
-                    tooth.fill()
+                // One outline: eight tapered teeth on a ring, a round hub inside.
+                let c = CGPoint(x: 14.5, y: 11.25), tip: CGFloat = 10.25, root: CGFloat = 7.75
+                func at(_ r: CGFloat, _ deg: CGFloat) -> CGPoint {
+                    CGPoint(x: c.x + r * cos(deg * .pi / 180), y: c.y + r * sin(deg * .pi / 180))
                 }
+                for i in 0..<8 {
+                    let a = CGFloat(i) * 45
+                    i == 0 ? p.move(to: at(root, a - 15)) : p.line(to: at(root, a - 15))
+                    p.line(to: at(tip, a - 9))
+                    p.line(to: at(tip, a + 9))
+                    p.line(to: at(root, a + 15))
+                }
+                p.close()
+                p.appendOval(in: CGRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6))
+                p.lineJoinStyle = .round
+                p.stroke()
             }
             return true
         }
