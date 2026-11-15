@@ -175,8 +175,9 @@ check(await page.evaluate(() => __log.some(([c, a]) => c === 'open_url' && a.url
 const centered = await page.$eval('#people .row .name', n => { const a = n.getBoundingClientRect(), b = n.closest('.row').querySelector('.av').getBoundingClientRect(); return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2); });
 check(centered < 2, `name centered on the avatar (${centered.toFixed(1)} px off)`);
 check(JSON.stringify(thread) === JSON.stringify(['instagram:did you see the reel I sent?', 'instagram:haha yes, too good', 'instagram:', 'whatsapp:dinner tonight still on?', 'whatsapp:yes! where?', 'whatsapp:the usual place', 'instagram:see you at 8 then']), 'merged timeline in time order with network marks');
-const chips = await page.$$eval('header .chip', cs => cs.map(c => c.dataset.net + (c.classList.contains('on') ? '*' : '') + ':' + c.textContent.trim()));
-check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*:', 'whatsapp:']), `header shows both logos, Instagram highlighted, no names (${chips})`);
+await page.waitForSelector('#profile .conn[data-net]');
+const chips = await page.$$eval('header [data-net]', cs => cs.map(c => c.dataset.net + (c.classList.contains('on') ? '*' : '')));
+check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*', 'whatsapp']), `the bar shows a line per app, Instagram lit (${chips})`);
 const reads = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path));
 check(JSON.stringify(reads) === '["/v1/chats/wa-lea/read"]', `opening sends the read receipt on WhatsApp, not on Instagram (${reads})`);
 check(!!(await page.$('#people .row[data-id="ig-lea"] .badge')), 'opening a conversation keeps its Instagram badge');
@@ -290,7 +291,7 @@ await page.keyboard.type('hug');
 await page.screenshot({ path: join(out, '0-search.png') });
 await page.keyboard.press('Enter');
 await page.waitForTimeout(300);
-check(await page.isHidden('#palette') && await page.textContent('header .who') === 'HRHugo R', 'Enter opens the match and closes the search');
+check(await page.isHidden('#palette') && await page.textContent('header .who b') === 'Hugo R', 'Enter opens the match and closes the search');
 await page.click('#people .row[data-id="ig-lea"]');
 await page.waitForTimeout(400);
 // beeper:// does not load here: a stand-in reel thumbnail, so the screenshot (docs/screenshot.png) shows the card.
@@ -332,12 +333,12 @@ check(distinct >= 4 && monotonic(pillTrack), `selection pill moves through ${dis
 // Header logos: back on Lea, clicking WhatsApp's moves the highlight; clicking Instagram's moves it back.
 await page.click('#people .row >> nth=0');
 await page.waitForTimeout(700);
-const on = () => page.$eval('header .chip.on', c => c.dataset.net);
-await page.click('.chip[data-net="whatsapp"]');
+const on = () => page.$eval('#profile .conn.on', c => c.dataset.net);
+await page.click('#profile .conn[data-net="whatsapp"]');
 check(await on() === 'whatsapp', 'clicking a logo picks that network');
 await page.waitForTimeout(300);
 await page.screenshot({ path: join(out, '2-header.png') });
-await page.click('.chip[data-net="instagram"]');
+await page.click('#profile .conn[data-net="instagram"]');
 check(await on() === 'instagram', 'clicking the other logo picks it back');
 
 // /ws switches the reply to WhatsApp; Enter sends there.
@@ -401,7 +402,7 @@ await page.click('.menu .found .item >> nth=0');
 await page.waitForTimeout(600);
 check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 6, 'merge leaves 4 people (and the 2 groups)');
 check(await page.evaluate(() => JSON.stringify(__log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.merges)) === '[["dc-tom","wa-tom"]]', 'merge saved as an override');
-check(JSON.stringify(await page.$$eval('header .chip', cs => cs.map(c => c.dataset.net).sort())) === '["discord","whatsapp"]', 'open conversation now shows both of Tom\'s logos');
+check(JSON.stringify(await page.$$eval('#profile [data-net]', cs => cs.map(c => c.dataset.net).sort())) === '["discord","whatsapp"]', 'open conversation now shows both of Tom\'s logos');
 check(await page.isVisible('.toast button'), 'toast offers Undo');
 await page.screenshot({ path: join(out, '4-merged.png') });
 await page.click('.toast button');
@@ -532,7 +533,7 @@ await page.waitForSelector('header .who input');
 await page.fill('header .who input', 'Climbers');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(500);
-const header = await page.$eval('header .who', w => w.textContent);
+const header = await page.$eval('header .who b', w => w.textContent);
 await page.keyboard.press('Meta+d');
 await page.fill('#search', 'climbing crew');
 await page.waitForTimeout(400);
@@ -714,18 +715,13 @@ await page.waitForTimeout(250);
 const picked = await page.evaluate(() => [document.querySelector('#picker').hidden, __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.includes('/reactions')).at(-1)[1].body.reactionKey]);
 check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `the + opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
 
-// A group's bubble of faces in the list: the first click opens the chat, a click on the open one opens its members.
+// A group's bubble of faces in the list opens the chat, its members already in the bar.
 await page.click('#people .row[data-id="grp-1"] .av, #pinned .row[data-id="grp-1"] .av');
 await page.waitForTimeout(500);
-const firstClick = await page.evaluate(() => [state.cur.id, !profile.box.hidden]);
-await page.click('#people .row[data-id="grp-1"] .av, #pinned .row[data-id="grp-1"] .av');
-await page.waitForTimeout(500);
-const prof = [...firstClick, ...(await page.evaluate(() => [state.cur.id, !profile.box.hidden]))];
-await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
+const prof = await page.evaluate(() => [state.cur.id, !!document.querySelector('#profile .member')]);
 await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));
 await page.waitForTimeout(300);
-check(JSON.stringify(prof) === '["grp-1",false,"grp-1",true]', `a group's picture opens the chat, then on the open chat its profile (${prof})`);
+check(JSON.stringify(prof) === '["grp-1",true]', `a group's picture opens the chat with its members in the bar (${prof})`);
 
 // Right-click on a message: reply, react, copy; on mine, edit and delete too (delete asks a second click).
 const menuOf = async id => { await page.click(`#thread .msg[data-id="${id}"] .bubble`, { button: 'right' }); await page.waitForTimeout(250); const t = await page.$$eval('.menu .item span:first-of-type', s => s.map(x => x.textContent)); await page.keyboard.press('Escape'); await page.waitForTimeout(200); return t.join(); };
@@ -776,18 +772,14 @@ check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard 
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 
-// A click on the group bubble at the top grows the bar down into its profile: description and members, admins first, the bubble and
-// name staying only in the bar; a member who is someone in the list opens as that person, ‹ goes back, esc closes.
+// The bar always holds the profile: a group's description and members, admins first, its picture and name only once, its app lit;
+// a member who is someone in the list opens as that person, ‹ goes back.
 await page.evaluate(() => select('grp-1'));
-await page.waitForSelector('#thread .msg');
-await page.click('header .who > .av');
-await page.waitForFunction(() => profile.box._anim);
-const sliding = await page.evaluate(() => profile.box.offsetHeight);
 await page.waitForSelector('#profile .member');
 await page.waitForTimeout(400);
-const group = await page.$eval('#profile', p => [!!p.querySelector('.head'), p.querySelector('.desc')?.textContent, [...p.querySelectorAll('.member b')].map(b => b.textContent), p.querySelector('.member i')?.textContent, p.querySelector('.more-members')?.textContent, getComputedStyle(document.querySelector('header')).borderBottomColor]);
+const group = await page.$eval('header', h => [!!h.querySelector('#profile .head'), h.querySelector('.desc')?.textContent, [...h.querySelectorAll('.member b')].map(b => b.textContent), h.querySelector('.member i')?.textContent, h.querySelector('.more-members')?.textContent, h.querySelector('#profile h3.on')?.dataset.net]);
 await page.screenshot({ path: join(out, 'profile-group.png') });
-check(sliding < (await page.evaluate(() => profile.box.offsetHeight)) && JSON.stringify(group) === JSON.stringify([false, 'Bouldering on fridays', ['Lea Martin', 'Nina'], 'Admin', 'and 1 more', 'rgba(0, 0, 0, 0)']), `the group bubble grows the bar into the group's profile (${sliding} px mid-way, ${JSON.stringify(group)})`);
+check(JSON.stringify(group) === JSON.stringify([false, 'Bouldering on fridays', ['Lea Martin', 'Nina'], 'Admin', 'and 1 more', 'whatsapp']), `the bar shows the group's profile, its app lit (${JSON.stringify(group)})`);
 await page.click('#profile .member >> nth=0');
 await page.waitForSelector('#profile .open');
 await page.waitForTimeout(400);
@@ -796,9 +788,7 @@ await page.screenshot({ path: join(out, 'profile-person.png') });
 check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
 const twice = await page.evaluate(async () => { const c = profile.view.chats[0]; return (await detailsHTML({ kind: 'person', chats: [c, c] })).split('<section').length - 1; });
 check(twice === 1, `two chats with the same person on one app show their details once (${twice} sections)`);
-const capped = await page.$eval('#profile', s => { const r = s.getBoundingClientRect(), h = document.querySelector('header').getBoundingClientRect(); return [r.top === h.bottom, r.width === h.width, r.height <= innerHeight / 4 + 1]; });
-check(capped.join() === 'true,true,true', `the profile continues the bar, as wide as the chat, at most a quarter of the window high (${capped})`);
-// Merge with… from the profile: the same picker as the ⋯ menu, under the button.
+// Merge with… from a member's profile: the same picker as the ⋯ menu, under the button.
 await page.click('#profile .merge');
 await page.waitForSelector('.menu .found .item');
 const mergeWith = await page.$eval('.menu .found .item span', s => s.textContent);
@@ -809,24 +799,29 @@ check(saved[1]?.[0] === saved[0], `Merge with… in a profile merges that person
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.click('#profile .back');
 await page.waitForSelector('#profile .member');
-// Unfolded, it stays unfolded on the next chat: one pill line per app, the one replies go to lit like its chip, a click on another picks it.
+// A person's chat: the face as big as the favourites', Merge under the name, a pill line per app on the right, the one replies go to
+// lit; a click on another picks it; the bar stays within a quarter of the window.
 await page.evaluate(() => select([...state.byId.values()].find(i => i.kind === 'person' && new Set(i.chats.map(netOf)).size > 1).id));
 await page.waitForSelector('#profile .conn[data-net]');
 await page.waitForTimeout(700);
-const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('#profile .conn.on')?.dataset.net, document.querySelector('.chips .chip.on')?.dataset.net]);
-const kept = await page.evaluate(() => [profile.open, !!document.querySelector('#profile .head'), document.querySelectorAll('#profile .conn[data-net]').length]);
+const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('#profile .conn.on')?.dataset.net]);
+const shape = await page.$eval('header', h => {
+  const r = s => h.querySelector(s).getBoundingClientRect(), lines = [...h.querySelectorAll('#profile .conn')].map(c => c.getBoundingClientRect());
+  return [!h.querySelector('#profile .head'), lines.length, r('.who > .av').width >= document.querySelector('.fav .av').getBoundingClientRect().width,
+    r('.who .merge').top >= r('.who b').bottom, r('.more').left - Math.max(...lines.map(l => l.right)) <= 30, h.getBoundingClientRect().height <= innerHeight / 4 + 1];
+});
 const litBefore = await lit();
 await page.screenshot({ path: join(out, 'profile-kept.png') });
 await page.click('#profile .conn[data-net]:not(.on)');
 await page.waitForTimeout(250);
 const litAfter = await lit();
-check(kept[0] && !kept[1] && kept[2] > 1 && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
-  `the unfolded bar stays on the next chat, its reply app lit, a click picks another (${kept} / ${litBefore} → ${litAfter})`);
+check(shape.join() === 'true,2,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
+  `the bar: face, name, Merge under, app lines on the right, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
+await page.click('header .who .merge');
+await page.waitForSelector('.menu .found .item');
+check(await page.$$eval('.menu .found .item', i => i.length) > 0, 'Merge with… under the name opens the picker');
 await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
-await page.evaluate(() => select('grp-1'));
-await page.waitForTimeout(400);
-check(await page.$eval('#profile', p => p.hidden && !localStorage.profileOpen), 'esc folds the bar back, and the next chat opens folded');
+await page.waitForTimeout(200);
 
 // Someone with no chat yet: ⌘D finds them by their Discord tag, ↵ starts the chat and opens it.
 await page.keyboard.press('Meta+d');

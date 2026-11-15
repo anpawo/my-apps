@@ -72,19 +72,17 @@ aside { position: relative; width: 313px; flex: none; display: flex; flex-direct
 
 /* Conversation */
 main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-header { height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 20px; border-bottom: 1px solid var(--line); }
-header .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-header .who .av { --s: 30px; width: 30px; height: 30px; font-size: 12px; }
-header .who b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The bar holds the whole profile: picture, name and Merge on the left, what each app knows on the right. */
+header { flex: none; max-height: 25vh; display: flex; align-items: flex-start; gap: 24px; padding: 12px 14px 12px 20px; overflow: hidden; border-bottom: 1px solid var(--line); }
+header .who { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 40%; flex: none; }
+header .who .av { --s: 48px; width: 48px; height: 48px; font-size: 16px; }
+header .who .id { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+header .who b { max-width: 100%; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .merge, #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
+header .merge:hover, header .merge.open, #profile .actions button:hover { background: #363636; }
 header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; border: 0; border-bottom: 1px solid var(--muted); outline: none; padding: 1px 0; width: 260px; }
 .row .orig { display: none; margin-left: 8px; color: var(--muted); font-weight: 400; font-size: 12.5px; }
 #results .row .orig { display: inline; }
-.chips { display: flex; justify-content: flex-end; gap: 4px; flex: 1; min-width: 0; overflow: hidden; }
-.chip { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; opacity: .4;
-  transition: opacity 200ms var(--ease), background-color 200ms var(--ease); }
-.chip:hover { opacity: .75; }
-.chip.on { opacity: 1; background: var(--tint); }
-.chip .net { width: 18px; height: 18px; border-radius: 4.5px; }
 .more { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; transition: background-color 150ms; }
 .more:hover, .more.open { background: var(--tint); }
 .more svg { width: 16px; height: 16px; fill: #f5f5f5; }
@@ -238,22 +236,15 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 #picker .none { grid-column: 1 / -1; padding: 8px; font-size: 12px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .msg .quick, .msg .quick button { transition-duration: 1ms; } }
 
-/* Profile (side-panel template): a click on the header's picture or group bubble. */
-header .who > .av:not(.faces):hover, header .who > .av.faces:hover .tile { box-shadow: 0 0 0 2px #000, 0 0 0 4px #363636; }
-/* The top bar's own extension: no line between the two while it is unfolded. */
-#profile { position: relative; flex: none; max-height: 25vh; display: flex; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--line); }
-header:has(+ #profile:not([hidden])) { border-bottom-color: transparent; }
-#profile .close { position: absolute; top: 2px; right: 14px; z-index: 1; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; }
-#profile .close svg { width: 14px; height: 14px; fill: none; stroke: #f5f5f5; stroke-width: 1.6; stroke-linecap: round; }
-#profile .close:hover, #profile .back:hover { background: var(--tint); }
-#profile .body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 56px 12px 20px; display: grid; grid-template-columns: fit-content(320px) 1fr; align-items: start; column-gap: 24px; user-select: text; -webkit-user-select: text; }
+#profile { flex: 1; min-width: 0; align-self: stretch; overflow-y: auto; }
+#profile .back:hover { background: var(--tint); }
+#profile .body { display: grid; grid-template-columns: fit-content(180px) 1fr; align-items: start; column-gap: 24px; user-select: text; -webkit-user-select: text; }
 #profile .back, #profile .head, #profile .actions { grid-column: 1; }
-#profile .details { grid-column: 2; grid-row: 1 / span 3; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); column-gap: 24px; }
-#profile .details:has(.members) { grid-template-columns: 1fr; }
-#profile .details:has(.conn) { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px; }
-#profile .body.own { grid-template-columns: 1fr auto; }
-#profile .body.own .details { grid-column: 1; grid-row: 1; }
-#profile .body.own .actions { grid-column: 2; grid-row: 1; }
+#profile .details { grid-column: 2; grid-row: 1 / span 3; }
+#profile .body.own { grid-template-columns: 1fr; }
+#profile .body.own .details { grid-column: 1; }
+/* The apps on the right, three lines to a column, more columns growing leftward. */
+#profile .details:has(.conn) { display: grid; grid-auto-flow: column; grid-template-rows: repeat(3, auto); justify-content: end; gap: 6px; }
 #profile .back { justify-self: start; padding: 4px 8px; margin: -4px 0 0 -8px; border-radius: 8px; color: var(--muted); font-size: 13px; }
 #profile .head { display: flex; align-items: center; gap: 12px; padding: 2px 0 10px; }
 #profile .head .net { display: none; }
@@ -261,15 +252,15 @@ header:has(+ #profile:not([hidden])) { border-bottom-color: transparent; }
 #profile .head .av.faces.members { display: flex; width: auto; height: auto; max-width: none; margin: 0; padding: 0; }
 #profile h2 { font-size: 15px; font-weight: 600; }
 #profile .head p { color: var(--muted); font-size: 13px; }
-#profile .actions { display: flex; gap: 6px; }
-#profile .actions button { padding: 6px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 13px; font-weight: 600; transition: background-color 150ms; }
-#profile .actions button:hover, #profile .merge.open { background: #363636; }
+#profile .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 #profile section { padding: 4px 0 8px; }
 #profile .members { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); column-gap: 16px; }
 #profile h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
 #profile h3 .net { width: 18px; height: 18px; border-radius: 4.5px; }
+#profile h3[data-net] { margin: 0 -8px 6px; padding: 4px 8px; border-radius: 10px; cursor: pointer; transition: background-color 200ms var(--ease); }
+#profile h3.on { background: var(--tint); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .35); }
 #profile h3 small { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; }
-#profile section.conn { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px; border-radius: 10px; background: var(--hover); font-size: 13px;
+#profile section.conn { max-width: 420px; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px; border-radius: 10px; background: var(--hover); font-size: 13px;
   transition: background-color 200ms var(--ease); }
 #profile .conn[data-net] { cursor: pointer; }
 #profile .conn[data-net]:hover { background: #1a1a1a; }
