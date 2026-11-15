@@ -293,14 +293,14 @@ function drawGroups(favs) {
     if (!sec) {
       sec = Object.assign(document.createElement('section'), { className: 'group' });
       sec.dataset.name = tab.name;
-      sec.innerHTML = '<button class="bubble folder"></button><button class="label"></button><div class="strip" hidden></div>';
-      for (const b of sec.querySelectorAll('.bubble, .label')) {
+      sec.innerHTML = '<button class="grouptile folder"></button><button class="label"></button><div class="strip" hidden></div>';
+      for (const b of sec.querySelectorAll('.grouptile, .label')) {
         b.onclick = () => { if (b._dragged) return; const n = sec.dataset.name; state.open[state.open.has(n) ? 'delete' : 'add'](n); showLists(); };
         dragFrom(b, sec);
       }
       if (box.querySelector('.group')) requestAnimationFrame(() => collapse(sec, false));
     }
-    const label = sec.querySelector('.label'), bubble = sec.querySelector('.bubble'), strip = sec.querySelector('.strip');
+    const label = sec.querySelector('.label'), bubble = sec.querySelector('.grouptile'), strip = sec.querySelector('.strip');
     const members = favs.filter(i => i.kind !== 'group' && inTab(i, tab)), open = state.open.has(tab.name);
     label.textContent = tab.name;
     sec.classList.toggle('open', open);
@@ -317,7 +317,12 @@ function drawGroups(favs) {
     bubble.oncontextmenu = label.oncontextmenu;
     const at = prev ? prev.nextSibling : box.firstChild;
     if (sec !== at) box.insertBefore(sec, at);
-    if (open) drawFavs(strip, members, tab);
+    if (open) {
+      drawFavs(strip, members, tab);
+      const fold = Object.assign(document.createElement('button'), { className: 'folder less', title: `Fold ${tab.name}`, textContent: '–' });
+      fold.onclick = () => { state.open.delete(sec.dataset.name); showLists(); };
+      strip.append(fold);
+    }
     else strip.hidden = true;
     prev = sec;
   }
@@ -375,7 +380,7 @@ function dragFrom(el, sec) {
     const move = ev => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
-        ghost = (sec ? sec.querySelector('.bubble') : el.querySelector('.av')).cloneNode(true);
+        ghost = (sec ? sec.querySelector('.grouptile') : el.querySelector('.av')).cloneNode(true);
         ghost.classList.add('ghost');
         document.body.append(ghost);
         el.classList.add('dragging');
