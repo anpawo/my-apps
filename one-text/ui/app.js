@@ -306,7 +306,6 @@ function drawGroups(favs) {
     sec.classList.toggle('open', open);
     bubble.title = members.length ? `${tab.name}: ${members.map(i => i.name).join(', ')}` : tab.name;
     bubble.innerHTML = members.slice(0, 4).map(avatar).join('');
-    bubble.classList.toggle('unread', members.some(i => i.unread));
     bubble.classList.toggle('on', members.some(i => i.id === state.cur?.id));
     label.oncontextmenu = e => {
       e.preventDefault();
