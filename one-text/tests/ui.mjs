@@ -772,14 +772,14 @@ check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard 
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 
-// The bar always holds the profile: a group's description and members, admins first, its picture and name only once, its app lit;
+// The bar always holds the profile: a group on one app shows its logo and name, then its members, admins first;
 // a member who is someone in the list opens as that person, ‹ goes back.
 await page.evaluate(() => select('grp-1'));
 await page.waitForSelector('#profile .member');
 await page.waitForTimeout(400);
-const group = await page.$eval('header', h => [!!h.querySelector('#profile .head'), h.querySelector('.desc')?.textContent, [...h.querySelectorAll('.member b')].map(b => b.textContent), h.querySelector('.member i')?.textContent, h.querySelector('.more-members')?.textContent, h.querySelector('#profile h3.on')?.dataset.net]);
+const group = await page.$eval('header', h => [!!h.querySelector('#profile .head'), h.querySelector('.who > .net')?.title, !!h.querySelector('.who .faces'), [...h.querySelectorAll('.member b')].map(b => b.textContent), h.querySelectorAll('#profile h3, .desc, .member small, .member i, .more-members').length]);
 await page.screenshot({ path: join(out, 'profile-group.png') });
-check(JSON.stringify(group) === JSON.stringify([false, 'Bouldering on fridays', ['Lea Martin', 'Nina'], 'Admin', 'and 1 more', 'whatsapp']), `the bar shows the group's profile, its app lit (${JSON.stringify(group)})`);
+check(JSON.stringify(group) === JSON.stringify([false, 'WhatsApp', false, ['Lea Martin', 'Nina'], 0]), `a group on one app: its logo and name on the left, its members' faces and names on the right, nothing else (${JSON.stringify(group)})`);
 await page.click('#profile .member >> nth=0');
 await page.waitForSelector('#profile .open');
 await page.waitForTimeout(400);

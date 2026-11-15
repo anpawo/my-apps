@@ -728,7 +728,9 @@ async function loadMessages(item) {
 
 function drawHeader() {
   const item = state.cur;
-  $('.who').innerHTML = `${avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
+  // A group on one app: that app's logo before its name, its members' faces already on the right.
+  const one = item.kind === 'group' && netsOf(item).length === 1;
+  $('.who').innerHTML = `${one ? netMark(netOf(item.chats[0])) : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.more').hidden = false;
 }
 
@@ -1750,14 +1752,24 @@ async function detailsHTML(view) {
     }))].join('');
   }
   profile.members = [];
+  const member = (p, c) => {
+    const known = personOf(p.id);
+    profile.members.push({ kind: 'member', p, chat: c });
+    return `<button class="member" data-i="${profile.members.length - 1}">${avatar(known || { name: p.fullName, imgs: p.imgURL ? [p.imgURL] : [] })}`;
+  };
+  const people = full => full?.participants?.items?.filter(p => !p.isSelf && !p.isNetworkBot).sort((a, b) => b.isAdmin - a.isAdmin || fold(a.fullName).localeCompare(fold(b.fullName))) || [];
+  // On one app the logo is already beside the name: only who is in it, a face and a name each.
+  if (netsOf(view).length === 1) {
+    const seen = new Set();
+    return '<div class="people">' + view.chats.flatMap((c, i) => people(full[i]).filter(p => !seen.has(p.id) && seen.add(p.id)).map(p =>
+      `${member(p, c)}<b>${esc(personOf(p.id)?.name || p.fullName || p.username || 'Unknown')}</b></button>`)).join('') + '</div>';
+  }
   return view.chats.map((c, i) => {
     const all = full[i]?.participants?.items || [];
-    const ps = all.filter(p => !p.isSelf && !p.isNetworkBot).sort((a, b) => b.isAdmin - a.isAdmin || fold(a.fullName).localeCompare(fold(b.fullName)));
     const total = full[i]?.participants?.total ?? all.length;
-    const rows = ps.map(p => {
+    const rows = people(full[i]).map(p => {
       const known = personOf(p.id);
-      profile.members.push({ kind: 'member', p, chat: c });
-      return `<button class="member" data-i="${profile.members.length - 1}">${avatar(known || { name: p.fullName, imgs: p.imgURL ? [p.imgURL] : [] })}<span><b>${esc(known?.name || p.fullName || p.username || 'Unknown')}</b><small>${esc(p.username ? '@' + p.username.replace(/^@/, '') : p.phoneNumber || '')}</small></span>${p.isAdmin ? '<i>Admin</i>' : ''}</button>`;
+      return `${member(p, c)}<span><b>${esc(known?.name || p.fullName || p.username || 'Unknown')}</b><small>${esc(p.username ? '@' + p.username.replace(/^@/, '') : p.phoneNumber || '')}</small></span>${p.isAdmin ? '<i>Admin</i>' : ''}</button>`;
     });
     return `<section>${appHead(c, `<small>${total} members</small>`, view.id === state.cur?.id)}${full[i]?.description ? `<p class="desc">${linkify(full[i].description)}</p>` : ''}<div class="members">${rows.join('')}</div>`
       + (total > all.length ? `<p class="more-members">and ${total - all.length} more</p>` : '') + '</section>';
