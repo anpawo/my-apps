@@ -163,6 +163,7 @@ enum BugCheck {
             return png
         }
         check(!field.isAutomaticQuoteSubstitutionEnabled && !field.isAutomaticDashSubstitutionEnabled && !field.isAutomaticTextReplacementEnabled, "composer preserves literal punctuation")
+        check(field.inlinePredictionType == .no, "composer offers no inline prediction, whose space doubled the typed one")
         do {
             let (lone, _) = editor(frontend); lone.delegate = nil
             lone.putImage("/fixture.png")

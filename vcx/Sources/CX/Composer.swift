@@ -300,6 +300,8 @@ final class ComposerText: NSTextView {
         drawsBackground = false; isRichText = true; importsGraphics = false; allowsUndo = true; usesFontPanel = false
         isAutomaticQuoteSubstitutionEnabled = false; isAutomaticDashSubstitutionEnabled = false
         isAutomaticTextReplacementEnabled = false; isAutomaticSpellingCorrectionEnabled = false
+        // an inline prediction taken adds its own space, and the one typed after it made two (Marius, 15-11)
+        inlinePredictionType = .no
         textContainerInset = .zero
         typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black]
         isVerticallyResizable = true; isHorizontallyResizable = false; autoresizingMask = [.width]
