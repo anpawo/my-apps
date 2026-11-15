@@ -810,7 +810,7 @@ function quoteHTML(m) {
   if (!m.linkedMessageID || m.type === 'REACTION') return '';
   const q = state.msgs.find(x => x.id === m.linkedMessageID) || state.pool.find(x => x.id === m.linkedMessageID);
   const who = q && state.cur.kind === 'group' ? `<b>${esc(q.isSender ? 'You' : q.senderName)}</b>` : '';
-  return `<div class="quote">${who}<span>${q ? esc(once(plain(q.text)?.trim()) || plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
+  return `<div class="quote" data-to="${esc(m.linkedMessageID)}">${who}<span>${q ? esc(once(plain(q.text)?.trim()) || plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
 }
 
 function msgNodes(m, prev) {
@@ -1006,6 +1006,16 @@ $('#thread').addEventListener('pointermove', e => {
 });
 $('#thread').addEventListener('pointerleave', unhot);
 $('#msgs').addEventListener('scroll', unhot, { passive: true });
+// A reply's quote leads to the message it answers, loading older pages until it is there, and flashes it.
+$('#thread').addEventListener('click', async e => {
+  const id = e.target.closest('.quote')?.dataset.to;
+  if (!id) return;
+  const seq = state.seq, row = () => $(`#thread .msg[data-id="${CSS.escape(id)}"]`);
+  for (let n = 0; !row() && n < 30 && (await loadOlder()); n++);
+  if (seq !== state.seq || !row()) return;
+  row().scrollIntoView({ block: 'center', behavior: RM.matches ? 'auto' : 'smooth' });
+  anim(row().querySelector('.bubble') || row(), { filter: ['brightness(1.8)', 'none'] }, 900);
+});
 $('#thread').addEventListener('click', e => {
   if (e.target.closest('.quick .all')) return openPicker(e.target.closest('.msg'));
   const b = e.target.closest('.quick button, .reacts button');
