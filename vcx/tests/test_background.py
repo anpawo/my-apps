@@ -402,6 +402,13 @@ class BackgroundTests(unittest.TestCase):
             self.assertEqual(bg.main(['-p', '--cwd', str(self.home), '--input-format', 'stream-json']), 0)
         self.assertEqual(turn.call_args.args[0], [{'type': 'text', 'text': 'Question'}])
 
+    def test_claude_api_error_message_is_a_valid_event(self):
+        event = bg.provider_event(b'{"type":"assistant","error":"rate_limit","message":{"content":[{"type":"text","text":"API Error"}]}}')
+        self.assertEqual(event['error'], 'rate_limit')
+        for bad in (b'{"error":3}', b'{"error":{"message":3}}'):
+            with self.assertRaises(ValueError):
+                bg.provider_event(bad)
+
     def test_disabled_profiles_and_cached_limits_are_respected(self):
         prefs = bg.preferences()
         prefs['provider'] = 'qwen'

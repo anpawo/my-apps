@@ -319,7 +319,8 @@ def provider_event(line):
         return None
     value = json.loads(line)
     for key in ('item', 'message', 'event', 'error', 'usage'):
-        if key in value and not isinstance(value[key], dict):
+        # Claude Code tags an API error message with a string: "error": "rate_limit", "server_error"...
+        if key in value and not isinstance(value[key], dict) and not (key == 'error' and isinstance(value[key], str)):
             raise ValueError('The provider returned an invalid ' + key + ' event.')
     content = value.get('message', {}).get('content', [])
     if not isinstance(content, list) or any(not isinstance(item, dict) for item in content):
@@ -340,7 +341,7 @@ def provider_event(line):
         raise ValueError('The provider returned an invalid thread identifier.')
     if value.get('type') == 'result' and not isinstance(value.get('result', ''), str):
         raise ValueError('The provider returned an invalid result.')
-    if not isinstance(value.get('error', {}).get('message', ''), str):
+    if isinstance(value.get('error'), dict) and not isinstance(value['error'].get('message', ''), str):
         raise ValueError('The provider returned an invalid error event.')
     return value
 
