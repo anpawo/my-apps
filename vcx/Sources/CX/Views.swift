@@ -485,7 +485,7 @@ struct CXView: View {
 
     // The grace lets the pointer cross from a sidebar button to its panel.
     private func closeCapabilityLater() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if hoveredCapability == nil && !hoveringCapabilityPanel { openCapability = nil } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if hoveredCapability == nil && !hoveringCapabilityPanel { openCapability = nil } }
     }
 
     private var loginStatus: some View {
