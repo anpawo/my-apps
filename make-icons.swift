@@ -51,7 +51,10 @@ func oneBubble() {
         let one = NSBezierPath()
         one.move(to: NSPoint(x: 440, y: 624)); one.line(to: NSPoint(x: 514, y: 676)); one.line(to: NSPoint(x: 514, y: 448))
         one.move(to: NSPoint(x: 444, y: 448)); one.line(to: NSPoint(x: 584, y: 448))
-        one.lineWidth = 50; one.lineCapStyle = .round; one.lineJoinStyle = .round
+        // Scaled down around its centre so the bubble's edge stays clear above the flag.
+        let fit = NSAffineTransform(); fit.translateX(by: 512, yBy: 562); fit.scale(by: 0.8); fit.translateX(by: -512, yBy: -562)
+        one.transform(using: fit as AffineTransform)
+        one.lineWidth = 44; one.lineCapStyle = .round; one.lineJoinStyle = .round
         NSColor.black.setStroke(); one.stroke()
         return true
     }.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), from: .zero, operation: .sourceOver, fraction: 1)
