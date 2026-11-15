@@ -794,6 +794,8 @@ await page.waitForTimeout(400);
 const person = await page.$eval('#profile', p => [p.querySelector('h2').textContent, [...p.querySelectorAll('section h3 > span:not(.net)')].map(s => s.textContent), [...p.querySelectorAll('.line b')].map(b => b.textContent), !!p.querySelector('.back')]);
 await page.screenshot({ path: join(out, 'profile-person.png') });
 check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
+const twice = await page.evaluate(async () => { const c = profile.view.chats[0]; return (await detailsHTML({ kind: 'person', chats: [c, c] })).split('<section>').length - 1; });
+check(twice === 1, `two chats with the same person on one app show their details once (${twice} sections)`);
 // Merge with… from the profile: the same picker as the ⋯ menu, under the button.
 await page.click('#profile .merge');
 await page.waitForSelector('.menu .found .item');

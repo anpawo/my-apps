@@ -1765,10 +1765,11 @@ async function detailsHTML(view) {
   if (view.kind === 'member') return `<section>${appHead(view.chat)}${DETAILS(view.p).map(line).join('')}</section>`;
   const full = await Promise.all(view.chats.map(c => (profile.cache[c.id] ||= api('GET', `/v1/chats/${enc(c.id)}`).catch(() => null))));
   if (view.kind === 'person') {
-    return view.chats.map((c, i) => {
+    // Two chats with the same person on one app (two logins, or an old DM thread) say the same thing once.
+    return [...new Set(view.chats.map((c, i) => {
       const p = full[i]?.participants?.items?.find(p => !p.isSelf) || { fullName: c.title };
       return `<section>${appHead(c)}${DETAILS(p).map(line).join('')}</section>`;
-    }).join('');
+    }))].join('');
   }
   profile.members = [];
   return view.chats.map((c, i) => {
