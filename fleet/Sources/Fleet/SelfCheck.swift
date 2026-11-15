@@ -517,6 +517,9 @@ enum SelfCheck {
                "money: earned is the salary and what an income sender sent")
         let repaid = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-1.00,Train,C\n2026-11-02,100.00,Salary,P\n2026-11-03,40.00,Other income,P\n2026-11-04,60.00,\"Parents, loan instalment cover\",P\n", payers: ["P"])
         expect(repaid.months.first?.repaid == 40, true, "money: a payer's transfer is repaid, not its salary nor its cover")
+        let payerRefund = Money.months(csv: "date,amount,category,merchant,wording,bc,sc\n2026-11-01,-80.00,Train,Sncf,x,,\n2026-11-02,500.00,Other income,Mum,x,1200,1209\n2026-11-03,30.00,Other income,Shop,x,1200,1209\n", payers: ["Mum"])
+        expect(payerRefund.months.first?.repaid == 500 && payerRefund.months.first?.refunds == 30, true,
+               "money: a payer's 1209 transfer is a payback, not a refund; a stranger's 1209 stays a refund")
         let sport = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-53.00,Leisure & sport,Climb,x,700,705\n2026-11-02,-9.00,Leisure & sport,Bowling,x,700,701\n")
         expect(sport.months.first?.spent == [.sport: 53, .other: 9], true, "money: sport is Leisure's code 705, the rest of it Other")
         expect(read.latest == "2026-10-05", true, "money: the day of the newest line, spent or not")

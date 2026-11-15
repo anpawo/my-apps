@@ -239,9 +239,15 @@ enum Money {
                 if salary { salaried.insert(id) }
                 if salary || row.count > 3 && income.contains(row[3]) {
                     earned[id, default: 0] += amount
-                } else if row.count > 6, row[6] == "1209" { refunds[id, default: 0] += amount }
+                }
                 let cover = row[2].localizedCaseInsensitiveContains("cover")
-                if !salary, !cover, row.count > 3, payers.contains(row[3]) { repaid[id, default: 0] += amount }
+                let payer = row.count > 3 && payers.contains(row[3])
+                // A payer's transfer the bank files as a refund (1209) is a payback, not money
+                // back on a purchase: it comes in as `repaid` below, never off the month's spend.
+                if row.count > 6, row[6] == "1209", !salary, !payer, !income.contains(row[3]) {
+                    refunds[id, default: 0] += amount
+                }
+                if !salary, !cover, payer { repaid[id, default: 0] += amount }
                 guard cover else { continue }
                 covers[id, default: [:]][kind, default: 0] += amount
             } else {
