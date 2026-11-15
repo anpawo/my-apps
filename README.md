@@ -3,7 +3,7 @@
 Little apps made for my needs. Each one is a folder at the root of this repo, and each one
 runs on my Mac today.
 
-Fleet and Vibe Code X are in [fleet](fleet) and [vcx](vcx).
+Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/latest).
 
 <!-- apps:start -->
 #### macOS apps, reworked for my needs

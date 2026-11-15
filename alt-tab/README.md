@@ -5,7 +5,7 @@ itself.
 
 The switcher that ships with macOS gets three things wrong:
 
-- **Finder is always in it**, even with no Finder window open — a slot spent on something you
+- **Finder is always in it**, even with no Finder window open: a slot spent on something you
   never switch to.
 - **It switches applications, not windows.** Two windows of the same app are one icon; you land
   on the app and are left to find which window you meant.
@@ -20,7 +20,7 @@ Hold the modifier and press Tab. Let it go and you are there. That is the whole 
 ![A ⌘Tab session on an invented desktop: the switcher opens over a Finder window, the selection steps with each Tab, typing "ma" greys every window but Mail, an "x" that fits nothing flashes red and is dropped, and letting go of ⌘ brings the Mail window forward](docs/demo.gif)
 
 **It takes ⌘Tab from the first launch.** The Dock consumes ⌘Tab before any application sees
-it, so holding that chord means switching Apple's switcher off — and that setting outlives the
+it, so holding that chord means switching Apple's switcher off, and that setting outlives the
 app that changed it. alt-tab writes down what it took before it takes it, and hands it back
 when you quit it or run `./uninstall.sh`. If a crash ever leaves you without a switcher,
 `alt-tab --restore-hotkeys` returns it, and it works with no GUI at all.
@@ -41,7 +41,7 @@ this once.
 
 Then open the app. It puts up its settings window, where you can tick **Start at login**.
 
-**Or build it yourself**, which is the better option on your own machine — see below. A local
+**Or build it yourself**, which is the better option on your own machine (see below). A local
 build can be signed with a certificate of your own, and macOS then keeps the Accessibility
 grant across rebuilds instead of asking again every time.
 
@@ -55,7 +55,7 @@ starts with your session.
 
 ## Permissions
 
-Two, and the app is honest about both — the settings window says which are missing and takes
+Two, and the app is honest about both: the settings window says which are missing and takes
 you to the right pane.
 
 - **Accessibility** is required. Without it alt-tab can read no window titles and raise no
@@ -64,18 +64,18 @@ you to the right pane.
   application icons. Everything else works.
 
 macOS answers the Screen Recording question once per launch, so pictures start appearing after
-you quit and reopen the app — not the moment you grant it.
+you quit and reopen the app, not the moment you grant it.
 
 ## Using it
 
 | | |
 |---|---|
-| **⌘Tab** | open the switcher, and step through the windows — or whatever chord you bound |
+| **⌘Tab** | open the switcher, and step through the windows (or whatever chord you bound) |
 | **let ⌘ go** | switch to the selected window |
 | **← →** | step back or forward, with ⌘ still held |
 | **type letters** | with ⌘ still held: keep only the windows whose app name or title has a word starting with them, and select the first; Tab then steps among those, Delete takes a letter back |
 | **Escape** | change your mind |
-| **click a tile** | switch to that window — with ⌘ still held, since letting go ends the session |
+| **click a tile** | switch to that window, with ⌘ still held, since letting go ends the session |
 | **click the red cross** | close that window |
 
 ![The switcher open over a desktop: eleven windows in two rows, the selected one outlined, the one under the pointer showing its close button](docs/panel.png)
@@ -83,14 +83,14 @@ you quit and reopen the app — not the moment you grant it.
 **Six tiles to a row, then a new row.** A long list on one row shrinks every picture until it
 stops saying which window it is, so the panel wraps instead, and only gives tiles back their
 size when the rows themselves no longer fit the height of the screen. Every tile is the same
-size — cut to the widest picture on show — and a window narrower than that keeps its own
+size (cut to the widest picture on show), and a window narrower than that keeps its own
 picture, centred, with the spare room around it rather than stretched to fill. A last row that
 is short starts at the left, where the row above it started.
 
 A ⌘Tab faster than the panel's delay switches without drawing anything at all. The delay is a
 slider in the settings; 100 ms by default, and 0 means the panel always appears.
 
-Minimized windows, and the windows of hidden applications, are in the list — at the end, since
+Minimized windows, and the windows of hidden applications, are in the list, at the end, since
 a window in the Dock has no place in a most-recently-used order. They carry a mark in their
 title line and show the last picture taken of them, or the application's icon. Both kinds can
 be switched off in the settings.
@@ -103,7 +103,7 @@ it there.
 
 ```sh
 python3 build.py                  # universal (Apple Silicon and Intel), into ./dist
-python3 build.py --arch native    # only this machine's architecture — about twice as fast
+python3 build.py --arch native    # only this machine's architecture, about twice as fast
 python3 build.py --adhoc --zip    # what a downloadable release is made of
 ```
 
@@ -118,8 +118,8 @@ Line Tools does not have. So `build.py` compiles each architecture separately an
 together. Use `--arch native` while you are working.
 
 **The signature decides whether macOS remembers your permission.** The Accessibility grant is
-tied to the signing identity. An ad-hoc signature has no identity — its fingerprint is a hash
-of the binary — so every rebuild is a new app as far as macOS is concerned, and it asks again.
+tied to the signing identity. An ad-hoc signature has no identity (its fingerprint is a hash
+of the binary), so every rebuild is a new app as far as macOS is concerned, and it asks again.
 Run `./make-signing-identity.sh` once to create a local self-signed certificate; `build.py`
 picks it up automatically from then on. Anything published has to be ad-hoc regardless, since
 that certificate is trusted nowhere but here.
@@ -131,7 +131,7 @@ swift run check     # the test suite: the window filter, the state machine, the 
 
 ### Looking at the panel without opening it
 
-The panel can be laid out, and even photographed, without ever being put on the screen — which
+The panel can be laid out, and even photographed, without ever being put on the screen, which
 matters when the screen belongs to someone in the middle of something else.
 
 ```sh
@@ -161,7 +161,7 @@ ffmpeg -f concat -safe 0 -i /tmp/frames/list.txt -fps_mode vfr -vf "scale=1440:-
 It switches windows on the desktop you are looking at. It does not do Spaces other than the
 current one, applications without windows, alphabetical ordering, per-application rules,
 searching, or a reverse shortcut. If you want those, [AltTab][alttab] has spent
-years on them and does them well — this is the small version of that idea, built to be read
+years on them and does them well; this is the small version of that idea, built to be read
 in an afternoon.
 
 [alttab]: https://alt-tab-macos.netlify.app

@@ -1,7 +1,7 @@
 # Fleet
 
 A macOS background app that shows you every Claude Code session on your machine the moment you
-stop working — so you come back from a coffee and immediately see which sessions finished, which
+stop working, so you come back from a coffee and immediately see which sessions finished, which
 are still grinding, and which are sitting there waiting for you to answer something.
 
 ![The panel](docs/panel.png)
@@ -13,11 +13,11 @@ by what it's doing:
 |--------|---------|
 | 🟩 **green** | finished its turn, ready for a new prompt |
 | 🟥 **red** | a tool is running right now |
-| 🟦 **blue** | blocked on you — a question or a permission approval |
+| 🟦 **blue** | blocked on you: a question or a permission approval |
 | ⬜ **white** | just started, nothing asked of it yet |
 
-A tile is deliberately close to empty: the project name, the border colour, the state, and —
-only while it's working — the one step in flight. When a session has handed work to a sub-agent
+A tile is deliberately close to empty: the project name, the border colour, the state, and
+(only while it's working) the one step in flight. When a session has handed work to a sub-agent
 there's one more line, in orange: which sub-agent, and what it's doing right now. That one is
 worth its space because nothing else on the tile would move while it runs. The directory is shown only when it isn't
 just the project name again. This is a thing you read in half a second from across the desk,
@@ -27,7 +27,7 @@ Click a tile and the panel disappears, and the terminal tab running that session
 front with your cursor ready to type. Press <kbd>Esc</kbd>, or click the background, to just
 dismiss it.
 
-Sessions you can type into come first — ready, then the ones blocked on a question, then the
+Sessions you can type into come first: ready, then the ones blocked on a question, then the
 ones still working, which need nothing from you at all.
 
 The grid keeps two columns for as long as they fit in three rows, so up to six sessions sit in a
@@ -35,7 +35,7 @@ The grid keeps two columns for as long as they fit in three rows, so up to six s
 time rather than running off the bottom of the display.
 
 And because the panel only appears when you go idle, a session that asks you something while
-you're working in another window would otherwise say nothing until you happened to look — so
+you're working in another window would otherwise say nothing until you happened to look, so
 that one state also posts a notification. Clicking it goes straight to the terminal that asked.
 Only that state: every turn of every session ends, and a banner for each would teach you to
 ignore all of them.
@@ -45,27 +45,27 @@ ignore all of them.
 Waiting to go idle is the point, but not when you just want to check on things. Any of these
 brings the panel up immediately:
 
-- **<kbd>⌘</kbd><kbd>⌥</kbd><kbd>L</kbd>** — a system-wide hotkey; raises the panel from wherever
+- **<kbd>⌘</kbd><kbd>⌥</kbd><kbd>L</kbd>**: a system-wide hotkey; raises the panel from wherever
   you are. It needs no Accessibility permission, but it does need the chord to be free: if
   another app already owns it, Fleet says so in `/tmp/fleet.log` and the other two still work.
-- **Spotlight** — <kbd>⌘</kbd><kbd>Space</kbd>, type `Fleet`, <kbd>↵</kbd>
-- **the `fleet` command** — installed to `~/.local/bin/fleet`
-- **the menu bar plane** — click it
+- **Spotlight**: <kbd>⌘</kbd><kbd>Space</kbd>, type `Fleet`, <kbd>↵</kbd>
+- **the `fleet` command**: installed to `~/.local/bin/fleet`
+- **the menu bar plane**: click it
 
 ## The menu bar
 
 Fleet's only permanent presence is a small paper plane at the right of the menu bar. The plane
 itself stays plain; a tiny dot at its tail carries the colour of the session that most wants
-your attention — blue when one is waiting on an answer, green when one has finished its turn,
+your attention: blue when one is waiting on an answer, green when one has finished its turn,
 red when they are all still working. With nothing running there is no dot at all. A glance tells
 you whether anything needs you without opening the panel.
 
-Clicking it toggles the panel. Right-clicking gives the session count broken down by state, plus a quit item —
+Clicking it toggles the panel. Right-clicking gives the session count broken down by state, plus a quit item,
 which unloads the LaunchAgent, since `KeepAlive` would otherwise restart Fleet a second later.
 It comes back at the next login.
 
 Spotlight and `fleet` toggle: repeating either puts the panel away. The hotkey only ever brings
-it to the front, so hitting it twice is harmless — dismiss with <kbd>Esc</kbd>.
+it to the front, so hitting it twice is harmless; dismiss with <kbd>Esc</kbd>.
 
 All three reach the copy that's already running rather than starting a second one, so there's
 never more than one agent scanning.
@@ -79,16 +79,16 @@ dictation key, talk.
 
 It is an ordinary text field and nothing else. **Fleet has no microphone**: it opens no audio
 input, records nothing, starts nothing listening, and asks for no microphone or speech
-permission. If you dictate, that is between you and whatever tool you dictate with — it pastes
+permission. If you dictate, that is between you and whatever tool you dictate with: it pastes
 into the focused field the same way it would into any other app, and the field cannot tell that
 from typing.
 
 **Nothing is sent until you send it.** What lands in the field is a draft: fix the word that
 came out wrong, add a sentence, press <kbd>↵</kbd> to send, <kbd>⇧↵</kbd> for a second line,
-<kbd>Esc</kbd> to throw it away — and <kbd>Esc</kbd> again, on an empty field, to dismiss the
+<kbd>Esc</kbd> to throw it away, and <kbd>Esc</kbd> again, on an empty field, to dismiss the
 panel. Whatever comes back appears on a line under the field, which never moves or disappears
 while you are aiming at it. That step earns its keep with dictated text, where project
-names are what gets mangled most — and the project name is the word that decides which session
+names are what gets mangled most, and the project name is the word that decides which session
 your prompt lands in.
 
 What happens next depends on what you asked for. A small model reads the sentence once and picks
@@ -106,8 +106,8 @@ one of three destinations:
 That decision is a model call rather than a keyword list, because keywords get it wrong in both
 directions: "the thing where the tiles swap" is code work with no code words in it.
 
-There is no API key to set up. Fleet runs `claude -p` — the same binary it spends its life
-watching — so the routing goes through the Claude Code subscription already installed on the
+There is no API key to set up. Fleet runs `claude -p` (the same binary it spends its life
+watching), so the routing goes through the Claude Code subscription already installed on the
 machine rather than prepaid API credits, which are a separate bill. The cost is a couple of
 seconds of process startup: about five seconds from pressing <kbd>↵</kbd> to a terminal
 opening.
@@ -124,7 +124,7 @@ fleet --route "the tiles in fleet are showing each other's conversations"
 
 ## When it stays out of the way
 
-Idle time alone can't tell a finished day from a film — both are minutes without a keystroke.
+Idle time alone can't tell a finished day from a film: both are minutes without a keystroke.
 So before the idle trigger fires, Fleet checks whether anything is holding the display awake:
 a video playing, a presentation, a screen share. Firefox names its assertion `video-playing`,
 which is as direct a statement of intent as you could ask for. If something is, the panel waits.
@@ -134,14 +134,14 @@ mid-film, because those are you asking for it.
 
 This is deliberately typed on **display** sleep rather than system sleep: `caffeinate`, a long
 download and an overnight build all keep the machine awake with nobody looking at it, and those
-are exactly the moments the panel is welcome. Audio-only playback lands the same way — the panel
+are exactly the moments the panel is welcome. Audio-only playback lands the same way: the panel
 is silent, so a podcast is no reason to suppress it.
 
 `fleet --scan` says so when it is deferring:
 
 ```
 idle: 34s (threshold 45s)
-display held awake by "video-playing" — the idle trigger is deferred
+display held awake by "video-playing": the idle trigger is deferred
 ```
 
 ## Install
@@ -156,7 +156,7 @@ every login and restarts if it ever dies, and drops a `fleet` command in `~/.loc
 else to configure.
 
 The first time you click a tile, macOS asks whether Fleet may control Terminal. Approve
-it — without that permission a click can only raise the terminal app, not the specific tab.
+it; without that permission a click can only raise the terminal app, not the specific tab.
 
 Then, once:
 
@@ -164,10 +164,10 @@ Then, once:
 fleet --install-hooks
 ```
 
-That is what makes the tile colours right rather than merely likely — see below. It is also
+That is what makes the tile colours right rather than merely likely (see below). It is also
 offered from the menu bar, and undone with `fleet --uninstall-hooks`.
 
-If you rebuild Fleet — and you will, it's yours now — run this once:
+If you rebuild Fleet (and you will, it's yours now), run this once:
 
 ```bash
 ./make-signing-identity.sh
@@ -190,7 +190,7 @@ To remove it entirely: `./uninstall.sh`
 This runs all day, so it's built to cost as close to nothing as possible.
 
 **It does no work when you have no sessions open.** Every 60 seconds it asks the kernel for the
-process list and checks whether anything named `claude` is alive. If not, it stops there — no
+process list and checks whether anything named `claude` is alive. If not, it stops there: no
 file reads, no UI, no allocations. That check is a couple of syscalls.
 
 When sessions *are* alive it refreshes the whole picture every 5 seconds, so the panel is
@@ -218,7 +218,7 @@ The specific things it refuses to do:
 - **Timers carry 50% tolerance**, so macOS coalesces the wakeups with other timers instead of
   waking the CPU on our behalf.
 - **Stops dead on sleep.** All timers are torn down on sleep or display-off and rebuilt on wake.
-- **No live blur.** The panel backdrop is a flat scrim — a full-screen material would be
+- **No live blur.** The panel backdrop is a flat scrim; a full-screen material would be
   continuous GPU work on a window whose entire purpose is to save power.
 - Runs as an `Interactive` LaunchAgent: the process that sleeps between ticks is also the one
   that draws the panel, and as `Background` every thread of it ran at priority 4. Only the
@@ -239,40 +239,40 @@ from `PROC_PIDTBSDINFO`, and CPU from `proc_pid_rusage` sampled across refreshes
 working directory, so the directory alone is ambiguous. Resolution starts with the one source
 that doesn't have to guess:
 
-0. The state hooks below run *inside* the session — the payload names the transcript, and the
+0. The state hooks below run *inside* the session: the payload names the transcript, and the
    hook process is a child of the session, so its parent pid names the process. Fleet reads the
    pair out of the state file and skips every pass below for that session. This is what survives
    `/clear` and a compaction, both of which start a **new** transcript in the same process:
    without it the binding stays on the file that was abandoned, and a conversation that ended
-   reads as a session that has finished — a green tile on a session that is working.
+   reads as a session that has finished: a green tile on a session that is working.
 
 The rest are inferences, for sessions the hooks haven't spoken for yet:
 
-1. `claude --resume <id>` names its transcript outright — read from the process's argv via
+1. `claude --resume <id>` names its transcript outright, read from the process's argv via
    `KERN_PROCARGS2`.
 2. Otherwise, a fresh session writes its transcript shortly after launch, so each process claims
    the unclaimed transcript created soonest *after* its own start time.
 3. `claude --continue` reopens an older file, so anything left over falls back to the most
    recently modified unclaimed transcript.
 4. If a session is *still* unmatched, its transcript isn't filed under its working directory at
-   all — Claude Code picks the project folder once, at session start, so renaming that directory
+   all: Claude Code picks the project folder once, at session start, so renaming that directory
    or `cd`ing out of it leaves the file behind under the old name. Every transcript entry stamps
    the session's current directory, so the last resort is to scan transcripts written in the
    last few minutes across all projects and take the one whose recorded cwd is this process's.
    It only runs while some session is unmatched, at most every 5 seconds.
 
 Inferred bindings are sticky once resolved; a hook can always overrule them. A session you've launched but not yet prompted has no
-transcript at all, and shows up as a ready tile with just its directory — unless it's burning
+transcript at all, and shows up as a ready tile with just its directory, unless it's burning
 CPU, in which case that alone marks it as working.
 
 **Deciding the colour: asking rather than guessing.** Claude Code fires hooks on the exact
 transitions Fleet cares about, so it can be asked instead of read. `fleet --install-hooks` drops
 a small `sh` script in `~/.claude/fleet/` and points `~/.claude/settings.json` at it: `Stop` means the turn is over (green),
-`Notification` means the session is blocked on you (blue — unless the notification is the
+`Notification` means the session is blocked on you (blue, unless the notification is the
 "you've been idle a while" one, which means the opposite), and `UserPromptSubmit` and the tool
 hooks mean it's working (red). Each fires once, writes
 `{"state":…,"at":…,"pids":…,"transcript":…}` to `~/.claude/fleet/state/<session-id>.json` and
-exits; Fleet reads that file — for the colour, and for the pairing above. Your existing hooks
+exits; Fleet reads that file, for the colour, and for the pairing above. Your existing hooks
 and settings are kept, a copy of the file is saved beside it, and `--uninstall-hooks` takes only
 Fleet's entries back out. The script is versioned: one written by an older Fleet counts as not
 installed, so `fleet --scan` says so and the menu offers to update it.
@@ -281,25 +281,25 @@ That is the answer, not an estimate, and it is what fixed the failure that matte
 session that had *finished* showing red. You don't go back to a red tile, so a wrong colour there
 costs you a session you'd have picked up.
 
-The inference below is still there and still runs — for sessions that started before the hooks
+The inference below is still there and still runs, for sessions that started before the hooks
 existed, and for the moments a hook hasn't fired yet. The two are ranked by recency, and the
 hook wins a tie: a hook fires *on* the transition, so it is the better evidence for as long as
 nothing has been said since, and the transcript takes over once it moves again. "Said" means the
-timestamp on the last conversation entry, not the file's mtime — Claude Code appends `ai-title`
+timestamp on the last conversation entry, not the file's mtime: Claude Code appends `ai-title`
 and `last-prompt` lines seconds *after* a turn ends, so the mtime of a finished session keeps
 moving while nothing is happening.
 
 **Deciding the colour without them.** The transcript is walked to find tool calls with no matching result. No
-pending tool usually means the turn ended cleanly — green. The exception is the window between
+pending tool usually means the turn ended cleanly: green. The exception is the window between
 you sending a prompt and Claude's first token: nothing is pending and no reply exists yet, so it
-looks *exactly* like a finished turn. Who spoke last breaks that tie — a trailing user message
+looks *exactly* like a finished turn. Who spoke last breaks that tie: a trailing user message
 means the turn is still open, so it's red. Cancelling with <kbd>Esc</kbd> also appends a user
 message, so that one marker is recognised and excluded, or the session would sit at red forever.
 Claude Code also files hook output and cross-session messages as user entries, marked `isMeta`;
 those are excluded too, or one arriving after a turn ends reopens it and paints an idle session
 as a working one. A pending `AskUserQuestion` or `ExitPlanMode` is unambiguously blue.
 
-A tool call whose result never lands would otherwise stay "in flight" forever — and in
+A tool call whose result never lands would otherwise stay "in flight" forever, and in
 `bypassPermissions` mode, where nothing ages into blue, that means a permanently red tile. Two
 things clear them: a cancelled turn names the message it cut short, and an assistant message
 with a *new* id proves every earlier call was answered, since the API won't take another turn
@@ -309,17 +309,17 @@ while a `tool_use` is outstanding. Calls issued together share an id and are lef
 while it is pending: Claude Code holds that assistant message back and writes it only once you
 answer, and it lands stamped with the time it was *generated*, so reading the file afterwards
 makes it look like it was there all along. Live, the last thing in the file is the tool result
-from the step before — a question with five options sitting on your screen and a session that
+from the step before: a question with five options sitting on your screen and a session that
 looks like it is still thinking. So the silence is the signal: an owed turn with nothing pending,
 no CPU and nothing written for 25 seconds is a question, not a model composing. A genuinely long
 thinking block can trip that and go blue for a moment before its next block lands; the threshold
 is longer than the 12 seconds used below because there's no outstanding tool call corroborating
-it, and there is no cheaper evidence to be had — a permission prompt and a question both live
+it, and there is no cheaper evidence to be had: a permission prompt and a question both live
 entirely in the terminal until they're answered.
 
 Anything else pending is genuinely ambiguous: "running a long command" and "showing you a
 permission prompt" look *identical* in the transcript, because in both cases Claude asked to do
-something and no result came back. That tie is broken on behaviour rather than content — if the
+something and no result came back. That tie is broken on behaviour rather than content: if the
 process is burning CPU or has written to its transcript in the last 12 seconds it's working
 (red), otherwise it's been silent with a request outstanding, which in practice means a prompt
 is on your screen (blue). Sessions in `bypassPermissions` mode can't be blocked on approval, so
@@ -327,11 +327,11 @@ they stay red.
 
 **Sub-agents.** A session that delegates to a sub-agent is the one case where every signal above
 lies. The sub-agent writes to its own transcript under `<session-id>/subagents/`, so the main
-file goes silent; the tokens burn on Anthropic's machines, so the CPU goes quiet — and a session
+file goes silent; the tokens burn on Anthropic's machines, so the CPU goes quiet, and a session
 that is very much busy looks stalled, then trips the staleness test and claims to need you.
 
 So the sub-agents are read too. Each `agent-*.meta.json` names the `tool_use` that spawned it,
-and a `Task` call still pending on the main thread is a sub-agent still working — which is what
+and a `Task` call still pending on the main thread is a sub-agent still working, which is what
 tells a live one from the files last week's run left behind. Its own transcript then says what
 it is doing this second, and the tile shows it on an orange line, with the sub-agent's own
 last write standing in for the activity the main file no longer has. Sidechain entries are
@@ -340,20 +340,20 @@ the thread waiting for it.
 
 **Focusing a tab.** Every session has a distinct TTY, and both Terminal.app and iTerm2 expose a
 tab's `tty` to AppleScript, so the exact tab gets selected. Raising the app is a separate step
-that always works, so both are done rather than treating the script as all-or-nothing —
+that always works, so both are done rather than treating the script as all-or-nothing:
 terminals without that scripting surface (Ghostty, kitty, WezTerm, Alacritty) simply get the
 second half.
 
 **A desktop of its own.** A session Fleet starts gets one, which is the point of starting it
 from the panel: you write the sentence, and the session opens in front of you with nothing else
 on screen.
-macOS has no public API for creating a Space — the private one costs a partly disabled SIP — so
+macOS has no public API for creating a Space (the private one costs a partly disabled SIP), so
 this is native fullscreen, which creates a desktop and switches to it, and disposes of it when
 the window closes, so nothing is left behind.
 
 Two things make that harder than it sounds, and both were silent failures rather than errors.
 The window to enlarge cannot be found by asking which one has focus: if any terminal window is
-already fullscreen — which is what the *previous* Fleet-started session leaves behind — that one
+already fullscreen (which is what the *previous* Fleet-started session leaves behind), that one
 holds the focus, and the new session ends up sharing its desktop or getting none. So the windows
 are listed before the launch and the new one is found by elimination. And the terminal cannot be
 looked up by bundle identifier alone: two copies of the same terminal run more often than you
@@ -361,7 +361,7 @@ would think, they are separate processes with separate windows, and the one `NSW
 first owned no windows at all here while four sat in the other. Every instance is checked.
 
 Raising the app is not the same as taking you to the window. If the terminal sits on another
-desktop — or on a second display running its own Spaces, which is where this turned up —
+desktop (or on a second display running its own Spaces, which is where this turned up),
 `activate` makes it frontmost and leaves you exactly where you were, so the click looks like it
 did nothing. `AXRaise` on the window is the gesture macOS honours by switching to the desktop
 the window is on, so that runs after activation, once the app is frontmost and its focused
@@ -450,15 +450,15 @@ itself, keeping every key it does not know.
 | `--demo` | same as `--show` |
 | `--focus <pid>` | run just the tab-raising path for one session and report what happened |
 | `--route "<sentence>"` | run one sentence through the classifier and print where it would go |
-| `--render <path.png>` | draw the panel offscreen to a PNG (how the image above was made, with `--fake 6 --live`); the mail and the todos are the ones the app last read, kept in `~/.claude/fleet/hub` — a render never reads Firestore itself |
-| `--parse <file.jsonl>` | print what one transcript parses to — pending tools, sub-agents, preview |
-| `--fake <n>` | draw a fleet of n invented sessions, with `--render` or `--demo`, to see the grid at a size you don't have running — or `--fake 4,2,1`, one count per directory, to see it with groups; with `--render` the side columns are invented too, so the picture holds nothing of yours |
-| `--start <dir> ["<prompt>"]` | open a session the way the panel does — new window, own desktop — without the classifier |
+| `--render <path.png>` | draw the panel offscreen to a PNG (how the image above was made, with `--fake 6 --live`); the mail and the todos are the ones the app last read, kept in `~/.claude/fleet/hub`; a render never reads Firestore itself |
+| `--parse <file.jsonl>` | print what one transcript parses to: pending tools, sub-agents, preview |
+| `--fake <n>` | draw a fleet of n invented sessions, with `--render` or `--demo`, to see the grid at a size you don't have running, or `--fake 4,2,1`, one count per directory, to see it with groups; with `--render` the side columns are invented too, so the picture holds nothing of yours |
+| `--start <dir> ["<prompt>"]` | open a session the way the panel does (new window, own desktop) without the classifier |
 | `--install-hooks` | let Claude Code report each session's state to Fleet (edits `~/.claude/settings.json`, backing it up first) |
 | `--uninstall-hooks` | take those hooks back out |
 | `--windows [bundle-id]` | list a terminal's windows on this desktop and whether each has it to itself |
 
-Other tunables — poll cadences, the staleness window, the CPU threshold — are all in
+Other tunables (poll cadences, the staleness window, the CPU threshold) are all in
 `Sources/Fleet/Models.swift`, deliberately in one place so the battery profile is
 auditable at a glance.
 
@@ -486,7 +486,7 @@ it also self-heal whenever you start a session, add a `SessionStart` hook to
 ```
 
 `kickstart` starts the agent if it's stopped and does nothing if it's already up. Don't use
-`open` here — opening the bundle is the manual "show me the panel" gesture, so a hook that ran
+`open` here: opening the bundle is the manual "show me the panel" gesture, so a hook that ran
 it would put the panel on screen every time you started a session.
 
 ## License

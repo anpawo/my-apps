@@ -12,10 +12,10 @@ take: the entire screen, a window, or a portion you drag out.
 
 ![The three modes over the same windows: the whole screen dimmed in a round white frame; one window washed in blue and framed, minus the corner another window covers; a dashed selection across two windows, the rest dimmed](docs/modes.png)
 
-- **Entire Screen** — everything stays dimmed, framed in white along the display's round corners.
-- **Selected Window** — no dimming: the window under the pointer turns light blue in a white
+- **Entire Screen**: everything stays dimmed, framed in white along the display's round corners.
+- **Selected Window**: no dimming: the window under the pointer turns light blue in a white
   frame, and the highlight stops where another window sits in front of it.
-- **Selected Portion** — the screen is dimmed except the box you drag, with its handles and its
+- **Selected Portion**: the screen is dimmed except the box you drag, with its handles and its
   size in pixels.
 
 ![The bar: three stills, Capture, then a folder icon (Save in) and a gear (Options), each group set apart by a thin line](docs/bar.png)
@@ -56,7 +56,7 @@ Security → Open Anyway**. Opened by hand it runs until you log out; building i
 
 ## Build
 
-Swift, Command Line Tools only — no Xcode.
+Swift, Command Line Tools only, no Xcode.
 
 ```sh
 ./install.sh             # builds, installs to ~/apps (else ~/Applications), starts it at login

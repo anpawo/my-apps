@@ -579,7 +579,7 @@ if CommandLine.arguments.contains("--scan") {
         // without notifications nothing is said when a session starts waiting on you.
         print("accessibility: \(Desktop.accessibilityTrusted(prompt: false) ? "granted" : "DENIED")")
         if let awake = ScreenWatcher.holdingDisplayAwake() {
-            print("display held awake by \"\(awake)\" — the idle trigger is deferred")
+            print("display held awake by \"\(awake)\": the idle trigger is deferred")
         }
         exit(0)
     }
