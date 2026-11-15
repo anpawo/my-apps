@@ -1771,7 +1771,9 @@ async function detailsHTML(view) {
       const known = personOf(p.id);
       return `${member(p, c)}<span><b>${esc(known?.name || p.fullName || p.username || 'Unknown')}</b><small>${esc(p.username ? '@' + p.username.replace(/^@/, '') : p.phoneNumber || '')}</small></span>${p.isAdmin ? '<i>Admin</i>' : ''}</button>`;
     });
-    return `<section>${appHead(c, `<small>${total} members</small>`, view.id === state.cur?.id)}${full[i]?.description ? `<p class="desc">${linkify(full[i].description)}</p>` : ''}<div class="members">${rows.join('')}</div>`
+    // Two rooms on one app read apart by their own titles.
+    const room = view.chats.filter(o => netOf(o) === netOf(c)).length > 1 ? `<span class="room">${esc(c.title)}</span>` : '';
+    return `<section>${appHead(c, `${room}<small>${total} members</small>`, view.id === state.cur?.id)}${full[i]?.description ? `<p class="desc">${linkify(full[i].description)}</p>` : ''}<div class="members">${rows.join('')}</div>`
       + (total > all.length ? `<p class="more-members">and ${total - all.length} more</p>` : '') + '</section>';
   }).join('');
 }

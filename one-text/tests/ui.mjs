@@ -94,7 +94,7 @@ const stub = () => {
         const items = all.slice(0, window.__page || 20);
         return { items, hasMore: all.length > items.length, oldestCursor: items.at(-1)?.sortKey };
       }
-      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push({ ...msg(id, 'sent-' + id + '-' + msgs[id].length, (args.body.text || '').replace(/^- /, ''), 0, true), attachments: args.body.attachment && [{ type: 'audio', isVoiceNote: true, srcURL: 'mxc://up', mimeType: 'audio/mp4' }] }); return { id: 'ok' }; }
+      if (args.method === 'POST' && m[2] === 'messages') { msgs[id].push({ ...msg(id, 'sent-' + id + '-' + msgs[id].length, (args.body.text || '').replace(/^- /, ''), 0, true), linkedMessageID: args.body.replyToMessageID, attachments: args.body.attachment && [{ type: 'audio', isVoiceNote: true, srcURL: 'mxc://up', mimeType: 'audio/mp4' }] }); return { id: 'ok' }; }
       if (args.method === 'POST' && m[2] === 'read') { const c = chats.find(c => c.id === id); if (c) c.unread = 0; return {}; }
     }
     throw new Error('unexpected ' + cmd + ' ' + JSON.stringify(args));
@@ -265,7 +265,7 @@ await page.keyboard.type('8pm');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const replied = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.endsWith('/messages')).map(([, a]) => [a.path.split('/')[3], a.body.replyToMessageID]).at(-1));
-const quote = await page.$eval('#thread .msg.me:last-child .quote', q => q.textContent);
+const quote = await page.waitForSelector('#thread .msg.me:last-child .quote', { timeout: 3000 }).then(q => q.textContent(), () => page.evaluate(() => `none: last is ${document.querySelector('#thread').lastElementChild?.className}, ${__log.filter(([c, a]) => c === 'api' && a.method === 'POST').length} posts`));
 const sentEnd = await page.evaluate(() => { const b = document.querySelector('#msgs'); return [b.scrollHeight > b.clientHeight, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop)]; });
 check(sentEnd[0] && sentEnd[1] < 2, `the thread follows a sent message to its end while it opens (${JSON.stringify(sentEnd)})`);
 await page.evaluate(() => { const b = document.querySelector('#msgs'); b.scrollTop = b.scrollHeight; });
@@ -278,7 +278,7 @@ await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() =>
 await page.waitForTimeout(1500);
 const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => msgText(b)), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
 await page.evaluate(() => { window.__page = 0; });
-check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '', '8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
+check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '', 'dinner tonight still on?8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
@@ -780,6 +780,8 @@ await page.waitForTimeout(400);
 const group = await page.$eval('header', h => [!!h.querySelector('#profile .head'), h.querySelector('.who > .net')?.title, !!h.querySelector('.who .faces'), [...h.querySelectorAll('.member b')].map(b => b.textContent), h.querySelectorAll('#profile h3, .desc, .member small, .member i, .more-members').length]);
 await page.screenshot({ path: join(out, 'profile-group.png') });
 check(JSON.stringify(group) === JSON.stringify([false, 'WhatsApp', false, ['Lea Martin', 'Nina'], 0]), `a group on one app: its logo and name on the left, its members' faces and names on the right, nothing else (${JSON.stringify(group)})`);
+const rooms = await page.evaluate(async () => { const c = state.cur.chats[0], keep = profile.members; const html = await detailsHTML({ kind: 'group', id: 'two', chats: [{ ...c, title: 'Room A' }, { ...c, id: 'grp-room-b', title: 'Room B' }, { ...c, id: 'grp-teams', network: 'Microsoft Teams', accountID: 'teams', title: 'Team' }] }); profile.members = keep; return [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('h3 .room')].map(r => r.textContent); });
+check(JSON.stringify(rooms) === JSON.stringify(['Room A', 'Room B']), `two rooms of a merged group on one app read apart by their titles, the lone app needs none (${rooms})`);
 await page.click('#profile .member >> nth=0');
 await page.waitForSelector('#profile .open');
 await page.waitForTimeout(400);

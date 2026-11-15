@@ -107,7 +107,9 @@ fn merged_picture(chat: &Value) -> Option<&str> {
 
 fn summary(chat: &Value) -> Value {
     json!({
-        "id": id(chat), "network": chat["network"], "accountID": chat["accountID"], "title": name_of(chat),
+        // A group goes by its own title: its first member's name made two rooms of one merge read the same.
+        "id": id(chat), "network": chat["network"], "accountID": chat["accountID"],
+        "title": if chat["type"] == "group" { chat["title"].as_str().unwrap_or("").to_string() } else { name_of(chat) },
         "unread": chat["unreadCount"].as_i64().unwrap_or(0), "last": last(chat), "preview": chat["preview"], "muted": chat["isMuted"] == true,
         "img": other(chat).and_then(|p| p["imgURL"].as_str()).or_else(|| merged_picture(chat)).or(chat["imgURL"].as_str()),
         // The other side's id, so a group member's profile can lead to their own conversation.
@@ -424,6 +426,13 @@ mod tests {
         let s14 = groups.iter().find(|g| g["id"] == "wa-s14").unwrap();
         assert_eq!((&s14["name"], &s14["unread"], s14["chats"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect::<Vec<_>>()), (&json!("s14"), &json!(3), vec!["te-s14", "wa-s14"]));
         assert_eq!(build(&all, &json!({}))["groups"].as_array().unwrap().len(), 3);
+        // Each room of the merge keeps its own title, never its first member's name.
+        let mut a = g("mx-a", "Matrix", "Room A", "2026-11-12T10:00:00Z", 0);
+        let mut b = g("mx-b", "Matrix", "Room B", "2026-11-12T11:00:00Z", 0);
+        for c in [&mut a, &mut b] { c["participants"]["items"] = json!([{ "id": "basile", "fullName": "Basile Rivoire" }]); }
+        let out = build(&[a, b], &json!({ "groupMerges": [["mx-a", "mx-b"]] }));
+        let titles: Vec<_> = out["groups"][0]["chats"].as_array().unwrap().iter().map(|c| c["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, ["Room B", "Room A"]);
     }
 
     #[test]
