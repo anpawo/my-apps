@@ -732,7 +732,8 @@ function drawHeader() {
   const item = state.cur;
   $('.who').innerHTML = `${avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.who .av').title = item.kind === 'group' ? 'Group info and members' : 'Profile';
-  $('.who .av').onclick = () => (profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile());
+  // The avatar and the name open the details under the bar; the rest of the bar still drags the window.
+  $('.who').onclick = e => e.target.closest('.av, b') && (profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile());
   // Every network this person is on, as its logo; the one replies go to is highlighted, a click picks another.
   $('.chips').innerHTML = netsOf(item).map(k => `<button class="chip" data-net="${k}" title="Reply on ${NETS[k].label}${NETS[k].cmd ? ` (/${NETS[k].cmd})` : ''}">${netMark(k)}</button>`).join('');
   $('.chips').querySelectorAll('.chip').forEach(b => (b.onclick = () => { setTarget(chatFor(b.dataset.net), true); input.focus(); }));
@@ -1728,7 +1729,7 @@ function openProfile(item) {
   if (opening) {
     [profile.box, profile.sheet].forEach(el => el.getAnimations().forEach(a => a.cancel()));
     anim(profile.box, { opacity: [0, 1] }, 200);
-    anim(profile.sheet, { transform: ['translateX(100%)', 'none'] }, 220, 'cubic-bezier(.2, .8, .2, 1)');
+    anim(profile.sheet, { transform: ['translateY(-100%)', 'none'] }, 260, 'cubic-bezier(.2, .8, .2, 1)');
   }
   showProfile(item, opening ? 120 : 0);
 }
@@ -1736,7 +1737,7 @@ function closeProfile() {
   if (profile.box.hidden || profile.closing) return;
   profile.closing = true;
   const done = () => { if (profile.closing) { profile.box.hidden = true; profile.closing = false; } };
-  anim(profile.sheet, { transform: ['none', 'translateX(100%)'] }, 180, 'ease-in').effect.updateTiming({ fill: 'forwards' });
+  anim(profile.sheet, { transform: ['none', 'translateY(-100%)'] }, 200, 'ease-in').effect.updateTiming({ fill: 'forwards' });
   const a = anim(profile.box, { opacity: [1, 0] }, 180);
   a.effect.updateTiming({ fill: 'forwards' });
   a.finished.then(done, done);
@@ -1749,7 +1750,7 @@ async function showProfile(view, delay = 0) {
   const member = view.kind === 'member';
   const who = member ? { name: view.p.fullName || view.p.username || 'Unknown', imgs: view.p.imgURL ? [view.p.imgURL] : [] } : view;
   profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
-    + `<div class="head">${avatar(who)}<h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div>`
+    + `<div class="head">${avatar(who)}<div><h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div></div>`
     + (member ? '' : `<div class="actions">${view.kind === 'person' && view.id !== state.cur?.id ? '<button class="open">Open conversation</button>' : ''}<button class="merge">Merge with…</button></div>`)
     + '<div class="details" hidden></div>';
   profile.body.scrollTop = 0;

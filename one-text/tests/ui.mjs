@@ -776,13 +776,13 @@ check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard 
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 
-// A click on the group bubble at the top slides in its profile: description and members, admins first; a member who
+// A click on the group bubble at the top slides its profile down under the bar: description and members, admins first; a member who
 // is someone in the list opens as that person, ‹ goes back, esc closes.
 await page.evaluate(() => select('grp-1'));
 await page.waitForSelector('#thread .msg');
 await page.click('header .who > .av');
 await page.waitForTimeout(110);
-const sliding = await page.$eval('#profile .sheet', s => new DOMMatrix(getComputedStyle(s).transform).m41);
+const sliding = await page.$eval('#profile .sheet', s => -new DOMMatrix(getComputedStyle(s).transform).m42);
 await page.waitForSelector('#profile .member');
 await page.waitForTimeout(400);
 const group = await page.$eval('#profile', p => [p.querySelector('h2').textContent, p.querySelector('.desc')?.textContent, [...p.querySelectorAll('.member b')].map(b => b.textContent), p.querySelector('.member i')?.textContent, p.querySelector('.more-members')?.textContent, Math.round(p.querySelector('.sheet').getBoundingClientRect().right) === Math.round(p.getBoundingClientRect().right)]);
@@ -796,6 +796,8 @@ await page.screenshot({ path: join(out, 'profile-person.png') });
 check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
 const twice = await page.evaluate(async () => { const c = profile.view.chats[0]; return (await detailsHTML({ kind: 'person', chats: [c, c] })).split('<section>').length - 1; });
 check(twice === 1, `two chats with the same person on one app show their details once (${twice} sections)`);
+const capped = await page.$eval('#profile .sheet', s => { const r = s.getBoundingClientRect(), p = s.parentElement.getBoundingClientRect(); return [r.top === p.top, r.width === p.width, r.height <= innerHeight / 4 + 1]; });
+check(capped.join() === 'true,true,true', `the profile drops from under the bar, as wide as the chat, at most a quarter of the window high (${capped})`);
 // Merge with… from the profile: the same picker as the ⋯ menu, under the button.
 await page.click('#profile .merge');
 await page.waitForSelector('.menu .found .item');
