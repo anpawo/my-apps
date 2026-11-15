@@ -742,6 +742,14 @@ await page.click('#thread .msg[data-id="h1"] .reacts button');
 const undone = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="h1"] .reacts button').length, __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE').length]);
 check(JSON.stringify(quick) === '[5,true,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
 
+// A reply under a long quote: its hover bar sits beside its bubble, not past the quote; Beeper's &gt; shows as >.
+await page.evaluate(() => { const h = __msgs['ig-hugo']; h.push({ ...h[0], id: 'h2', text: 'a =&gt; b', linkedMessageID: 'h1', timestamp: new Date().toISOString(), sortKey: '1999999999' }); h[0].text = 'a long message that makes the quote much wider than the short reply under it'; return pollThread(); });
+await page.waitForSelector('#thread .msg[data-id="h2"] .quote');
+await rightEdge('#thread .msg[data-id="h2"]');
+await page.waitForTimeout(250);
+const beside = await page.$eval('#thread .msg[data-id="h2"]', m => { const q = m.querySelector('.quick').getBoundingClientRect(), b = m.querySelector('.bubble').getBoundingClientRect(); return [m.querySelector('.bubble').textContent, Math.round(q.left - b.right)]; });
+check(beside[0] === 'a => b' && beside[1] >= 0 && beside[1] <= 10, `a reply's hover bar sits beside its bubble and shows > decoded (${beside})`);
+
 // The + at the end of the hover bar opens every emoji, 5 to a row, searchable by name.
 await rightEdge('#thread .msg[data-id="h1"]');
 await page.waitForTimeout(250);

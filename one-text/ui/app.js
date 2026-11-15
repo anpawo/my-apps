@@ -783,7 +783,7 @@ function highlightTarget() {
 }
 
 // Beeper hands Instagram shares over as HTML (<p><a href=…>…</a></p>): keep the text only.
-const plain = s => (s && /<\/?[a-z][^>]*>/i.test(s) ? new DOMParser().parseFromString(s, 'text/html').body.textContent : s);
+const plain = s => (s && /<\/?[a-z][^>]*>|&(#\d+|#x[\da-f]+|[a-z]+);/i.test(s) ? new DOMParser().parseFromString(s, 'text/html').body.textContent : s);
 const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p|stories)\/[\w-]+\/?\S*/;
 const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
 const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
@@ -1019,6 +1019,9 @@ $('#thread').addEventListener('pointermove', e => {
   const top = bs[0].top, bottom = bs.at(-1).bottom;
   const rowTop = row.getBoundingClientRect().top + parseFloat(getComputedStyle(row).paddingTop);
   q.style.marginTop = `${Math.max(0, (top + bottom) / 2 - rowTop - q.offsetHeight / 2)}px`;
+  // Next to the bubbles, not the column: a wider quote or name would push it away.
+  const col = row.querySelector('.col').getBoundingClientRect();
+  q.style[me ? 'marginRight' : 'marginLeft'] = `${me ? col.left - left : right - col.right}px`;
   row.classList.add('hot');
   hotRow = row;
 });
