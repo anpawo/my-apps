@@ -1645,6 +1645,7 @@ struct ProseView: View {
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.3), value: hoveredRow)
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: copiedCell)
         }
+        .scrollIndicators(.hidden)
         .help("⌘-click copies the cell, ⌘-double-click the row")
         .onModifierKeysChanged(mask: .command) { _, keys in commandHeld = !keys.isEmpty }
         .frame(maxWidth: widths.reduce(0, +), alignment: .leading)
