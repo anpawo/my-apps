@@ -170,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.chooseOption = { [weak session] in session?.chooseOption($0) ?? false }
+        window.define = { [weak session] words in
+            Task { await session?.send(text: "Define \"\(words)\" as used here, in at most 3 short lines.", images: [], commandHandled: true, expectedDraft: NSAttributedString(), expectedGeneration: -1) }
+        }
         window.find = session.find
         window.closeFind = { [weak session] in session?.find.toggle(); session?.focusComposer() }
         window.title = "\(session.folder) · Vibe Code X"

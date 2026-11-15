@@ -336,6 +336,16 @@ enum Check {
             clickWindow.makeFirstResponder(input)
             click(NSPoint(x: 400, y: 100))
             check(clicks == 1 && clickWindow.firstResponder === input, "a click beside another text input keeps it focused")
+            var defined: [String] = []
+            clickWindow.define = { defined.append($0) }
+            input.string = "the word ephemeral here"; input.setSelectedRange(NSRange(location: 9, length: 9))
+            clickWindow.makeFirstResponder(input)
+            let onWord = clickWindow.convertPoint(fromScreen: input.firstRect(forCharacterRange: NSRange(location: 11, length: 1), actualRange: nil).origin)
+            let optionClick = { (point: NSPoint) in clickWindow.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: .option, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!) }
+            optionClick(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
+            check(defined == ["ephemeral"] && input.selectedRange() == NSRange(location: 9, length: 9), "an option-click on selected words asks to define them and keeps the selection")
+            optionClick(NSPoint(x: 400, y: 100))
+            check(defined.count == 1, "an option-click away from the selection defines nothing")
             check(!clickWindow.isVisible, "the click fixture stays off screen")
             clickWindow.close()
         }

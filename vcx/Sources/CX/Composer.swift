@@ -7,6 +7,7 @@ final class ComposerWindow: NSWindow {
     var chooseOption: (Int) -> Bool = { _ in false }
     var find: TranscriptFind?
     var closeFind: () -> Void = {}
+    var define: (String) -> Void = { _ in }
     private var clickStart: NSPoint?
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     override func sendEvent(_ event: NSEvent) {
@@ -32,6 +33,13 @@ final class ComposerWindow: NSWindow {
                 else { DispatchQueue.main.async { [weak self] in if self?.firstResponder is ComposerText { self?.sendEvent(event) } } }
                 return
             }
+        }
+        // ⌥-click on a few selected words asks what they mean.
+        if event.type == .leftMouseDown, event.modifierFlags.intersection([.command, .control, .option, .shift]) == .option, attachedSheet == nil,
+           let field = firstResponder as? NSTextView, field.selectedRange().length > 0,
+           NSLocationInRange(field.characterIndex(for: convertPoint(toScreen: event.locationInWindow)), field.selectedRange()) {
+            let words = (field.string as NSString).substring(with: field.selectedRange()).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !words.isEmpty, words.split(whereSeparator: \.isWhitespace).count <= 6 { define(words); return }
         }
         if event.type == .leftMouseDown { clickStart = event.clickCount == 1 ? convertPoint(toScreen: event.locationInWindow) : nil }
         super.sendEvent(event)
