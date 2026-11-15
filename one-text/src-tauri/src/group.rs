@@ -319,12 +319,16 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             let mut summaries: Vec<Value> = members.iter().map(|&i| summary(groups[i])).collect();
             summaries.sort_by(|a, b| b["last"].as_str().cmp(&a["last"].as_str()));
             let mut seen = std::collections::HashSet::new();
-            let faces: Vec<String> = members.iter().flat_map(|&i| faces(groups[i], &pic_of)).filter(|f| seen.insert(f.clone())).collect();
+            // A picture set by hand, on any room of the group, stands in for its members' faces.
+            let custom = members.iter().find_map(|&i| overrides["pictures"][id(groups[i])].as_str());
+            let faces: Vec<String> = if custom.is_some() { vec![] } else {
+                members.iter().flat_map(|&i| faces(groups[i], &pic_of)).filter(|f| seen.insert(f.clone())).collect()
+            };
             json!({
                 "id": id(c), "hidden": hidden.contains(&id(c)),
                 "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)),
                 "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()),
-                "imgs": overrides["pictures"][id(c)].as_str().or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(),
+                "imgs": custom.or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(),
                 "faces": faces,
                 "unread": summaries.iter().map(|s| s["unread"].as_i64().unwrap_or(0)).sum::<i64>(),
                 "last": summaries[0]["last"], "preview": summaries[0]["preview"], "chats": summaries,
@@ -499,6 +503,12 @@ mod tests {
         let lea = out["people"].as_array().unwrap().iter().find(|p| p["id"] == "ig-lea").unwrap();
         assert_eq!(lea["imgs"][0], "data:image/jpeg;base64,AA");
         assert_eq!(out["groups"][0]["imgs"], json!(["data:image/png;base64,BB"]));
+        // On a merged group, set on whichever room was newest: it still shows, in place of the faces.
+        let g = |i: &str, at: &str| json!({ "id": i, "type": "group", "network": "Matrix", "title": i, "lastActivity": at,
+            "participants": { "total": 3, "items": [{ "id": "a", "fullName": "A", "imgURL": "mxc://a" }] } });
+        let all = [g("old", "2026-11-10T00:00:00Z"), g("new", "2026-11-12T00:00:00Z")];
+        let out = build(&all, &json!({ "groupMerges": [["old", "new"]], "pictures": { "new": "data:mine" } }));
+        assert_eq!((&out["groups"][0]["imgs"], &out["groups"][0]["faces"]), (&json!(["data:mine"]), &json!([])));
     }
 
     #[test]

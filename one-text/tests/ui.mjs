@@ -60,7 +60,7 @@ const stub = () => {
   const invoke = async (cmd, args) => {
     log.push([cmd, args]);
     await new Promise(r => setTimeout(r, 30));
-    if (cmd === 'people') return structuredClone({ people: people(), groups: groups.map(g => ({ ...g, name: overrides.names?.[g.id] || g.name, original: overrides.names?.[g.id] ? g.name : null, hidden: (overrides.hidden || []).includes(g.id) })) });
+    if (cmd === 'people') return structuredClone({ people: people(), groups: groups.map(g => ({ ...g, ...(overrides.pictures?.[g.id] && { imgs: [overrides.pictures[g.id]], faces: [] }), name: overrides.names?.[g.id] || g.name, original: overrides.names?.[g.id] ? g.name : null, hidden: (overrides.hidden || []).includes(g.id) })) });
     if (cmd === 'overrides') return structuredClone(overrides);
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
@@ -474,6 +474,25 @@ await page.evaluate(d => setPicture(state.byId.get(state.all.find(i => i.name ==
 await page.waitForTimeout(400);
 check(await page.$eval('.fav img, #people .row:has-text("Hugo R") img', i => i.src.startsWith('data:image/svg')), 'a picture set by hand shows instead of the initials');
 check(await page.evaluate(() => Object.keys(state.pictures || {}).length) === 1, 'the picture is kept in the overrides');
+// A click on the face in the bar picks a picture from a file; a group on one app then shows it between its logo and its name.
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+await page.evaluate(() => select('grp-1'));
+await page.waitForTimeout(400);
+const barBefore = await page.evaluate(() => [!!document.querySelector('header .who > .av'), document.querySelector('header .who').firstElementChild.className]);
+await page.evaluate(() => select(state.all.find(i => i.name === 'Hugo R').id));
+await page.waitForTimeout(400);
+const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('header .who > .av')]);
+await chooser.setFiles({ name: 'me.png', mimeType: 'image/png', buffer: png });
+await page.waitForFunction(() => Object.values(__log.filter(([c]) => c === 'set_overrides').at(-1)?.[1].value.pictures || {}).some(u => u.startsWith('data:image/jpeg')));
+await page.evaluate(() => setPicture(state.byId.get('grp-1'), document.querySelector('header .who img')?.src || 'data:image/jpeg;base64,AA'));
+await page.waitForTimeout(400);
+await page.evaluate(() => select('grp-1'));
+await page.waitForTimeout(400);
+const barAfter = await page.evaluate(() => [...document.querySelector('header .who').children].map(c => c.className));
+check(JSON.stringify(barBefore) === '[false,"net"]' && JSON.stringify(barAfter) === '["net","av",""]',
+  `the bar's face opens a file; a group's own picture shows beside its logo (${JSON.stringify(barBefore)} → ${JSON.stringify(barAfter)})`);
+await page.evaluate(() => setPicture(state.byId.get('grp-1'), null));
+await page.waitForTimeout(300);
 
 // Pinning a group: it keeps its row, under the favorites' pictures and above the list.
 await page.click('#people .row[data-id="grp-1"]', { button: 'right' });
@@ -788,6 +807,8 @@ await page.waitForTimeout(400);
 const person = await page.$eval('#profile', p => [p.querySelector('h2').textContent, [...p.querySelectorAll('.conn .app')].map(s => s.textContent), [...p.querySelectorAll('.conn .pill')].map(b => b.textContent), !!p.querySelector('.back')]);
 await page.screenshot({ path: join(out, 'profile-person.png') });
 check(JSON.stringify(person) === JSON.stringify(['Lea Martin', ['Instagram', 'WhatsApp'], ['Lea Martin', '@lea', 'Lea Martin', '@lea'], true]), `a member who is in the list opens as that person, each app's details (${JSON.stringify(person)})`);
+const wide = await page.$eval('header', h => [getComputedStyle(h.querySelector('.who')).display, Math.round(h.querySelector('#profile').getBoundingClientRect().left - h.getBoundingClientRect().left)]);
+check(wide[0] === 'none' && wide[1] <= 20, `a member's profile takes the whole bar, the group's logo and name out of it (${wide})`);
 const twice = await page.evaluate(async () => { const c = profile.view.chats[0]; return (await detailsHTML({ kind: 'person', chats: [c, c] })).split('<section').length - 1; });
 check(twice === 1, `two chats with the same person on one app show their details once (${twice} sections)`);
 // Merge with… from a member's profile: the same picker as the ⋯ menu, under the button.
@@ -799,8 +820,9 @@ await page.waitForFunction(() => __log.filter(([c]) => c === 'set_overrides').at
 const saved = await page.evaluate(() => [profile.view.chats[0].id, __log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.merges.at(-1)]);
 check(saved[1]?.[0] === saved[0], `Merge with… in a profile merges that person with the one picked (${mergeWith}: ${JSON.stringify(saved)})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
-await page.click('#profile .back');
+await page.keyboard.press('Escape');
 await page.waitForSelector('#profile .member');
+check(await page.$eval('header', h => getComputedStyle(h.querySelector('.who')).display !== 'none' && !h.querySelector('#profile .back')), 'esc goes back from a member to the group');
 // A person's chat: the face as tall as two app lines, the name centred on it, a pill line per app on the right, the one replies go to
 // lit; a click on another picks it; the bar stays within a quarter of the window.
 await page.evaluate(() => select([...state.byId.values()].find(i => i.kind === 'person' && new Set(i.chats.map(netOf)).size > 1).id));

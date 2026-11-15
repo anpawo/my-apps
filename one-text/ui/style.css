@@ -77,6 +77,8 @@ header { flex: none; max-height: 25vh; display: flex; align-items: flex-start; g
 header .who { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 40%; flex: none; }
 /* As tall as two of the app lines beside it. */
 header .who .av { --s: 70px; width: 70px; height: 70px; font-size: 22px; }
+header .who > .av { cursor: pointer; }
+header .who > .av:not(.faces):hover, header .who > .av.faces:hover > .av { box-shadow: 0 0 0 2px #000, 0 0 0 4px #363636; }
 header .who > .net { width: 40px; height: 40px; border-radius: 10px; }
 header .who b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
@@ -239,6 +241,8 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 
 #profile { flex: 1; min-width: 0; align-self: stretch; overflow-y: auto; }
 #profile .back:hover { background: var(--tint); }
+header.drilled .who { display: none; }
+header.drilled #profile .body { grid-template-columns: fit-content(400px) 1fr; }
 #profile .body { display: grid; grid-template-columns: fit-content(180px) 1fr; align-items: start; column-gap: 24px; user-select: text; -webkit-user-select: text; }
 #profile .back, #profile .head, #profile .actions { grid-column: 1; }
 #profile .details { grid-column: 2; grid-row: 1 / span 3; }

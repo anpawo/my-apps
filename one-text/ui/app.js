@@ -728,9 +728,11 @@ async function loadMessages(item) {
 
 function drawHeader() {
   const item = state.cur;
-  // A group on one app: that app's logo before its name, its members' faces already on the right.
+  // A group on one app: that app's logo before its name (and its own picture, if it has one), its members' faces already on the right.
   const one = item.kind === 'group' && netsOf(item).length === 1;
-  $('.who').innerHTML = `${one ? netMark(netOf(item.chats[0])) : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
+  const own = one && !item.faces?.length && item.imgs?.length ? avatar({ ...item, _plain: true }) : '';
+  $('.who').innerHTML = `${one ? netMark(netOf(item.chats[0])) + own : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
+  $('.who > .av')?.setAttribute('title', 'Change picture');
   $('.more').hidden = false;
 }
 
@@ -1730,6 +1732,8 @@ async function showProfile(view) {
   const bar = $('header'), from = profile.box.hidden ? 0 : bar.offsetHeight;
   profile.box.hidden = false;
   profile.body.classList.toggle('own', !!own);
+  // Someone opened from a group takes the whole bar; ‹ Back or esc returns to the group.
+  bar.classList.toggle('drilled', !!profile.stack.length);
   profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
     + (own ? '' : `<div class="head">${avatar(who)}<div><h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div></div>`)
     + `<div class="details">${html}</div>`
@@ -1778,7 +1782,14 @@ async function detailsHTML(view) {
   }).join('');
 }
 
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !profile.stack.length || openMenu) return;
+  e.preventDefault();
+  e.stopPropagation();
+  showProfile(profile.stack.pop());
+}, true);
 $('header').addEventListener('click', e => {
+  if (e.target.closest('.who > .av')) return pickPicture(state.cur);
   const m = e.target.closest('.member');
   if (m) {
     const v = profile.members[+m.dataset.i];
