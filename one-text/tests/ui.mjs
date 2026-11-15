@@ -650,7 +650,7 @@ await page.evaluate(() => { const i = state.all.find(i => i.name === 'Lea Martin
 await page.waitForTimeout(300);
 const bubble = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), b = g.querySelector('.grouptile').getBoundingClientRect(); return [g.querySelector('.strip').hidden, Math.round(b.width), g.querySelectorAll('.grouptile .av').length, g.querySelector('.grouptile').classList.contains('unread'), Math.round(g.getBoundingClientRect().height)]; });
 const row = await page.evaluate(() => { const a = document.querySelector('.group[data-name="Family"]').getBoundingClientRect(), b = document.querySelector('.group[data-name="Work"]').getBoundingClientRect(); return [a.top === b.top, a.right < b.left]; });
-check(JSON.stringify(bubble) === '[true,48,1,true,' + bubble[4] + ']' && bubble[4] < 80 && JSON.stringify(row) === '[true,true]' && !leaBefore && (await lea()), `a folded group is one bubble beside the next, dotted when someone in it has unread messages, who then shows in the list (${bubble} / ${row} / ${leaBefore})`);
+check(JSON.stringify(bubble) === '[true,48,1,true,' + bubble[4] + ']' && bubble[4] < 80 && JSON.stringify(row) === '[true,true]' && leaBefore && (await lea()), `a folded group is one bubble beside the next, dotted when someone in it has unread messages; who is in it stays in the list, answered or not (${bubble} / ${row} / ${leaBefore})`);
 await page.screenshot({ path: join(out, '7b-folded.png'), clip: { x: 0, y: 0, width: 330, height: 560 } });
 await page.click('.group[data-name="Family"] .grouptile');
 await page.waitForTimeout(300);

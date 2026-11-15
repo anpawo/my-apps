@@ -186,9 +186,9 @@ function fits() {
   const room = list.clientHeight - $('#pinned').offsetHeight - parseFloat(getComputedStyle(list).paddingBottom);
   return Math.max(3, Math.ceil(room / row));
 }
-// A favorite in a group shows here too while it has unread messages (its group is one folded bubble), and
-// stays while it is open from here.
-const listed = i => isFav(i)
+// A person in a group of favorites stays in the list like anyone else: the groups only sort the bar for him.
+// A pinned group chat in one shows here only while it has unread messages or is open from here.
+const listed = i => isFav(i) && !(grouped(i) && i.kind !== 'group')
   ? grouped(i) && (i.unread > 0 || (i.id === state.cur?.id && !!$(`#people > [data-id="${CSS.escape(i.id)}"]:not([data-leaving])`)))
   : !i.hidden || i.id === state.cur?.id;
 function shown(items) {
@@ -201,7 +201,7 @@ $('#list').addEventListener('wheel', e => {
   const list = $('#list');
   if (e.deltaY <= 0 || list.scrollHeight - list.scrollTop - list.clientHeight > 40) return;
   const have = $('#people').querySelectorAll('.row:not([data-leaving])').length;
-  if (have >= (state.all || []).filter(i => !isFav(i) && !i.hidden).length) return;
+  if (have >= (state.all || []).filter(i => listed(i) && !i.hidden).length) return;
   state.more = have * 2;
   showLists();
 }, { passive: true });
