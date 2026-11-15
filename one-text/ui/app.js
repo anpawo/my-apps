@@ -1116,8 +1116,8 @@ async function pollThread() {
   // A message still flying or opening is left alone: the next poll swaps it once it stands still.
   if (document.querySelector('.bubble.flying') || [...document.querySelectorAll('#thread .msg.pending')].some(p => p._anim)) return;
   const known = new Set(state.msgs.map(m => m.id));
-  // A reaction or a read marker changes a message already shown: that one is redrawn in place.
-  const look = m => JSON.stringify([m.reactions || [], m.seen || null]);
+  // A reaction, a read marker, an edit or a delete changes a message already shown: that one is redrawn in place.
+  const look = m => JSON.stringify([m.reactions || [], m.seen || null, !!m.isDeleted, m.text || '']);
   for (const m of msgs) {
     const i = state.msgs.findIndex(x => x.id === m.id);
     if (i >= 0 && look(state.msgs[i]) !== look(m)) { state.msgs[i] = m; redrawMsg(m); }
