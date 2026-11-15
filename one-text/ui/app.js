@@ -179,12 +179,12 @@ function movePill(ms) {
 }
 
 // Drawing every person (hundreds of rows and pictures) made the app slow: the list holds the newest that fit
-// on screen (10 at most), those with unread messages and the open one; scrolling past the end doubles it.
+// on screen (the last one cut off), those with unread messages and the open one; scrolling past the end doubles it.
 // A search looks through everyone but draws the 30 newest matches.
 function fits() {
   const list = $('#list'), row = $('#people .row:not([data-leaving])')?.offsetHeight || 56;
   const room = list.clientHeight - $('#pinned').offsetHeight - parseFloat(getComputedStyle(list).paddingBottom);
-  return Math.max(3, Math.min(10, Math.floor(room / row)));
+  return Math.max(3, Math.ceil(room / row));
 }
 // A favorite in a group shows here too while it has unread messages (its group is one folded bubble), and
 // stays while it is open from here.
