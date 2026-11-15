@@ -453,7 +453,9 @@ struct OverlayView: View {
 
     /// The sessions gathered by the directory they are working in, in the order the sessions
     /// themselves already come in — least recently touched first, so the group holding the
-    /// session you have left alone longest leads.
+    /// session you have left alone longest leads. Inside a group the cards keep their start
+    /// order: a prompt never moves a card past its neighbours (asked 2026-11-15). VCX windows
+    /// share their app's start time, hence the id after it.
     private func groups(of sessions: [Session]) -> [(name: String, sessions: [Session])] {
         var order: [String] = []
         var byDir: [String: [Session]] = [:]
@@ -462,7 +464,9 @@ struct OverlayView: View {
             if byDir[key] == nil { order.append(key) }
             byDir[key, default: []].append(session)
         }
-        return order.map { ($0, byDir[$0] ?? []) }
+        return order.map { key in
+            (key, (byDir[key] ?? []).sorted { ($0.proc.startedAt, $0.id) < ($1.proc.startedAt, $1.id) })
+        }
     }
 
     /// Every directory, its name over its cards even when it holds one (asked 2026-11-07).
