@@ -728,7 +728,7 @@ async function loadMessages(item) {
 
 function drawHeader() {
   const item = state.cur;
-  $('.who').innerHTML = `${avatar(item)}<div class="id"><b>${esc(item.name || 'Unnamed')}</b><button class="merge">Merge with…</button></div>`;
+  $('.who').innerHTML = `${avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.more').hidden = false;
 }
 
@@ -1775,7 +1775,7 @@ $('header').addEventListener('click', e => {
   const line = e.target.closest('#profile [data-net]');
   if (line && !getSelection().toString()) return setTarget(chatFor(line.dataset.net), true);
   const merging = e.target.closest('.merge');
-  if (merging) return openMenu?._anchor === merging ? closeMenu() : menu(merging, m => mergePicker(m, merging.closest('.who') ? state.cur : profile.view));
+  if (merging) return openMenu?._anchor === merging ? closeMenu() : menu(merging, m => mergePicker(m, profile.view));
   if (e.target.closest('.open')) select(profile.view.id);
 });
 

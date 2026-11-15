@@ -75,11 +75,11 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: r
 /* The bar holds the whole profile: picture, name and Merge on the left, what each app knows on the right. */
 header { flex: none; max-height: 25vh; display: flex; align-items: flex-start; gap: 24px; padding: 12px 14px 12px 20px; overflow: hidden; border-bottom: 1px solid var(--line); }
 header .who { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 40%; flex: none; }
-header .who .av { --s: 48px; width: 48px; height: 48px; font-size: 16px; }
-header .who .id { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-header .who b { max-width: 100%; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-header .merge, #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
-header .merge:hover, header .merge.open, #profile .actions button:hover { background: #363636; }
+/* As tall as two of the app lines beside it. */
+header .who .av { --s: 70px; width: 70px; height: 70px; font-size: 22px; }
+header .who b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
+#profile .actions button:hover, #profile .merge.open { background: #363636; }
 header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; border: 0; border-bottom: 1px solid var(--muted); outline: none; padding: 1px 0; width: 260px; }
 .row .orig { display: none; margin-left: 8px; color: var(--muted); font-weight: 400; font-size: 12.5px; }
 #results .row .orig { display: inline; }

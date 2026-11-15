@@ -799,7 +799,7 @@ check(saved[1]?.[0] === saved[0], `Merge with… in a profile merges that person
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.click('#profile .back');
 await page.waitForSelector('#profile .member');
-// A person's chat: the face as big as the favourites', Merge under the name, a pill line per app on the right, the one replies go to
+// A person's chat: the face as tall as two app lines, the name centred on it, a pill line per app on the right, the one replies go to
 // lit; a click on another picks it; the bar stays within a quarter of the window.
 await page.evaluate(() => select([...state.byId.values()].find(i => i.kind === 'person' && new Set(i.chats.map(netOf)).size > 1).id));
 await page.waitForSelector('#profile .conn[data-net]');
@@ -807,21 +807,16 @@ await page.waitForTimeout(700);
 const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('#profile .conn.on')?.dataset.net]);
 const shape = await page.$eval('header', h => {
   const r = s => h.querySelector(s).getBoundingClientRect(), lines = [...h.querySelectorAll('#profile .conn')].map(c => c.getBoundingClientRect());
-  return [!h.querySelector('#profile .head'), lines.length, r('.who > .av').width >= document.querySelector('.fav .av').getBoundingClientRect().width,
-    r('.who .merge').top >= r('.who b').bottom, r('.more').left - Math.max(...lines.map(l => l.right)) <= 30, h.getBoundingClientRect().height <= innerHeight / 4 + 1];
+  return [!h.querySelector('#profile .head'), lines.length, Math.abs(r('.who > .av').height - (lines[1].bottom - lines[0].top)) <= 1,
+    Math.abs(r('.who b').top + r('.who b').height / 2 - r('.who > .av').top - r('.who > .av').height / 2) <= 1, !h.querySelector('.who .merge'), r('.more').left - Math.max(...lines.map(l => l.right)) <= 30, h.getBoundingClientRect().height <= innerHeight / 4 + 1];
 });
 const litBefore = await lit();
 await page.screenshot({ path: join(out, 'profile-kept.png') });
 await page.click('#profile .conn[data-net]:not(.on)');
 await page.waitForTimeout(250);
 const litAfter = await lit();
-check(shape.join() === 'true,2,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
-  `the bar: face, name, Merge under, app lines on the right, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
-await page.click('header .who .merge');
-await page.waitForSelector('.menu .found .item');
-check(await page.$$eval('.menu .found .item', i => i.length) > 0, 'Merge with… under the name opens the picker');
-await page.keyboard.press('Escape');
-await page.waitForTimeout(200);
+check(shape.join() === 'true,2,true,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
+  `the bar: face as tall as two app lines, name centred, no Merge under it, app lines on the right, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
 
 // Someone with no chat yet: ⌘D finds them by their Discord tag, ↵ starts the chat and opens it.
 await page.keyboard.press('Meta+d');
