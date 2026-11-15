@@ -117,6 +117,10 @@ final class App: NSObject, NSApplicationDelegate {
                 config.arguments = ["--focus"]
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Vibe Code X.app"), configuration: config)
             }),
+            // Launches One Text, or unhides and brings up the running one (its close button only hides it).
+            (kVK_ANSI_O, cmdKey | optionKey, "⌥⌘O", {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: NSHomeDirectory() + "/Applications/One Text.app"), configuration: .init())
+            }),
         ])
     }
 }
