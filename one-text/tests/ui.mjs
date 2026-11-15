@@ -24,7 +24,7 @@ const stub = () => {
   ];
   chats[6].accountID = 'sh-teams';
   chats.forEach(c => (c.pid = 'p-' + c.id));
-  const msg = (chatID, id, text, min, isSender = false) => ({ id, chatID, text, timestamp: t(min), sortKey: String(1e9 - min), isSender, senderID: isSender ? 'me' : chatID, senderName: 'x' });
+  const msg = (chatID, id, text, min, isSender = false) => ({ id, chatID, text, timestamp: t(min), sortKey: String(1e9 - min), type: 'TEXT', isSender, senderID: isSender ? 'me' : chatID, senderName: 'x' });
   const msgs = {
     'wa-lea': [msg('wa-lea', 'w1', 'dinner tonight still on?', 50), msg('wa-lea', 'w2', 'yes! where?', 45, true), msg('wa-lea', 'w3', 'the usual place', 30)],
     'ig-lea': [msg('ig-lea', 'i1', 'did you see the reel I sent?', 1500), msg('ig-lea', 'i2', 'haha yes, too good', 1490, true), { ...msg('ig-lea', 'i2r', '<p><a href="https://www.instagram.com/reel/ABC123/?id=1&amp;x=y" rel="noopener">https://www.instagram.com/reel/ABC123/</a></p>', 1480), attachments: [{ type: 'img', srcURL: 'mxc://thumb' }] }, msg('ig-lea', 'i3', 'see you at 8 then', 5)],
@@ -32,7 +32,7 @@ const stub = () => {
     'wa-tom': [msg('wa-tom', 't1', 'call me when you can', 90)],
     'ig-hugo': [msg('ig-hugo', 'h1', 'sent you the deck', 200)], 'li-hugo': [msg('li-hugo', 'l1', 'congrats on the new role', 300)],
     'te-sarah': [msg('te-sarah', 's1', 'meeting moved to 3pm', 400)],
-    'grp-1': [msg('grp-1', 'g1', 'who is in for friday?', 20)], 'grp-2': [msg('grp-2', 'g2', 'new release is out', 700)],
+    'grp-1': [{ ...msg('grp-1', 'g0', 'Nina joined the chat', 25), type: undefined }, msg('grp-1', 'g1', 'who is in for friday?', 20)], 'grp-2': [msg('grp-2', 'g2', 'new release is out', 700)],
   };
   for (const c of chats) c.preview = { text: msgs[c.id].at(-1).text, isSender: msgs[c.id].at(-1).isSender };
   const groups = [
@@ -700,8 +700,8 @@ check(before[1] && before[0] > 0 && before[0] <= 10 && after === before[0] * 2, 
 // Under my last message: Seen and its time once the other side's read marker reaches it, Sent before.
 await page.evaluate(() => {
   const t = new Date(Date.now() - 60000).toISOString();
-  __msgs['ig-hugo'].push({ id: 'h2', chatID: 'ig-hugo', text: 'thanks!', timestamp: t, sortKey: String(1e9 - 1), isSender: true, senderID: 'me', senderName: 'x', seen: { 'ig-hugo': t } });
-  __msgs['li-hugo'].push({ id: 'l2', chatID: 'li-hugo', text: 'thank you', timestamp: new Date().toISOString(), sortKey: String(1e9), isSender: true, senderID: 'me', senderName: 'x' });
+  __msgs['ig-hugo'].push({ id: 'h2', chatID: 'ig-hugo', text: 'thanks!', timestamp: t, sortKey: String(1e9 - 1), type: 'TEXT', isSender: true, senderID: 'me', senderName: 'x', seen: { 'ig-hugo': t } });
+  __msgs['li-hugo'].push({ id: 'l2', chatID: 'li-hugo', text: 'thank you', timestamp: new Date().toISOString(), sortKey: String(1e9), type: 'TEXT', isSender: true, senderID: 'me', senderName: 'x' });
   return refreshList().then(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));
 });
 await page.waitForSelector('#thread .receipt');
@@ -885,6 +885,8 @@ check(tagRows.length === 1 && posts === 1, `Merge with… finds a Discord tag as
 check(await page.evaluate(() => !__log.some(([c, a]) => c === 'api' && a.path.startsWith('/v1/accounts/matrix/'))), "Beeper's own account is never searched for contacts");
 const twin = await page.evaluate(() => { const p = state.all.find(i => i.kind === 'person' && i.chats.some(c => netOf(c) === 'discord')); return [p.name, contactItem({ accountID: 'discordgo2', network: 'Discord' }, { id: '999', fullName: p.name }).id === p.id, contactItem({ accountID: 'discordgo2', network: 'Discord' }, { id: '998', fullName: 'Nobody Here' }).id]; });
 check(twin[1] && twin[2].startsWith('contact:'), `a contact found by another login of the same app, under the same name, is the person already there (${twin[0]}, ${twin[2]})`);
+const joined = await page.evaluate(() => loadMessages(state.byId.get('grp-1')).then(ms => ms.map(m => m.id).join()));
+check(joined === 'g1', `a bridge's "joined the chat" line is not shown as a message (${joined})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 

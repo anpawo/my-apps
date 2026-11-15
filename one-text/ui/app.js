@@ -744,10 +744,12 @@ async function select(id) {
   $('#input').focus();
 }
 
+// Bridges post "X was invited", "X joined the chat" as messages with no type: the app they come from shows none.
+const shownMsg = m => !m.isHidden && !!m.type;
 async function loadMessages(item) {
   const pages = await Promise.all(item.chats.map(c =>
     api('GET', `/v1/chats/${enc(c.id)}/messages`).then(r => (r.items || []).map(m => ({ ...m, net: netOf(c) }))).catch(() => [])));
-  return pages.flat().filter(m => !m.isHidden).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10);
+  return pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10);
 }
 
 function drawHeader() {
@@ -1109,7 +1111,7 @@ async function loadOlder() {
   if (seq !== state.seq) return false;
   const cut = item.chats.map(c => state.older[c.id]).filter(o => o?.more).map(o => o.oldest).sort().at(-1) || '';
   const known = new Set(state.msgs.map(m => m.id));
-  const add = [...new Map(state.pool.filter(m => !known.has(m.id) && !m.isHidden && m.timestamp >= cut).map(m => [m.id, m])).values()];
+  const add = [...new Map(state.pool.filter(m => !known.has(m.id) && shownMsg(m) && m.timestamp >= cut).map(m => [m.id, m])).values()];
   state.pool = state.pool.filter(m => !known.has(m.id) && m.timestamp < cut);
   if (add.length) {
     state.msgs = [...add, ...state.msgs].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey));

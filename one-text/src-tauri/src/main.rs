@@ -245,7 +245,8 @@ fn shown_unread(page: &[Value], beeper_count: i64) -> i64 {
     if !page.is_empty() && unread.len() == page.len() {
         return beeper_count;
     }
-    unread.iter().filter(|m| m["isHidden"] != true && m["isDeleted"] != true).count() as i64
+    // A message with no type is a bridge's "X joined the chat": the app it comes from shows none.
+    unread.iter().filter(|m| m["isHidden"] != true && m["isDeleted"] != true && m["type"].is_string()).count() as i64
 }
 
 #[tauri::command]
@@ -312,10 +313,12 @@ mod live {
     #[test]
     fn reactions_are_not_unread() {
         use serde_json::json;
-        let m = |unread: bool, hidden: bool| json!({ "isUnread": unread, "isHidden": hidden });
+        let m = |unread: bool, hidden: bool| json!({ "isUnread": unread, "isHidden": hidden, "type": "TEXT" });
         assert_eq!(super::shown_unread(&[m(false, false), m(true, true)], 1), 0);
         assert_eq!(super::shown_unread(&[m(false, false), m(true, false), m(true, true)], 2), 1);
         assert_eq!(super::shown_unread(&[m(true, false), m(true, false)], 57), 57);
+        let joined = json!({ "isUnread": true });
+        assert_eq!(super::shown_unread(&[m(false, false), joined.clone(), joined], 2), 0);
     }
 
     #[test]
