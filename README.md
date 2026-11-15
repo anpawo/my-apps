@@ -35,7 +35,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [fleet](fleet)
 
-[![The panel](fleet/docs/panel.png)](fleet)
+[![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: four sessions as tiles, portfolio green, atlas red, video-code purple, my-hub blue, beside the MEMORY, DISK, MONEY, MAIL and TODO cards; atlas finishes its turn and turns green, video-code asks a question and turns blue, and esc brings the desktop back](fleet/docs/demo.gif)](fleet)
 
 ### [mac-guard](mac-guard)
 

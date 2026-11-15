@@ -786,8 +786,9 @@ if let i = CommandLine.arguments.firstIndex(of: "--launch"),
 }
 
 // `--render <path.png>` draws the panel offscreen. Useful for checking layout without waiting
-// to go idle, and for generating the screenshot in the README.
-if let i = CommandLine.arguments.firstIndex(of: "--render"),
+// to go idle, and for generating the screenshot in the README. `--render-demo <dir>` draws the
+// README's GIF instead, as frames: see `DemoFleet.film`.
+if let i = CommandLine.arguments.firstIndex(of: "--render") ?? CommandLine.arguments.firstIndex(of: "--render-demo"),
    i + 1 < CommandLine.arguments.count,
    !CommandLine.arguments[i + 1].hasPrefix("--") {
     let outPath = CommandLine.arguments[i + 1]
@@ -934,6 +935,13 @@ if let i = CommandLine.arguments.firstIndex(of: "--render"),
                     for _ in 0 ..< 12 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
                 }
             }
+            if CommandLine.arguments[i] == "--render-demo" {
+                let desktop = NSHostingView(rootView: LinearGradient(colors: backdrop.colors, startPoint: .top, endPoint: .bottom))
+                desktop.frame = host.frame
+                NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false).contentView = desktop
+                DemoFleet.film(controller, panel: host, desktop: desktop, to: URL(fileURLWithPath: outPath))
+                exit(0)
+            }
             host.layoutSubtreeIfNeeded()
             guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
                 print("render failed"); exit(1)
@@ -1028,7 +1036,7 @@ let knownFlags: Set<String> = [
     "--ax-probe", "--bench", "--blocks-open", "--bench-panel", "--check-reel", "--close", "--cmd", "--demo",
     "--deferred", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
     "--launch", "--mail", "--memory", "--memory-open", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels",
-    "--live", "--mail-open", "--money-open", "--reels-run", "--render", "--render-settings", "--route", "--scan", "--screen",
+    "--live", "--mail-open", "--money-open", "--reels-run", "--render", "--render-demo", "--render-settings", "--route", "--scan", "--screen",
     "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",
     "--todo-open", "--todos", "--uninstall-hooks", "--windows",
 ]

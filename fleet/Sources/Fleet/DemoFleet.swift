@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Synthetic sessions, for looking at the panel at sizes you do not happen to have running.
 ///
@@ -145,5 +145,72 @@ enum DemoFleet {
         controller.money.file = folder.appending(path: "payments.csv")
         // A folder never written: no block of his on a picture meant to be published.
         controller.plugins.folder = folder.appending(path: "blocks")
+    }
+
+    /// `--render-demo <dir>`: the README's GIF as frames, plus `list.txt`, ffmpeg's concat list of
+    /// how long each stays up. The live panel captured again each time the invented fleet under
+    /// it moves; `docs/make-demo.sh` makes the GIF.
+    @MainActor
+    static func film(_ controller: AppController, panel: NSView, desktop: NSView, to dir: URL) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var fleet = controller.sessions
+        var list = "", count = 0
+
+        func shot(_ view: NSView, _ seconds: Double, _ caption: String?) {
+            for _ in 0 ..< 6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            if let caption {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                let text = NSAttributedString(string: caption, attributes: [
+                    .font: NSFont.systemFont(ofSize: 26, weight: .semibold), .foregroundColor: NSColor.white])
+                // Inside the panel's empty lower half, which `make-demo.sh` crops just below.
+                // Under the panel's middle, or the middle of the cropped GIF on the bare desktop.
+                let mid = view === desktop ? 594 : rep.size.width / 2
+                let box = CGRect(x: mid - text.size().width / 2 - 24, y: 300,
+                                 width: text.size().width + 48, height: 56)
+                NSColor(white: 0, alpha: 0.8).setFill()
+                NSBezierPath(roundedRect: box, xRadius: 28, yRadius: 28).fill()
+                text.draw(at: CGPoint(x: box.minX + 24, y: box.midY - text.size().height / 2))
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            count += 1
+            let name = String(format: "%03d.png", count)
+            try? rep.representation(using: .png, properties: [:])?.write(to: dir.appending(path: name))
+            list += "file '\(name)'\nduration \(String(format: "%.2f", seconds))\n"
+        }
+        func show() { controller.pretendFleet = fleet }
+
+        // 0 ready, 1 running, 2 delegated, 3 waiting on an answer; the tile shows its title.
+        for (i, title) in ["Dark theme", "Parser fix", "Faster export", "Release v3"].enumerated() {
+            fleet[i].transcript?.title = title
+        }
+        show()
+        shot(desktop, 1.4, "You step away for 45 s, or press ⌘⌥L")
+        shot(panel, 2.6, "Every Claude Code session, coloured by its state")
+        shot(panel, 1.8, "Red: atlas is running a tool")
+        fleet[1].state = .ready
+        fleet[1].transcript?.hasPendingTool = false
+        fleet[1].transcript?.pendingToolNames = []
+        fleet[1].transcript?.pendingToolLabels = []
+        fleet[1].transcript?.pendingTaskIDs = []
+        fleet[1].transcript?.subagents = []
+        fleet[1].transcript?.turnOpen = false
+        show()
+        shot(panel, 2.2, "Green: its turn is over")
+        fleet[2].state = .awaitingAnswer
+        fleet[2].transcript?.pendingTaskIDs = []
+        fleet[2].transcript?.subagents = []
+        fleet[2].transcript?.backgroundShellsStartedAt = []
+        fleet[2].transcript?.pendingToolNames = ["AskUserQuestion"]
+        show()
+        shot(panel, 2.4, "Blue: video-code waits for your answer")
+        shot(desktop, 1.4, "esc, and back to work")
+        // The concat demuxer drops the last frame's duration unless the frame comes again.
+        list += "file '\(String(format: "%03d.png", count))'\n"
+        try? list.write(to: dir.appending(path: "list.txt"), atomically: true, encoding: .utf8)
+        print("wrote \(count) frames and list.txt to \(dir.path)")
     }
 }
