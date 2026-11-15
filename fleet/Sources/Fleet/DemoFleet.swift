@@ -138,7 +138,8 @@ enum DemoFleet {
         try? (["date,amount,category,merchant"] + lines).joined(separator: "\n")
             .write(to: folder.appending(path: "payments.csv"), atomically: true, encoding: .utf8)
         let balances = [("Main", 1240.0), ("Livret", 3500), ("PEA", 2150), ("TR", 860)]
-            .map { ["name": $0.0, "amount": $0.1, "date": month.string(from: now) + "-05"] as [String: Any] }
+            .map { ["name": $0.0, "amount": $0.1, "date": month.string(from: now) + "-05",
+                    "invested": ["PEA", "TR"].contains($0.0)] as [String: Any] }
         try? JSONSerialization.data(withJSONObject: balances).write(to: folder.appending(path: "balances.json"))
 
         controller.hub.pretend(mail: mail, todos: todos, school: folder.appending(path: "state.json"))

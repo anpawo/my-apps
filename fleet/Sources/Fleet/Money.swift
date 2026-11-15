@@ -100,10 +100,12 @@ enum Money {
     }
 
     /// One account and what it held on `date`, written by whatever reads that account.
+    /// `invested`: a broker's account (Bourse Direct, Trade Republic), its value in the market.
     struct Balance: Decodable {
         let name: String
         let amount: Double
         let date: String?
+        var invested: Bool?
     }
 
     struct Month: Identifiable, Equatable {
@@ -417,14 +419,17 @@ struct MoneyColumn: View {
                   tint: BlockTint.money,
                   fill: BlockTint.money.darkened(0.48),
                   badge: months.first.map { "\($0.name) \(Money.euros($0.total))" },
-                  // What the month spent and what all the accounts hold: the rest only open.
+                  // What the month spent, what all the accounts hold, the brokers' included, and
+                  // what of that is invested: the rest only open.
                   badgeText: months.first.map { month in
+                      let dot = Text(" \u{00B7} ").foregroundStyle(.white.opacity(0.9))
                       let spent = Text("-\(Money.euros(month.total))").foregroundStyle(SessionState.running.tint)
                       let all = store.balances.isEmpty ? Text("")
-                          : Text(" \u{00B7} ").foregroundStyle(.white.opacity(0.9))
-                              + Text(Money.euros(allHeld)).foregroundStyle(Self.blue)
+                          : dot + Text(Money.euros(allHeld)).foregroundStyle(Self.blue)
+                      let invested = store.balances.contains { $0.invested == true }
+                          ? dot + Text(Money.euros(allInvested)).foregroundStyle(SessionState.ready.tint) : Text("")
                       // MEMORY's own figure: its font, its dot.
-                      return (spent + all).font(.system(size: 11, weight: .medium, design: .monospaced))
+                      return (spent + all + invested).font(.system(size: 11, weight: .medium, design: .monospaced))
                   },
                   topInset: 5,
                   collapsed: months.isEmpty || !open) {
@@ -480,6 +485,9 @@ struct MoneyColumn: View {
 
     /// All the accounts together, as the sum of the figures each tile shows.
     private var allHeld: Double { store.balances.reduce(0) { $0 + $1.amount.rounded() } }
+    private var allInvested: Double {
+        store.balances.filter { $0.invested == true }.reduce(0) { $0 + $1.amount.rounded() }
+    }
 
     /// What left this month; what comes back, its refunds and last month's paybacks, ~ until the
     /// paybacks are all in; what came in, ~ and last month's until the salary is in.
