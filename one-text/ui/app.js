@@ -493,6 +493,8 @@ function drawResults(e) {
   // Someone is found by their own conversation; the groups they are in show only when there is none.
   const match = i => fold(i.name).includes(q) || fold(i.original).includes(q);
   let items = q ? all.filter(i => i.kind !== 'group' && match(i)) : all;
+  // A group whose own name has a word starting with it shows anyway, after them: "gl" is GL even with a Castiglione.
+  if (q && items.length) items.push(...all.filter(i => i.kind === 'group' && fold(i.name).split(/[^\p{L}\p{N}]+/u).some(w => w.startsWith(q))));
   if (q && !items.length) items = all.filter(i => i.kind === 'group' && (match(i) || fold(i.who).includes(q)));
   items = items.slice(0, q || net ? 30 : 8);
   const named = new Set(all.filter(i => i.kind !== 'group').map(i => fold(i.name)));

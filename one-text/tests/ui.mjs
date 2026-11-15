@@ -548,6 +548,10 @@ const searchNames = async q => { await page.fill('#search', q); await page.waitF
 await page.evaluate(() => { state.all.find(i => i.kind === 'group' && /climb/i.test(i.name)).who = 'Nina\nLea M'; });
 const [byPerson, byMember] = [await searchNames("/discord t"), await searchNames("nina")];
 check(JSON.stringify(byPerson) === '["tom"]' && JSON.stringify(byMember) === '["Climbing crew"]', `a search shows people, and the groups someone is in only when no one matches (${byPerson} / ${byMember})`);
+await page.evaluate(() => state.all.push({ id: 'alfred', kind: 'person', name: 'Alfred', imgs: [], unread: 0, last: '', chats: [{ id: 'alfred', network: 'WhatsApp', accountID: 'whatsapp' }] }));
+const byWord = await searchNames('fr');
+await page.evaluate(() => state.all.pop());
+check(JSON.stringify(byWord) === '["Alfred","Rust FR"]', `a group whose name has a word starting with the search shows after the people matching it (${byWord})`);
 await page.keyboard.press('Escape');
 // ⌘M on a group in the search renames it in the header; the search then finds it by either name and shows both.
 await page.keyboard.press('Meta+d');
