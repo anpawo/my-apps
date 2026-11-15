@@ -330,6 +330,9 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
                 "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()),
                 "imgs": custom.or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(),
                 "faces": faces,
+                // Its members' names, so a search for someone with no conversation of their own finds the groups they are in.
+                "who": members.iter().flat_map(|&i| groups[i]["participants"]["items"].as_array().into_iter().flatten())
+                    .filter(|p| p["isSelf"] != true).filter_map(|p| p["fullName"].as_str()).collect::<Vec<_>>().join("\n"),
                 "unread": summaries.iter().map(|s| s["unread"].as_i64().unwrap_or(0)).sum::<i64>(),
                 "last": summaries[0]["last"], "preview": summaries[0]["preview"], "chats": summaries,
             })

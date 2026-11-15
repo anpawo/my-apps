@@ -133,7 +133,8 @@ function renderList(box, items) {
   }
   let prev = null;
   for (const item of items) {
-    let n = box.querySelector(`:scope > [data-id="${CSS.escape(item.id)}"]`);
+    // A row still sliding out is not reused: it would be removed once its slide ends.
+    let n = box.querySelector(`:scope > [data-id="${CSS.escape(item.id)}"]:not([data-leaving])`);
     const fresh = !n;
     if (fresh) {
       n = document.createElement('div');
@@ -185,8 +186,13 @@ function fits() {
   const room = list.clientHeight - $('#pinned').offsetHeight - parseFloat(getComputedStyle(list).paddingBottom);
   return Math.max(3, Math.min(10, Math.floor(room / row)));
 }
+// A favorite in a group shows here too while it has unread messages (its group is one folded bubble), and
+// stays while it is open from here.
+const listed = i => isFav(i)
+  ? grouped(i) && (i.unread > 0 || (i.id === state.cur?.id && !!$(`#people > [data-id="${CSS.escape(i.id)}"]:not([data-leaving])`)))
+  : !i.hidden || i.id === state.cur?.id;
 function shown(items) {
-  items = items.filter(i => !isFav(i) && (!i.hidden || i.id === state.cur?.id));
+  items = items.filter(listed);
   const max = state.more || fits();
   return items.filter((i, n) => n < max || i.unread > 0 || i.id === state.cur?.id);
 }
@@ -249,12 +255,8 @@ function drawFavs(box, items, tab) {
   box._closing = false;
   box._drawn = true;
   box.hidden = false;
-  const [shown, folded] = foldGroup(items, tab), h0 = box.offsetHeight;
-  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Drag someone here</div>` : shown.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('')
-    + (folded.length ? `<button class="folder${folded.some(i => i.unread) ? ' unread' : ''}" title="${folded.length} more: ${esc(folded.map(i => i.name).join(', '))}">${folded.slice(0, 4).map(avatar).join('')}</button>`
-      : tab && state.unfolded.has(tab.name) && items.length > 5 ? '<button class="folder less" title="Fold">–</button>' : '');
-  const folder = box.querySelector('.folder');
-  if (folder) folder.onclick = () => { state.unfolded[folded.length ? 'add' : 'delete'](tab.name); showLists(); };
+  const h0 = box.offsetHeight;
+  box.innerHTML = tab && !items.length ? `<div class="favs-empty">Drag someone here</div>` : items.map(i => `<button class="fav${i.id === state.cur?.id ? ' on' : ''}${i.unread ? ' unread' : ''}" data-id="${esc(i.id)}" title="${esc(i.name || 'Unnamed')}">${avatar(i)}</button>`).join('');
   if (!opening && h0 && box.offsetHeight !== h0) {
     box.style.overflow = 'hidden';
     anim(box, { height: [h0 + 'px', box.offsetHeight + 'px'] }, 260).finished.then(() => (box.style.overflow = ''), () => {});
@@ -270,18 +272,9 @@ function drawFavs(box, items, tab) {
   if (opening) collapse(box, false);
 }
 
-// A group of more than 5 shows 4 and folds the rest into one tile of small pictures; the open person and
-// those with unread messages stay out of it, unless 5 or more have some.
-state.unfolded = new Set();
-function foldGroup(items, tab) {
-  if (!tab || items.length <= 5 || state.unfolded.has(tab.name)) return [items, []];
-  const unread = items.filter(i => i.unread).length;
-  const out = new Set(items.filter(i => (unread < 5 && i.unread) || i.id === state.cur?.id).slice(0, 4));
-  for (const i of items) if (out.size < 4) out.add(i);
-  return [items.filter(i => out.has(i)), items.filter(i => !out.has(i))];
-}
-
-// Groups: named sets of favorites, each always open under the favorites in no group.
+// Groups: named sets of favorites under the favorites in no group, each folded into one bubble of its
+// first 4 pictures until clicked; dragging a bubble or a name moves the group in the order.
+state.open = new Set();
 state.tabs = JSON.parse(localStorage.tabs || '[]');
 // Groups made before "one group at most" could share people: each stays in the first one.
 { const seen = new Set(); for (const t of state.tabs) { t.ids = t.ids.filter(id => !seen.has(id)); t.ids.forEach(id => seen.add(id)); } }
@@ -300,21 +293,32 @@ function drawGroups(favs) {
     if (!sec) {
       sec = Object.assign(document.createElement('section'), { className: 'group' });
       sec.dataset.name = tab.name;
-      sec.innerHTML = '<div class="strip" hidden></div>';
+      sec.innerHTML = '<button class="bubble folder"></button><button class="label"></button><div class="strip" hidden></div>';
+      for (const b of sec.querySelectorAll('.bubble, .label')) {
+        b.onclick = () => { if (b._dragged) return; const n = sec.dataset.name; state.open[state.open.has(n) ? 'delete' : 'add'](n); showLists(); };
+        dragFrom(b, sec);
+      }
       if (box.querySelector('.group')) requestAnimationFrame(() => collapse(sec, false));
     }
-    if (!sec.querySelector('.label')) sec.prepend(Object.assign(document.createElement('button'), { className: 'label' }));
-    const label = sec.querySelector('.label');
+    const label = sec.querySelector('.label'), bubble = sec.querySelector('.bubble'), strip = sec.querySelector('.strip');
+    const members = favs.filter(i => i.kind !== 'group' && inTab(i, tab)), open = state.open.has(tab.name);
     label.textContent = tab.name;
+    sec.classList.toggle('open', open);
+    bubble.title = members.length ? `${tab.name}: ${members.map(i => i.name).join(', ')}` : tab.name;
+    bubble.innerHTML = members.slice(0, 4).map(avatar).join('');
+    bubble.classList.toggle('unread', members.some(i => i.unread));
+    bubble.classList.toggle('on', members.some(i => i.id === state.cur?.id));
     label.oncontextmenu = e => {
       e.preventDefault();
       menu(label, m => m.append(
         item('Rename…', { action: () => { closeMenu(); nameTab(label, tab.name, name => { sec.dataset.name = name; tab.name = name; }); } }),
         item(`Delete ${tab.name}`, { hint: 'favorites stay', action: () => { closeMenu(); state.tabs = state.tabs.filter(t => t !== tab); saveTabs(); showLists(); } })));
     };
+    bubble.oncontextmenu = label.oncontextmenu;
     const at = prev ? prev.nextSibling : box.firstChild;
     if (sec !== at) box.insertBefore(sec, at);
-    drawFavs(sec.querySelector('.strip'), favs.filter(i => i.kind !== 'group' && inTab(i, tab)), tab);
+    if (open) drawFavs(strip, members, tab);
+    else strip.hidden = true;
     prev = sec;
   }
   let add = box.querySelector('.newgroup');
@@ -342,6 +346,7 @@ function nameTab(button, value, done) {
 function newTab(button, person) {
   nameTab(button, '', name => {
     state.tabs.push({ name, ids: [] });
+    state.open.add(name);
     if (person) addToTab(person, name);
   });
 }
@@ -353,28 +358,34 @@ function addToTab(item, name, on = true) {
   saveTabs();
   showLists();
 }
-// Drag a favorite or a person of the list onto a group to move them there, or onto the top strip to take them out of their group.
-function dragFrom(el) {
+function moveTab(name, to) {
+  const tab = tabOf(name), at = state.tabs.findIndex(t => t.name === to);
+  if (tab && at >= 0 && tab.name !== to) { state.tabs.splice(state.tabs.indexOf(tab), 1); state.tabs.splice(at, 0, tab); saveTabs(); }
+  showLists();
+}
+// Drag a favorite or a person of the list onto a group to move them there, or onto the top strip to take them out of their group;
+// a group's bubble or name (sec given) onto another group to take its place in the order.
+function dragFrom(el, sec) {
   el.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
-    const item = state.byId.get(el.dataset.id);
-    if (!item || item.kind !== 'person') return;
+    const item = sec ? null : state.byId.get(el.dataset.id);
+    if (!sec && (!item || item.kind !== 'person')) return;
     const x0 = e.clientX, y0 = e.clientY;
     let ghost = null, over = null;
     const move = ev => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
-        ghost = el.querySelector('.av').cloneNode(true);
+        ghost = (sec ? sec.querySelector('.bubble') : el.querySelector('.av')).cloneNode(true);
         ghost.classList.add('ghost');
         document.body.append(ghost);
         el.classList.add('dragging');
         const top = $('#favs');
-        if (top.hidden) { top.hidden = false; top.innerHTML = '<div class="favs-empty">Drop here to take them out of their group</div>'; collapse(top, false); }
+        if (!sec && top.hidden) { top.hidden = false; top.innerHTML = '<div class="favs-empty">Drop here to take them out of their group</div>'; collapse(top, false); }
         anim(ghost, { scale: [0.8, 1] }, 160);
       }
       ghost.style.left = ev.clientX - 24 + 'px';
       ghost.style.top = ev.clientY - 24 + 'px';
-      const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.group, #favs, #tabbox .newgroup') || null;
+      const t = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(sec ? '.group' : '.group, #favs, #tabbox .newgroup') || null;
       if (t !== over) { over?.classList.remove('drop'); over = t; over?.classList.add('drop'); }
     };
     const up = () => {
@@ -386,6 +397,7 @@ function dragFrom(el) {
       over?.classList.remove('drop');
       el._dragged = true;
       setTimeout(() => (el._dragged = false));
+      if (sec) return moveTab(sec.dataset.name, over?.dataset.name);
       if (!over) return showLists();
       if (over.id === 'favs') { if (!isFav(item)) toggleFav(item); addToTab(item, '', false); }
       else if (over.classList.contains('newgroup')) newTab(over, item);
@@ -435,8 +447,10 @@ function findContacts(q, show) {
 }
 function contactItem(a, p) {
   // A chat's participant id holds the contact's: "@discordgo_<id>:beeper.local".
-  const known = state.all.find(i => i.kind === 'person' && i.chats.some(c => c.accountID === a.accountID && c.pid?.includes(`_${p.id}:`)));
   const name = p.fullName || p.username || 'Unnamed';
+  // Another login's directory gives the same person another id (two Teams logins): the same name on the same app is him.
+  const known = state.all.find(i => i.kind === 'person' && i.chats.some(c => c.accountID === a.accountID && c.pid?.includes(`_${p.id}:`)))
+    || state.all.find(i => i.kind === 'person' && fold(i.name) === fold(name) && i.chats.some(c => netOf(c) === netOf(a)));
   return known || { id: `contact:${a.accountID}:${p.id}`, kind: 'person', name, original: p.username && p.username !== name ? p.username : null,
     imgs: p.imgURL ? [p.imgURL] : [], unread: 0, last: '', chats: [{ network: a.network, accountID: a.accountID, last: '' }], contact: { accountID: a.accountID, id: p.id } };
 }
@@ -471,8 +485,13 @@ function drawResults(e) {
   }
   const typed = q;
   q = fold(q);
-  const items = (q ? all.filter(i => fold(i.name).includes(q) || fold(i.original).includes(q)) : all).slice(0, q || net ? 30 : 8);
-  if (typed) for (const c of contacts) if (!items.some(i => i.id === c.id)) items.push(c);
+  // Someone is found by their own conversation; the groups they are in show only when there is none.
+  const match = i => fold(i.name).includes(q) || fold(i.original).includes(q);
+  let items = q ? all.filter(i => i.kind !== 'group' && match(i)) : all;
+  if (q && !items.length) items = all.filter(i => i.kind === 'group' && (match(i) || fold(i.who).includes(q)));
+  items = items.slice(0, q || net ? 30 : 8);
+  const named = new Set(all.filter(i => i.kind !== 'group').map(i => fold(i.name)));
+  if (typed) for (const c of contacts) if (!items.some(i => i.id === c.id) && !(c.contact && named.has(fold(c.name)))) items.push(c);
   const hot = !e && $('#results .row.hot')?.dataset.id;
   renderList($('#results'), items);
   $('#results').querySelectorAll('.row:not([data-leaving])').forEach((r, i) => { r.classList.toggle('hot', hot ? r.dataset.id === hot : i === 0); r.classList.toggle('faved', isFav(items.find(i => i.id === r.dataset.id))); r.onclick = () => openResult(r.dataset.id); });

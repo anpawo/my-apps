@@ -465,7 +465,8 @@ check(!(await page.$('#people .row[data-id="grp-2"]:not([data-leaving])')), 'a h
 await page.keyboard.press('Meta+d');
 await page.keyboard.type('rust');
 await page.waitForTimeout(300);
-check(await page.$$eval('#results .row:not([data-leaving])', rs => rs.map(r => r.dataset.id).join()) === 'grp-2', 'the search still finds a hidden group');
+const rustIds = await page.$$eval('#results .row:not([data-leaving])', rs => rs.map(r => r.dataset.id).join());
+check(rustIds === 'grp-2', `the search still finds a hidden group (${rustIds})`);
 await page.keyboard.press('Escape');
 
 // A picture set by hand: setPicture saves it and the row shows it; the menu then offers to remove it.
@@ -542,6 +543,11 @@ await page.fill('#search', '/wh tom');
 await page.waitForTimeout(400);
 const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
+// Someone is found by their own conversation; a group, by its name or a member's, only when no one is.
+const searchNames = async q => { await page.fill('#search', q); await page.waitForTimeout(400); return page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.firstChild.textContent)); };
+await page.evaluate(() => { state.all.find(i => i.kind === 'group' && /climb/i.test(i.name)).who = 'Nina\nLea M'; });
+const [byPerson, byMember] = [await searchNames("/discord t"), await searchNames("nina")];
+check(JSON.stringify(byPerson) === '["tom"]' && JSON.stringify(byMember) === '["Climbing crew"]', `a search shows people, and the groups someone is in only when no one matches (${byPerson} / ${byMember})`);
 await page.keyboard.press('Escape');
 // ⌘M on a group in the search renames it in the header; the search then finds it by either name and shows both.
 await page.keyboard.press('Meta+d');
@@ -605,21 +611,6 @@ check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no group, the
 await page.screenshot({ path: join(out, '7-groups.png') });
 const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(), t = document.querySelector('#favs .fav').getBoundingClientRect(); return [l.bottom <= f.top, Math.round(f.left - t.left)]; });
 check(JSON.stringify(side) === '[true,0]', `a group's name sits above its pictures, which line up with the top strip (${side})`);
-// Over 5 in a group: 4 pictures and a tile folding the rest; those with unread messages stay out unless 5 or more have some.
-const fold = await page.evaluate(() => {
-  const mk = (n, unread = 0) => Array.from({ length: n }, (_, k) => ({ id: 'f' + k, name: 'P' + k, unread: k >= n - unread ? 1 : 0, chats: [] }));
-  const names = ([a, b]) => [a.map(i => i.name).join(), b.map(i => i.name).join()];
-  const box = document.createElement('div');
-  box.className = 'strip';
-  document.querySelector('.group[data-name="Family"]').append(box);
-  drawFavs(box, mk(8, 2), { name: 'T' });
-  const tile = [box.querySelectorAll('.fav').length, box.querySelectorAll('.folder .av').length, box.querySelector('.folder').classList.contains('unread')];
-  box.id = 'fold-demo';
-  return [names(foldGroup(mk(5), { name: 'T' })), names(foldGroup(mk(8, 2), { name: 'T' })), names(foldGroup(mk(8, 5), { name: 'T' })), tile];
-});
-check(JSON.stringify(fold) === JSON.stringify([['P0,P1,P2,P3,P4', ''], ['P0,P1,P6,P7', 'P2,P3,P4,P5'], ['P0,P1,P2,P3', 'P4,P5,P6,P7'], [4, 4, false]]), `a group of 8 folds 4 into a tile of small pictures, the unread kept out (${JSON.stringify(fold)})`);
-await page.screenshot({ path: join(out, '7b-folded.png'), clip: { x: 0, y: 0, width: 330, height: 560 } });
-await page.$eval('#fold-demo', b => b.remove());
 // Dragging Lea onto Work moves her out of Family; dragging Tom B onto the top strip takes him out of Work.
 const drag = async (from, to) => {
   const a = await page.locator(from).boundingBox(), b = await page.locator(to).boundingBox();
@@ -641,10 +632,34 @@ await page.click('#favs .fav[title="Tom B"]', { button: 'right' });
 await page.click('.menu .item:has-text("group…")');
 await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
+// Clicking a group's name folds it into one bubble; someone of it with unread messages shows in the list too, and dots the bubble.
+await page.click('.group[data-name="Family"] .label');
+await page.click('.group[data-name="Work"] .label');
+await page.waitForTimeout(300);
+const lea = () => page.$$eval('#people .row:not([data-leaving])', rs => rs.some(r => r.textContent.includes('Lea Martin')));
+await page.evaluate(() => { state.all.find(i => i.name === 'Lea Martin').unread = 0; select(state.all.find(i => !isFav(i) && i.kind === 'person').id); });
+await page.waitForTimeout(400);
+const leaBefore = await lea();
+await page.evaluate(() => { const i = state.all.find(i => i.name === 'Lea Martin'); i.unread = 2; showLists(); });
+await page.waitForTimeout(300);
+const bubble = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), b = g.querySelector('.bubble').getBoundingClientRect(); return [g.querySelector('.strip').hidden, Math.round(b.width), g.querySelectorAll('.bubble .av').length, g.querySelector('.bubble').classList.contains('unread'), Math.round(g.getBoundingClientRect().height)]; });
+const row = await page.evaluate(() => { const a = document.querySelector('.group[data-name="Family"]').getBoundingClientRect(), b = document.querySelector('.group[data-name="Work"]').getBoundingClientRect(); return [a.top === b.top, a.right < b.left]; });
+check(JSON.stringify(bubble) === '[true,48,1,true,' + bubble[4] + ']' && bubble[4] < 80 && JSON.stringify(row) === '[true,true]' && !leaBefore && (await lea()), `a folded group is one bubble beside the next, dotted when someone in it has unread messages, who then shows in the list (${bubble} / ${row} / ${leaBefore})`);
+await page.screenshot({ path: join(out, '7b-folded.png'), clip: { x: 0, y: 0, width: 330, height: 560 } });
+await page.click('.group[data-name="Family"] .bubble');
+await page.waitForTimeout(300);
+check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]', 'clicking the bubble opens the group again');
+await page.click('.group[data-name="Family"] .label');
+await page.evaluate(() => { state.all.find(i => i.name === 'Lea Martin').unread = 0; showLists(); });
+await page.waitForTimeout(300);
+await drag('.group[data-name="Work"] .bubble', '.group[data-name="Family"]');
+const tabOrder = await page.evaluate(() => [state.tabs.map(t => t.name).join(), [...document.querySelectorAll('#tabbox .group')].map(g => g.dataset.name).join(), JSON.parse(localStorage.tabs).map(t => t.name).join()]);
+check(JSON.stringify(tabOrder) === '["Work,Family","Work,Family","Work,Family"]', `dragging Work's bubble onto Family puts it first (${tabOrder})`);
 await page.reload();
 await page.waitForSelector('.group');
 await page.waitForTimeout(300);
-check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'groups are kept after a restart');
+const titles = await page.$$eval('#tabbox .group .bubble', bs => bs.map(b => b.title).join('|'));
+check(titles === 'Work: Tom B|Family: Lea Martin' && !(await page.$('#tabbox .group.open')), `groups, their order and who is in them are kept after a restart, folded (${titles})`);
 
 // Dragging the sidebar's right edge widens it, and the width is kept after a restart.
 const sideW = () => page.evaluate(() => document.querySelector('aside').offsetWidth);
@@ -866,6 +881,8 @@ await page.waitForFunction(() => __log.filter(([c]) => c === 'set_overrides').at
 const posts = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path === '/v1/chats').length);
 check(tagRows.length === 1 && posts === 1, `Merge with… finds a Discord tag as the person its chat now belongs to, and merges it (${tagRows}, ${posts} chat started)`);
 check(await page.evaluate(() => !__log.some(([c, a]) => c === 'api' && a.path.startsWith('/v1/accounts/matrix/'))), "Beeper's own account is never searched for contacts");
+const twin = await page.evaluate(() => { const p = state.all.find(i => i.kind === 'person' && i.chats.some(c => netOf(c) === 'discord')); return [p.name, contactItem({ accountID: 'discordgo2', network: 'Discord' }, { id: '999', fullName: p.name }).id === p.id, contactItem({ accountID: 'discordgo2', network: 'Discord' }, { id: '998', fullName: 'Nobody Here' }).id]; });
+check(twin[1] && twin[2].startsWith('contact:'), `a contact found by another login of the same app, under the same name, is the person already there (${twin[0]}, ${twin[2]})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
