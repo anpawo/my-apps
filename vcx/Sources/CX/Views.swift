@@ -1593,20 +1593,20 @@ struct ProseView: View {
     @State private var hoveredRow: [Int]?
     @State private var copiedCell: [Int]?
     @State private var copyReset: Task<Void, Never>?
+    @State private var commandHeld = false
     private var paragraphs: [String] { answerParagraphs(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
-    @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0, selectable: Bool = true) -> some View {
+    @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
         let plain = richText(text), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
         Group {
             if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
-            else if selectable { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
-            else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing) }
+            else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
         }.modifier(FindMarker(find: find, item: findItem, fragment: fragment))
     }
-    // A click copies the cell under it, a ⌘-click (or a click on the row number) the row, tab-separated without the number.
+    // With ⌘ held, a click copies the cell under it, a double-click (or a click on the row number) the row, tab-separated without the number.
     private func copy(_ rows: [[String]], paragraph: Int, row: Int, x: CGFloat, widths: [CGFloat]) {
         let column = tableColumn(at: x, widths: widths)
-        let whole = column == 0 || NSEvent.modifierFlags.contains(.command)
+        let whole = column == 0 || (NSApp.currentEvent?.clickCount ?? 1) >= 2
         let plain = { String(richText($0).characters) }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(whole ? rows[row].dropFirst().map(plain).joined(separator: "\t") : plain(rows[row][column]), forType: .string)
@@ -1620,7 +1620,7 @@ struct ProseView: View {
             ForEach(Array(cells.enumerated()), id: \.offset) { c, cell in
                 Group {
                     if c == 0 { Text(cell).font(.system(size: 12, weight: r == 0 ? .semibold : .regular, design: .monospaced)).foregroundStyle(.black.opacity(0.4)) }
-                    else { prose(cell, weight: r == 0 ? .semibold : .regular, selectable: false) }
+                    else { prose(cell, weight: r == 0 ? .semibold : .regular) }
                 }
                 .frame(width: widths[c] - 24, alignment: c == 0 ? .trailing : .leading).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12).padding(.vertical, r == 0 ? 7 : 6)
@@ -1631,7 +1631,8 @@ struct ProseView: View {
         .overlay(alignment: .top) { Rectangle().fill(.black.opacity(r == 0 ? 0 : 0.06)).frame(height: 1) }
         .background(copiedVeil([paragraph, r, -1]))
         .contentShape(Rectangle())
-        .onTapGesture { location in copy(rows, paragraph: paragraph, row: r, x: location.x, widths: widths) }
+        // Only while ⌘ is down, so the cells below keep their text selection (and ⌘C) otherwise.
+        .overlay { if commandHeld { Color.clear.contentShape(Rectangle()).onTapGesture { location in copy(rows, paragraph: paragraph, row: r, x: location.x, widths: widths) } } }
         .onHover { inside in if r > 0 { if inside { hoveredRow = [paragraph, r] } else if hoveredRow == [paragraph, r] { hoveredRow = nil } } }
     }
     // The recon dashboard's grid table, light: a framed card, a header bar, every second row banded, the row under the pointer veiled.
@@ -1644,7 +1645,8 @@ struct ProseView: View {
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.3), value: hoveredRow)
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: copiedCell)
         }
-        .help("Click copies the cell, ⌘-click the row")
+        .help("⌘-click copies the cell, ⌘-double-click the row")
+        .onModifierKeysChanged(mask: .command) { _, keys in commandHeld = !keys.isEmpty }
         .frame(maxWidth: widths.reduce(0, +), alignment: .leading)
         .background(.white, in: shape).clipShape(shape).overlay(shape.strokeBorder(.black.opacity(0.12)))
     }
