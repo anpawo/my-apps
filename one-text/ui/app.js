@@ -749,7 +749,20 @@ const shownMsg = m => !m.isHidden && !!m.type;
 async function loadMessages(item) {
   const pages = await Promise.all(item.chats.map(c =>
     api('GET', `/v1/chats/${enc(c.id)}/messages`).then(r => (r.items || []).map(m => ({ ...m, net: netOf(c) }))).catch(() => [])));
-  return pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10);
+  return keepMine(pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10));
+}
+// Beeper lists a reaction sent from here only seconds later: until it does (30 s at most), the poll's copy keeps mine.
+const myReacts = [];
+function keepMine(msgs) {
+  for (const p of [...myReacts]) {
+    const m = msgs.find(x => x.id === p.id);
+    if (!m) continue;
+    const self = new Set(msgs.filter(x => x.isSender && x.chatID === m.chatID).map(x => x.senderID));
+    const mine = r => r.reactionKey === p.key && (self.has(r.participantID) || r.participantID === 'me');
+    if ((m.reactions || []).some(mine) === p.on || Date.now() - p.at > 30000) myReacts.splice(myReacts.indexOf(p), 1);
+    else m.reactions = p.on ? [...(m.reactions || []), p.r] : m.reactions.filter(r => !mine(r));
+  }
+  return msgs;
 }
 
 function drawHeader() {
@@ -971,14 +984,18 @@ function react(m, key) {
   const self = selfIn(m.chatID);
   const path = `/v1/chats/${enc(m.chatID)}/messages/${enc(m.id)}/reactions`;
   const had = (m.reactions || []).find(r => r.reactionKey === key && (self.has(r.participantID) || r.participantID === 'me'));
+  const p = { id: m.id, key, on: !had, at: Date.now(), r: { participantID: [...self][0] || 'me', reactionKey: key } };
+  for (const o of myReacts.filter(o => o.id === m.id && o.key === key)) myReacts.splice(myReacts.indexOf(o), 1);
+  myReacts.push(p);
+  const drop = () => myReacts.includes(p) && myReacts.splice(myReacts.indexOf(p), 1);
   if (had) {
     m.reactions = m.reactions.filter(r => r !== had);
-    api('DELETE', `${path}/${enc(key)}`).catch(e => toast(`Not removed: ${e}`));
+    api('DELETE', `${path}/${enc(key)}`).catch(e => { drop(); toast(`Not removed: ${e}`); });
   } else {
-    m.reactions = [...(m.reactions || []), { participantID: [...self][0] || 'me', reactionKey: key }];
+    m.reactions = [...(m.reactions || []), p.r];
     reactCount[key] = (reactCount[key] || 0) + 1;
     localStorage.reactCount = JSON.stringify(reactCount);
-    api('POST', path, { reactionKey: key }).catch(e => toast(`Reaction not sent: ${e}`));
+    api('POST', path, { reactionKey: key }).catch(e => { drop(); toast(`Reaction not sent: ${e}`); });
     markRead(state.cur);
   }
   redrawMsg(m);
