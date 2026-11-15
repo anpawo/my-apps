@@ -142,7 +142,7 @@ function renderList(box, items) {
       // On the open conversation, its picture (a group's bubble of faces) opens the profile: who someone is, who is in the group.
       n.onclick = e => {
         if (n._dragged) return;
-        if (e.target.closest('.av') && state.cur?.id === n.dataset.id) return profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile();
+        if (e.target.closest('.av') && state.cur?.id === n.dataset.id) return profile.open ? closeProfile() : openProfile(state.cur);
         select(n.dataset.id);
       };
       if (box.id === 'people') dragFrom(n);
@@ -529,7 +529,7 @@ async function refreshList() {
       if (now) { const changed = now.id !== state.cur.id || now.chats.length !== state.cur.chats.length; state.cur = now; if (changed) drawHeader(); }
     }
     // The open profile follows a merge or a split the same way, showing the apps it now has.
-    const shown = !profile.box.hidden && !profile.closing && profile.view?.chats && profile.view;
+    const shown = profile.open && profile.view?.chats && profile.view;
     if (shown) {
       const now = [...state.byId.values()].find(i => i.chats.some(c => c.id === shown.chats[0].id));
       if (now && (now.id !== shown.id || now.chats.length !== shown.chats.length)) showProfile(now);
@@ -697,7 +697,8 @@ async function select(id) {
   state.target = null;
   setReply(null);
   if (!find.box.hidden) closeFind();
-  closeProfile();
+  // Unfolded once, the details stay unfolded for every conversation until folded again.
+  if (localStorage.profileOpen) openProfile(item);
   // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
   showLists();
   document.querySelectorAll('.fav').forEach(f => f.classList.toggle('on', f.dataset.id === id));
@@ -733,7 +734,7 @@ function drawHeader() {
   $('.who').innerHTML = `${avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.who .av').title = item.kind === 'group' ? 'Group info and members' : 'Profile';
   // The avatar and the name open the details under the bar; the rest of the bar still drags the window.
-  $('.who').onclick = e => e.target.closest('.av, b') && (profile.box.hidden || profile.closing ? openProfile(state.cur) : closeProfile());
+  $('.who').onclick = e => e.target.closest('.av, b') && (profile.open ? closeProfile() : openProfile(state.cur));
   // Every network this person is on, as its logo; the one replies go to is highlighted, a click picks another.
   $('.chips').innerHTML = netsOf(item).map(k => `<button class="chip" data-net="${k}" title="Reply on ${NETS[k].label}${NETS[k].cmd ? ` (/${NETS[k].cmd})` : ''}">${netMark(k)}</button>`).join('');
   $('.chips').querySelectorAll('.chip').forEach(b => (b.onclick = () => { setTarget(chatFor(b.dataset.net), true); input.focus(); }));
@@ -743,9 +744,9 @@ function drawHeader() {
 
 function highlightTarget(animate) {
   const k = state.target && netOf(state.target.chat);
-  for (const b of document.querySelectorAll('.chips .chip')) {
+  for (const b of document.querySelectorAll('.chips .chip, #profile .conn[data-net]')) {
     const on = b.dataset.net === k;
-    if (on && animate && !b.classList.contains('on')) anim(b, { scale: [0.85, 1] }, 220);
+    if (on && animate && b.matches('.chip') && !b.classList.contains('on')) anim(b, { scale: [0.85, 1] }, 220);
     b.classList.toggle('on', on);
   }
 }
@@ -1711,65 +1712,62 @@ function toast(text, undo) {
 
 /* ---------- Profiles: a click on the header's picture or group bubble ---------- */
 
-// side-panel template: the sheet slides in from the right over the conversation, its content fading in after it.
-// A person shows what each app knows of them; a group, its description and members, each opening their own profile.
-const profile = { box: $('#profile'), sheet: $('#profile .sheet'), body: $('#profile .body'), stack: [], seq: 0, cache: {}, members: [] };
+// The top bar grows down into it. A person shows what each app knows of them, one line per app; a group, its description and
+// members, each opening their own profile.
+const profile = { box: $('#profile'), body: $('#profile .body'), open: false, stack: [], seq: 0, cache: {}, members: [] };
 const DETAILS = p => [['Name', p.fullName], ['Username', p.username && '@' + p.username.replace(/^@/, '')], ['Phone', p.phoneNumber], ['Email', p.email]].filter(([, v]) => v);
 const personOf = pid => pid && [...state.byId.values()].find(i => i.kind === 'person' && i.chats.some(c => c.pid === pid));
 const appHead = (c, extra = '') => `<h3>${netMark(netOf(c))}<span>${NETS[netOf(c)].label}</span>${extra}</h3>`;
-const line = ([label, value]) => `<div class="line"><span>${label}</span><b>${esc(value)}</b></div>`;
+// One app's line: its logo and name, then each value it knows as a pill. The open chat's lines pick the app replies go to.
+const conn = (c, p, own) => `<section class="conn"${own ? ` data-net="${netOf(c)}" title="Reply on ${NETS[netOf(c)].label}"` : ''}>${netMark(netOf(c))}<span class="app">${NETS[netOf(c)].label}</span>`
+  + DETAILS(p).map(([label, v]) => `<span class="pill" title="${label}: ${esc(v)}">${esc(v)}</span>`).join('') + '</section>';
 
-function openProfile(item) {
+async function openProfile(item) {
   if (!item) return;
-  const opening = profile.box.hidden || profile.closing;
-  profile.closing = false;
+  localStorage.profileOpen = 1;
+  profile.open = true;
   profile.stack = [];
   profile.cache = {};
-  profile.box.hidden = false;
-  if (opening) {
-    [profile.box, profile.sheet].forEach(el => el.getAnimations().forEach(a => a.cancel()));
-    anim(profile.box, { opacity: [0, 1] }, 200);
-    anim(profile.sheet, { transform: ['translateY(-100%)', 'none'] }, 260, 'cubic-bezier(.2, .8, .2, 1)');
-  }
-  showProfile(item, opening ? 120 : 0);
+  if (await showProfile(item) && profile.open) collapse(profile.box, false, 260);
 }
 function closeProfile() {
-  if (profile.box.hidden || profile.closing) return;
-  profile.closing = true;
-  const done = () => { if (profile.closing) { profile.box.hidden = true; profile.closing = false; } };
-  anim(profile.sheet, { transform: ['none', 'translateY(-100%)'] }, 200, 'ease-in').effect.updateTiming({ fill: 'forwards' });
-  const a = anim(profile.box, { opacity: [1, 0] }, 180);
-  a.effect.updateTiming({ fill: 'forwards' });
-  a.finished.then(done, done);
+  if (!profile.open) return;
+  delete localStorage.profileOpen;
+  profile.open = false;
+  profile.seq++;
+  collapse(profile.box, true, 200);
 }
 
-// The head shows at once; what the apps know comes after one call per chat, its box growing into place.
-async function showProfile(view, delay = 0) {
+// Drawn once what the apps know is in (one call per chat), the bar's new part changing height from the old view to the new one.
+// The open chat's picture and name are already in the bar above: only another person's view repeats them.
+async function showProfile(view) {
   const seq = ++profile.seq;
-  profile.view = view;
-  const member = view.kind === 'member';
-  const who = member ? { name: view.p.fullName || view.p.username || 'Unknown', imgs: view.p.imgURL ? [view.p.imgURL] : [] } : view;
-  profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
-    + `<div class="head">${avatar(who)}<div><h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div></div>`
-    + (member ? '' : `<div class="actions">${view.kind === 'person' && view.id !== state.cur?.id ? '<button class="open">Open conversation</button>' : ''}<button class="merge">Merge with…</button></div>`)
-    + '<div class="details" hidden></div>';
-  profile.body.scrollTop = 0;
-  anim(profile.body, { opacity: [0, 1], transform: ['translateY(6px)', 'none'] }, 200).effect.updateTiming({ delay, fill: 'backwards' });
   const html = await detailsHTML(view);
-  if (seq !== profile.seq) return;
-  const box = profile.body.querySelector('.details');
-  box.innerHTML = html;
-  collapse(box, false, 260);
+  if (seq !== profile.seq) return false;
+  profile.view = view;
+  const member = view.kind === 'member', own = view.id && view.id === state.cur?.id;
+  const who = member ? { name: view.p.fullName || view.p.username || 'Unknown', imgs: view.p.imgURL ? [view.p.imgURL] : [] } : view;
+  const from = profile.box.hidden || profile.box._anim ? 0 : profile.box.offsetHeight;
+  profile.body.classList.toggle('own', !!own);
+  profile.body.innerHTML = (profile.stack.length ? '<button class="back">‹ Back</button>' : '')
+    + (own ? '' : `<div class="head">${avatar(who)}<div><h2>${esc(who.name || 'Unnamed')}</h2>${member ? `<p>On ${NETS[netOf(view.chat)].label}</p>` : view.original ? `<p>${esc(view.original)}</p>` : ''}</div></div>`)
+    + `<div class="details">${html}</div>`
+    + (member ? '' : `<div class="actions">${own ? '' : '<button class="open">Open conversation</button>'}<button class="merge">Merge with…</button></div>`);
+  profile.body.scrollTop = 0;
+  highlightTarget(false);
+  if (from && from !== profile.box.offsetHeight) anim(profile.box, { height: [from + 'px', profile.box.offsetHeight + 'px'] }, 220, 'cubic-bezier(.2, .8, .2, 1)');
+  anim(profile.body, { opacity: [0, 1] }, 200);
+  return true;
 }
 
 async function detailsHTML(view) {
-  if (view.kind === 'member') return `<section>${appHead(view.chat)}${DETAILS(view.p).map(line).join('')}</section>`;
+  if (view.kind === 'member') return conn(view.chat, view.p);
   const full = await Promise.all(view.chats.map(c => (profile.cache[c.id] ||= api('GET', `/v1/chats/${enc(c.id)}`).catch(() => null))));
   if (view.kind === 'person') {
     // Two chats with the same person on one app (two logins, or an old DM thread) say the same thing once.
     return [...new Set(view.chats.map((c, i) => {
       const p = full[i]?.participants?.items?.find(p => !p.isSelf) || { fullName: c.title };
-      return `<section>${appHead(c)}${DETAILS(p).map(line).join('')}</section>`;
+      return conn(c, p, view.id === state.cur?.id);
     }))].join('');
   }
   profile.members = [];
@@ -1788,7 +1786,7 @@ async function detailsHTML(view) {
 }
 
 profile.box.addEventListener('click', e => {
-  if (e.target === profile.box || e.target.closest('.close')) return closeProfile();
+  if (e.target.closest('.close')) return closeProfile();
   const m = e.target.closest('.member');
   if (m) {
     const v = profile.members[+m.dataset.i];
@@ -1796,11 +1794,13 @@ profile.box.addEventListener('click', e => {
     return showProfile(personOf(v.p.id) || v);
   }
   if (e.target.closest('.back')) return showProfile(profile.stack.pop());
+  const line = e.target.closest('.conn[data-net]');
+  if (line && !getSelection().toString()) return setTarget(chatFor(line.dataset.net), true);
   const merging = e.target.closest('.merge');
   if (merging) return openMenu?._anchor === merging ? closeMenu() : menu(merging, m => mergePicker(m, profile.view));
   if (e.target.closest('.open')) select(profile.view.id);
 });
-addEventListener('keydown', e => { if (e.key === 'Escape' && !profile.box.hidden && !profile.closing && !openMenu) { e.preventDefault(); e.stopPropagation(); closeProfile(); } }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && profile.open && !openMenu) { e.preventDefault(); e.stopPropagation(); closeProfile(); } }, true);
 
 /* ---------- Start ---------- */
 
