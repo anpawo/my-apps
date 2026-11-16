@@ -403,6 +403,9 @@ final class Session: ObservableObject {
                         guard let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON, let thread = saved["threadId"] as? String else { throw CXError(message: "No saved conversation in this folder.") }
                         id = thread
                     }
+                    // A bare Claude session ID (vcx --resume <id>) went to Codex, which answered "no rollout found".
+                    let projects = NSHomeDirectory() + "/.claude/projects/"
+                    if !id.contains(":"), ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains(where: { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }) { id = "claude:" + id }
                     let provider = id.hasPrefix("claude:") ? "claude" : "codex"
                     let account = Settings.shared.value.accounts.first { $0.provider == provider && $0.enabled } ?? Account(id: provider + "-default", name: "Default " + provider.capitalized, provider: provider)
                     try await activate(account, resume: id, keepRows: false)
