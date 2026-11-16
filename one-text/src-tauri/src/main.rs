@@ -452,6 +452,16 @@ fn main() {
                     w.set_size(tauri::PhysicalSize::new(w.outer_size()?.width, area.size.height))?;
                     w.set_position(tauri::PhysicalPosition::new(area.position.x, area.position.y))?;
                 }
+                // wry turns on element fullscreen; off, videos lose their fullscreen button. The setting
+                // reaches a page only on its next load, hence the reload.
+                w.with_webview(|wv| unsafe {
+                    use objc2::{msg_send, runtime::AnyObject};
+                    let view = wv.inner() as *mut AnyObject;
+                    let config: *mut AnyObject = msg_send![view, configuration];
+                    let prefs: *mut AnyObject = msg_send![config, preferences];
+                    let _: () = msg_send![prefs, setElementFullscreenEnabled: false];
+                    let _: *mut AnyObject = msg_send![view, reload];
+                })?;
             }
             Ok(())
         })
