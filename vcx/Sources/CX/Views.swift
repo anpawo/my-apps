@@ -1594,6 +1594,7 @@ struct ProseView: View {
     @State private var copiedCell: [Int]?
     @State private var copyReset: Task<Void, Never>?
     @State private var commandHeld = false
+    @State private var room: CGFloat = 0
     private var paragraphs: [String] { answerParagraphs(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
@@ -1637,7 +1638,7 @@ struct ProseView: View {
     }
     // The recon dashboard's grid table, light: a framed card, a header bar, every second row banded, the row under the pointer veiled.
     private func table(_ rows: [[String]], paragraph: Int) -> some View {
-        let widths = tableColumnWidths(rows), shape = RoundedRectangle(cornerRadius: 10)
+        let widths = tableColumnWidths(rows, fitting: room), shape = RoundedRectangle(cornerRadius: 10)
         return ScrollView(.horizontal) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { r, _ in tableRow(rows, r, paragraph: paragraph, widths: widths) }
@@ -1650,6 +1651,8 @@ struct ProseView: View {
         .onModifierKeysChanged(mask: .command) { _, keys in commandHeld = !keys.isEmpty }
         .frame(maxWidth: widths.reduce(0, +), alignment: .leading)
         .background(.white, in: shape).clipShape(shape).overlay(shape.strokeBorder(.black.opacity(0.12)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1745,12 +1748,17 @@ func tableColumn(at x: CGFloat, widths: [CGFloat]) -> Int {
     return widths.firstIndex { edge += $0; return x < edge } ?? widths.count - 1
 }
 
-// Cells are monospaced, so a column is its longest cell wide (up to 320 pt, then its cells wrap), plus 12 pt each side.
-func tableColumnWidths(_ rows: [[String]]) -> [CGFloat] {
+// Cells are monospaced, so a column is its longest cell wide, plus 12 pt each side. Too wide for the room, the longest columns
+// share it evenly (never under 320 pt, the table then scrolls sideways) and their cells wrap.
+func tableColumnWidths(_ rows: [[String]], fitting room: CGFloat = 0) -> [CGFloat] {
     let glyph = ("0" as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)]).width
-    return (0..<(rows.first?.count ?? 0)).map { c in
-        let longest = rows.map { $0[c] }.map { String(richText($0).characters).count }.max() ?? 0
-        return ceil(min(CGFloat(longest) * glyph, 320)) + 24
+    let natural = (0..<(rows.first?.count ?? 0)).map { c in ceil(CGFloat(rows.map { String(richText($0[c]).characters).count }.max() ?? 0) * glyph) }
+    var left = room - 24 * CGFloat(natural.count), cap = CGFloat.infinity
+    for (i, width) in natural.sorted().enumerated() {
+        let share = left / CGFloat(natural.count - i)
+        if width > share { cap = floor(share); break }
+        left -= width
     }
+    return natural.map { min($0, max(cap, 320)) + 24 }
 }
 

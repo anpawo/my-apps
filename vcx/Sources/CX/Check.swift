@@ -166,7 +166,7 @@ enum Check {
         }
         do {
             let short = "| Topic | Details |\n| --- | --- |\n| Opinions | Stable. |\n| Incidents | Increasing. |\n| Public speech | More visible. |"
-            let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 8))
+            let long = short.replacingOccurrences(of: "Stable.", with: String(repeating: "Long-term tolerance can improve while recorded incidents increase. ", count: 16))
             for width: CGFloat in [420, 760, 1120] {
                 func height(_ text: String) -> CGFloat {
                     let host = NSHostingView(rootView: MarkdownBody(text: text).frame(width: width))
@@ -673,6 +673,8 @@ enum Check {
         check([0, 39, 40, 99, 100, 500].map { tableColumn(at: $0, widths: [40, 60, 80]) } == [0, 0, 1, 1, 2, 2], "a click on a table row finds the column under it")
         let widths = tableColumnWidths([["#", "Name"], ["1", String(repeating: "w", count: 200)]])
         check(widths.count == 2 && widths[0] < widths[1] && widths[1] == 344, "table columns fit their content up to 320 pt")
+        let roomy = tableColumnWidths([["#", "A", "B"], ["1", String(repeating: "w", count: 30), String(repeating: "w", count: 400)]], fitting: 1000)
+        check((998...1000).contains(roomy.reduce(0, +)) && roomy[2] > 344, "a long column widens to fill the room beside it")
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path ?? sourceFixture
         let rpc = RPC()
         var notified = false
