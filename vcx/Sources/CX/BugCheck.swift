@@ -589,9 +589,15 @@ enum BugCheck {
                     if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] { try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("work-shut-\(name).png")) }
                     return bitmap
                 }
-                // The block's tinted edge, found on the render: the first tinted column left of the middle, on the row where it sits.
+                // The block's left edge, found on the render: its grey band crossing the middle, followed left to where it starts.
                 func edge(_ bitmap: NSBitmapImageRep) -> (x: Int, y: Int)? {
-                    for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide / 2 where bitmap.colorAt(x: x, y: y).map({ $0.blueComponent - $0.greenComponent > 0.02 }) == true { return (x, y) } }
+                    func band(_ x: Int, _ y: Int) -> Bool { bitmap.colorAt(x: x, y: y).map { abs($0.redComponent - 0.975) < 0.006 && abs($0.redComponent - $0.blueComponent) < 0.004 } == true }
+                    let middle = bitmap.pixelsWide / 2
+                    for y in 0..<bitmap.pixelsHigh - 4 where band(middle, y) && band(middle, y + 4) {
+                        var x = middle
+                        while x > 0, band(x - 1, y + 4) { x -= 1 }
+                        return (x, y)
+                    }
                     return nil
                 }
                 // Inked rows of the transcript alone (right of the side bar, above the status line), in points.
@@ -621,7 +627,7 @@ enum BugCheck {
                         check(tall > document.frame.height + 600 && after.flatMap(edge) != nil && frames.allSatisfy { $0 > 10 },
                               "a work block left by the pointer while scrolled inside it shuts back into view, never on a blank transcript")
                     } else { check(false, "a work block left while scrolled inside it: no transcript scroll view") }
-                } else { check(false, "a work block left while scrolled inside it: no tinted edge on the render") }
+                } else { check(false, "a work block left while scrolled inside it: no block edge on the render") }
             }
         }
         do {

@@ -1063,7 +1063,7 @@ struct WorkBlock: View {
                 HStack(spacing: 12) {
                     // The chevron's segment is the hover target that opens the block; tinted only while open, at rest it read as stuck hover.
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
-                        .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0))
+                        .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0)).contentShape(Rectangle())
                         .onHover { inside in FreezeTrace.note("work block edge hover"); if inside, !hovering, !Self.covered { animate { hovering = true } } }
                     Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")", sent == 0 ? nil : "\(sent) \(sent == 1 ? "message" : "messages") sent"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
