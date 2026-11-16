@@ -236,7 +236,7 @@ function moveFav(item, key, tab) {
   else { state.favs = order; localStorage.favs = JSON.stringify([...order]); }
   showLists();
 }
-// Favorites on top, then each group; being in a group does not make someone a favorite.
+// Each group, then the favorites; being in a group does not make someone a favorite.
 function showLists() {
   const all = state.all || [];
   drawFavs($('#favs'), all.filter(isFav).sort((a, b) => favRank(a) - favRank(b)));
@@ -244,7 +244,7 @@ function showLists() {
   renderList($('#people'), shown(all));
   movePill();
 }
-// Favorites: their pictures in a strip above the list, in his order; a dot when unread.
+// Favorites: their pictures in a strip under the groups, in his order; a dot when unread.
 function drawFavs(box, items, tab) {
   const was = new Map([...box.children].map(b => [b.dataset.id, b.getBoundingClientRect()]));
   const had = new Set(was.keys());
@@ -274,7 +274,7 @@ function drawFavs(box, items, tab) {
   if (opening) collapse(box, false);
 }
 
-// Groups: named sets of people under the favorites, each folded into one bubble of its
+// Groups: named sets of people above the favorites, each folded into one bubble of its
 // first 4 pictures until clicked; dragging a bubble or a name moves the group in the order.
 state.open = new Set();
 state.tabs = JSON.parse(localStorage.tabs || '[]');

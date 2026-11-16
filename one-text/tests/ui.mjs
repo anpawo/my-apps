@@ -600,7 +600,7 @@ check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWi
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
-// Groups: favorites stay on top; "+ New group" names one; Add to it moves her into it; every group stays open.
+// Groups: favorites sit under them; "+ New group" names one; Add to it moves her into it; every group stays open.
 const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
 const groupFavs = name => page.$$eval(`.group[data-name="${name}"] .strip:not([hidden]) .fav`, fs => fs.map(f => f.title));
 const topBefore = await topFavs();
@@ -623,8 +623,8 @@ await page.click('.menu .item:has-text("group…")');
 await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
 check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'two groups are open at once');
-const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
-check(order.every((t, k) => !k || order[k - 1] < t), `favorites, then each group, then the list (${order})`);
+const order = await page.evaluate(() => ['.group[data-name="Family"]', '.group[data-name="Work"]', '#favs', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
+check(order.every((t, k) => !k || order[k - 1] < t), `each group, then the favorites, then the list (${order})`);
 await page.screenshot({ path: join(out, '7-groups.png') });
 const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(), t = document.querySelector('#favs .fav').getBoundingClientRect(); return [l.bottom <= f.top, Math.round(f.left - t.left)]; });
 check(JSON.stringify(side) === '[true,0]', `a group's name sits above its pictures, which line up with the top strip (${side})`);
