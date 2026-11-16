@@ -19,7 +19,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "theme": "Dark",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#28282a"
       }
     ],
     "security": { "csp": null }

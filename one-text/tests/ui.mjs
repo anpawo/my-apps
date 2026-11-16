@@ -946,6 +946,18 @@ await page.evaluate(() => (localStorage.lastChat = 'te-sarah'));
 await page.reload();
 await page.waitForSelector('#thread .msg');
 check((await page.textContent('#thread')).includes('meeting moved to 3pm'), 'the chat open last opens at launch');
+check(await page.evaluate(() => emojiFind('eyes').then(l => l[0][0])) === '👀', 'the exact name comes first (:eyes → 👀)');
+await page.fill('#input', 'half a thought');
+await page.evaluate(() => select(state.all.find(i => i !== state.cur).id));
+await page.waitForTimeout(200);
+const other = await page.inputValue('#input');
+await page.evaluate(() => select(state.all.find(i => i.chats.some(c => c.id === 'te-sarah')).id));
+await page.waitForTimeout(200);
+await page.reload();
+await page.waitForSelector('#thread .msg');
+const back = await page.inputValue('#input');
+check(other === '' && back === 'half a thought', `a draft stays with its conversation, across a reload too (${JSON.stringify([other, back])})`);
+await page.fill('#input', '');
 // A picture loading after the thread is drawn grows it: the thread stays at its end.
 const grown = await page.evaluate(async () => {
   const pic = Object.assign(document.createElement('div'), { style: 'height: 1500px' });

@@ -748,6 +748,8 @@ async function select(id) {
   localStorage.lastChat = item.chats[0].id;
   state.target = null;
   setReply(null);
+  input.value = drafts[item.chats[0].id] || '';
+  autosize();
   if (!find.box.hidden) closeFind();
   openProfile(item);
   // The list keeps the open one even when hidden or old: redraw it so the one left goes back to its rule.
@@ -1304,6 +1306,14 @@ function chatFor(netKey) {
 }
 
 const input = $('#input');
+// Each conversation's unsent text, by its first chat id, kept across launches.
+const drafts = JSON.parse(localStorage.drafts || '{}');
+function keepDraft() {
+  if (!state.cur || state.edit) return;
+  const k = state.cur.chats[0].id;
+  if (input.value.trim()) drafts[k] = input.value; else delete drafts[k];
+  localStorage.drafts = JSON.stringify(drafts);
+}
 function autosize() {
   const h0 = input.offsetHeight;
   input.style.height = 'auto';
@@ -1312,6 +1322,7 @@ function autosize() {
   void input.offsetHeight;
   input.style.height = h1 + 'px';
   $('#send').disabled = !input.value.trim();
+  keepDraft();
 }
 // "/ws " (or "/ws" then Enter) switches the reply's network; the command itself is never sent.
 function command(atEnd) {
@@ -1342,14 +1353,14 @@ async function emojiSearch() {
   emo.from = pos - q.length - 1;
   showEmoji((await emojiFind(q)).slice(0, 8));
 }
-// A whole word first (":joy" → 😂 before 🕹️), then a name starting with it, a word starting with it, anywhere.
+// The exact name first (":eyes" → 👀 before 😃), then a whole word (":joy" → 😂 before 🕹️), then a name starting with it, a word starting with it, anywhere.
 async function emojiFind(q) {
   EMOJI ||= await fetch('emoji.json').then(r => r.json());
   q = q.toLowerCase().replace(/[^\p{L}_ ]/gu, '').replace(/ /g, '_');
   const key = q.replace(/_/g, '');
   // Keywords (emojilib, as Slack or Discord): ":muscle" or ":bice" → 💪, ranked just after the same match on the name.
   const word = (slug, k) => (slug.split('_').includes(k) ? 0 : slug.startsWith(k) ? 1 : new RegExp(`(^|_)${k}`).test(slug) ? 2 : 9);
-  const rank = ([, slug, kw = []]) => Math.min(word(slug, q), slug.replace(/_/g, '').includes(key) ? 3 : 9, ...kw.map(k => word(k, q) + 0.5));
+  const rank = ([, slug, kw = []]) => slug === q ? -1 : Math.min(word(slug, q), slug.replace(/_/g, '').includes(key) ? 3 : 9, ...kw.map(k => word(k, q) + 0.5));
   return EMOJI.map(e => [e, rank(e)]).filter(([, r]) => r < 9).sort((a, b) => a[1] - b[1]).map(([e]) => e);
 }
 function showEmoji(list) {
