@@ -849,7 +849,11 @@ function msgNodes(m, prev) {
   row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
   if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {
-    row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(m));
+    const parts = partsOf(m);
+    if (parts.at(-1) === m) {
+      for (const p of parts.slice(0, -1)) document.querySelector(`#thread .msg[data-id="${CSS.escape(p.id)}"] .reacts`)?.remove();
+      row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(parts.find(x => x.reactions?.length) || m));
+    }
     row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}<button class="all" title="All emoji">${PLUS}</button></div>`);
   }
   row.insertAdjacentHTML('beforeend', `<span class="at">${new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>`);
@@ -954,6 +958,9 @@ function drawSeen() {
   const text = !by.size ? 'Sent' : state.cur.kind === 'group' ? `Seen by ${by.size}` : `Seen ${day ? new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : when(at)}`;
   document.querySelector(`#thread .msg[data-id="${CSS.escape(last.id)}"] .col`)?.insertAdjacentHTML('beforeend', `<div class="receipt">${text}</div>`);
 }
+// Instagram splits a picture sent with a caption into two messages of one timestamp and keeps the reactions on the
+// picture, though its app shows them under the caption: an item's reactions sit under its last part.
+const partsOf = m => [...state.msgs.filter(x => x.id !== m.id && x.chatID === m.chatID && x.senderID === m.senderID && x.timestamp === m.timestamp), m].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 function reactsHTML(m) {
   if (!m.reactions?.length) return '';
   const self = selfIn(m.chatID), keys = new Map();
@@ -963,13 +970,15 @@ function reactsHTML(m) {
     k.me ||= self.has(r.participantID) || r.participantID === 'me';
     keys.set(r.reactionKey, k);
   }
-  return `<div class="reacts">${[...keys].map(([key, k]) => `<button class="r${k.me ? ' me' : ''}" data-e="${esc(key)}" title="${k.me ? 'Remove your reaction' : 'React the same'}">${k.img && !/\p{Extended_Pictographic}/u.test(key) ? `<img src="${esc(asset(k.img))}" alt="">` : esc(key)}${k.n > 1 ? `<i>${k.n}</i>` : ''}</button>`).join('')}</div>`;
+  return `<div class="reacts" data-of="${esc(m.id)}">${[...keys].map(([key, k]) => `<button class="r${k.me ? ' me' : ''}" data-e="${esc(key)}" title="${k.me ? 'Remove your reaction' : 'React the same'}">${k.img && !/\p{Extended_Pictographic}/u.test(key) ? `<img src="${esc(asset(k.img))}" alt="">` : esc(key)}${k.n > 1 ? `<i>${k.n}</i>` : ''}</button>`).join('')}</div>`;
 }
 function redrawMsg(m) {
-  const old = document.querySelector(`#thread .msg[data-id="${CSS.escape(m.id)}"]`);
-  if (!old) return;
-  const i = state.msgs.findIndex(x => x.id === m.id);
-  old.replaceWith(msgNodes(m, state.msgs[i - 1]).at(-1));
+  for (const p of partsOf(m)) {
+    const old = document.querySelector(`#thread .msg[data-id="${CSS.escape(p.id)}"]`);
+    if (!old) continue;
+    const i = state.msgs.findIndex(x => x.id === p.id);
+    old.replaceWith(msgNodes(p, state.msgs[i - 1]).at(-1));
+  }
 }
 // The five reactions I use most: counted once over my recent chats, then each one I send from here.
 const reactCount = JSON.parse(localStorage.reactCount || '{}');
@@ -1044,7 +1053,7 @@ $('#thread').addEventListener('click', async e => {
 $('#thread').addEventListener('click', e => {
   if (e.target.closest('.quick .all')) return openPicker(e.target.closest('.msg'));
   const b = e.target.closest('.quick button, .reacts button');
-  const m = b && state.msgs.find(x => x.id === b.closest('.msg').dataset.id);
+  const m = b && state.msgs.find(x => x.id === (b.closest('.reacts')?.dataset.of || b.closest('.msg').dataset.id));
   if (m) react(m, b.dataset.e);
 });
 

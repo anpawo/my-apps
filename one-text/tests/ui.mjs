@@ -744,6 +744,15 @@ await page.click('#thread .msg[data-id="h1"] .reacts button');
 const undone = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="h1"] .reacts button').length, __log.filter(([c, a]) => c === 'api' && a.method === 'DELETE').length]);
 check(JSON.stringify(quick) === '[5,true,true]' && JSON.stringify(pill) === '["👍",true]' && posted.join() === 'POST 👍' && JSON.stringify(undone) === '[0,1]', `the hover bar reacts and the pill takes it back (${quick} / ${pill} / ${posted} / ${undone})`);
 
+// A picture sent with a caption comes as two messages of one timestamp, Instagram's like on the first: it shows under the caption.
+await page.evaluate(() => { const h = __msgs['ig-hugo'], at = new Date().toISOString(); h.push({ ...h[0], id: 'p1', text: 'picture', timestamp: at, sortKey: '1999999990', reactions: [{ participantID: 'them', reactionKey: '❤️' }] }, { ...h[0], id: 'p2', text: 'caption', timestamp: at, sortKey: '1999999991', reactions: [] }); return pollThread(); });
+await page.waitForSelector('#thread .msg[data-id="p2"] .reacts');
+const split = await page.evaluate(() => [document.querySelectorAll('#thread .msg[data-id="p1"] .reacts').length, document.querySelector('#thread .msg[data-id="p2"] .reacts button').textContent]);
+await page.click('#thread .msg[data-id="p2"] .reacts button');
+const splitPost = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.includes('/reactions')).at(-1)[1].path.split('/').at(-2));
+check(JSON.stringify(split) === '[0,"❤️"]' && splitPost === 'p1', `a split picture's like shows under its caption and reacts on the picture (${split} / ${splitPost})`);
+await page.evaluate(() => { __msgs['ig-hugo'].splice(-2); state.msgs = state.msgs.filter(m => !['p1', 'p2'].includes(m.id)); document.querySelectorAll('#thread .msg[data-id^="p"]').forEach(r => r.remove()); });
+
 // A reply under a long quote: its hover bar sits beside its bubble, not past the quote; Beeper's &gt; shows as >.
 await page.evaluate(() => { const h = __msgs['ig-hugo']; h.push({ ...h[0], id: 'h2', text: 'a =&gt; b', linkedMessageID: 'h1', timestamp: new Date().toISOString(), sortKey: '1999999999' }); h[0].text = 'a long message that makes the quote much wider than the short reply under it'; return pollThread(); });
 await page.waitForSelector('#thread .msg[data-id="h2"] .quote');
