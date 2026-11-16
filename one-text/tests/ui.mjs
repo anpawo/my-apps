@@ -147,6 +147,8 @@ const searchCost = await page.evaluate(async () => {
 check(searchCost[0] < 150, `a one-letter search over 1000 people draws in ${searchCost[0]} ms (${searchCost[1]} rows)`);
 const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0, chats: [] }))).map(i => i.id));
 check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus unread (${many.length})`);
+const openFar = await page.evaluate(() => { const was = state.cur; state.cur = { id: 'x13' }; const ids = shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: 0, chats: [] }))).map(i => i.id); state.cur = was; return ids; });
+check(openFar[0] === 'x13' && openFar.lastIndexOf('x13') === 0 && openFar[1] === 'x0', `an open conversation past the screen shows on top of the list (${openFar.slice(0, 2)})`);
 const crossAnswer = await page.evaluate(() => {
   const p = { chats: [
     { id: 'x-teams', unread: 1, last: '2026-11-13T14:15:00Z', preview: { isSender: false } },

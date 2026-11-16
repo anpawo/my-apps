@@ -194,7 +194,11 @@ const listed = i => isFav(i) && !(grouped(i) && i.kind !== 'group')
 function shown(items) {
   items = items.filter(listed);
   const max = state.more || fits();
-  return items.filter((i, n) => n < max || i.unread > 0 || i.id === state.cur?.id);
+  const at = items.findIndex(i => i.id === state.cur?.id);
+  const out = items.filter((i, n) => n < max || (i.unread > 0 && n !== at));
+  // An open conversation from further down (the group bar, a search) shows on top instead of past the screen.
+  if (at >= max) out.unshift(items[at]);
+  return out;
 }
 // A wheel turn at the bottom of the list, even one too short to scroll, shows twice as many people.
 $('#list').addEventListener('wheel', e => {
