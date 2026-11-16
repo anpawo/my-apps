@@ -345,7 +345,7 @@ struct CXView: View {
             }
             // The web "Dropdown on hover" curve: most of the way in within the first frames.
             .animation(.timingCurve(0.32, 0.72, 0, 1, duration: reduceMotion ? 0.1 : 0.2), value: openCapability != nil)
-            .onChange(of: openCapability) { hoveredRule = nil }
+            .onChange(of: openCapability) { hoveredRule = nil; WorkBlock.covered = openCapability != nil }
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
@@ -1048,6 +1048,8 @@ struct WorkBlock: View {
     var reveal: () -> Void = {}
     // Maps a y in its row to the transcript's viewport.
     var viewportTop: (CGFloat) -> CGFloat = { $0 }
+    // Transcript rows are hosting views of their own: their hover fires under a sidebar panel drawn over them.
+    @MainActor static var covered = false
     @State private var hovering = false
     @State private var pinned = false
     @State private var local: CGFloat = 0
@@ -1062,7 +1064,7 @@ struct WorkBlock: View {
                     // The tinted segment is the hover target that opens the block.
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
                         .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0.09))
-                        .onHover { inside in FreezeTrace.note("work block edge hover"); if inside, !hovering { animate { hovering = true } } }
+                        .onHover { inside in FreezeTrace.note("work block edge hover"); if inside, !hovering, !Self.covered { animate { hovering = true } } }
                     Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")", sent == 0 ? nil : "\(sent) \(sent == 1 ? "message" : "messages") sent"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
