@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import WebKit
 
 @MainActor
 enum Check {
@@ -2136,6 +2137,31 @@ enum Render {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             }
             if !field.string.hasPrefix("helloa b,") || field.selectedRange().location != 8 { fputs("FAIL: typing in an edited code block keeps the caret where it types\n", stderr); exit(1) }
+        }
+        do {
+            let page = "<svg viewBox=\"0 0 600 200\" width=\"100%\"><polyline fill=\"none\" stroke=\"#7c3aed\" stroke-width=\"3\" points=\"0,150 100,120 200,140 300,60 400,90 500,30 600,50\"/></svg>"
+            func web(_ view: NSView) -> WKWebView? { (view as? WKWebView) ?? view.subviews.lazy.compactMap(web).first }
+            func shoot(_ root: some View, _ size: CGSize, _ name: String) -> CGSize {
+                let host = NSHostingView(rootView: root)
+                host.frame = NSRect(origin: .zero, size: size)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host
+                RunLoop.main.run(until: Date().addingTimeInterval(2))
+                guard let view = web(host) else { fputs("FAIL: a chart block draws a web view\n", stderr); exit(1) }
+                var done = false
+                view.takeSnapshot(with: nil) { image, _ in
+                    if let data = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: data) { try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: directory + "/" + name)) }
+                    done = true
+                }
+                while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+                write(root, size: size, path: directory + "/frame-" + name)
+                return view.bounds.size
+            }
+            var opened: ChartZoom?
+            let inline = shoot(MarkdownBody(text: "Two weeks:\n\n```chart\n" + page + "\n```\n\nAfter.").environment(\.openChart) { opened = $0 }.frame(width: 640).padding(24).background(Color.white), CGSize(width: 688, height: 420), "chart-inline.png")
+            if abs(inline.height - (640 - 24) * 200 / 600) > 4 { fputs("FAIL: a chart block takes its page's height (\(inline))\n", stderr); exit(1) }
+            let zoom = shoot(ChartPreview(chart: opened ?? ChartZoom(html: page, size: inline), size: CGSize(width: 1120, height: 820)) {}.frame(width: 1120, height: 820).background(Color.gray), CGSize(width: 1120, height: 820), "chart-zoom.png")
+            if zoom.width <= inline.width || abs(zoom.width / zoom.height - inline.width / inline.height) > 0.01 { fputs("FAIL: a zoomed chart keeps its ratio (\(inline) -> \(zoom))\n", stderr); exit(1) }
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {

@@ -375,19 +375,27 @@ struct CXView: View {
                         ImagePreview(path: path, size: geometry.size) { session.preview = nil }
                             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
                     }
+                    if let chart = session.chart {
+                        Color.black.opacity(0.25).onTapGesture { session.chart = nil }.transition(.opacity)
+                        ChartPreview(chart: chart, size: geometry.size) { session.chart = nil }
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
+                    }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(session.preview != nil)
+                    .allowsHitTesting(session.preview != nil || session.chart != nil)
                     .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.24), value: session.preview != nil)
+                    .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.24), value: session.chart)
             }
         }
         .disabled(session.frontendReplacing)
         .onChange(of: session.editorHeight) { FreezeTrace.shape(of: session) }
         .environment(session.find)
+        .environment(\.openChart) { session.chart = $0 }
         .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
         .onExitCommand {
             guard !session.frontendReplacing else { return }
             if session.find.open { closeFind() }
             else if session.preview != nil { session.preview = nil }
+            else if session.chart != nil { session.chart = nil }
             else if openCapability != nil { openCapability = nil }
             else if session.commandQuery != nil { session.dismissCommands() }
             else if session.busy { Task { await session.stop(source: "Escape") } }
@@ -1391,14 +1399,15 @@ struct MarkdownBlock: Identifiable {
     let code: Bool
     let language: String
     let markdown: Bool
+    var closed = true
 }
 
 // CommonMark fences: a block closes only on a bare run of its own character at least as long as its opener, so a ```` block holds ``` ones.
 func markdownBlocks(_ text: String) -> [MarkdownBlock] {
     var blocks: [MarkdownBlock] = [], lines: [String] = [], code = false, language = "", fence = ""
-    func append() {
+    func append(closed: Bool = true) {
         // A ```` fence exists only to hold nested fences: its content is a Markdown document, shown formatted.
-        if !lines.isEmpty { blocks.append(MarkdownBlock(id: blocks.count, text: lines.joined(separator: "\n"), code: code, language: language, markdown: code && (["md", "markdown"].contains(language.lowercased()) || fence.count > 3))); lines.removeAll() }
+        if !lines.isEmpty { blocks.append(MarkdownBlock(id: blocks.count, text: lines.joined(separator: "\n"), code: code, language: language, markdown: code && (["md", "markdown"].contains(language.lowercased()) || fence.count > 3), closed: closed)); lines.removeAll() }
     }
     for line in text.components(separatedBy: "\n") {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -1409,7 +1418,7 @@ func markdownBlocks(_ text: String) -> [MarkdownBlock] {
             else { code = true; fence = String(run); language = trimmed.dropFirst(run.count).trimmingCharacters(in: .whitespaces) }
         } else { lines.append(line) }
     }
-    append(); return blocks
+    append(closed: !code); return blocks
 }
 
 struct MarkdownBody: View {
@@ -1417,7 +1426,9 @@ struct MarkdownBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(markdownBlocks(text)) { block in
-                if block.code {
+                if block.code, block.closed, block.language.lowercased() == "chart" {
+                    ChartBlock(html: block.text)
+                } else if block.code {
                     CodeBlock(block: block)
                 } else {
                     ProseView(text: block.text)
