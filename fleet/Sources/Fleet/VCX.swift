@@ -69,7 +69,7 @@ enum VCX {
     static func session(_ record: [String: Any], pid: pid_t, startedAt: UInt64, path: String) -> Session? {
         guard record["pid"] as? pid_t == pid,
               record["startedAt"] as? UInt64 == startedAt,
-              let cwd = record["cwd"] as? String, cwd.hasPrefix("/") else { return nil }
+              var cwd = record["cwd"] as? String, cwd.hasPrefix("/") else { return nil }
         let runtimeID = record["sessionId"] as? String
         if let runtimeID, UUID(uuidString: runtimeID) == nil { return nil }
         let preview = (record["preview"] as? [[String: Any]] ?? []).compactMap { line -> PreviewLine? in
@@ -112,6 +112,9 @@ enum VCX {
             // VCX's cwd, not the transcript's: it is the folder the window's bar shows, moved by a
             // standalone `cd` and by /dir at once, where the transcript's waits for Claude's next
             // line and never sees /dir (asked 2026-11-09).
+            // Except at /: VCX leaves a chat there until it edits a file in a project, while a
+            // later `cd ~/self/s14` already moved Claude (2026-11-16).
+            if cwd == "/", let moved = live?.cwd, moved != "/" { cwd = moved; info.cwd = moved }
         }
         return Session(proc: ClaudeProcess(pid: pid, ppid: 1, cwd: cwd, tty: "", startedAt: started,
                                           cpuNanos: 0, vcx: true),
