@@ -149,6 +149,20 @@ const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) =
 check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus unread (${many.length})`);
 const openFar = await page.evaluate(() => { const was = state.cur; state.cur = { id: 'x13' }; const ids = shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: 0, chats: [] }))).map(i => i.id); state.cur = was; return ids; });
 check(openFar[0] === 'x13' && openFar.lastIndexOf('x13') === 0 && openFar[1] === 'x0', `an open conversation past the screen shows on top of the list (${openFar.slice(0, 2)})`);
+const sink = await page.evaluate(async () => {
+  const was = [state.all, state.more, state.cur], wait = ms => new Promise(r => setTimeout(r, ms));
+  const row = () => document.querySelector('#people .row[data-id="x13"]');
+  state.all = Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, kind: 'x', imgs: [], unread: 0, last: new Date(Date.now() - i * 6e4).toISOString(), chats: [] }));
+  state.more = 10; state.cur = { id: 'x13' }; showLists(); await wait(500);
+  const top = row().getBoundingClientRect().top;
+  state.cur = { id: 'x0' }; showLists(); await wait(130);
+  const mid = [row().getBoundingClientRect().top - top, row().offsetHeight, +getComputedStyle(row()).opacity];
+  await wait(450);
+  const gone = !row();
+  [state.all, state.more, state.cur] = was; showLists(); await wait(400);
+  return [mid, gone];
+});
+check(sink[0][0] > 40 && sink[0][1] > 30 && sink[0][2] === 1 && sink[1], `a conversation let go slides down past the end of the list instead of fading (${JSON.stringify(sink)})`);
 const crossAnswer = await page.evaluate(() => {
   const p = { chats: [
     { id: 'x-teams', unread: 1, last: '2026-11-13T14:15:00Z', preview: { isSender: false } },

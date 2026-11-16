@@ -125,10 +125,14 @@ function fill(n, item, all) {
 function renderList(box, items) {
   const before = new Map([...box.children].map(n => [n.dataset.id, n.getBoundingClientRect().top]));
   const keep = new Set(items.map(i => i.id));
+  // A row that drops only because its place is past the end (the open one let go) slides down there instead of fading.
+  const further = box.id === 'people' && !RM.matches ? new Set((state.all || []).filter(listed).map(i => i.id)) : new Set();
+  const sinking = [];
   for (const n of [...box.children]) {
     if (!keep.has(n.dataset.id) && !n.dataset.leaving) {
       n.dataset.leaving = '1';
-      collapse(n, true, 220).then(() => n.remove());
+      if (further.has(n.dataset.id)) sinking.push(n);
+      else collapse(n, true, 220).then(() => n.remove());
     }
   }
   let prev = null;
@@ -154,11 +158,16 @@ function renderList(box, items) {
     if (fresh && before.size) anim(n, { opacity: [0, 1] }, 220);
     prev = n;
   }
+  for (const n of sinking) {
+    box.appendChild(n);
+    n.style.cssText = 'z-index: 1; background: #000';
+  }
   for (const n of box.children) {
     const top = before.get(n.dataset.id);
-    if (top == null || n.dataset.leaving) continue;
+    if (top == null || (n.dataset.leaving && !sinking.includes(n))) continue;
     const dy = top - n.getBoundingClientRect().top;
-    if (Math.abs(dy) > 1) anim(n, { transform: [`translateY(${dy}px)`, 'none'] }, 300);
+    const a = Math.abs(dy) > 1 && anim(n, { transform: [`translateY(${dy}px)`, 'none'] }, sinking.includes(n) ? 380 : 300);
+    if (sinking.includes(n)) (a ? a.finished.catch(() => {}) : Promise.resolve()).then(() => n.remove());
   }
 }
 
