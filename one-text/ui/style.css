@@ -88,22 +88,22 @@ header .who > .net { width: 40px; height: 40px; border-radius: 10px; }
 header .who > b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
 #profile .actions button:hover, #profile .merge.open { background: #363636; }
-/* A person: picture centered, name under it, the apps' logos peeking out from behind it on a ring. */
-header.person { justify-content: center; padding: 16px 14px 10px; }
+/* A person: their apps' logos in a row on top, the picture under them, the name in a pill overlapping its bottom edge. */
+header.person { justify-content: center; padding: 12px 14px 10px; }
 header.person #profile { display: none; }
-header.person .more { position: absolute; top: 12px; right: 14px; }
-header.person .who { position: relative; flex-direction: column; gap: 10px; max-width: 70%; padding-top: 4px; }
-header.person .who > .av { position: relative; z-index: 1; clip-path: circle(50%); --s: 64px; width: 64px; height: 64px; font-size: 21px; }
-header.person .who > b { max-width: 100%; }
-header .who > .ring { position: absolute; left: 50%; top: 36px; width: 22px; height: 22px; margin: -11px; border-radius: 6px; cursor: pointer;
-  transform: rotate(var(--a)) translateX(37px) rotate(calc(-1 * var(--a))); transition: box-shadow 200ms var(--ease); }
-header .who > .ring.on { box-shadow: 0 0 0 2px #000, 0 0 0 3.5px #f5f5f5; }
+header.person .who { flex-direction: column; gap: 8px; max-width: 70%; }
+header.person .who > .av { --s: 64px; width: 64px; height: 64px; font-size: 21px; }
+header.person .who > b { position: relative; z-index: 1; margin-top: -20px; }
+header .who > .apps { display: flex; gap: 6px; }
+header .who .ring { width: 20px; height: 20px; border-radius: 5px; cursor: pointer; transition: box-shadow 200ms var(--ease); }
+header .who .ring.on { box-shadow: 0 0 0 2px #000, 0 0 0 3.5px #f5f5f5; }
+/* The name is a pill; a click opens what can be done with them. */
+header .who > b { max-width: 100%; padding: 4px 10px 4px 12px; border-radius: 999px; background: #2c2c2e; cursor: pointer; transition: background-color 150ms; }
+header .who > b::after { content: "›"; margin-left: 6px; color: var(--muted); }
+header .who > b:hover, header .who > b.open { background: #3a3a3c; }
 header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; border: 0; border-bottom: 1px solid var(--muted); outline: none; padding: 1px 0; width: 260px; }
 .row .orig { display: none; margin-left: 8px; color: var(--muted); font-weight: 400; font-size: 12.5px; }
 #results .row .orig { display: inline; }
-.more { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; transition: background-color 150ms; }
-.more:hover, .more.open { background: var(--tint); }
-.more svg { width: 16px; height: 16px; fill: #f5f5f5; }
 #find { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
 #find input { flex: 1; min-width: 0; padding: 6px 12px; border-radius: 14px; border: 0; background: var(--field); color: inherit; font: inherit; font-size: 13px; outline: none; }
 #find .count { font-size: 12px; color: var(--muted); white-space: nowrap; }

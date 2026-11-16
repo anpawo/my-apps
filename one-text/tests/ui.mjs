@@ -410,7 +410,7 @@ check(afterEcho && Math.abs(afterEcho[0] - beforeEcho) < 0.5 && afterEcho[1] ===
 // Merge Tom (Discord) with Tom B (WhatsApp) through the ⋯ menu, then Undo.
 await page.click('#people .row:has-text("tom")');
 await page.waitForTimeout(500);
-await page.click('.more');
+await page.click('header .who > b');
 await page.waitForTimeout(250);
 await page.click('.menu .item:has-text("Merge with")');
 await page.waitForTimeout(300);
@@ -594,7 +594,7 @@ await page.fill('header .who input', 'Sassy');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(500);
 const alias = await page.evaluate(() => [document.querySelector('header .who > b').textContent, state.byId.get(state.cur.id).name, state.byId.get(state.cur.id).original]);
-await page.click('.more');
+await page.click('header .who > b');
 await page.waitForTimeout(250);
 await page.screenshot({ path: join(out, '8-menu.png') });
 const sections = await page.$$eval('.menu > *', es => es.map(e => e.classList.contains('sep') ? '|' : e.textContent.replace(/⌘.|⌘D.*/, '').trim()).join(','));
@@ -899,11 +899,11 @@ await page.waitForSelector('.who .ring');
 await page.waitForTimeout(700);
 const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('.who .ring.on')?.dataset.net]);
 const shape = await page.$eval('header', h => {
-  const r = s => h.querySelector(s).getBoundingClientRect(), av = r('.who > .av'), bar = h.getBoundingClientRect(), rings = [...h.querySelectorAll('.who .ring')].map(c => c.getBoundingClientRect());
-  const mid = av.left + av.width / 2, cy = av.top + av.height / 2, front = document.elementFromPoint(mid + av.width / 2 - 3, cy)?.closest('.av, .ring');
-  return [Math.abs(mid - (bar.left + bar.width / 2)) <= 1, Math.abs(r('.who > b').left + r('.who > b').width / 2 - mid) <= 1 && r('.who > b').top >= av.bottom, rings.length,
-    rings.every(g => { const d = Math.hypot(g.left + g.width / 2 - mid, g.top + g.height / 2 - cy); return d < av.width / 2 + g.width / 2 && d + g.width / 2 > av.width / 2; }),
-    !!front?.classList.contains('av'), getComputedStyle(h.querySelector('#profile')).display === 'none', bar.height <= innerHeight / 4 + 1, h.querySelector('.who .ring').title.includes(' · ')];
+  const r = s => h.querySelector(s).getBoundingClientRect(), av = r('.who > .av'), bar = h.getBoundingClientRect(), name = r('.who > b'), apps = r('.who .apps');
+  const mid = av.left + av.width / 2, rings = [...h.querySelectorAll('.who .ring')].map(c => c.getBoundingClientRect());
+  return [Math.abs(mid - (bar.left + bar.width / 2)) <= 1, Math.abs(name.left + name.width / 2 - mid) <= 1 && name.top > av.top + av.height / 2 && getComputedStyle(h.querySelector('.who > b')).borderRadius !== '0px', rings.length,
+    Math.abs(apps.left + apps.width / 2 - mid) <= 1 && rings.every(g => g.bottom <= av.top && Math.abs(g.top - rings[0].top) < 1), !h.querySelector('.more'),
+    getComputedStyle(h.querySelector('#profile')).display === 'none', bar.height <= innerHeight / 4 + 1, h.querySelector('.who .ring').title.includes(' · ')];
 });
 const litBefore = await lit();
 await page.screenshot({ path: join(out, 'profile-kept.png') });
@@ -911,7 +911,7 @@ await page.click('.who .ring:not(.on)');
 await page.waitForTimeout(250);
 const litAfter = await lit();
 check(shape.join() === 'true,true,2,true,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
-  `the bar: picture centred, name under it, each app's logo half behind it on a ring telling what that app knows, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
+  `the bar: picture centred, apps' logos in a row above it telling what each app knows, the name in a pill, no ⋯, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
 
 // Someone with no chat yet: ⌘D finds them by their Discord tag, ↵ starts the chat and opens it.
 await page.keyboard.press('Meta+d');
@@ -925,7 +925,7 @@ check(started === '[{"accountID":"discordgo","type":"single","participantIDs":["
 // Merge with… finds them too, now as the person their new chat belongs to, not a second contact.
 await page.evaluate(() => select('ig-lea'));
 await page.waitForTimeout(400);
-await page.click('.more');
+await page.click('header .who > b');
 await page.waitForTimeout(250);
 await page.click('.menu .item:has-text("Merge with")');
 await page.waitForTimeout(300);

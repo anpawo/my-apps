@@ -801,13 +801,12 @@ function drawHeader() {
   // A group on one app: that app's logo before its name (and its own picture, if it has one), its members' faces already on the right.
   const one = item.kind === 'group' && netsOf(item).length === 1;
   const own = one && !item.faces?.length && item.imgs?.length ? avatar({ ...item, _plain: true }) : '';
-  // A person: picture centered, name under it, each app's logo half behind the picture on a ring around it.
+  // A person: their apps' logos in a row, the picture centered under them, then the name in a pill that opens the menu.
   const person = item.kind === 'person';
-  const ring = person ? netsOf(item).map((k, i, all) => `<span class="net ring" data-net="${k}" title="Reply on ${NETS[k].label}" style="background:${NETS[k].color};--a:${i * 360 / all.length}deg">${NETS[k].logo}</span>`).join('') : '';
+  const ring = person ? `<div class="apps">${netsOf(item).map(k => `<span class="net ring" data-net="${k}" title="Reply on ${NETS[k].label}" style="background:${NETS[k].color}">${NETS[k].logo}</span>`).join('')}</div>` : '';
   $('header').classList.toggle('person', person);
   $('.who').innerHTML = `${ring}${one ? netMark(netOf(item.chats[0])) + own : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.who > .av')?.setAttribute('title', 'Change picture');
-  $('.more').hidden = false;
 }
 
 // The app replies go to is lit among the open chat's app lines; a click on another picks it.
@@ -1633,7 +1632,6 @@ function item(label, { hint = '', icon = '', action }) {
   return b;
 }
 
-$('.more').onclick = () => openMore($('.more'));
 function openMore(anchor) {
   if (openMenu?._anchor === anchor) return closeMenu();
   const person = state.cur;
@@ -1853,7 +1851,7 @@ async function showProfile(view) {
     + `<div class="details">${html}</div>`
     + (member || own ? '' : '<div class="actions"><button class="open">Open conversation</button><button class="merge">Merge with…</button></div>');
   profile.body.scrollTop = 0;
-  // The ring's logos tell, on hover, what each app knows of the open person.
+  // The logos tell, on hover, what each app knows of the open person.
   if (own && view.kind === 'person') for (const c of view.chats) {
     const p = (await profile.cache[c.id])?.participants?.items?.find(p => !p.isSelf);
     const ring = $(`.who .ring[data-net="${netOf(c)}"]`);
@@ -1910,6 +1908,7 @@ addEventListener('keydown', e => {
 }, true);
 $('header').addEventListener('click', e => {
   if (e.target.closest('.who > .av')) return pickPicture(state.cur);
+  if (e.target.closest('.who > b')) return openMore(e.target.closest('.who > b'));
   const m = e.target.closest('.member');
   if (m) {
     const v = profile.members[+m.dataset.i];
