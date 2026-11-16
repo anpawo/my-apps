@@ -146,7 +146,7 @@ function renderList(box, items) {
         if (n._dragged) return;
         select(n.dataset.id);
       };
-      if (box.id === 'people') dragFrom(n);
+      if (box.id === 'people' || box.id === 'favs') dragFrom(n);
       n.oncontextmenu = e => { e.preventDefault(); select(n.dataset.id); openMore(n); };
     }
     fill(n, item);
@@ -190,10 +190,10 @@ function movePill(ms) {
 // A search looks through everyone but draws the 30 newest matches.
 function fits() {
   const list = $('#list'), row = $('#people .row:not([data-leaving])')?.offsetHeight || 56;
-  const room = list.clientHeight - parseFloat(getComputedStyle(list).paddingBottom);
+  const room = list.clientHeight - parseFloat(getComputedStyle(list).paddingBottom) - $('#favs').offsetHeight;
   return Math.max(3, Math.ceil(room / row));
 }
-// A favorite shows in the strip above instead; someone in a group stays in the list like anyone else.
+// A favorite shows in the rows above instead; someone in a group stays in the list like anyone else.
 const listed = i => !isFav(i) && (!i.hidden || i.id === state.cur?.id);
 function shown(items) {
   items = items.filter(listed);
@@ -226,7 +226,7 @@ const favRank = item => Math.min(...item.chats.map(c => [...state.favs].indexOf(
 // A group keeps its people in the order of its ids, so the same moves reorder a group's strip.
 function moveFav(item, key, tab) {
   const strip = tab ? members(tab) : (state.all || []).filter(isFav).sort((a, b) => favRank(a) - favRank(b));
-  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -5, ArrowDown: 5 }[key];
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: tab ? -5 : -1, ArrowDown: tab ? 5 : 1 }[key];
   const from = strip.indexOf(item), to = Math.max(0, Math.min(strip.length - 1, from + step));
   if (from < 0 || to === from) return;
   strip.splice(to, 0, ...strip.splice(from, 1));
@@ -239,20 +239,30 @@ function moveFav(item, key, tab) {
 // Each group, then the favorites; being in a group does not make someone a favorite.
 function showLists() {
   const all = state.all || [];
-  drawFavs($('#favs'), all.filter(isFav).sort((a, b) => favRank(a) - favRank(b)));
+  drawTop(all.filter(isFav).sort((a, b) => favRank(a) - favRank(b)));
   drawGroups();
   renderList($('#people'), shown(all));
   movePill();
 }
-// Favorites: their pictures in a strip under the groups, in his order; a dot when unread.
+// Favorites: rows like any chat, kept at the top of the list in his order, a white rule under them.
+function drawTop(items) {
+  const box = $('#favs');
+  if (!items.length) {
+    if (!box.hidden && !box._closing) { box._closing = true; collapse(box, true).then(() => { box._closing = false; box.replaceChildren(); }); }
+    return;
+  }
+  const opening = box._drawn && (box.hidden || box._closing);
+  box._closing = false;
+  box._drawn = true;
+  box.hidden = false;
+  renderList(box, items);
+  if (opening) collapse(box, false);
+}
+// A group's people: their pictures in a strip, in its order; a dot when unread.
 function drawFavs(box, items, tab) {
   const was = new Map([...box.children].map(b => [b.dataset.id, b.getBoundingClientRect()]));
   const had = new Set(was.keys());
-  // An emptied strip folds away with what it showed; one that comes back unfolds (not on the first draw).
-  if (!items.length && !tab) {
-    if (!box.hidden && !box._closing) { box._closing = true; collapse(box, true).then(() => (box._closing = false)); }
-    return;
-  }
+  // A strip that comes back unfolds (not on the first draw).
   const opening = box._drawn && (box.hidden || box._closing);
   box._closing = false;
   box._drawn = true;
@@ -601,7 +611,7 @@ addEventListener('keydown', e => {
   }
   // ⌘ + arrows move the favorite under the pointer, or the open one when no text is being edited.
   if (e.metaKey && e.key.startsWith('Arrow')) {
-    const hover = document.querySelector('.fav:hover');
+    const hover = document.querySelector('.fav:hover, #favs .row:hover');
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.value;
     const item = hover ? state.byId.get(hover.dataset.id) : !typing && state.cur && isFav(state.cur) ? state.cur : null;
     if (item) { e.preventDefault(); moveFav(item, e.key, hover && tabOf(hover.closest('.group')?.dataset.name)); }

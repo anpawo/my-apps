@@ -431,34 +431,34 @@ check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) ===
 await page.click('#people .row:has-text("Hugo R")', { button: 'right' });
 await page.click('.menu .item:has-text("Add to favorites")');
 await page.waitForTimeout(400);
-const favIds = () => page.$$eval('#favs .fav', fs => fs.map(f => f.dataset.id));
+const favIds = () => page.$$eval('#favs .row:not([data-leaving])', fs => fs.map(f => f.dataset.id));
 const hugo = (await favIds())[0];
-check((await favIds()).length === 1 && !(await page.$(`#people .row[data-id="${hugo}"]:not([data-leaving])`)) && !(await page.$('#favs .name')), 'a favorite shows only its picture, above the list');
+check((await favIds()).length === 1 && !(await page.$(`#people .row[data-id="${hugo}"]:not([data-leaving])`)) && !!(await page.$('#favs .row .name')), 'a favorite is a row with its name, at the top of the list');
 await page.hover('#people .row:has-text("Sarah K")');
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(400);
 check((await favIds()).length === 2, 'Cmd+F over a person adds them to favorites');
 await page.screenshot({ path: join(out, '5-favorites.png') });
-await page.hover('#favs .fav:last-child');
+await page.hover('#favs .row:last-child');
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(400);
 check((await favIds()).length === 1 && (await page.$$eval('#people .row:not([data-leaving])', ns => ns.length)) === 6, 'Cmd+F over a favorite puts it back in the list');
 await page.reload();
-await page.waitForSelector('#favs .fav');
+await page.waitForSelector('#favs .row');
 check(JSON.stringify(await favIds()) === JSON.stringify([hugo]), 'favorites are kept after a restart');
 // ⌘ + arrows reorder favorites, and the order survives a restart.
 await page.hover('#people .row:has-text("Tom B")');
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(300);
 const tomB = (await favIds())[1];
-await page.hover(`#favs .fav[data-id="${tomB}"]`);
-await page.keyboard.press('Meta+ArrowLeft');
+await page.hover(`#favs .row[data-id="${tomB}"]`);
+await page.keyboard.press('Meta+ArrowUp');
 await page.waitForTimeout(400);
-check(JSON.stringify(await favIds()) === JSON.stringify([tomB, hugo]), `Cmd+Left moves a favorite first (${await favIds()})`);
+check(JSON.stringify(await favIds()) === JSON.stringify([tomB, hugo]), `Cmd+Up moves a favorite first (${await favIds()})`);
 await page.reload();
-await page.waitForSelector('#favs .fav');
+await page.waitForSelector('#favs .row');
 check(JSON.stringify(await favIds()) === JSON.stringify([tomB, hugo]), 'the favorites order is kept after a restart');
-await page.hover(`#favs .fav[data-id="${tomB}"]`);
+await page.hover(`#favs .row[data-id="${tomB}"]`);
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(400);
 
@@ -491,7 +491,7 @@ await page.keyboard.press('Escape');
 const dot = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#0a0"/></svg>');
 await page.evaluate(d => setPicture(state.byId.get(state.all.find(i => i.name === 'Hugo R').id), d), dot);
 await page.waitForTimeout(400);
-check(await page.$eval('.fav img, #people .row:has-text("Hugo R") img', i => i.src.startsWith('data:image/svg')), 'a picture set by hand shows instead of the initials');
+check(await page.$eval('#list .row:has-text("Hugo R") img', i => i.src.startsWith('data:image/svg')), 'a picture set by hand shows instead of the initials');
 check(await page.evaluate(() => Object.keys(state.pictures || {}).length) === 1, 'the picture is kept in the overrides');
 // A click on the face in the bar picks a picture from a file; a group on one app then shows it between its logo and its name.
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
@@ -517,8 +517,8 @@ await page.waitForTimeout(300);
 await page.click('#people .row[data-id="grp-1"]', { button: 'right' });
 await page.click('.menu .item:has-text("Add to favorites")');
 await page.waitForTimeout(500);
-const favGroup = await page.evaluate(() => [!!document.querySelector('#favs .fav[data-id="grp-1"]'), !document.querySelector('#list .row[data-id="grp-1"]:not([data-leaving])'), document.querySelector('#list .inner > .sel').nextElementSibling.id]);
-check(JSON.stringify(favGroup) === '[true,true,"people"]', `a favorite group chat shows as a picture in the strip, not pinned above the list (${favGroup})`);
+const favGroup = await page.evaluate(() => [!!document.querySelector('#favs .row[data-id="grp-1"]'), !document.querySelector('#people .row[data-id="grp-1"]:not([data-leaving])'), document.querySelector('#list .inner > .sel').nextElementSibling.id]);
+check(JSON.stringify(favGroup) === '[true,true,"favs"]', `a favorite group chat is a row among the favorites, at the top of the list (${favGroup})`);
 await page.screenshot({ path: join(out, '6-favorite-group.png') });
 
 // ⌘F in the ⌘D search favorites the highlighted row, and the search stays open.
@@ -536,15 +536,18 @@ await page.keyboard.press('Meta+d');
 await page.fill('#search', 'sarah');
 await page.keyboard.press('Meta+f');
 await page.waitForTimeout(400);
-check(await page.evaluate(() => !document.querySelector('#palette').hidden && !!document.querySelector('#results .row.hot.faved') && !!document.querySelector('#favs .fav[title="Sarah K"]')), 'Cmd+F in the search adds the highlighted person to favorites');
+check(await page.evaluate(() => !document.querySelector('#palette').hidden && !!document.querySelector('#results .row.hot.faved') && [...document.querySelectorAll('#favs .row .name')].some(n => n.textContent.includes('Sarah K'))), 'Cmd+F in the search adds the highlighted person to favorites');
 await page.keyboard.press('Escape');
 
-// Five favorites to a row.
-const tops = await page.evaluate(() => {
-  for (let i = 0; i < 9; i++) document.querySelector('#favs').insertAdjacentHTML('beforeend', '<button class="fav"><div class="av"></div></button>');
-  return [...document.querySelectorAll('#favs .fav')].map(b => Math.round(b.getBoundingClientRect().top));
-});
-check(tops.filter(t => t === tops[0]).length === 5, `five favorites to a row (${tops})`);
+// Favorites are one-line rows like the list's, a white rule under them.
+const favRows = await page.evaluate(() => [document.querySelector('#favs .row').offsetHeight === document.querySelector('#people .row').offsetHeight, getComputedStyle(document.querySelector('#favs')).borderBottomColor]);
+check(JSON.stringify(favRows) === '[true,"rgb(245, 245, 245)"]', `favorites are rows as tall as the list's, a white rule under them (${favRows})`);
+const wasOpen = await page.evaluate(() => state.cur?.id);
+await page.evaluate(() => select(document.querySelector('#favs .row').dataset.id));
+await page.waitForTimeout(500);
+const favSel = await page.evaluate(() => { const r = document.querySelector('#favs .row'), sel = document.querySelector('.sel'); return [r.classList.contains('on'), getComputedStyle(sel).opacity, Math.round(sel.getBoundingClientRect().top - r.getBoundingClientRect().top)]; });
+check(JSON.stringify(favSel) === '[true,"1",0]', `the open favorite carries the selection pill (${favSel})`);
+if (wasOpen) { await page.evaluate(id => select(id), wasOpen); await page.waitForTimeout(400); }
 
 // "/discord" in the search keeps only those on Discord; "/wh tom" those on WhatsApp named tom.
 await page.keyboard.press('Meta+d');
@@ -601,7 +604,7 @@ await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshLis
 await page.waitForTimeout(300);
 
 // Groups: favorites sit under them; "+ New group" names one; Add to it moves her into it; every group stays open.
-const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
+const topFavs = () => page.$$eval('#favs:not([hidden]) .row:not([data-leaving]) .name', fs => fs.map(f => f.firstChild.textContent));
 const groupFavs = name => page.$$eval(`.group[data-name="${name}"] .strip:not([hidden]) .fav`, fs => fs.map(f => f.title));
 const topBefore = await topFavs();
 await page.click('#tabbox .newgroup');
@@ -626,8 +629,8 @@ check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.str
 const order = await page.evaluate(() => ['.group[data-name="Family"]', '.group[data-name="Work"]', '#favs', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
 check(order.every((t, k) => !k || order[k - 1] < t), `each group, then the favorites, then the list (${order})`);
 await page.screenshot({ path: join(out, '7-groups.png') });
-const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(), t = document.querySelector('#favs .fav').getBoundingClientRect(); return [l.bottom <= f.top, Math.round(f.left - t.left)]; });
-check(JSON.stringify(side) === '[true,0]', `a group's name sits above its pictures, which line up with the top strip (${side})`);
+const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(); return [l.bottom <= f.top]; });
+check(JSON.stringify(side) === '[true]', `a group's name sits above its pictures (${side})`);
 // Dragging Lea onto Work moves her out of Family; dragging Tom B onto the top strip takes him out of Work.
 const drag = async (from, to) => {
   const a = await page.locator(from).boundingBox(), b = await page.locator(to).boundingBox();
@@ -645,7 +648,7 @@ await page.click('.group[data-name="Work"] .fav[title="Lea Martin"]', { button: 
 await page.click('.menu .item:has-text("group…")');
 await page.click('.menu .item:has-text("Family")');
 await page.waitForTimeout(400);
-await page.click('#favs .fav[title="Tom B"]', { button: 'right' });
+await page.click('#favs .row:has-text("Tom B")', { button: 'right' });
 await page.click('.menu .item:has-text("group…")');
 await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
@@ -786,7 +789,7 @@ const picked = await page.evaluate(() => [document.querySelector('#picker').hidd
 check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `the + opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
 
 // A group's bubble of faces (in the list, or the strip as a favorite) opens the chat, its members already in the bar.
-await page.click('#people .row[data-id="grp-1"] .av, #favs .fav[data-id="grp-1"] .av');
+await page.click('#list .row[data-id="grp-1"] .av');
 await page.waitForTimeout(500);
 const prof = await page.evaluate(() => [state.cur.id, !!document.querySelector('#profile .member')]);
 await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));
