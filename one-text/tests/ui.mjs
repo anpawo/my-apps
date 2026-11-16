@@ -126,9 +126,9 @@ check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
 check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
 const logos = await page.$$eval('#people .row:not([data-id^="grp"])', rs => rs.map(r => [...r.querySelectorAll('.net')].map(n => [n.title, n.getBoundingClientRect().width])));
-check(logos.every(l => l.length === 1 && l[0][1] === 26) && (await page.$eval('#people .row:has-text("Lea Martin") .net', n => n.title)) === 'Instagram', `each person in the list shows the logo of the app of their latest message, 26 px (${JSON.stringify(logos)})`);
+check(logos.every(l => l.length === 1 && l[0][1] === 13.5) && (await page.$eval('#people .row:has-text("Lea Martin") .net', n => n.title)) === 'Instagram', `each person in the list shows the logo of the app of their latest message, 13.5 px badge (${JSON.stringify(logos)})`);
 const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, a.querySelector('.tile').getBoundingClientRect().width, a.querySelectorAll('.tile img').length]);
-check(JSON.stringify(faces) === '["net",26,40,2]', `a group shows its app's logo, then its members' pictures in one round tile (${JSON.stringify(faces)})`);
+check(JSON.stringify(faces) === '["net",13.5,40,2]', `a group shows its app's logo, then its members' pictures in one round tile (${JSON.stringify(faces)})`);
 // A one-letter search over 1000 people: how long the list takes to draw, and how many rows it draws.
 const searchCost = await page.evaluate(async () => {
   const saved = state.all;
@@ -942,10 +942,10 @@ check(joined === 'g1', `a bridge's "joined the chat" line is not shown as a mess
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
-await page.evaluate(() => (sessionStorage.overrides = JSON.stringify({ openAtLaunch: 'te-sarah' })));
+await page.evaluate(() => (localStorage.lastChat = 'te-sarah'));
 await page.reload();
 await page.waitForSelector('#thread .msg');
-check((await page.textContent('#thread')).includes('meeting moved to 3pm'), "overrides' openAtLaunch opens that chat at launch");
+check((await page.textContent('#thread')).includes('meeting moved to 3pm'), 'the chat open last opens at launch');
 // A picture loading after the thread is drawn grows it: the thread stays at its end.
 const grown = await page.evaluate(async () => {
   const pic = Object.assign(document.createElement('div'), { style: 'height: 1500px' });

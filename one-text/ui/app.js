@@ -554,10 +554,13 @@ async function refreshList() {
     // Groups sit among the people, by their latest message.
     state.all = [...people, ...groups].sort((a, b) => (b.last || '').localeCompare(a.last || ''));
     showLists();
-    // overrides.json's openAtLaunch (a chat id): the conversation open at launch, on the first list that loads.
-    const launch = state.openAtLaunch && [...state.byId.values()].find(i => i.chats.some(c => c.id === state.openAtLaunch));
-    state.openAtLaunch = null;
-    if (launch && !state.cur) select(launch.id);
+    // At launch, on the first list that loads: the conversation open last (by a chat id), else Eliot Gourdoux.
+    if (!state.launched) {
+      state.launched = true;
+      const all = [...state.byId.values()];
+      const launch = all.find(i => i.chats.some(c => c.id === localStorage.lastChat)) || all.find(i => fold(i.name) === 'eliot gourdoux');
+      if (launch && !state.cur) select(launch.id);
+    }
     if (state.cur) {
       // A merge or a split gives the person a new id: follow the chat we had open.
       const first = state.cur.chats[0].id;
@@ -742,6 +745,7 @@ async function select(id) {
   const item = state.byId.get(id);
   if (!item || item === state.cur) return;
   state.cur = item;
+  localStorage.lastChat = item.chats[0].id;
   state.target = null;
   setReply(null);
   if (!find.box.hidden) closeFind();
@@ -1927,7 +1931,6 @@ setInterval(refreshList, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshList(); pollThread(); } });
 invoke('overrides').then(o => {
   state.pictures = o.pictures;
-  state.openAtLaunch = o.openAtLaunch;
   refreshList();
 });
 // The update auto-update.sh is building, under the list: its words and a line that fills at the pace of the last install.
