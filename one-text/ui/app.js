@@ -838,7 +838,7 @@ function msgNodes(m, prev) {
     const d = document.createElement('div');
     d.className = 'day';
     const ago = Math.round((new Date(new Date().toDateString()) - new Date(day)) / 864e5);
-    d.textContent = ago === 0 ? 'Today' : ago === 1 ? 'Yesterday' : when(m.timestamp, true);
+    d.textContent = `${ago === 0 ? 'Today' : ago === 1 ? 'Yesterday' : when(m.timestamp, true)} ${new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
     nodes.push(d);
   }
   const row = document.createElement('div');
