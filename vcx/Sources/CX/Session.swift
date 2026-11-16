@@ -217,7 +217,10 @@ final class Session: ObservableObject {
     @Published var preview: String?
     @Published var editorHeight: CGFloat = 24
     @Published var draftRevision = 0
-    @Published var commandQuery: String?
+    // The /resume list was built when the worker connected; it refreshes each time it opens, or it shows titles from an older build.
+    @Published var commandQuery: String? {
+        didSet { if runtimeClient != nil, commandQuery?.hasPrefix("/resume ") == true, oldValue?.hasPrefix("/resume ") != true { Task { await performRuntime("refreshCatalog") } } }
+    }
     @Published var commandSelection = 0
     // The "/word" being completed inside the text; nil when the whole draft is the command.
     var commandToken: NSRange?
