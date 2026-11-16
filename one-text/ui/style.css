@@ -89,11 +89,17 @@ header .who > b { font-size: 15px; white-space: nowrap; overflow: hidden; text-o
 #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
 #profile .actions button:hover, #profile .merge.open { background: #363636; }
 /* A person: their apps' logos in a row on top, the picture under them, the name in a pill overlapping its bottom edge. */
-header.person { justify-content: center; padding: 12px 14px 10px; }
+header.person { position: absolute; top: 0; left: 0; right: 0; z-index: 2; justify-content: center; padding: 12px 14px 30px; border-bottom: 0;
+  background: linear-gradient(#000, rgb(0 0 0 / .85) 50%, rgb(0 0 0 / 0)); pointer-events: none; }
+header.person .who { pointer-events: auto; }
+/* The thread runs under the bar's fade; its first message starts below the name. */
+main:has(> header.person) #msgs { padding-top: 150px; }
+main:has(> header.person) #find:not([hidden]) { margin-top: 150px; }
+main:has(> header.person):has(#find:not([hidden])) #msgs { padding-top: 14px; }
 header.person #profile { display: none; }
 header.person .who { flex-direction: column; gap: 8px; max-width: 70%; }
 header.person .who > .av { --s: 64px; width: 64px; height: 64px; font-size: 21px; }
-header.person .who > b { position: relative; z-index: 1; margin-top: -20px; }
+header.person .who > b { position: relative; z-index: 1; margin-top: -12px; font-size: 13.5px; }
 header .who > .apps { display: flex; gap: 6px; }
 header .who .ring { width: 20px; height: 20px; border-radius: 5px; cursor: pointer; transition: box-shadow 200ms var(--ease); }
 header .who .ring.on { box-shadow: 0 0 0 2px #000, 0 0 0 3.5px #f5f5f5; }
@@ -245,6 +251,7 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .ghost { position: fixed; z-index: 20; width: 48px; height: 48px; pointer-events: none; box-shadow: 0 6px 20px rgb(0 0 0 / .6); }
 .dragging { opacity: .35; }
 .group, #favs, .newgroup { transition: background-color 150ms; border-radius: 0; }
+#favs { border-radius: 0 0 10px 10px; }
 .group.drop, #favs.drop, .newgroup.drop { background: var(--tint); border-radius: 10px; }
 .name .muted { width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .receipt { font-size: 11px; color: var(--muted); margin: 3px 6px 0; }
