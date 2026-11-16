@@ -191,9 +191,9 @@ check(await page.evaluate(() => __log.some(([c, a]) => c === 'open_url' && a.url
 const centered = await page.$eval('#people .row .name', n => { const a = n.getBoundingClientRect(), b = n.closest('.row').querySelector('.av').getBoundingClientRect(); return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2); });
 check(centered < 2, `name centered on the avatar (${centered.toFixed(1)} px off)`);
 check(JSON.stringify(thread) === JSON.stringify(['instagram:did you see the reel I sent?', 'instagram:haha yes, too good', 'instagram:', 'whatsapp:dinner tonight still on?', 'whatsapp:yes! where?', 'whatsapp:the usual place', 'instagram:see you at 8 then']), 'merged timeline in time order with network marks');
-await page.waitForSelector('#profile .conn[data-net]');
-const chips = await page.$$eval('header [data-net]', cs => cs.map(c => c.dataset.net + (c.classList.contains('on') ? '*' : '')));
-check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*', 'whatsapp']), `the bar shows a line per app, Instagram lit (${chips})`);
+await page.waitForSelector('.who .ring');
+const chips = await page.$$eval('.who .ring', cs => cs.map(c => c.dataset.net + (c.classList.contains('on') ? '*' : '')));
+check(JSON.stringify(chips.sort()) === JSON.stringify(['instagram*', 'whatsapp']), `the bar shows a logo per app around the picture, Instagram lit (${chips})`);
 const reads = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path));
 check(!reads.length, `opening sends no read receipt (${reads})`);
 check((await page.textContent('#people .row[data-id="ig-lea"] .badge').catch(() => '')) === '3', 'opening a conversation keeps its whole badge');
@@ -309,7 +309,7 @@ await page.keyboard.type('hug');
 await page.screenshot({ path: join(out, '0-search.png') });
 await page.keyboard.press('Enter');
 await page.waitForTimeout(300);
-check(await page.isHidden('#palette') && await page.textContent('header .who b') === 'Hugo R', 'Enter opens the match and closes the search');
+check(await page.isHidden('#palette') && await page.textContent('header .who > b') === 'Hugo R', 'Enter opens the match and closes the search');
 await page.click('#people .row[data-id="ig-lea"]');
 await page.waitForTimeout(400);
 // beeper:// does not load here: a stand-in reel thumbnail, so the screenshot (docs/screenshot.png) shows the card.
@@ -351,12 +351,12 @@ check(distinct >= 4 && monotonic(pillTrack), `selection pill moves through ${dis
 // Header logos: back on Lea, clicking WhatsApp's moves the highlight; clicking Instagram's moves it back.
 await page.click('#people .row >> nth=0');
 await page.waitForTimeout(700);
-const on = () => page.$eval('#profile .conn.on', c => c.dataset.net);
-await page.click('#profile .conn[data-net="whatsapp"]');
+const on = () => page.$eval('.who .ring.on', c => c.dataset.net);
+await page.click('.who .ring[data-net="whatsapp"]');
 check(await on() === 'whatsapp', 'clicking a logo picks that network');
 await page.waitForTimeout(300);
 await page.screenshot({ path: join(out, '2-header.png') });
-await page.click('#profile .conn[data-net="instagram"]');
+await page.click('.who .ring[data-net="instagram"]');
 check(await on() === 'instagram', 'clicking the other logo picks it back');
 
 // /ws switches the reply to WhatsApp; Enter sends there.
@@ -420,7 +420,7 @@ await page.click('.menu .found .item >> nth=0');
 await page.waitForTimeout(600);
 check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 6, 'merge leaves 4 people (and the 2 groups)');
 check(await page.evaluate(() => JSON.stringify(__log.filter(([c]) => c === 'set_overrides').at(-1)[1].value.merges)) === '[["dc-tom","wa-tom"]]', 'merge saved as an override');
-check(JSON.stringify(await page.$$eval('#profile [data-net]', cs => cs.map(c => c.dataset.net).sort())) === '["discord","whatsapp"]', 'open conversation now shows both of Tom\'s logos');
+check(JSON.stringify(await page.$$eval('.who .ring', cs => cs.map(c => c.dataset.net).sort())) === '["discord","whatsapp"]', 'open conversation now shows both of Tom\'s logos');
 check(await page.isVisible('.toast button'), 'toast offers Undo');
 await page.screenshot({ path: join(out, '4-merged.png') });
 await page.click('.toast button');
@@ -578,7 +578,7 @@ await page.waitForSelector('header .who input');
 await page.fill('header .who input', 'Climbers');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(500);
-const header = await page.$eval('header .who b', w => w.textContent);
+const header = await page.$eval('header .who > b', w => w.textContent);
 await page.keyboard.press('Meta+d');
 await page.fill('#search', 'climbing crew');
 await page.waitForTimeout(400);
@@ -593,7 +593,7 @@ await page.waitForSelector('header .who input');
 await page.fill('header .who input', 'Sassy');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(500);
-const alias = await page.evaluate(() => [document.querySelector('header .who b').textContent, state.byId.get(state.cur.id).name, state.byId.get(state.cur.id).original]);
+const alias = await page.evaluate(() => [document.querySelector('header .who > b').textContent, state.byId.get(state.cur.id).name, state.byId.get(state.cur.id).original]);
 await page.click('.more');
 await page.waitForTimeout(250);
 await page.screenshot({ path: join(out, '8-menu.png') });
@@ -895,21 +895,23 @@ check(await page.$eval('header', h => getComputedStyle(h.querySelector('.who')).
 // A person's chat: the face as tall as two app lines, the name centred on it, a pill line per app on the right, the one replies go to
 // lit; a click on another picks it; the bar stays within a quarter of the window.
 await page.evaluate(() => select([...state.byId.values()].find(i => i.kind === 'person' && new Set(i.chats.map(netOf)).size > 1).id));
-await page.waitForSelector('#profile .conn[data-net]');
+await page.waitForSelector('.who .ring');
 await page.waitForTimeout(700);
-const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('#profile .conn.on')?.dataset.net]);
+const lit = () => page.evaluate(() => [netOf(state.target.chat), document.querySelector('.who .ring.on')?.dataset.net]);
 const shape = await page.$eval('header', h => {
-  const r = s => h.querySelector(s).getBoundingClientRect(), lines = [...h.querySelectorAll('#profile .conn')].map(c => c.getBoundingClientRect());
-  return [!h.querySelector('#profile .head'), lines.length, Math.abs(r('.who > .av').height - (lines[1].bottom - lines[0].top)) <= 1,
-    Math.abs(r('.who b').top + r('.who b').height / 2 - r('.who > .av').top - r('.who > .av').height / 2) <= 1, !h.querySelector('.who .merge'), r('.more').left - Math.max(...lines.map(l => l.right)) <= 30, h.getBoundingClientRect().height <= innerHeight / 4 + 1];
+  const r = s => h.querySelector(s).getBoundingClientRect(), av = r('.who > .av'), bar = h.getBoundingClientRect(), rings = [...h.querySelectorAll('.who .ring')].map(c => c.getBoundingClientRect());
+  const mid = av.left + av.width / 2, cy = av.top + av.height / 2, front = document.elementFromPoint(mid + av.width / 2 - 3, cy)?.closest('.av, .ring');
+  return [Math.abs(mid - (bar.left + bar.width / 2)) <= 1, Math.abs(r('.who > b').left + r('.who > b').width / 2 - mid) <= 1 && r('.who > b').top >= av.bottom, rings.length,
+    rings.every(g => { const d = Math.hypot(g.left + g.width / 2 - mid, g.top + g.height / 2 - cy); return d < av.width / 2 + g.width / 2 && d + g.width / 2 > av.width / 2; }),
+    !!front?.classList.contains('av'), getComputedStyle(h.querySelector('#profile')).display === 'none', bar.height <= innerHeight / 4 + 1, h.querySelector('.who .ring').title.includes(' · ')];
 });
 const litBefore = await lit();
 await page.screenshot({ path: join(out, 'profile-kept.png') });
-await page.click('#profile .conn[data-net]:not(.on)');
+await page.click('.who .ring:not(.on)');
 await page.waitForTimeout(250);
 const litAfter = await lit();
-check(shape.join() === 'true,2,true,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
-  `the bar: face as tall as two app lines, name centred, no Merge under it, app lines on the right, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
+check(shape.join() === 'true,true,2,true,true,true,true,true' && new Set(litBefore).size === 1 && new Set(litAfter).size === 1 && litAfter[0] !== litBefore[0],
+  `the bar: picture centred, name under it, each app's logo half behind it on a ring telling what that app knows, reply app lit, a click picks another (${shape} / ${litBefore} → ${litAfter})`);
 
 // Someone with no chat yet: ⌘D finds them by their Discord tag, ↵ starts the chat and opens it.
 await page.keyboard.press('Meta+d');

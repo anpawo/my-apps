@@ -801,7 +801,11 @@ function drawHeader() {
   // A group on one app: that app's logo before its name (and its own picture, if it has one), its members' faces already on the right.
   const one = item.kind === 'group' && netsOf(item).length === 1;
   const own = one && !item.faces?.length && item.imgs?.length ? avatar({ ...item, _plain: true }) : '';
-  $('.who').innerHTML = `${one ? netMark(netOf(item.chats[0])) + own : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
+  // A person: picture centered, name under it, each app's logo half behind the picture on a ring around it.
+  const person = item.kind === 'person';
+  const ring = person ? netsOf(item).map((k, i, all) => `<span class="net ring" data-net="${k}" title="Reply on ${NETS[k].label}" style="background:${NETS[k].color};--a:${i * 360 / all.length}deg">${NETS[k].logo}</span>`).join('') : '';
+  $('header').classList.toggle('person', person);
+  $('.who').innerHTML = `${ring}${one ? netMark(netOf(item.chats[0])) + own : avatar(item)}<b>${esc(item.name || 'Unnamed')}</b>`;
   $('.who > .av')?.setAttribute('title', 'Change picture');
   $('.more').hidden = false;
 }
@@ -809,7 +813,7 @@ function drawHeader() {
 // The app replies go to is lit among the open chat's app lines; a click on another picks it.
 function highlightTarget() {
   const k = state.target && netOf(state.target.chat);
-  for (const b of document.querySelectorAll('#profile [data-net]')) b.classList.toggle('on', b.dataset.net === k);
+  for (const b of document.querySelectorAll('header [data-net]')) b.classList.toggle('on', b.dataset.net === k);
 }
 
 // Beeper hands Instagram shares over as HTML (<p><a href=…>…</a></p>): keep the text only.
@@ -1716,7 +1720,7 @@ function setPicture(item, url) {
 // An alias for the open person or group: their name becomes a field in the header; Enter keeps it (empty: back
 // to the apps' name), esc drops it. The apps' name stays searchable.
 function rename() {
-  const cur = state.cur, b = $('.who b');
+  const cur = state.cur, b = $('.who > b');
   if (!cur || !b) return;
   const original = cur.original || cur.name;
   const field = Object.assign(document.createElement('input'), { value: cur.name || '', placeholder: original || 'Alias', spellcheck: false });
@@ -1849,6 +1853,12 @@ async function showProfile(view) {
     + `<div class="details">${html}</div>`
     + (member || own ? '' : '<div class="actions"><button class="open">Open conversation</button><button class="merge">Merge with…</button></div>');
   profile.body.scrollTop = 0;
+  // The ring's logos tell, on hover, what each app knows of the open person.
+  if (own && view.kind === 'person') for (const c of view.chats) {
+    const p = (await profile.cache[c.id])?.participants?.items?.find(p => !p.isSelf);
+    const ring = $(`.who .ring[data-net="${netOf(c)}"]`);
+    if (p && ring && seq === profile.seq) ring.title = [NETS[netOf(c)].label, ...DETAILS(p).map(([, v]) => v)].join(' · ');
+  }
   highlightTarget();
   if (from && from !== bar.offsetHeight) anim(bar, { height: [from + 'px', bar.offsetHeight + 'px'] }, 220, 'cubic-bezier(.2, .8, .2, 1)');
   anim(profile.body, { opacity: [0, 1] }, 200);
@@ -1907,7 +1917,7 @@ $('header').addEventListener('click', e => {
     return showProfile(personOf(v.p.id) || v);
   }
   if (e.target.closest('.back')) return showProfile(profile.stack.pop());
-  const line = e.target.closest('#profile [data-net]');
+  const line = e.target.closest('header [data-net]');
   if (line && !getSelection().toString()) return setTarget(chatFor(line.dataset.net), true);
   const merging = e.target.closest('.merge');
   if (merging) return openMenu?._anchor === merging ? closeMenu() : menu(merging, m => mergePicker(m, profile.view));

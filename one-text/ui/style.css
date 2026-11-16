@@ -85,9 +85,19 @@ header .who .av { --s: 70px; width: 70px; height: 70px; font-size: 22px; }
 header .who > .av { cursor: pointer; }
 header .who > .av:not(.faces):hover, header .who > .av.faces:hover > .av { box-shadow: 0 0 0 2px #000, 0 0 0 4px #363636; }
 header .who > .net { width: 40px; height: 40px; border-radius: 10px; }
-header .who b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .who > b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #profile .actions button { padding: 4px 12px; white-space: nowrap; border-radius: 999px; background: var(--field); font-size: 12.5px; font-weight: 600; transition: background-color 150ms; }
 #profile .actions button:hover, #profile .merge.open { background: #363636; }
+/* A person: picture centered, name under it, the apps' logos peeking out from behind it on a ring. */
+header.person { justify-content: center; padding: 16px 14px 10px; }
+header.person #profile { display: none; }
+header.person .more { position: absolute; top: 12px; right: 14px; }
+header.person .who { position: relative; flex-direction: column; gap: 10px; max-width: 70%; padding-top: 4px; }
+header.person .who > .av { position: relative; z-index: 1; clip-path: circle(50%); --s: 64px; width: 64px; height: 64px; font-size: 21px; }
+header.person .who > b { max-width: 100%; }
+header .who > .ring { position: absolute; left: 50%; top: 36px; width: 22px; height: 22px; margin: -11px; border-radius: 6px; cursor: pointer;
+  transform: rotate(var(--a)) translateX(37px) rotate(calc(-1 * var(--a))); transition: box-shadow 200ms var(--ease); }
+header .who > .ring.on { box-shadow: 0 0 0 2px #000, 0 0 0 3.5px #f5f5f5; }
 header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; border: 0; border-bottom: 1px solid var(--muted); outline: none; padding: 1px 0; width: 260px; }
 .row .orig { display: none; margin-left: 8px; color: var(--muted); font-weight: 400; font-size: 12.5px; }
 #results .row .orig { display: inline; }
