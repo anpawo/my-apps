@@ -204,15 +204,18 @@ function shown(items) {
   if (at >= max) out.unshift(items[at]);
   return out;
 }
-// A wheel turn at the bottom of the list, even one too short to scroll, shows twice as many people.
-$('#list').addEventListener('wheel', e => {
+// Within a screen of the list's end (a wheel turn there too, even one too short to scroll), twice as many people show,
+// so the rows are in before the scroll reaches them.
+function moreRows() {
   const list = $('#list');
-  if (e.deltaY <= 0 || list.scrollHeight - list.scrollTop - list.clientHeight > 40) return;
+  if (list.scrollHeight - list.scrollTop - list.clientHeight > list.clientHeight) return;
   const have = $('#people').querySelectorAll('.row:not([data-leaving])').length;
   if (have >= (state.all || []).filter(i => listed(i) && !i.hidden).length) return;
   state.more = have * 2;
   showLists();
-}, { passive: true });
+}
+$('#list').addEventListener('wheel', e => { if (e.deltaY > 0) moreRows(); }, { passive: true });
+$('#list').addEventListener('scroll', moreRows, { passive: true });
 // A favorite is kept by its chats' ids, so it stays one after a merge or a split changes the person's id.
 const isFav = item => item.chats.some(c => state.favs.has(c.id));
 function toggleFav(item) {
@@ -972,7 +975,19 @@ function drawThread(enter, keep) {
 const selfIn = chatID => new Set(state.msgs.filter(m => m.isSender && m.chatID === chatID).map(m => m.senderID));
 // Under my last message, when nobody wrote after it: Seen (at what time; in a group, by how many) once the other side's
 // read marker (Beeper's `seen`, on that message or a later one) reaches it, else Sent.
+// A blue "New" line above the first unread message, until I answer (a message of mine after it) or press ⌘K.
+function drawNewLine() {
+  const item = state.cur, thread = $('#thread'), had = thread.querySelector('.newline');
+  const first = (item?.chats || []).flatMap(c => c.unread ? state.msgs.filter(m => m.chatID === c.id && !m.isSender && m.type !== 'REACTION').slice(-c.unread) : [])
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))[0];
+  const answered = first && state.msgs.some(m => m.isSender && m.timestamp > first.timestamp);
+  const row = first && !answered && thread.querySelector(`.msg[data-id="${CSS.escape(first.id)}"]`);
+  if (had && had.nextElementSibling === row) return;
+  if (had) collapse(had, true, 220).then(() => had.remove());
+  if (row) row.insertAdjacentHTML('beforebegin', '<div class="newline"><span>New</span></div>');
+}
 function drawSeen() {
+  drawNewLine();
   // While a message is on its way, its row holds the receipt's place; moving it now would shift the thread.
   if (document.querySelector('#thread .msg.pending')) return;
   document.querySelectorAll('#thread .receipt').forEach(r => r.remove());
@@ -1192,17 +1207,40 @@ async function loadOlder() {
   const add = [...new Map(state.pool.filter(m => !known.has(m.id) && shownMsg(m) && m.timestamp >= cut).map(m => [m.id, m])).values()];
   state.pool = state.pool.filter(m => !known.has(m.id) && m.timestamp < cut);
   if (add.length) {
-    state.msgs = [...add, ...state.msgs].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey));
-    drawThread(false, true);
+    const old = state.msgs;
+    state.msgs = [...add, ...old].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey));
+    // All older than what is shown (the usual page): only the new rows go in on top, and what was on screen stays
+    // where it was. Rebuilding the whole thread made the scroll stall and jump.
+    if (old.length && state.msgs.slice(add.length).every((m, i) => m === old[i])) prependOlder(add.length);
+    else drawThread(false, true);
   }
   return true;
 }
-// Until the thread fills the window, or reaches above the top, nothing can be scrolled: load until it does.
-async function fillUp() {
-  const box = $('#msgs');
-  while (box.scrollTop < 300 && (await loadOlder()));
+// The first `n` messages are new: they go in above the rows on screen, the first of those redrawn after them (its day
+// line and its sender's name depend on what comes before it), and the scroll moves by what was added.
+function prependOlder(n) {
+  const box = $('#msgs'), thread = $('#thread'), first = thread.querySelector('.msg');
+  if (!first) return drawThread(false, true);
+  const h = box.scrollHeight, top = box.scrollTop;
+  while (thread.firstChild !== first) thread.firstChild.remove();
+  first.remove();
+  const add = state.msgs.slice(0, n + 1);
+  thread.prepend(...add.flatMap((m, i) => msgNodes(m, add[i - 1])));
+  // A reply drawn before what it answers had loaded now shows it.
+  for (const q of thread.querySelectorAll('.quote[data-to]')) {
+    const id = q.dataset.to;
+    if (q.textContent === 'An earlier message' && (state.msgs.some(x => x.id === id) || state.pool.some(x => x.id === id))) q.outerHTML = quoteHTML(state.msgs.find(x => x.id === q.closest('.msg').dataset.id));
+  }
+  drawNewLine();
+  box.scrollTop = top + box.scrollHeight - h;
 }
-$('#msgs').addEventListener('scroll', () => { if ($('#msgs').scrollTop < 300) fillUp(); }, { passive: true });
+// Older messages load two screens ahead of the top, so they are in before the scroll gets there; until the thread fills
+// the window, nothing can be scrolled: load until it does.
+const nearTop = () => $('#msgs').scrollTop < $('#msgs').clientHeight * 2;
+async function fillUp() {
+  while (nearTop() && (await loadOlder()));
+}
+$('#msgs').addEventListener('scroll', () => { if (nearTop()) fillUp(); }, { passive: true });
 
 async function pollThread() {
   const item = state.cur;
@@ -1279,6 +1317,7 @@ function markRead(item) {
   }
   localStorage.seen = JSON.stringify(seen);
   item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
+  if (item === state.cur) drawNewLine();
   const n = document.querySelector(`#list .row[data-id="${CSS.escape(item.id)}"]`);
   if (item.unread) { if (n) fill(n, item); return; }
   document.querySelector(`.fav[data-id="${CSS.escape(item.id)}"]`)?.classList.remove('unread');
@@ -1591,7 +1630,7 @@ function closeMenu() {
   anim(m, { opacity: [1, 0], transform: ['none', `translateY(${m._up ? 6 : -6}px) scale(.98)`] }, 160).finished.then(() => m.remove()).catch(() => m.remove());
 }
 // menu-drop template: the panel fades in and settles 6 px from where it hangs.
-function menu(anchor, build, { up = false, right = false } = {}) {
+function menu(anchor, build, { up = false, right = false, center = false } = {}) {
   closeMenu();
   const m = document.createElement('div');
   m.className = 'menu';
@@ -1606,6 +1645,7 @@ function menu(anchor, build, { up = false, right = false } = {}) {
   m.style.overflowY = 'auto';
   if (up) m.style.bottom = innerHeight - r.top + 6 + 'px'; else m.style.top = r.bottom + 6 + 'px';
   if (right) m.style.right = Math.max(8, innerWidth - r.right) + 'px';
+  else if (center) m.style.left = Math.max(8, Math.min(r.left + r.width / 2 - m.offsetWidth / 2, innerWidth - m.offsetWidth - 8)) + 'px';
   else m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + 'px';
   m.style.transformOrigin = up ? 'bottom' : 'top';
   anchor.classList.add('open');
@@ -1655,11 +1695,20 @@ function openMore(anchor) {
     m.append(sep(), item(muted ? 'Unmute' : 'Mute', { hint: muted ? '' : 'no badge, no count', action: () => { closeMenu(); mute(person, !muted); } }));
     if (person.kind !== 'person') m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
     m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
+    // Each app's chat: its logo, then the handle or number it goes by there (a group's room: its title).
     for (const c of person.chats.length > 1 ? person.chats : []) {
       const k = netOf(c);
-      m.append(item(`Split ${NETS[k].label} off`, { hint: c.title !== person.name ? c.title : '', action: () => { closeMenu(); (person.kind === 'person' ? split : splitGroup)(person, c); } }));
+      const b = item(`Split ${NETS[k].label} off`, { icon: netMark(k), hint: '\u00a0', action: () => { closeMenu(); (person.kind === 'person' ? split : splitGroup)(person, c); } });
+      b.classList.add('split');
+      m.append(b);
+      const hint = b.querySelector('.hint');
+      if (person.kind !== 'person') hint.textContent = c.title;
+      else (profile.cache[c.id] ||= api('GET', `/v1/chats/${enc(c.id)}`).catch(() => null)).then(full => {
+        const p = full?.participants?.items?.find(p => !p.isSelf);
+        hint.textContent = p?.username ? '@' + p.username.replace(/^@/, '') : p?.phoneNumber || '';
+      });
     }
-  }, { right: anchor.classList.contains('more') });
+  }, { center: true });
   return m;
 }
 

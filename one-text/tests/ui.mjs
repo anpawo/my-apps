@@ -298,6 +298,40 @@ const older = await page.evaluate(() => [[...document.querySelectorAll('#thread 
 await page.evaluate(() => { window.__page = 0; });
 check(JSON.stringify(older[0]) === JSON.stringify(['did you see the reel I sent?', 'haha yes, too good', '', 'dinner tonight still on?', 'yes! where?', 'the usual place', 'see you at 8 then', '', 'dinner tonight still on?8pm']) && older[2] >= 4, `older messages load a page at a time, in order (${JSON.stringify(older)})`);
 check(!(await page.$('.row .preview')), 'no last message under the names');
+// A long thread scrolled up: each older page goes in above without moving what is on screen or rebuilding its rows.
+const steady = await page.evaluate(async () => {
+  const keep = __msgs['ig-hugo'], t = m => new Date(Date.now() - m * 60000).toISOString();
+  __msgs['ig-hugo'] = [...Array.from({ length: 400 }, (_, i) => ({ id: 'long' + i, chatID: 'ig-hugo', text: 'line ' + i + (i % 7 ? '' : ' with a longer text that wraps onto a second line in the bubble'), timestamp: t(5000 - i * 10), sortKey: String(1e8 + i), type: 'TEXT', isSender: i % 3 === 0, senderID: i % 3 ? 'ig-hugo' : 'me', senderName: 'x' })), ...keep];
+  window.__page = 30;
+  await select(state.all.find(i => i.chats.some(c => c.id === 'ig-hugo')).id);
+  await new Promise(r => setTimeout(r, 800));
+  const box = document.querySelector('#msgs'), out = [];
+  for (let k = 0; k < 4; k++) {
+    box.scrollTop = Math.min(box.scrollTop, box.clientHeight);
+    await new Promise(r => setTimeout(r, 50));
+    while (state.olderBusy) await new Promise(r => setTimeout(r, 20));
+    const r = box.getBoundingClientRect(), mark = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.msg') || [...document.querySelectorAll('#thread .msg')].at(-1);
+    const top = mark.getBoundingClientRect().top, n = state.msgs.length, t0 = performance.now();
+    await loadOlder();
+    out.push([state.msgs.length - n, Math.round(performance.now() - t0), mark.isConnected, Math.round(mark.getBoundingClientRect().top - top)]);
+  }
+  const t1 = performance.now(); drawThread(false, true); const whole = Math.round(performance.now() - t1);
+  window.__page = 0; __msgs['ig-hugo'] = keep;
+  return { out, shown: state.msgs.length, whole };
+});
+check(steady.out.every(([n, , same, dy]) => n > 0 && same && Math.abs(dy) <= 1), `an older page goes in above, the rows on screen kept and unmoved (${JSON.stringify(steady)})`);
+const newLine = await page.evaluate(async () => {
+  const c = state.cur.chats.find(c => c.id === 'ig-hugo');
+  c.unread = 1; state.cur.unread = 1; drawNewLine();
+  const line = document.querySelector('#thread .newline'), others = state.msgs.filter(m => m.chatID === 'ig-hugo' && !m.isSender);
+  const at = [line?.textContent, line?.nextElementSibling?.dataset.id === others.at(-1).id, line && getComputedStyle(line).color];
+  markRead(state.cur);
+  await new Promise(r => setTimeout(r, 400));
+  return [...at, !document.querySelector('#thread .newline')];
+});
+check(JSON.stringify(newLine) === JSON.stringify(['New', true, 'rgb(55, 151, 240)', true]), `a blue "New" line sits above the first unread message and goes once seen (${newLine})`);
+const badgeAt = await page.$eval('#people .row:has(.badge)', r => { const t = r.querySelector('.time').getBoundingClientRect(), b = r.querySelector('.badge').getBoundingClientRect(); return [b.left >= t.right, Math.abs((b.top + b.bottom) / 2 - (t.top + t.bottom) / 2) <= 1]; });
+check(badgeAt.join() === 'true,true', `the unread count sits right of the time, on its line (${badgeAt})`);
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
 check(av[0] === 'LM' && av[1] === 0, `every picture failing falls back to the initials (${av})`);
 await page.click('#input');
