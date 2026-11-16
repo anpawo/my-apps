@@ -1316,7 +1316,9 @@ async function emojiFind(q) {
   EMOJI ||= await fetch('emoji.json').then(r => r.json());
   q = q.toLowerCase().replace(/[^\p{L}_ ]/gu, '').replace(/ /g, '_');
   const key = q.replace(/_/g, '');
-  const rank = ([, slug]) => (slug.split('_').includes(q) ? 0 : slug.startsWith(q) ? 1 : new RegExp(`(^|_)${q}`).test(slug) ? 2 : slug.replace(/_/g, '').includes(key) ? 3 : 9);
+  // Keywords (emojilib, as Slack or Discord): ":muscle" or ":bice" → 💪, ranked just after the same match on the name.
+  const word = (slug, k) => (slug.split('_').includes(k) ? 0 : slug.startsWith(k) ? 1 : new RegExp(`(^|_)${k}`).test(slug) ? 2 : 9);
+  const rank = ([, slug, kw = []]) => Math.min(word(slug, q), slug.replace(/_/g, '').includes(key) ? 3 : 9, ...kw.map(k => word(k, q) + 0.5));
   return EMOJI.map(e => [e, rank(e)]).filter(([, r]) => r < 9).sort((a, b) => a[1] - b[1]).map(([e]) => e);
 }
 function showEmoji(list) {

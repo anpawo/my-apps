@@ -272,6 +272,8 @@ await page.keyboard.press('Enter');
 const emoText = await page.inputValue('#input');
 check(emoRows[0]?.[0] === 'face with tears of joy' && emoRows[0][1] === '😂' && emoRows.every(r => r[2]) && emoText === 'so 😂' && !(await page.$('.msg.pending')), `":joy" offers 😂 by name, emoji on the right, Enter inserts it without sending (${JSON.stringify([emoRows.slice(0, 3), emoText])})`);
 await page.fill('#input', '');
+const byKeyword = await page.evaluate(async () => Promise.all(['muscle', 'bice', 'strong', 'thumbsup', 'joy'].map(async q => (await emojiFind(q))[0]?.[0])));
+check(JSON.stringify(byKeyword) === JSON.stringify(['💪', '💪', '💪', '👍', '😂']), `emoji are found by what they are, not only their name: :muscle :bice :strong :thumbsup :joy (${byKeyword})`);
 // ⌘R over a message replies to it: a bar names it, and the send carries its id to its chat.
 await page.hover('#thread .msg:not(.me):has-text("dinner tonight")');
 await page.keyboard.press('Meta+r');
