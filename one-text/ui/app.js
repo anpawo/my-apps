@@ -637,6 +637,14 @@ function voiceLoad(v) {
     return au;
   })());
 }
+// Same blob route as voice messages, for the same reason; GIFs (WhatsApp sends them as videos) play on a loop.
+const videoIO = new IntersectionObserver(es => es.forEach(({ isIntersecting, target: v }) => {
+  if (!isIntersecting) return;
+  videoIO.unobserve(v);
+  fetch(v.dataset.src).then(r => (r.ok ? r.blob() : Promise.reject()))
+    .then(b => { v.src = URL.createObjectURL(new Blob([b], { type: v.dataset.type || 'video/mp4' })); })
+    .catch(() => v.parentElement.replaceWith(Object.assign(document.createElement('div'), { className: 'bubble note', textContent: 'Video could not load' })));
+}), { rootMargin: '400px' });
 const voiceIO = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && (voiceIO.unobserve(e.target), voiceLoad(e.target))), { rootMargin: '400px' });
 $('#thread').addEventListener('click', async e => {
   const v = e.target.closest('.bubble.voice');
@@ -813,6 +821,7 @@ function bubbleHTML(m) {
       parts.push(`<div class="bubble voice${m.isSender || heard.has(id) ? ' heard' : ''}" data-id="${esc(id)}" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span><b class="dot" title="Not played yet"></b></div>`);
       if (a.transcription) parts.push(`<div class="bubble note">${esc(a.transcription)}</div>`);
     } else if (a.isSticker && a.srcURL) parts.push(`<div class="bubble media sticker"><img src="${esc(asset(a.srcURL))}" loading="lazy" alt="Sticker"></div>`);
+    else if (a.type === 'video' && a.srcURL) parts.push(`<div class="bubble media video"><video data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"${fit(a.size)} playsinline preload="metadata"${a.isGif ? ' autoplay loop muted' : ' controls'}></video></div>`);
     else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}"${fit(a.size)} loading="lazy" decoding="async"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
@@ -846,6 +855,7 @@ function msgNodes(m, prev) {
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
   row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
+  row.querySelectorAll('.bubble.video video').forEach(v => videoIO.observe(v));
   if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {
     const parts = partsOf(m);
     if (parts.at(-1) === m) {

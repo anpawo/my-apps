@@ -29,7 +29,7 @@ const stub = () => {
     'wa-lea': [msg('wa-lea', 'w1', 'dinner tonight still on?', 50), msg('wa-lea', 'w2', 'yes! where?', 45, true), msg('wa-lea', 'w3', 'the usual place', 30)],
     'ig-lea': [msg('ig-lea', 'i1', 'did you see the reel I sent?', 1500), msg('ig-lea', 'i2', 'haha yes, too good', 1490, true), { ...msg('ig-lea', 'i2r', '<p><a href="https://www.instagram.com/reel/ABC123/?id=1&amp;x=y" rel="noopener">https://www.instagram.com/reel/ABC123/</a></p>', 1480), attachments: [{ type: 'img', srcURL: 'mxc://thumb' }] }, msg('ig-lea', 'i3', 'see you at 8 then', 5)],
     'dc-tom': [{ ...msg('dc-tom', 'v1', '', 120), attachments: [{ type: 'audio', isVoiceNote: true, srcURL: 'mxc://voice', mimeType: 'audio/wav' }] }, msg('dc-tom', 'd1', 'gg last night', 60)],
-    'wa-tom': [msg('wa-tom', 't1', 'call me when you can', 90)],
+    'wa-tom': [{ ...msg('wa-tom', 'tv', '', 95), attachments: [{ type: 'video', srcURL: 'file:///clip.mp4', mimeType: 'video/mp4', size: { width: 720, height: 1280 } }] }, msg('wa-tom', 't1', 'call me when you can', 90)],
     'ig-hugo': [msg('ig-hugo', 'h1', 'sent you the deck', 200)], 'li-hugo': [msg('li-hugo', 'l1', 'congrats on the new role', 300)],
     'te-sarah': [msg('te-sarah', 's1', 'meeting moved to 3pm', 400)],
     'grp-1': [{ ...msg('grp-1', 'g0', 'Nina joined the chat', 25), type: undefined }, msg('grp-1', 'g1', 'who is in for friday?', 20)], 'grp-2': [msg('grp-2', 'g2', 'new release is out', 700)],
@@ -841,6 +841,13 @@ const heardNow = await page.evaluate(() => [document.querySelector('#thread .bub
 check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard (${heardNow})`);
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
+
+// A video plays in the thread: fetched whole into a blob, like a voice message, under the player's own controls.
+await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'wa-tom')).id));
+await page.waitForSelector('#thread .bubble.video video');
+await page.waitForTimeout(400);
+const video = await page.$eval('#thread .bubble.video video', v => [v.src.startsWith('blob:'), v.controls, v.getAttribute('width'), v.getAttribute('height')]);
+check(JSON.stringify(video) === '[true,true,"180","320"]', `a video shows as a player sized to the clip, its file fetched whole (${video})`);
 
 // The bar always holds the profile: a group on one app shows its logo and name, then its members, admins first;
 // a member who is someone in the list opens as that person, ‹ goes back.
