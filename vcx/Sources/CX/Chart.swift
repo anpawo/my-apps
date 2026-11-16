@@ -16,13 +16,19 @@ struct ChartBlock: View {
     let html: String
     @Environment(\.openChart) private var openChart
     @State private var height: CGFloat
+    @State private var size = CGSize.zero
     init(html: String) { self.html = html; _height = State(initialValue: chartHeights[html] ?? 240) }
     var body: some View {
         ChartWeb(html: html, zoom: 1, inline: true, height: { h in chartHeights[html] = h; if abs(height - h) > 0.5 { height = h } }, click: { size in openChart?(ChartZoom(html: html, size: size)) })
             .frame(maxWidth: 760).frame(height: height)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
             .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.1)))
-            .help("Click to enlarge the chart")
+            .overlay(alignment: .topTrailing) {
+                Button { openChart?(ChartZoom(html: html, size: size)) } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).opacity(0.5).frame(width: 22, height: 22).contentShape(Rectangle())
+                }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 6))).padding(4).help("Enlarge the chart").accessibilityLabel("Enlarge chart")
+            }
     }
 }
 
@@ -70,7 +76,7 @@ private struct ChartWeb: NSViewRepresentable {
     func makeNSView(context: Context) -> ChartWebView {
         let configuration = WKWebViewConfiguration()
         // Wrapped so they declare no global: a page's own `let s` would otherwise throw and never draw.
-        let style = "(() => { const s = document.createElement('style'); s.textContent = 'html,body{margin:0;overflow:hidden;background:transparent}'; document.documentElement.appendChild(s) })();"
+        let style = "(() => { const s = document.createElement('style'); s.textContent = 'html,body{margin:0;overflow:hidden;background:transparent}" + (inline ? " *{cursor:zoom-in !important}" : "") + "'; document.documentElement.appendChild(s) })();"
         let report = "new ResizeObserver(() => webkit.messageHandlers.size.postMessage(\(Self.measure))).observe(document.body);"
         configuration.userContentController.addUserScript(WKUserScript(source: style, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: report, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
