@@ -69,7 +69,8 @@ private struct ChartWeb: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> ChartWebView {
         let configuration = WKWebViewConfiguration()
-        let style = "var s=document.createElement('style');s.textContent='html,body{margin:0;overflow:hidden;background:transparent}';document.documentElement.appendChild(s);"
+        // Wrapped so they declare no global: a page's own `let s` would otherwise throw and never draw.
+        let style = "(() => { const s = document.createElement('style'); s.textContent = 'html,body{margin:0;overflow:hidden;background:transparent}'; document.documentElement.appendChild(s) })();"
         let report = "new ResizeObserver(() => webkit.messageHandlers.size.postMessage(\(Self.measure))).observe(document.body);"
         configuration.userContentController.addUserScript(WKUserScript(source: style, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: report, injectionTime: .atDocumentEnd, forMainFrameOnly: true))

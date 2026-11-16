@@ -2139,13 +2139,17 @@ enum Render {
             if !field.string.hasPrefix("helloa b,") || field.selectedRange().location != 8 { fputs("FAIL: typing in an edited code block keeps the caret where it types\n", stderr); exit(1) }
         }
         do {
-            let page = "<svg viewBox=\"0 0 600 200\" width=\"100%\"><polyline fill=\"none\" stroke=\"#7c3aed\" stroke-width=\"3\" points=\"0,150 100,120 200,140 300,60 400,90 500,30 600,50\"/></svg>"
+            // Built by a script once loaded, as agents write them, so the height must follow the page after load; its global `s` must not clash with VCX's own scripts.
+            let page = ##"<div style="font:13px sans-serif"><b>Title</b><div id="c"></div></div><script>let s = '<svg viewBox="0 0 600 200" width="100%"><polyline fill="none" stroke="#7c3aed" stroke-width="3" points="0,150 100,120 200,140 300,60 400,90 500,30 600,50"/></svg>'; document.getElementById("c").innerHTML = s</script>"##
             func web(_ view: NSView) -> WKWebView? { (view as? WKWebView) ?? view.subviews.lazy.compactMap(web).first }
             func shoot(_ root: some View, _ size: CGSize, _ name: String) -> CGSize {
                 let host = NSHostingView(rootView: root)
-                host.frame = NSRect(origin: .zero, size: size)
-                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                // A transcript row first lays the chart out at no width, then at the column's.
+                host.frame = NSRect(origin: .zero, size: CGSize(width: 0, height: size.height))
+                let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host
+                RunLoop.main.run(until: Date().addingTimeInterval(1))
+                host.frame = NSRect(origin: .zero, size: size)
                 RunLoop.main.run(until: Date().addingTimeInterval(2))
                 guard let view = web(host) else { fputs("FAIL: a chart block draws a web view\n", stderr); exit(1) }
                 var done = false
@@ -2159,9 +2163,15 @@ enum Render {
             }
             var opened: ChartZoom?
             let inline = shoot(MarkdownBody(text: "Two weeks:\n\n```chart\n" + page + "\n```\n\nAfter.").environment(\.openChart) { opened = $0 }.frame(width: 640).padding(24).background(Color.white), CGSize(width: 688, height: 420), "chart-inline.png")
-            if abs(inline.height - (640 - 24) * 200 / 600) > 4 { fputs("FAIL: a chart block takes its page's height (\(inline))\n", stderr); exit(1) }
+            if abs(inline.height - (640 - 24) * 200 / 600 - 16) > 4 { fputs("FAIL: a chart block takes its page's height (\(inline))\n", stderr); exit(1) }
             let zoom = shoot(ChartPreview(chart: opened ?? ChartZoom(html: page, size: inline), size: CGSize(width: 1120, height: 820)) {}.frame(width: 1120, height: 820).background(Color.gray), CGSize(width: 1120, height: 820), "chart-zoom.png")
             if zoom.width <= inline.width || abs(zoom.width / zoom.height - inline.width / inline.height) > 0.01 { fputs("FAIL: a zoomed chart keeps its ratio (\(inline) -> \(zoom))\n", stderr); exit(1) }
+            // In the transcript itself, where rows are laid out lazily.
+            let chatting = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-state"))
+            chatting.ready = true; chatting.status = "Ready"
+            chatting.show(["id": "chart-answer", "type": "agentMessage", "provider": "Claude", "text": "Here it is:\n\n```chart\n" + page + "\n```\n\nAfter."])
+            let inChat = shoot(CXView(session: chatting), CGSize(width: 1120, height: 820), "chart-chat.png")
+            if abs(inChat.height - inChat.width * 200 / 600 - 16) > 4 { fputs("FAIL: a chart in the transcript takes its page's height (\(inChat))\n", stderr); exit(1) }
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {
