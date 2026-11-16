@@ -282,6 +282,7 @@ struct CXView: View {
     @State private var hoveringCapabilityPanel = false
     @State private var hoveredRule: String?
     @State private var hoveredRuleTop: CGFloat = 0
+    @State private var hoveringUpdate = false
     @State private var copiedID = false
     @StateObject var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -560,7 +561,21 @@ struct CXView: View {
             }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
-            statusBar.padding(.leading, 10)
+            statusBar
+                .overlay(alignment: .topLeading) {
+                    if hoveringUpdate, let build = update.build {
+                        Color.clear.frame(height: 0).overlay(alignment: .bottomLeading) {
+                            Text(build.words).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(accent)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 10).padding(.vertical, 8)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.black.opacity(0.12)))
+                                .frame(maxWidth: 540, alignment: .leading)
+                                .padding(.bottom, 6)
+                        }.allowsHitTesting(false).transition(.opacity)
+                    }
+                }
+                .padding(.leading, 10)
         }.animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: session.draftImages)
             .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
     }
@@ -569,7 +584,7 @@ struct CXView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 if let build = update.build {
-                    UpdateChip(build: build).transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                    UpdateChip(build: build).onHover { hoveringUpdate = $0 }.transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     separator.transition(.opacity)
                 }
                 identityStatus
@@ -629,7 +644,7 @@ struct UpdateChip: View {
                 .background(accent.opacity(0.1))
                 .overlay(alignment: .bottomLeading) { GlideBar(fraction: UpdateBuild.progress(build, at: context.date)).frame(height: 2.5) }
                 .clipShape(RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
-        }.help("Building the VCX update: " + build.words).accessibilityLabel("Building the VCX update: " + build.words)
+        }.accessibilityLabel("Building the VCX update: " + build.words)
     }
 }
 
