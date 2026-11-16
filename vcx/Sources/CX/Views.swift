@@ -627,16 +627,41 @@ struct UpdateChip: View {
             }.font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(accent).lineLimit(1).fixedSize()
                 .padding(.horizontal, 6).padding(.top, 5).padding(.bottom, 6)
                 .background(accent.opacity(0.1))
-                .overlay(alignment: .bottomLeading) {
-                    GeometryReader { box in
-                        Rectangle().fill(userGradient).frame(width: box.size.width * UpdateBuild.progress(build, at: context.date), height: 2.5)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                            .animation(.linear(duration: 1), value: context.date)
-                    }
-                }
+                .overlay(alignment: .bottomLeading) { GlideBar(fraction: UpdateBuild.progress(build, at: context.date)).frame(height: 2.5) }
                 .clipShape(RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
         }.help("Building the VCX update: " + build.words).accessibilityLabel("Building the VCX update: " + build.words)
     }
+}
+
+// Core Animation glides the line between ticks: a SwiftUI animation redrew the whole window every frame of a build,
+// 30 % of the main thread on an idle Mac and past mac-guard's 90 % under the build's load (11-16, two restarts).
+struct GlideBar: NSViewRepresentable {
+    let fraction: Double
+    final class Bar: NSView {
+        let line = CAGradientLayer()
+        var fraction = 0.0 { didSet { needsLayout = true } }
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            line.colors = [NSColor(red: 0.93, green: 0.23, blue: 0.51, alpha: 1).cgColor, NSColor(red: 0.55, green: 0.3, blue: 1, alpha: 1).cgColor]
+            line.startPoint = CGPoint(x: 0, y: 0.5); line.endPoint = CGPoint(x: 1, y: 0.5)
+            line.anchorPoint = .zero
+            layer?.addSublayer(line)
+        }
+        required init?(coder: NSCoder) { nil }
+        override func layout() {
+            super.layout()
+            let from = line.presentation()?.bounds.width ?? 0, to = bounds.width * fraction
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            line.position = .zero; line.bounds = CGRect(x: 0, y: 0, width: to, height: bounds.height)
+            CATransaction.commit()
+            let glide = CABasicAnimation(keyPath: "bounds.size.width")
+            glide.fromValue = from; glide.toValue = to; glide.duration = 1
+            line.add(glide, forKey: "glide")
+        }
+    }
+    func makeNSView(context: Context) -> Bar { Bar() }
+    func updateNSView(_ bar: Bar, context: Context) { bar.fraction = fraction }
 }
 
 extension CXView {
