@@ -1061,15 +1061,15 @@ struct WorkBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { animate { if pinned { pinned = false; hovering = false } else { pinned = true } } } label: {
                 HStack(spacing: 12) {
-                    // The tinted segment is the hover target that opens the block.
+                    // The chevron's segment is the hover target that opens the block; tinted only while open, at rest it read as stuck hover.
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
-                        .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0.09))
+                        .frame(width: 44).frame(maxHeight: .infinity).background(accent.opacity(open ? 0.16 : 0))
                         .onHover { inside in FreezeTrace.note("work block edge hover"); if inside, !hovering, !Self.covered { animate { hovering = true } } }
                     Text([actions == 0 ? nil : "\(actions) \(actions == 1 ? "action" : "actions")", notes == 0 ? nil : "\(notes) \(notes == 1 ? "note" : "notes")", sent == 0 ? nil : "\(sent) \(sent == 1 ? "message" : "messages") sent"].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
                 }.frame(height: 40).foregroundStyle(.black.opacity(0.6)).contentShape(Rectangle())
-            }.buttonStyle(.reactive(Rectangle())).help(pinned ? "Collapse" : "Keep open (hovering the tinted edge opens it)")
+            }.buttonStyle(.reactive(Rectangle())).help(pinned ? "Collapse" : "Keep open (hovering the arrow opens it)")
             if open {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(rows) { row in
