@@ -90,7 +90,7 @@ header .who > b { font-size: 15px; white-space: nowrap; overflow: hidden; text-o
 #profile .actions button:hover, #profile .merge.open { background: #363636; }
 /* A person: their apps' logos in a row on top, the picture under them, the name in a pill overlapping its bottom edge. */
 header.person { position: absolute; top: 0; left: 0; right: 0; z-index: 2; justify-content: center; padding: 12px 14px 30px; border-bottom: 0;
-  background: linear-gradient(#000, rgb(0 0 0 / .85) 50%, rgb(0 0 0 / 0)); pointer-events: none; }
+  background: linear-gradient(#000, rgb(0 0 0 / 0) 30%); pointer-events: none; }
 header.person .who { pointer-events: auto; }
 /* The thread runs under the bar's fade; its first message starts below the name. */
 main:has(> header.person) #msgs { padding-top: 150px; }
