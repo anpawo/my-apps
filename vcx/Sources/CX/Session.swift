@@ -1273,8 +1273,18 @@ final class Session: ObservableObject {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         return files.sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }.prefix(40).compactMap { url in
             guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == conversationDirectory, (record["rows"] as? [Any])?.isEmpty == false else { return nil }
-            return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: record["title"] as? String ?? "New conversation", backendID: record["threadId"] as? String)
+            return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: lastAnswer(record["rows"] as? [JSON] ?? []) ?? record["title"] as? String ?? "New conversation", backendID: record["threadId"] as? String)
         }
+    }
+    // The last green answer line, as the chat shows it, names a conversation better than its first prompt.
+    func lastAnswer(_ rows: [JSON]) -> String? {
+        for row in rows.reversed() where row["kind"] as? String == "assistant" {
+            for item in (row["items"] as? [JSON] ?? []).reversed() {
+                guard let line = answerParagraphs(item["text"] as? String ?? "").last(where: { $0.hasPrefix("⟶ ") && !$0.hasPrefix("⟶ Next:") }) else { continue }
+                return answerLine(line).replacingOccurrences(of: #"\[([^\]]+)\]\([^)]*\)"#, with: "$1", options: .regularExpression).replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            }
+        }
+        return nil
     }
 
     private func claimRecord(_ id: String) throws -> Int32 {

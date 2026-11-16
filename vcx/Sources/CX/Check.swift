@@ -1337,6 +1337,7 @@ enum Check {
                 let empty = lister.currentConversationID
                 lister.save(); lister.close()
                 check(lister.recent.first?.id == conversation, "/resume lists the last closed conversation first")
+                check(lister.lastAnswer([["kind": "assistant", "items": [["text": "⟶ Old answer"]]], ["kind": "assistant", "items": [["text": "Work.\n⟶ Fixed the [panel](file:///a) **now**.\n\n⟶ Next: run it"]]], ["kind": "user", "items": []]]) == "Fixed the panel now." && lister.lastAnswer([["kind": "user", "items": [["text": "⟶ Mine"]]]]) == nil, "/resume names a conversation by its last green answer line")
                 check(FileManager.default.fileExists(atPath: lister.nativeDirectory.appendingPathComponent(String(empty.dropFirst(7)) + ".json").path) && !lister.nativeRecent().contains { $0.id == empty }, "/resume leaves out a conversation closed without a message")
             }
         }
@@ -1554,7 +1555,8 @@ enum Check {
             second.close()
             first.showCommands("/")
             first.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: "/resume " + secondID))
-            await first.command("/resume " + secondID)
+            check(!first.draft.string.contains(secondID) && first.commandQuery == nil, "choosing a /resume row loads it without writing its ID into the composer")
+            for _ in 0..<1000 where first.draft.string != draftB.string { try? await Task.sleep(nanoseconds: 2_000_000) }
             check(first.savedCommandDraft == nil && first.draft.string == draftB.string && draftContent(first.draft).last?["path"] as? String == imagePath, "resume preserves the destination draft and its image")
         }
         func storedDraft(_ id: String) -> [JSON] {
@@ -2010,7 +2012,7 @@ enum Check {
                 transitions.draft = draftA; transitions.showCommands("/")
                 let previousConversation = transitions.currentConversationID
                 let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
-                transitions.chooseCommand(ChatCommand(name: "/resume", detail: "", insert: source))
+                transitions.showCommands(source, preserveDraft: false); transitions.commandQuery = nil
                 let pendingTransition = Task { await transitions.command(source) }
                 for _ in 0..<100 where !transitions.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
                 try? await Task.sleep(nanoseconds: 10_000_000)

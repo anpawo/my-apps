@@ -229,6 +229,13 @@ extension Session {
             Task { await self.command(command.insert) }
             return
         }
+        // A conversation loads at once; its ID never shows in the composer.
+        if command.insert.hasPrefix("/resume "), command.insert.count > 8 {
+            if savedCommandDraft == nil { savedCommandDraft = NSAttributedString(string: "") }
+            commandQuery = nil; commandToken = nil
+            Task { await self.command(command.insert) }
+            return
+        }
         // A command (not one of its values) locks in as a chip showing its name.
         let value = command.insert.trimmingCharacters(in: .whitespaces)
         if !value.contains(" ") {
