@@ -511,18 +511,13 @@ check(JSON.stringify(barBefore) === '[false,"net"]' && JSON.stringify(barAfter) 
 await page.evaluate(() => setPicture(state.byId.get('grp-1'), null));
 await page.waitForTimeout(300);
 
-// Pinning a group: it keeps its row, under the favorites' pictures and above the list.
+// A favorite group chat: one more picture in the strip, no row of its own above the list.
 await page.click('#people .row[data-id="grp-1"]', { button: 'right' });
 await page.click('.menu .item:has-text("Add to favorites")');
 await page.waitForTimeout(500);
-const pinned = await page.evaluate(() => {
-  const row = document.querySelector('#pinned .row[data-id="grp-1"]'), favs = document.querySelector('#favs'), list = document.querySelector('#people');
-  return row && [!!row.querySelector('.name'), !document.querySelector('#favs .fav[data-id="grp-1"]'), favs.getBoundingClientRect().bottom <= row.getBoundingClientRect().top, row.getBoundingClientRect().bottom <= list.getBoundingClientRect().top];
-});
-check(JSON.stringify(pinned) === '[true,true,true,true]', `a pinned group keeps its row between the favorites and the list (${pinned})`);
-const pinnedFaces = await page.$$eval('#pinned .row .stack img', is => is.map(i => i.getBoundingClientRect()).map(r => [Math.round(r.left), Math.round(r.top), r.width]));
-check(pinnedFaces.length === 2 && pinnedFaces[0][1] === pinnedFaces[1][1] && pinnedFaces[1][0] - pinnedFaces[0][0] === 26 && pinnedFaces.every(r => r[2] === 40), `a pinned group shows all its members at full size, overlapping to the right (${JSON.stringify(pinnedFaces)})`);
-await page.screenshot({ path: join(out, '6-pinned.png') });
+const favGroup = await page.evaluate(() => [!!document.querySelector('#favs .fav[data-id="grp-1"]'), !document.querySelector('#list .row[data-id="grp-1"]:not([data-leaving])'), document.querySelector('#list .inner > .sel').nextElementSibling.id]);
+check(JSON.stringify(favGroup) === '[true,true,"people"]', `a favorite group chat shows as a picture in the strip, not pinned above the list (${favGroup})`);
+await page.screenshot({ path: join(out, '6-favorite-group.png') });
 
 // ⌘F in the ⌘D search favorites the highlighted row, and the search stays open.
 // ⌘M on one row, then ⌘M on another: the second gets the field, focused.
@@ -603,7 +598,7 @@ check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWi
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
-// Groups: favorites in no group stay on top; "+ New group" names one; Add to it moves her into it; every group stays open.
+// Groups: favorites stay on top; "+ New group" names one; Add to it moves her into it; every group stays open.
 const topFavs = () => page.$$eval('#favs:not([hidden]) .fav[data-id]', fs => fs.map(f => f.title));
 const groupFavs = name => page.$$eval(`.group[data-name="${name}"] .strip:not([hidden]) .fav`, fs => fs.map(f => f.title));
 const topBefore = await topFavs();
@@ -626,8 +621,8 @@ await page.click('.menu .item:has-text("group…")');
 await page.click('.menu .item:has-text("Work")');
 await page.waitForTimeout(400);
 check(JSON.stringify(await groupFavs('Family')) === '["Lea Martin"]' && JSON.stringify(await groupFavs('Work')) === '["Tom B"]', 'two groups are open at once');
-const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#pinned', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
-check(order.every((t, k) => !k || order[k - 1] < t), `favorites in no group, then each group, then pinned groups, then the list (${order})`);
+const order = await page.evaluate(() => ['#favs', '.group[data-name="Family"]', '.group[data-name="Work"]', '#people'].map(q => document.querySelector(q)).filter(e => e.offsetHeight).map(e => Math.round(e.getBoundingClientRect().top)));
+check(order.every((t, k) => !k || order[k - 1] < t), `favorites, then each group, then the list (${order})`);
 await page.screenshot({ path: join(out, '7-groups.png') });
 const side = await page.evaluate(() => { const g = document.querySelector('.group[data-name="Family"]'), l = g.querySelector('.label').getBoundingClientRect(), f = g.querySelector('.fav').getBoundingClientRect(), t = document.querySelector('#favs .fav').getBoundingClientRect(); return [l.bottom <= f.top, Math.round(f.left - t.left)]; });
 check(JSON.stringify(side) === '[true,0]', `a group's name sits above its pictures, which line up with the top strip (${side})`);
@@ -788,8 +783,8 @@ await page.waitForTimeout(250);
 const picked = await page.evaluate(() => [document.querySelector('#picker').hidden, __log.filter(([c, a]) => c === 'api' && a.method === 'POST' && a.path.includes('/reactions')).at(-1)[1].body.reactionKey]);
 check(JSON.stringify(pick) === '[false,true,true,5,5]' && JSON.stringify(picked) === '[true,"😂"]', `the + opens the emoji block, :joy then ↵ reacts 😂 (${pick} / ${picked})`);
 
-// A group's bubble of faces in the list opens the chat, its members already in the bar.
-await page.click('#people .row[data-id="grp-1"] .av, #pinned .row[data-id="grp-1"] .av');
+// A group's bubble of faces (in the list, or the strip as a favorite) opens the chat, its members already in the bar.
+await page.click('#people .row[data-id="grp-1"] .av, #favs .fav[data-id="grp-1"] .av');
 await page.waitForTimeout(500);
 const prof = await page.evaluate(() => [state.cur.id, !!document.querySelector('#profile .member')]);
 await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'li-hugo')).id));

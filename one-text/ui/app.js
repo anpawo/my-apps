@@ -66,18 +66,16 @@ const fit = s => { if (!s?.width || !s?.height) return ''; const k = Math.min(1,
 const netMark = key => { const n = NETS[key]; return `<span class="net" style="background:${n.color}" title="${n.label}">${n.logo}</span>`; };
 function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 // Each picture in turn (Instagram's default comes back 404), the initials only once none loads.
-function avatar(item, all) {
+function avatar(item) {
   const initials = (item.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
   const color = `hsl(${hue(item.name || '')} 55% 62%)`;
   // A group chat: the logo of the app it comes from, then up to 4 of its members' pictures in one round tile, like a
-  // folded group of favorites (its own picture when no member has one).
+  // folded group (its own picture when no member has one).
   if (item.kind === 'group' && !item._plain) {
     const faces = item.faces || [];
     const logo = netMark(netOf(item.chats[0]));
     if (!faces.length) return `<div class="av faces members">${logo}${avatar({ ...item, _plain: true })}</div>`;
     const img = f => `<img src="${esc(asset(f))}" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E'">`;
-    // A pinned group: every member, overlapping more as there are more, so all fit in the same width.
-    if (all) return `<div class="av faces members">${logo}<div class="stack" style="--n:${faces.length}">${faces.map(img).join('')}</div></div>`;
     return `<div class="av faces members">${logo}<div class="av tile">${faces.slice(0, 4).map(img).join('')}</div></div>`;
   }
   const [first, ...rest] = item.imgs || [];
@@ -105,17 +103,17 @@ const state = { byId: new Map(), cur: null, seq: 0, msgs: [], older: {}, pool: [
 /* ---------- Sidebar ---------- */
 
 const MUTED = '<svg class="muted" viewBox="0 0 16 16" aria-label="Muted"><path d="M4 6.5a4 4 0 0 1 6.9-2.7M12 7v2.5l1.5 2H5M6.5 13.5a1.5 1.5 0 0 0 3 0M2.5 2.5l11 11"/></svg>';
-function fill(n, item, all) {
+function fill(n, item) {
   // A person: the logo of the app with their latest message only.
   const nets = item.kind === 'person' ? [netOf(item.chats.reduce((a, c) => (c.last > a.last ? c : a)))] : [];
   const muted = item.chats.length && item.chats.every(c => c.muted);
-  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets, all, muted]);
+  const sig = JSON.stringify([item.name, item.original, item.imgs, item.faces, item.unread, item.last, nets, muted]);
   if (n._sig === sig) return;
   const wasUnread = n._unread || 0;
   n._sig = sig;
   n._unread = item.unread;
   n.classList.toggle('unread', item.unread > 0);
-  const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item, all);
+  const pic = nets.length ? `<div class="av faces members">${nets.map(netMark).join('')}${avatar(item)}</div>` : avatar(item);
   n.innerHTML = `${pic}<div class="body"><div class="top"><span class="name">${esc(item.name || 'Unnamed')}${muted ? MUTED : ''}${item.original ? `<span class="orig">${esc(item.original)}</span>` : ''}</span><span class="time">${when(item.last)}</span></div>
     <div class="bottom">${item.unread ? `<span class="badge">${item.unread}</span>` : ''}</div></div>`;
   if (item.unread && !wasUnread && n.isConnected) anim(n.querySelector('.badge'), { scale: [0.4, 1], opacity: [0, 1] }, 200);
@@ -151,7 +149,7 @@ function renderList(box, items) {
       if (box.id === 'people') dragFrom(n);
       n.oncontextmenu = e => { e.preventDefault(); select(n.dataset.id); openMore(n); };
     }
-    fill(n, item, box.id === 'pinned');
+    fill(n, item);
     let at = prev ? prev.nextSibling : box.firstChild;
     while (at && at.dataset.leaving) at = at.nextSibling;
     if (n !== at) box.insertBefore(n, at);
@@ -192,14 +190,11 @@ function movePill(ms) {
 // A search looks through everyone but draws the 30 newest matches.
 function fits() {
   const list = $('#list'), row = $('#people .row:not([data-leaving])')?.offsetHeight || 56;
-  const room = list.clientHeight - $('#pinned').offsetHeight - parseFloat(getComputedStyle(list).paddingBottom);
+  const room = list.clientHeight - parseFloat(getComputedStyle(list).paddingBottom);
   return Math.max(3, Math.ceil(room / row));
 }
-// A person in a group of favorites stays in the list like anyone else: the groups only sort the bar for him.
-// A pinned group chat in one shows here only while it has unread messages or is open from here.
-const listed = i => isFav(i) && !(grouped(i) && i.kind !== 'group')
-  ? grouped(i) && (i.unread > 0 || (i.id === state.cur?.id && !!$(`#people > [data-id="${CSS.escape(i.id)}"]:not([data-leaving])`)))
-  : !i.hidden || i.id === state.cur?.id;
+// A favorite shows in the strip above instead; someone in a group stays in the list like anyone else.
+const listed = i => !isFav(i) && (!i.hidden || i.id === state.cur?.id);
 function shown(items) {
   items = items.filter(listed);
   const max = state.more || fits();
@@ -223,35 +218,29 @@ const isFav = item => item.chats.some(c => state.favs.has(c.id));
 function toggleFav(item) {
   const on = !isFav(item);
   for (const c of item.chats) on ? state.favs.add(c.id) : state.favs.delete(c.id);
-  if (!on) { for (const t of state.tabs) t.ids = t.ids.filter(id => !item.chats.some(c => c.id === id)); saveTabs(); }
   localStorage.favs = JSON.stringify([...state.favs]);
   showLists();
 }
 // Favorites keep the order he gives them (⌘ + arrows), new ones last.
 const favRank = item => Math.min(...item.chats.map(c => [...state.favs].indexOf(c.id)).filter(n => n >= 0));
-function moveFav(item, key) {
-  const favs = (state.all || []).filter(isFav).sort((a, b) => favRank(a) - favRank(b));
-  const tab = state.tabs.find(t => inTab(item, t)), strip = tab ? favs.filter(i => inTab(i, tab)) : favs.filter(i => !grouped(i));
-  const same = strip.filter(i => (i.kind === 'group') === (item.kind === 'group'));
-  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: item.kind === 'group' ? -1 : -5, ArrowDown: item.kind === 'group' ? 1 : 5 }[key];
-  const from = same.indexOf(item), to = Math.max(0, Math.min(same.length - 1, from + step));
+// A group keeps its people in the order of its ids, so the same moves reorder a group's strip.
+function moveFav(item, key, tab) {
+  const strip = tab ? members(tab) : (state.all || []).filter(isFav).sort((a, b) => favRank(a) - favRank(b));
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -5, ArrowDown: 5 }[key];
+  const from = strip.indexOf(item), to = Math.max(0, Math.min(strip.length - 1, from + step));
   if (from < 0 || to === from) return;
-  same.splice(to, 0, ...same.splice(from, 1));
-  const order = [...same, ...favs.filter(i => !same.includes(i))].flatMap(i => i.chats.map(c => c.id)).filter(id => state.favs.has(id));
-  state.favs = new Set([...order, ...state.favs]);
-  localStorage.favs = JSON.stringify([...state.favs]);
+  strip.splice(to, 0, ...strip.splice(from, 1));
+  const ids = tab ? new Set(tab.ids) : state.favs;
+  const order = new Set([...strip.flatMap(i => i.chats.map(c => c.id)).filter(id => ids.has(id)), ...ids]);
+  if (tab) { tab.ids = [...order]; saveTabs(); }
+  else { state.favs = order; localStorage.favs = JSON.stringify([...order]); }
   showLists();
 }
-const grouped = item => state.tabs.some(t => inTab(item, t));
-// Favorites in no group on top, then each group of favorites; pinned group chats keep their row below.
+// Favorites on top, then each group; being in a group does not make someone a favorite.
 function showLists() {
   const all = state.all || [];
-  const favs = all.filter(isFav).sort((a, b) => favRank(a) - favRank(b));
-  drawFavs($('#favs'), favs.filter(i => i.kind !== 'group' && !grouped(i)));
-  drawGroups(favs);
-  const groups = favs.filter(i => i.kind === 'group');
-  renderList($('#pinned'), groups);
-  $('#pinned').classList.toggle('some', groups.length > 0);
+  drawFavs($('#favs'), all.filter(isFav).sort((a, b) => favRank(a) - favRank(b)));
+  drawGroups();
   renderList($('#people'), shown(all));
   movePill();
 }
@@ -285,7 +274,7 @@ function drawFavs(box, items, tab) {
   if (opening) collapse(box, false);
 }
 
-// Groups: named sets of favorites under the favorites in no group, each folded into one bubble of its
+// Groups: named sets of people under the favorites, each folded into one bubble of its
 // first 4 pictures until clicked; dragging a bubble or a name moves the group in the order.
 state.open = new Set();
 state.tabs = JSON.parse(localStorage.tabs || '[]');
@@ -294,10 +283,12 @@ state.tabs = JSON.parse(localStorage.tabs || '[]');
 const saveTabs = () => { localStorage.tabs = JSON.stringify(state.tabs); };
 const tabOf = name => state.tabs.find(t => t.name === name);
 const inTab = (item, tab) => item.chats.some(c => tab.ids.includes(c.id));
-function drawGroups(favs) {
+const tabRank = (item, tab) => Math.min(...item.chats.map(c => tab.ids.indexOf(c.id)).filter(n => n >= 0));
+const members = tab => (state.all || []).filter(i => i.kind !== 'group' && inTab(i, tab)).sort((a, b) => tabRank(a, tab) - tabRank(b, tab));
+function drawGroups() {
   const box = $('#tabbox');
   if (box.querySelector('input')) return;
-  box.hidden = !state.tabs.length && !favs.length;
+  box.hidden = !state.tabs.length && !(state.all || []).some(isFav);
   const keep = new Set(state.tabs.map(t => t.name));
   for (const sec of [...box.querySelectorAll('.group')]) if (!keep.has(sec.dataset.name)) collapse(sec, true).then(() => sec.remove());
   let prev = null;
@@ -314,12 +305,12 @@ function drawGroups(favs) {
       if (box.querySelector('.group')) requestAnimationFrame(() => collapse(sec, false));
     }
     const label = sec.querySelector('.label'), bubble = sec.querySelector('.grouptile'), strip = sec.querySelector('.strip');
-    const members = favs.filter(i => i.kind !== 'group' && inTab(i, tab)), open = state.open.has(tab.name);
+    const people = members(tab), open = state.open.has(tab.name);
     label.textContent = tab.name;
     sec.classList.toggle('open', open);
-    bubble.title = members.length ? `${tab.name}: ${members.map(i => i.name).join(', ')}` : tab.name;
-    bubble.innerHTML = members.slice(0, 4).map(avatar).join('');
-    bubble.classList.toggle('on', members.some(i => i.id === state.cur?.id));
+    bubble.title = people.length ? `${tab.name}: ${people.map(i => i.name).join(', ')}` : tab.name;
+    bubble.innerHTML = people.slice(0, 4).map(i => avatar(i)).join('');
+    bubble.classList.toggle('on', people.some(i => i.id === state.cur?.id));
     label.oncontextmenu = e => {
       e.preventDefault();
       menu(label, m => m.append(
@@ -330,7 +321,7 @@ function drawGroups(favs) {
     const at = prev ? prev.nextSibling : box.firstChild;
     if (sec !== at) box.insertBefore(sec, at);
     if (open) {
-      drawFavs(strip, members, tab);
+      drawFavs(strip, people, tab);
       const fold = Object.assign(document.createElement('button'), { className: 'folder less', title: `Fold ${tab.name}`, textContent: '–' });
       fold.onclick = () => { state.open.delete(sec.dataset.name); showLists(); };
       strip.append(fold);
@@ -369,7 +360,6 @@ function newTab(button, person) {
 }
 // One group at most: joining one leaves the other.
 function addToTab(item, name, on = true) {
-  if (on && !isFav(item)) toggleFav(item);
   for (const t of state.tabs) t.ids = t.ids.filter(id => !item.chats.some(c => c.id === id));
   if (on) tabOf(name).ids.push(...item.chats.map(c => c.id));
   saveTabs();
@@ -611,10 +601,10 @@ addEventListener('keydown', e => {
   }
   // ⌘ + arrows move the favorite under the pointer, or the open one when no text is being edited.
   if (e.metaKey && e.key.startsWith('Arrow')) {
-    const hover = document.querySelector('.fav:hover, #pinned .row:hover');
+    const hover = document.querySelector('.fav:hover');
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.value;
     const item = hover ? state.byId.get(hover.dataset.id) : !typing && state.cur && isFav(state.cur) ? state.cur : null;
-    if (item) { e.preventDefault(); moveFav(item, e.key); }
+    if (item) { e.preventDefault(); moveFav(item, e.key, hover && tabOf(hover.closest('.group')?.dataset.name)); }
   }
 });
 /* ---------- Voice messages ---------- */
