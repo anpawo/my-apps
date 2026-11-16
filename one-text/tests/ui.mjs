@@ -845,12 +845,20 @@ check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard 
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
 check(voice[0] && !voice[1] && /^0:0\d$/.test(voice[2]), `a voice message loads and plays (${voice})`);
 
-// A video plays in the thread: fetched whole into a blob, like a voice message, under the player's own controls.
+// A video sits in the thread as its first picture, fetched whole into a blob like a voice message; a click plays it
+// big in the viewer, under the player's controls, and esc closes it.
 await page.evaluate(() => select([...state.byId.values()].find(i => i.chats.some(c => c.id === 'wa-tom')).id));
 await page.waitForSelector('#thread .bubble.video video');
 await page.waitForTimeout(400);
 const video = await page.$eval('#thread .bubble.video video', v => [v.src.startsWith('blob:'), v.controls, v.getAttribute('width'), v.getAttribute('height')]);
-check(JSON.stringify(video) === '[true,true,"180","320"]', `a video shows as a player sized to the clip, its file fetched whole (${video})`);
+check(JSON.stringify(video) === '[true,false,"180","320"]', `a video shows as a still sized to the clip, its file fetched whole (${video})`);
+await page.click('#thread .bubble.video.clip video');
+await page.waitForTimeout(400);
+await page.screenshot({ path: join(out, '1c-video-viewer.png') });
+const big = await page.evaluate(() => { const v = document.querySelector('#viewer video'); return [!document.querySelector('#viewer').hidden, v?.controls, v?.disablePictureInPicture, Math.round(v?.getBoundingClientRect().height), innerHeight]; });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
+check(big[0] && big[1] && big[2] && big[3] > big[4] * 0.8 && await page.$eval('#viewer', v => v.hidden), `a clicked video plays big in the viewer, never in picture in picture (${big})`);
 
 // The bar always holds the profile: a group on one app shows its logo and name, then its members, admins first;
 // a member who is someone in the list opens as that person, ‹ goes back.

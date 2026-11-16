@@ -296,6 +296,9 @@ header.drilled #profile .body { grid-template-columns: fit-content(400px) 1fr; }
 #profile .member small { color: var(--muted); font-size: 12px; }
 #profile .member i { color: var(--muted); font-size: 11px; font-style: normal; }
 #profile .more-members { padding-top: 6px; color: var(--muted); font-size: 12.5px; }
-.bubble.media:not(.sticker) img { cursor: zoom-in; }
+.bubble.media:not(.sticker) img, .bubble.video.clip video { cursor: zoom-in; }
+.bubble.video.clip { position: relative; }
+.bubble.video.clip::after { content: ''; position: absolute; inset: 0; margin: auto; width: 48px; height: 48px; border-radius: 50%; pointer-events: none;
+  background: rgb(0 0 0 / .55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 3.2v9.6L13 8z' fill='white'/%3E%3C/svg%3E") 55% 50% / 20px no-repeat; }
 #viewer { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgb(0 0 0 / .82); backdrop-filter: blur(8px); cursor: zoom-out; }
-#viewer img { border-radius: 10px; transform-origin: 0 0; }
+#viewer img, #viewer video { border-radius: 10px; transform-origin: 0 0; }

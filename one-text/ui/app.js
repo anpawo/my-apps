@@ -652,7 +652,11 @@ const videoIO = new IntersectionObserver(es => es.forEach(({ isIntersecting, tar
   if (!isIntersecting) return;
   videoIO.unobserve(v);
   fetch(v.dataset.src).then(r => (r.ok ? r.blob() : Promise.reject()))
-    .then(b => { v.src = URL.createObjectURL(new Blob([b], { type: v.dataset.type || 'video/mp4' })); })
+    .then(b => {
+      v.src = URL.createObjectURL(new Blob([b], { type: v.dataset.type || 'video/mp4' }));
+      // WebKit draws no frame of a paused video until it seeks: the clip shows its first picture, not a black box.
+      if (!v.loop) v.onloadedmetadata = () => (v.currentTime = 0.01);
+    })
     .catch(() => v.parentElement.replaceWith(Object.assign(document.createElement('div'), { className: 'bubble note', textContent: 'Video could not load' })));
 }), { rootMargin: '400px' });
 const voiceIO = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && (voiceIO.unobserve(e.target), voiceLoad(e.target))), { rootMargin: '400px' });
@@ -831,7 +835,7 @@ function bubbleHTML(m) {
       parts.push(`<div class="bubble voice${m.isSender || heard.has(id) ? ' heard' : ''}" data-id="${esc(id)}" data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"><button class="toggle" title="Play">${PLAY}</button><div class="track"><i></i></div><span class="time"></span><b class="dot" title="Not played yet"></b></div>`);
       if (a.transcription) parts.push(`<div class="bubble note">${esc(a.transcription)}</div>`);
     } else if (a.isSticker && a.srcURL) parts.push(`<div class="bubble media sticker"><img src="${esc(asset(a.srcURL))}" loading="lazy" alt="Sticker"></div>`);
-    else if (a.type === 'video' && a.srcURL) parts.push(`<div class="bubble media video"><video data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"${fit(a.size)} playsinline preload="metadata"${a.isGif ? ' autoplay loop muted' : ' controls'}></video></div>`);
+    else if (a.type === 'video' && a.srcURL) parts.push(`<div class="bubble media video${a.isGif ? '' : ' clip'}"><video data-src="${esc(asset(a.srcURL))}" data-type="${esc(a.mimeType || '')}"${fit(a.size)} playsinline muted preload="metadata"${a.isGif ? ' autoplay loop' : ''}></video></div>`);
     else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}"${fit(a.size)} loading="lazy" decoding="async"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
@@ -1075,7 +1079,8 @@ $('#thread').addEventListener('click', e => {
   if (m) react(m, b.dataset.e);
 });
 
-// A picture in the conversation grows from its bubble to fill the window; a click or esc shrinks it back.
+// A picture or a video in the conversation grows from its bubble to fill the window (a video plays there, never in
+// picture in picture); a click beside it or esc shrinks it back.
 const viewer = Object.assign(document.createElement('div'), { id: 'viewer', hidden: true });
 document.body.append(viewer);
 const fromThumb = (thumb, img) => {
@@ -1083,11 +1088,13 @@ const fromThumb = (thumb, img) => {
   return `translate(${t.left - r.left}px, ${t.top - r.top}px) scale(${t.width / r.width})`;
 };
 $('#thread').addEventListener('click', e => {
-  const thumb = e.target.closest('.bubble.media:not(.sticker) img');
-  if (!thumb || !viewer.hidden) return;
-  const w = thumb.naturalWidth || thumb.width, h = thumb.naturalHeight || thumb.height;
+  const thumb = e.target.closest('.bubble.media:not(.sticker) img, .bubble.video.clip video');
+  if (!thumb?.currentSrc || !viewer.hidden) return;
+  const w = thumb.naturalWidth || thumb.videoWidth || thumb.width, h = thumb.naturalHeight || thumb.videoHeight || thumb.height;
   const s = Math.min((innerWidth * 0.92) / w, (innerHeight * 0.92) / h, 2);
-  const img = Object.assign(new Image(), { src: thumb.currentSrc || thumb.src });
+  const img = thumb.tagName === 'VIDEO'
+    ? Object.assign(document.createElement('video'), { src: thumb.currentSrc, controls: true, autoplay: true, playsInline: true, disablePictureInPicture: true })
+    : Object.assign(new Image(), { src: thumb.currentSrc || thumb.src });
   Object.assign(img.style, { width: `${w * s}px`, height: `${h * s}px` });
   viewer.replaceChildren(img);
   viewer.hidden = false;
@@ -1105,7 +1112,7 @@ function closeViewer() {
   anim(viewer, { opacity: [1, 0] }, 260).effect.updateTiming({ fill: 'forwards' });
   back.finished.finally(() => { thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
 }
-viewer.onclick = closeViewer;
+viewer.onclick = e => e.target.tagName !== 'VIDEO' && closeViewer();
 addEventListener('keydown', e => { if (e.key === 'Escape' && !viewer.hidden) { e.preventDefault(); e.stopPropagation(); closeViewer(); } }, true);
 
 // The + at the end of the hover bar opens every emoji: the most used first, a field to search them by name.
