@@ -186,7 +186,7 @@ def ensure_qwen(prefs, run=command, sleep=time.sleep, now=time.monotonic):
         raise ProviderUnavailable('The local Qwen server is unavailable.')
     if not prefs.get('qwenWake', False):
         raise ProviderUnavailable('Qwen is unavailable. Automatic Windows wake is disabled.')
-    wake = HOME / 'self/jarvis/tools/wake-pc.py'
+    wake = HOME / '.local/bin/wake-pc'
     if not wake.is_file():
         raise ProviderUnavailable('Qwen is unavailable and the Windows wake helper is missing.')
     code, _, _ = run(['/opt/homebrew/bin/python3', str(wake)], timeout=150)

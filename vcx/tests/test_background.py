@@ -224,7 +224,7 @@ class BackgroundTests(unittest.TestCase):
         self.assertNotIn('mcp_servers.lightpanda.enabled=false', args)
 
     def test_wake_is_only_sent_when_remote_qwen_is_unreachable(self):
-        wake = self.home / 'self/jarvis/tools/wake-pc.py'
+        wake = self.home / '.local/bin/wake-pc'
         wake.parent.mkdir(parents=True)
         wake.touch()
         prefs = dict(qwenURL='http://192.0.2.1:11434/api/chat', qwenProxy='', qwenWake=True)
