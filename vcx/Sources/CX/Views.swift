@@ -1756,6 +1756,8 @@ func proseGroups(_ text: String) -> [ProseGroup] {
 
 private let bandKey = NSAttributedString.Key("vcxBand")
 private let bandPad: CGFloat = 12
+// Descenders sit lower in the line than caps sit high in it: an even pad read as a box short at the bottom.
+private let bandBottom: CGFloat = bandPad + 4
 
 // Draws the answer lines' boxes behind the text, under the selection and the find tint. Here, not in the layout manager:
 // that one is clipped to the text container, which starts at the first line, so a first box lost its top.
@@ -1771,7 +1773,7 @@ final class BandTextView: NSTextView {
                 // The last line's rect carries the line spacing below it; without it the box pads its text evenly.
                 rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0
                 color.setFill()
-                NSBezierPath(roundedRect: NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad * 2), xRadius: 10, yRadius: 10).fill()
+                NSBezierPath(roundedRect: NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad + bandBottom), xRadius: 10, yRadius: 10).fill()
             }
         }
         super.draw(dirtyRect)
@@ -1785,7 +1787,7 @@ struct LinkText: NSViewRepresentable {
     // Paragraphs joined by "\n" in `text`, each with its own weight, spacing and box colour.
     struct Part { let length: Int; let weight: NSFont.Weight; let lineSpacing: CGFloat; let band: NSColor? }
     var parts: [Part] = []
-    private var pads: (top: CGFloat, bottom: CGFloat) { (parts.first?.band == nil ? 0 : bandPad, parts.last?.band == nil ? 0 : bandPad) }
+    private var pads: (top: CGFloat, bottom: CGFloat) { (parts.first?.band == nil ? 0 : bandPad, parts.last?.band == nil ? 0 : bandBottom) }
     static var open: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     // NSTextView's own fallback opens nothing: a click on a file link reached no LaunchServices call.
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -1837,7 +1839,7 @@ struct LinkText: NSViewRepresentable {
                 let style = NSMutableParagraphStyle(); style.lineSpacing = part.lineSpacing
                 if part.band != nil { style.firstLineHeadIndent = bandPad; style.headIndent = bandPad; style.tailIndent = -bandPad }
                 if line.location == range.location, i > 0, part.band != nil { style.paragraphSpacingBefore = bandPad }
-                if NSMaxRange(enclosing) >= NSMaxRange(range), i < parts.count - 1 { style.paragraphSpacing = part.band == nil ? 12 : 12 + bandPad }
+                if NSMaxRange(enclosing) >= NSMaxRange(range), i < parts.count - 1 { style.paragraphSpacing = part.band == nil ? 12 : 12 + bandBottom }
                 string.addAttribute(.paragraphStyle, value: style, range: enclosing)
             }
         }
