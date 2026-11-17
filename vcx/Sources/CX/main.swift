@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var replacementDeadline: DispatchWorkItem?
     private var replacementAcknowledged = false
     private var restorePending = 0
+    private var restoreDesktops: [ObjectIdentifier: Int] = [:]
     private var refreshTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -155,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     launch.runtimeID = entry.sessionID; launch.socketPath = entry.socketPath; launch.recoveryEntry = entry
                     createWindow(launch, state: entry.windowState)
                 }
+                returnToDesktops()
             } catch { NSLog("VCX recovery registry: %@", error.localizedDescription) }
             if let options { createWindow(options) }
         }
@@ -188,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.setFrame(screen.insetBy(dx: screen.width / 10, dy: screen.height / 20).integral, display: false)
         }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
+        if !headless, let desktop = state["desktop"] as? Int { restoreDesktops[ObjectIdentifier(window)] = desktop }
         startRefresh()
         client.onLeaseLost = { [weak self, weak window] in
             guard let self, let window else { return }
@@ -221,12 +224,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     }
                     // Ordering above another app's window does not hold once this app is active (17-11: the first window in front, the rest reversed); among its own windows it does.
                     if !headless { for (above, below) in zip(windows, windows.dropFirst()) { below.window.order(.below, relativeTo: above.window.windowNumber) } }
+                    // After the ordering: every window is first shown on the desktop in front.
+                    self.returnToDesktops()
                     do { try RuntimeUpdate.acknowledge(restoreFile) }
                     catch { swapLog("VCX frontend replacement could not acknowledge: %@", error.localizedDescription); exit(1) }
                     for entry in windows { entry.session.frontendReplacing = false }
                 }
             }
         }
+    }
+
+    private func returnToDesktops() {
+        for entry in windows { if let desktop = restoreDesktops.removeValue(forKey: ObjectIdentifier(entry.window)) { Desktops.move(entry.window, to: desktop) } }
     }
 
     private func startRefresh() {

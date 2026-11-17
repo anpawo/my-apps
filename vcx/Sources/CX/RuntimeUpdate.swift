@@ -130,6 +130,7 @@ enum RuntimeUpdate {
         let selection = composer(in: window.contentView)?.selectedRange() ?? NSRange(location: 0, length: 0)
         var state: JSON = ["frame": NSStringFromRect(window.frame), "scrollY": scrollView(in: window.contentView)?.contentView.bounds.origin.y ?? 0,
                            "follow": session.follow.attached, "details": session.details, "selection": [selection.location, selection.length]]
+        if let desktop = Desktops.index(of: window) { state["desktop"] = desktop }
         // The exchange crossing the top edge: the same offset shows other rows once a new window estimates the rows above. When the edge falls on a pinned question, the first answer below it serves as well.
         if let top = session.exchangeTops.filter({ $0.value <= 0 }).max(by: { $0.value < $1.value }) ?? session.exchangeTops.min(by: { $0.value < $1.value }) {
             state["anchor"] = top.key.uuidString; state["anchorTop"] = Double(top.value)
