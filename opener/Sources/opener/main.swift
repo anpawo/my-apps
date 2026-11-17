@@ -33,13 +33,59 @@ func openOnceOptionIsUp(_ path: String, tries: Int = 40) {
     if tries > 0, CGEventSource.flagsState(.combinedSessionState).contains(.maskAlternate) {
         return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { openOnceOptionIsUp(path, tries: tries - 1) }
     }
-    if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleURL?.path == path }) {
-        // A second `firefox` hands `-browser` to the running one through its remote and exits; no permission needed,
-        // where File → New Window through System Events would need Accessibility.
+    if let firefox = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.path == path }) {
+        if newWindowHere(firefox) { return }
+        // Without Accessibility: a second `firefox` hands `-browser` to the running one through its remote. Firefox
+        // then activates before its window is on screen, so macOS switches to the desktop of a window it already had.
         _ = try? Process.run(URL(fileURLWithPath: path + "/Contents/MacOS/firefox"), arguments: ["-browser"])
         return
     }
     NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+}
+
+/// Presses the app's ⌘N menu item while it stays in the background, so the window opens on this desktop, and
+/// activates the app only once that window is on screen: activated earlier, it would pull the screen to its old one.
+func newWindowHere(_ app: NSRunningApplication) -> Bool {
+    guard AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) else { return false }
+    let ax = AXUIElementCreateApplication(app.processIdentifier)
+    guard let item = menuItem(ax, cmdChar: "N") else { return false }
+    let before = onScreenWindows(app.processIdentifier)
+    guard AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else { return false }
+    func waitThenActivate(_ tries: Int) {
+        if tries > 0, onScreenWindows(app.processIdentifier).subtracting(before).isEmpty {
+            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { waitThenActivate(tries - 1) }
+        }
+        app.activate()
+    }
+    waitThenActivate(60)
+    return true
+}
+
+func onScreenWindows(_ pid: pid_t) -> Set<Int> {
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    return Set(list.filter { $0[kCGWindowOwnerPID as String] as? pid_t == pid && $0[kCGWindowLayer as String] as? Int == 0 }
+        .compactMap { $0[kCGWindowNumber as String] as? Int })
+}
+
+/// By shortcut rather than title, so it holds in any UI language.
+func menuItem(_ app: AXUIElement, cmdChar: String) -> AXUIElement? {
+    func children(_ e: AXUIElement) -> [AXUIElement] {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(e, kAXChildrenAttribute as CFString, &value)
+        return value as? [AXUIElement] ?? []
+    }
+    func attribute(_ e: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(e, name as CFString, &value)
+        return value
+    }
+    var bar: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &bar) == .success else { return nil }
+    for menu in children(bar as! AXUIElement).flatMap(children) {
+        for item in children(menu) where attribute(item, kAXMenuItemCmdCharAttribute) as? String == cmdChar
+            && attribute(item, kAXMenuItemCmdModifiersAttribute) as? Int == 0 { return item }
+    }
+    return nil
 }
 
 let args = CommandLine.arguments
