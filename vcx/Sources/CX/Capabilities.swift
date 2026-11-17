@@ -210,6 +210,18 @@ extension Session {
             while let outer = git(["rev-parse", "--show-toplevel"], at: URL(fileURLWithPath: top).deletingLastPathComponent().path), outer != top {
                 top = outer; name = URL(fileURLWithPath: top).lastPathComponent + "/" + name
             }
+            // A `.fleet` sub-folder is a Fleet card of its own: my-apps/fleet, not my-apps (asked 2026-11-17).
+            let here = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path, base = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
+            var folder = here, card: String?
+            while card == nil, folder == base || folder.hasPrefix(base + "/") {
+                if let text = try? String(contentsOfFile: folder + "/.fleet", encoding: .utf8) {
+                    let subs = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    if subs.isEmpty, folder != base { card = URL(fileURLWithPath: folder).lastPathComponent }
+                    card = card ?? subs.first { here == folder + "/" + $0 || here.hasPrefix(folder + "/" + $0 + "/") }.map { URL(fileURLWithPath: $0).lastPathComponent }
+                }
+                folder = (folder as NSString).deletingLastPathComponent
+            }
+            if let card { name += "/" + card }
             let branch = git(["branch", "--show-current"]) ?? ""
             let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
             let status: String, porcelain = git(["status", "--porcelain"])

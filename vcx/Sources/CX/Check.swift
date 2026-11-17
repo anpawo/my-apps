@@ -493,6 +493,14 @@ enum Check {
             await nestedSession.refreshRepository()
             check(nestedSession.directoryLabel == "atlas/inner", "nested repositories retain the enclosing repository name")
         }
+        let cardPath = repoPath + "/app/src"
+        try! FileManager.default.createDirectory(atPath: cardPath, withIntermediateDirectories: true)
+        try! "app\n".write(toFile: repoPath + "/.fleet", atomically: true, encoding: .utf8)
+        let cardSession = Session(cwd: cardPath)
+        await part {
+            await cardSession.refreshRepository()
+            check(cardSession.directoryLabel == "atlas/app", "a .fleet sub-folder shows as its own card")
+        }
         let profile = directory.appendingPathComponent("claude-profile")
         try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         try! JSONSerialization.data(withJSONObject: ["effortLevel": "high", "modelSettings": ["claude-opus-5-5": ["effortLevel": "xhigh"]]]).write(to: profile.appendingPathComponent("settings.json"))
