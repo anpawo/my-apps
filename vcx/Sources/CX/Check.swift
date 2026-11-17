@@ -229,6 +229,9 @@ enum Check {
                 check(view.frame.height >= 15, "a reply link paragraph keeps its height")
             }
             check(links == ["/tmp/compare.png", "/tmp/it.png"], "reply links render in clickable text views")
+            let joined = NSHostingView(rootView: ProseView(text: "⟶ The answer.\n\n- a point\n\n⟶ Next: the step.").frame(width: 500))
+            joined.layoutSubtreeIfNeeded()
+            check(textViews(joined).map(\.string) == ["The answer.\n- a point\n+ Next: the step."], "a reply's paragraphs and answer lines are one selectable text")
             // Borderless and never ordered in: the click goes to the text view directly.
             let linkWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
             linkWindow.isReleasedWhenClosed = false; linkWindow.contentView = host; host.layoutSubtreeIfNeeded()
@@ -2125,6 +2128,8 @@ enum Render {
         write(MarkdownBody(text: titled).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 1120, height: 360), path: directory + "/table-under-title.png")
         let nested = "Plan to paste:\n\n````\n### Storage\n\nThe engine **only loads**; the service keeps the `per-entity` lock.\n\n```python\nclass Ledger:\n    def load(self, entity: str) -> dict: ...\n```\n\n- one point\n- another point\n````\n\n## After the block\n\nPlain text again."
         write(MarkdownBody(text: nested).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 560), path: directory + "/nested-markdown.png")
+        let answer = "⟶ Scient's Trade Recon page now runs your local front: about 0.2% of pixels differ.\n\n- **To look at:** [summary-aligned.png](file:///tmp/summary-aligned.png), the other tabs.\n- **Your call:** may the top bar scroll away? I'm also fixing the left card bar that sits 50 px too low, which wraps onto a second line here.\n\n## A heading\n\nPlain text after it.\n\n✓ Done: answer boxes drawn in one text.\n\n⟶ Next: say \"ok\" for the scrolling top bar."
+        write(MarkdownBody(text: answer).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 420), path: directory + "/answer-boxes.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
         write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
         let edits = CodeEdits(); edits.set(message.text, "hello, my own version of the draft\nwith a second line I typed")

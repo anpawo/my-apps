@@ -1648,7 +1648,6 @@ struct ProseView: View {
     @State private var copyReset: Task<Void, Never>?
     @State private var commandHeld = false
     @State private var room: CGFloat = 0
-    private var paragraphs: [String] { answerParagraphs(text) }
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
         let plain = richText(text), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
@@ -1707,23 +1706,75 @@ struct ProseView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
     }
+    // One text view for the paragraphs between tables, so a drag selects across them and the coloured lines.
+    private func joined(_ parts: [ProsePart]) -> some View {
+        let pieces = parts.map { richText($0.text) }
+        let plain = pieces.enumerated().reduce(into: AttributedString()) { all, next in if next.offset > 0 { all += AttributedString("\n") }; all += next.element }
+        let fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
+        let styles = zip(parts, pieces).map { LinkText.Part(length: (String($1.characters) as NSString).length, weight: $0.weight, lineSpacing: $0.lineSpacing, band: $0.band) }
+        return LinkText(text: value, weight: .regular, lineSpacing: 6, parts: styles).fixedSize(horizontal: false, vertical: true)
+            .modifier(FindMarker(find: find, item: findItem, fragment: fragment))
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                let lines = paragraph.components(separatedBy: "\n")
-                if lines.count >= 2, tableRule(lines[1]) {
-                    table(numberedTable(lines), paragraph: index)
-                } else if paragraph.hasPrefix("#") {
-                    let title = paragraph.drop(while: { $0 == "#" || $0 == " " })
-                    prose(String(title), weight: .semibold)
-                } else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-                    prose(answerLine(paragraph), weight: .medium, lineSpacing: 5).fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading).background(paragraph.hasPrefix("✓") ? Color(red: 1, green: 225 / 255, blue: 195 / 255) : paragraph.hasPrefix("⟶ Next:") ? Color(red: 214 / 255, green: 230 / 255, blue: 1) : Color(red: 214 / 255, green: 245 / 255, blue: 214 / 255), in: RoundedRectangle(cornerRadius: 10))
-                } else {
-                    prose(paragraph, lineSpacing: 6).tint(accent).fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(proseGroups(text).enumerated()), id: \.offset) { index, group in
+                switch group {
+                case .table(let lines): table(numberedTable(lines), paragraph: index)
+                case .text(let parts): joined(parts)
                 }
             }
         }
+    }
+}
+
+struct ProsePart {
+    let text: String
+    let weight: NSFont.Weight
+    let lineSpacing: CGFloat
+    let band: NSColor?
+}
+
+enum ProseGroup {
+    case table([String])
+    case text([ProsePart])
+}
+
+func proseGroups(_ text: String) -> [ProseGroup] {
+    var groups: [ProseGroup] = [], parts: [ProsePart] = []
+    func flush() { if !parts.isEmpty { groups.append(.text(parts)); parts = [] } }
+    for paragraph in answerParagraphs(text) {
+        let lines = paragraph.components(separatedBy: "\n")
+        if lines.count >= 2, tableRule(lines[1]) { flush(); groups.append(.table(lines)) }
+        else if paragraph.hasPrefix("#") { parts.append(ProsePart(text: String(paragraph.drop(while: { $0 == "#" || $0 == " " })), weight: .semibold, lineSpacing: 0, band: nil)) }
+        else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
+            let band = paragraph.hasPrefix("✓") ? NSColor(red: 1, green: 225 / 255, blue: 195 / 255, alpha: 1) : paragraph.hasPrefix("⟶ Next:") ? NSColor(red: 214 / 255, green: 230 / 255, blue: 1, alpha: 1) : NSColor(red: 214 / 255, green: 245 / 255, blue: 214 / 255, alpha: 1)
+            parts.append(ProsePart(text: answerLine(paragraph), weight: .medium, lineSpacing: 5, band: band))
+        } else { parts.append(ProsePart(text: paragraph, weight: .regular, lineSpacing: 6, band: nil)) }
+    }
+    flush(); return groups
+}
+
+private let bandKey = NSAttributedString.Key("vcxBand")
+private let bandPad: CGFloat = 12
+
+// Draws the answer lines' boxes behind the text, under the selection and the find tint. Here, not in the layout manager:
+// that one is clipped to the text container, which starts at the first line, so a first box lost its top.
+final class BandTextView: NSTextView {
+    var top: CGFloat = 0
+    override var textContainerOrigin: NSPoint { NSPoint(x: 0, y: top) }
+    override func draw(_ dirtyRect: NSRect) {
+        if let storage = textStorage, let manager = layoutManager {
+            storage.enumerateAttribute(bandKey, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let color = value as? NSColor else { return }
+                var rect = NSRect.null
+                manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)) { _, used, _, _, _ in rect = rect.union(used) }
+                // The last line's rect carries the line spacing below it; without it the box pads its text evenly.
+                rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0
+                color.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad * 2), xRadius: 10, yRadius: 10).fill()
+            }
+        }
+        super.draw(dirtyRect)
     }
 }
 
@@ -1731,6 +1782,10 @@ struct LinkText: NSViewRepresentable {
     let text: AttributedString
     let weight: Font.Weight
     let lineSpacing: CGFloat
+    // Paragraphs joined by "\n" in `text`, each with its own weight, spacing and box colour.
+    struct Part { let length: Int; let weight: NSFont.Weight; let lineSpacing: CGFloat; let band: NSColor? }
+    var parts: [Part] = []
+    private var pads: (top: CGFloat, bottom: CGFloat) { (parts.first?.band == nil ? 0 : bandPad, parts.last?.band == nil ? 0 : bandPad) }
     static var open: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     // NSTextView's own fallback opens nothing: a click on a file link reached no LaunchServices call.
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -1743,7 +1798,7 @@ struct LinkText: NSViewRepresentable {
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSTextView {
-        let view = NSTextView(usingTextLayoutManager: false)
+        let view = BandTextView(usingTextLayoutManager: false)
         view.delegate = context.coordinator
         view.isEditable = false; view.drawsBackground = false; view.isVerticallyResizable = false
         view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
@@ -1764,6 +1819,29 @@ struct LinkText: NSViewRepresentable {
             if let tint = run[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] { attributes[.backgroundColor] = NSColor(tint) }
             string.append(NSAttributedString(string: String(text[run.range].characters), attributes: attributes))
         }
+        // A box keeps 12 pt of colour around its text and 12 pt of white around itself.
+        let starts = parts.reduce(into: [0]) { $0.append($0.last! + $1.length + 1) }
+        for (i, part) in parts.enumerated() {
+            let range = NSIntersectionRange(NSRange(location: starts[i], length: part.length + 1), NSRange(location: 0, length: string.length))
+            if let band = part.band { string.addAttribute(bandKey, value: band, range: range) }
+            // Set per part, not per run: equal runs of neighbouring paragraphs arrive merged into one.
+            if part.weight != .regular {
+                string.enumerateAttribute(.font, in: range) { value, sub, _ in
+                    guard let font = value as? NSFont, !font.fontDescriptor.symbolicTraits.contains(.bold) else { return }
+                    var weighted = NSFont.monospacedSystemFont(ofSize: 12, weight: part.weight)
+                    if font.fontDescriptor.symbolicTraits.contains(.italic) { weighted = NSFontManager.shared.convert(weighted, toHaveTrait: .italicFontMask) }
+                    string.addAttribute(.font, value: weighted, range: sub)
+                }
+            }
+            (string.string as NSString).enumerateSubstrings(in: range, options: [.byParagraphs, .substringNotRequired]) { _, line, enclosing, _ in
+                let style = NSMutableParagraphStyle(); style.lineSpacing = part.lineSpacing
+                if part.band != nil { style.firstLineHeadIndent = bandPad; style.headIndent = bandPad; style.tailIndent = -bandPad }
+                if line.location == range.location, i > 0, part.band != nil { style.paragraphSpacingBefore = bandPad }
+                if NSMaxRange(enclosing) >= NSMaxRange(range), i < parts.count - 1 { style.paragraphSpacing = part.band == nil ? 12 : 12 + bandPad }
+                string.addAttribute(.paragraphStyle, value: style, range: enclosing)
+            }
+        }
+        if let view = view as? BandTextView, view.top != pads.top { view.top = pads.top; view.invalidateTextContainerOrigin() }
         if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string); context.coordinator.sizes = [:] }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
@@ -1772,7 +1850,7 @@ struct LinkText: NSViewRepresentable {
         let storage = NSTextStorage(attributedString: view.textStorage ?? NSAttributedString()), manager = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: width ?? .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0; storage.addLayoutManager(manager); manager.addTextContainer(container); manager.ensureLayout(for: container)
-        let used = manager.usedRect(for: container).size, size = CGSize(width: width ?? ceil(used.width), height: ceil(used.height))
+        let used = manager.usedRect(for: container).size, size = CGSize(width: width ?? ceil(used.width), height: ceil(used.height) + pads.top + pads.bottom)
         if context.coordinator.sizes.count > 8 { context.coordinator.sizes = [:] }
         context.coordinator.sizes[width ?? .infinity] = size
         return size

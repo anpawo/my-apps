@@ -89,14 +89,11 @@ struct FindMatch: Equatable {
 func proseFragments(_ text: String) -> [String] {
     markdownBlocks(text).flatMap { block -> [String] in
         if block.code { return block.markdown ? proseFragments(block.text) : [block.text] }
-        return answerParagraphs(block.text).flatMap { paragraph -> [String] in
-            let lines = paragraph.components(separatedBy: "\n")
-            let sources: [String]
-            if lines.count >= 2, tableRule(lines[1]) { sources = lines.enumerated().filter { $0.offset != 1 }.flatMap { tableCells($0.element) } }
-            else if paragraph.hasPrefix("#") { sources = [String(paragraph.drop(while: { $0 == "#" || $0 == " " }))] }
-            else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") { sources = [answerLine(paragraph)] }
-            else { sources = [paragraph] }
-            return sources.map { String(richText($0).characters) }
+        return proseGroups(block.text).flatMap { group -> [String] in
+            switch group {
+            case .table(let lines): return lines.enumerated().filter { $0.offset != 1 }.flatMap { tableCells($0.element) }.map { String(richText($0).characters) }
+            case .text(let parts): return [parts.map { String(richText($0.text).characters) }.joined(separator: "\n")]
+            }
         }
     }
 }
