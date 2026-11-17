@@ -588,7 +588,7 @@ async function refreshList() {
 
 addEventListener('click', e => {
   const a = e.target.closest('a[href^="http"]');
-  if (a) { e.preventDefault(); invoke('open_url', { url: a.href }); }
+  if (a && !e.defaultPrevented) { e.preventDefault(); invoke('open_url', { url: a.href }); }
 });
 addEventListener('keydown', e => {
   if (e.metaKey && e.key.toLowerCase() === 'd') { e.preventDefault(); openPalette(); }
@@ -1112,12 +1112,16 @@ const fromThumb = (thumb, img) => {
   return `translate(${t.left - r.left}px, ${t.top - r.top}px) scale(${t.width / r.width})`;
 };
 $('#thread').addEventListener('click', e => {
+  const reel = e.target.closest('.bubble.reel:has(.play)');
+  if (reel) { e.preventDefault(); return askReel(reel); }
   const thumb = e.target.closest('.bubble.media:not(.sticker) img, .bubble.video.clip video');
-  if (!thumb?.currentSrc || !viewer.hidden) return;
+  if (thumb?.currentSrc && viewer.hidden) showViewer(thumb);
+});
+function showViewer(thumb, video) {
   const w = thumb.naturalWidth || thumb.videoWidth || thumb.width, h = thumb.naturalHeight || thumb.videoHeight || thumb.height;
   const s = Math.min((innerWidth * 0.92) / w, (innerHeight * 0.92) / h, 2);
-  const img = thumb.tagName === 'VIDEO'
-    ? Object.assign(document.createElement('video'), { src: thumb.currentSrc, controls: true, autoplay: true, playsInline: true, disablePictureInPicture: true })
+  const img = video || thumb.tagName === 'VIDEO'
+    ? Object.assign(document.createElement('video'), { src: video || thumb.currentSrc, controls: true, autoplay: true, playsInline: true, disablePictureInPicture: true })
     : Object.assign(new Image(), { src: thumb.currentSrc || thumb.src });
   Object.assign(img.style, { width: `${w * s}px`, height: `${h * s}px` });
   viewer.replaceChildren(img);
@@ -1126,7 +1130,26 @@ $('#thread').addEventListener('click', e => {
   thumb.style.visibility = 'hidden';
   anim(viewer, { opacity: [0, 1] }, 300);
   anim(img, { transform: [fromThumb(thumb, img), 'none'] }, 320);
-});
+}
+// A reel asks first: played here it is downloaded then (a few seconds, kept in the app's cache), else Instagram opens.
+function askReel(a) {
+  if (openMenu?._anchor === a) return closeMenu();
+  menu(a, m => m.append(
+    item('Play here', { hint: 'downloads it', action: () => { closeMenu(); playReel(a); } }),
+    item('Open in browser', { action: () => { closeMenu(); invoke('open_url', { url: a.href }); } })), { center: true });
+}
+async function playReel(a) {
+  if (a.classList.contains('loading')) return;
+  a.classList.add('loading');
+  try {
+    const buf = await invoke('reel', { url: a.href });
+    if (a.isConnected && viewer.hidden) showViewer(a.querySelector('img'), URL.createObjectURL(new Blob([buf], { type: 'video/mp4' })));
+  } catch (err) {
+    toast(`Couldn't download the reel: ${err}`);
+  } finally {
+    a.classList.remove('loading');
+  }
+}
 function closeViewer() {
   if (viewer.hidden || viewer._closing) return;
   viewer._closing = true;
@@ -1134,7 +1157,7 @@ function closeViewer() {
   const back = thumb.isConnected ? anim(img, { transform: ['none', fromThumb(thumb, img)] }, 260) : anim(img, { opacity: [1, 0] }, 200);
   back.effect.updateTiming({ fill: 'forwards' });
   anim(viewer, { opacity: [1, 0] }, 260).effect.updateTiming({ fill: 'forwards' });
-  back.finished.finally(() => { thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
+  back.finished.finally(() => { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
 }
 viewer.onclick = e => e.target.tagName !== 'VIDEO' && closeViewer();
 addEventListener('keydown', e => { if (e.key === 'Escape' && !viewer.hidden) { e.preventDefault(); e.stopPropagation(); closeViewer(); } }, true);

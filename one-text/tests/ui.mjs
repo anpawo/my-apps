@@ -64,6 +64,7 @@ const stub = () => {
     if (cmd === 'overrides') return structuredClone(overrides);
     if (cmd === 'set_overrides') { overrides = args.value; return null; }
     if (cmd === 'open_url') return null;
+    if (cmd === 'reel') return new Uint8Array(8).buffer;
     if (cmd === 'update_build') return window.__update || null;
     if (cmd === 'api') {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
@@ -145,8 +146,8 @@ const searchCost = await page.evaluate(async () => {
   return [Math.round(ms), rows];
 });
 check(searchCost[0] < 150, `a one-letter search over 1000 people draws in ${searchCost[0]} ms (${searchCost[1]} rows)`);
-const many = await page.evaluate(() => shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0, chats: [] }))).map(i => i.id));
-check(many.length === 11 && many.includes('x12'), `list keeps the 10 newest plus unread (${many.length})`);
+const many = await page.evaluate(() => { const more = state.more; state.more = 0; const ids = shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: i === 12 ? 1 : 0, chats: [] }))).map(i => i.id); state.more = more; return [ids, fits()]; });
+check(many[0].length === Math.min(15, many[1] + (12 >= many[1])) && many[0].includes('x12'), `list keeps the ${many[1]} that fit plus unread (${many[0].length})`);
 const openFar = await page.evaluate(() => { const was = state.cur; state.cur = { id: 'x13' }; const ids = shown(Array.from({ length: 15 }, (_, i) => ({ id: 'x' + i, name: 'p' + i, unread: 0, chats: [] }))).map(i => i.id); state.cur = was; return ids; });
 check(openFar[0] === 'x13' && openFar.lastIndexOf('x13') === 0 && openFar[1] === 'x0', `an open conversation past the screen shows on top of the list (${openFar.slice(0, 2)})`);
 const sink = await page.evaluate(async () => {
@@ -187,7 +188,16 @@ const reel = await page.$$eval('#thread .bubble.reel', rs => rs.map(r => [r.getA
 check(JSON.stringify(reel) === JSON.stringify([['https://www.instagram.com/reel/ABC123/', true, true]]), `shared reel shows as a card (${JSON.stringify(reel)})`);
 check(!(await page.textContent('#thread')).includes('<p>'), 'no raw HTML in the thread');
 await page.click('#thread .bubble.reel');
-check(await page.evaluate(() => __log.some(([c, a]) => c === 'open_url' && a.url === 'https://www.instagram.com/reel/ABC123/')), 'clicking the reel opens it in the browser');
+const ask = await page.$$eval('.menu .item > span:first-of-type', s => s.map(x => x.textContent));
+check(JSON.stringify(ask) === '["Play here","Open in browser"]' && !(await page.evaluate(() => __log.some(([c]) => c === 'open_url' || c === 'reel'))), `clicking the reel asks first, fetching nothing (${JSON.stringify(ask)})`);
+await page.click('.menu .item:has-text("Play here")');
+await page.waitForSelector('#viewer:not([hidden]) video', { timeout: 2000 }).catch(() => {});
+check(await page.evaluate(() => __log.some(([c, a]) => c === 'reel' && a.url === 'https://www.instagram.com/reel/ABC123/') && /^blob:/.test(document.querySelector('#viewer video')?.src)), 'Play here downloads the reel and plays it in the viewer');
+await page.keyboard.press('Escape');
+await page.waitForSelector('#viewer', { state: 'hidden', timeout: 2000 }).catch(() => {});
+await page.click('#thread .bubble.reel');
+await page.click('.menu .item:has-text("Open in browser")');
+check(await page.evaluate(() => __log.some(([c, a]) => c === 'open_url' && a.url === 'https://www.instagram.com/reel/ABC123/')), 'Open in browser opens the reel there');
 const centered = await page.$eval('#people .row .name', n => { const a = n.getBoundingClientRect(), b = n.closest('.row').querySelector('.av').getBoundingClientRect(); return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2); });
 check(centered < 2, `name centered on the avatar (${centered.toFixed(1)} px off)`);
 check(JSON.stringify(thread) === JSON.stringify(['instagram:did you see the reel I sent?', 'instagram:haha yes, too good', 'instagram:', 'whatsapp:dinner tonight still on?', 'whatsapp:yes! where?', 'whatsapp:the usual place', 'instagram:see you at 8 then']), 'merged timeline in time order with network marks');

@@ -90,7 +90,7 @@ header .who > b { font-size: 15px; white-space: nowrap; overflow: hidden; text-o
 #profile .actions button:hover, #profile .merge.open { background: #363636; }
 /* A person: their apps' logos in a row on top, the picture under them, the name in a pill overlapping its bottom edge. */
 header.person { position: absolute; top: 0; left: 0; right: 0; z-index: 2; justify-content: center; padding: 12px 14px 30px; border-bottom: 0;
-  background: linear-gradient(#000, rgb(0 0 0 / 0) 30%); pointer-events: none; }
+  background: linear-gradient(#000 40px, rgb(0 0 0 / .55) 50px, rgb(0 0 0 / .3) 60px, rgb(0 0 0 / .16) 71px, rgb(0 0 0 / .08) 83px, rgb(0 0 0 / .03) 96px, rgb(0 0 0 / 0) 110px); pointer-events: none; }
 header.person .who { pointer-events: auto; }
 /* The thread runs under the bar's fade; its first message starts below the name. */
 main:has(> header.person) #msgs { padding-top: 150px; }
@@ -155,6 +155,8 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .msg .bubble.reel { position: relative; display: block; padding: 0; width: 180px; aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: #000; cursor: pointer; }
 .bubble.reel img { width: 100%; height: 100%; object-fit: cover; display: block; transition: scale 250ms cubic-bezier(.32, .72, 0, 1); }
 .bubble.reel:hover img { scale: 1.03; }
+.bubble.reel.loading::after { content: ""; position: absolute; inset: calc(50% - 16px); border: 3px solid rgb(255 255 255 / .3); border-top-color: #fff; border-radius: 50%; animation: spin 800ms linear infinite; }
+@keyframes spin { to { rotate: 1turn; } }
 .bubble.reel .play { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; fill: #fff; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .5)); }
 .bubble.note { background: none; border: 1px dashed #363636; color: var(--muted); font-style: italic; }
 .msg.me .bubble.note { background: none; color: var(--muted); }
@@ -255,7 +257,8 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .ghost { position: fixed; z-index: 20; width: 48px; height: 48px; pointer-events: none; box-shadow: 0 6px 20px rgb(0 0 0 / .6); }
 .dragging { opacity: .35; }
 .group, #favs, .newgroup { transition: background-color 150ms; border-radius: 0; }
-#favs { border-radius: 0 0 10px 10px; }
+#favs { border-radius: 0 0 10px 10px; --frame: color-mix(in srgb, #28282a 90%, #e5e4e2);
+  background: linear-gradient(115deg, var(--frame), color-mix(in srgb, #28282a 85%, #fff) 45%, var(--frame) 60%, color-mix(in srgb, #28282a 91%, #b8bcc8)); }
 .group.drop, #favs.drop, .newgroup.drop { background: var(--tint); border-radius: 10px; }
 .name .muted { width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .receipt { font-size: 11px; color: var(--muted); margin: 3px 6px 0; }

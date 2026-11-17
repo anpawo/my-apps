@@ -285,6 +285,34 @@ fn open_url(url: String) -> Result<(), String> {
     std::process::Command::new("/usr/bin/open").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// An Instagram reel, fetched with yt-dlp only when he asks to play it here (logged out, so no account is touched),
+/// kept in the app's cache so a second play does not fetch it again.
+#[tauri::command]
+async fn reel(app: tauri::AppHandle, url: String) -> Result<tauri::ipc::Response, String> {
+    let path: Vec<&str> = url.strip_prefix("https://www.instagram.com/").ok_or("not an Instagram link")?.split('/').collect();
+    let id = match path[..] {
+        ["reel" | "reels", id, ..] if !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') => id.to_string(),
+        _ => return Err("not a reel".into()),
+    };
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("reels");
+    let file = dir.join(format!("{id}.mp4"));
+    if !file.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let link = format!("https://www.instagram.com/reel/{id}/");
+        let out = dir.join(format!("{id}.%(ext)s"));
+        let run = tauri::async_runtime::spawn_blocking(move || {
+            std::process::Command::new("/opt/homebrew/bin/yt-dlp")
+                .args(["-q", "--no-warnings", "--no-playlist", "-S", "vcodec:h264", "--merge-output-format", "mp4", "-o"])
+                .arg(out).arg(link).output()
+        });
+        let res = run.await.map_err(|e| e.to_string())?.map_err(|e| format!("yt-dlp: {e}"))?;
+        if !res.status.success() || !file.exists() {
+            return Err(String::from_utf8_lossy(&res.stderr).lines().last().unwrap_or("download failed").into());
+        }
+    }
+    fs::read(&file).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+}
+
 /// The update auto-update.sh is building: `building` holds its start time, a tab and the commit's subject while it runs;
 /// the last install's duration paces the line. A file left by a killed run is ignored after an hour.
 #[tauri::command]
@@ -496,7 +524,7 @@ fn main() {
                 });
             });
         })
-        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url, update_build])
+        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url, reel, update_build])
         .run(tauri::generate_context!())
         .expect("error while running one-text");
 }
