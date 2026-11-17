@@ -18,6 +18,8 @@ cp tests/runtime_peer.py tests/runtime_probe.py tests/swap_peer.py "$app/Content
 cp background.py "$app/Contents/Resources/background.py"
 cp cleanup.py "$app/Contents/Resources/cleanup.py"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# Icon Services keys its cache on the bundle's date, which cp and ditto leave at the day it was made.
+touch "$app"
 # An ad-hoc signature changes with every build, and Screen Recording and Accessibility grants are pinned to it.
 if [[ "$(security find-identity -v -p codesigning)" == *"Shot Self-Signed"* ]]; then
     perl -e 'alarm 60; exec @ARGV' codesign --force --sign "Shot Self-Signed" "$app"
