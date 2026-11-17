@@ -165,6 +165,18 @@ enum BugCheck {
         check(!field.isAutomaticQuoteSubstitutionEnabled && !field.isAutomaticDashSubstitutionEnabled && !field.isAutomaticTextReplacementEnabled, "composer preserves literal punctuation")
         check(field.inlinePredictionType == .no, "composer offers no inline prediction, whose space doubled the typed one")
         do {
+            let (spaced, _) = editor(frontend); spaced.delegate = nil
+            spaced.insertText("at th", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText("the ", replacementRange: NSRange(location: 3, length: 2))
+            spaced.insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText("top", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText("in", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            spaced.insertText("in ", replacementRange: NSRange(location: 11, length: 2))
+            check(spaced.string == "at the top in ", "a word the system enters with its space never doubles the typed one: \(spaced.string)")
+        }
+        do {
             let (lone, _) = editor(frontend); lone.delegate = nil
             lone.putImage("/fixture.png")
             lone.layoutManager!.ensureLayout(for: lone.textContainer!)

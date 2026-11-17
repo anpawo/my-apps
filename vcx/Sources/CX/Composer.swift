@@ -341,6 +341,22 @@ final class ComposerText: NSTextView {
             manager.addTemporaryAttribute(.backgroundColor, value: commandTint, forCharacterRange: match.range)
         }
     }
+    // macOS can still enter a prediction or correction as "word " with a space of its own (17-11, after inline
+    // predictions were off): a space already beside it, or typed right after it, made two.
+    private var systemSpaceEnd: Int?
+    private var pasting = false
+    override func insertText(_ value: Any, replacementRange: NSRange) {
+        var value = value
+        let text = (value as? NSAttributedString)?.string ?? value as? String ?? ""
+        let target = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
+        if text == " ", target.length == 0, target.location == systemSpaceEnd { systemSpaceEnd = nil; return }
+        var carriesSpace = !pasting && text.count > 1 && text.hasSuffix(" ")
+        if carriesSpace, NSMaxRange(target) < (string as NSString).length, (string as NSString).character(at: NSMaxRange(target)) == 32 {
+            value = String(text.dropLast()); carriesSpace = false
+        }
+        super.insertText(value, replacementRange: replacementRange)
+        systemSpaceEnd = carriesSpace ? selectedRange().location : nil
+    }
     override func setFrameSize(_ size: NSSize) { let changed = size.width != frame.width; super.setFrameSize(size); if changed { resized() } }
     override func didChangeText() { highlightCommands(); renumberImages(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
@@ -367,7 +383,7 @@ final class ComposerText: NSTextView {
         guard let text = board.string(forType: .string) else { return false }
         for piece in pastedPieces(text) {
             switch piece {
-            case .text(let words) where words.count < 20 || words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: insertText(words, replacementRange: selectedRange())
+            case .text(let words) where words.count < 20 || words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: pasting = true; insertText(words, replacementRange: selectedRange()); pasting = false
             case .text(let words): putPaste(words)
             case .image(let path): putImage(path)
             }
