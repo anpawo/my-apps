@@ -9,8 +9,43 @@ final class ComposerWindow: NSWindow {
     var closeFind: () -> Void = {}
     var define: (String) -> Void = { _ in }
     private var clickStart: NSPoint?
+    private weak var lens: NSTextView?
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
+    // Read-only text only: the composer keeps Control for its own keys.
+    private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
+        guard attachedSheet == nil, let field = contentView?.hitTest(point) as? NSTextView, !field.isEditable, let range = word(in: field, at: point),
+              !(field.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return (field, range)
+    }
+    private func word(in field: NSTextView, at point: NSPoint) -> NSRange? {
+        let index = field.characterIndex(for: convertPoint(toScreen: point)), length = (field.string as NSString).length
+        guard index != NSNotFound, length > 0 else { return nil }
+        return field.selectionRange(forProposedRange: NSRange(location: min(index, length - 1), length: 0), granularity: .selectByWord)
+    }
+    private func select(_ range: NSRange, in field: NSTextView) {
+        if lens !== field { lens?.setSelectedRange(NSRange(location: 0, length: 0)) }
+        lens = field; field.setSelectedRange(range)
+    }
+    // Control-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
+    private func controlDrag(from start: (field: NSTextView, range: NSRange)) {
+        var range = start.range, cancelled = false
+        select(range, in: start.field)
+        while let next = nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
+            if next.type == .keyDown { cancelled = cancelled || next.keyCode == 53; continue }
+            if next.type == .leftMouseUp { break }
+            guard !cancelled else { continue }
+            start.field.autoscroll(with: next)
+            if let word = word(in: start.field, at: next.locationInWindow) { range = NSUnionRange(start.range, word); start.field.setSelectedRange(range) }
+        }
+        let words = (start.field.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cancelled, !words.isEmpty { define(words) }
+    }
     override func sendEvent(_ event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.type == .flagsChanged, modifiers == .control, NSEvent.pressedMouseButtons == 0, let hit = word(at: mouseLocationOutsideOfEventStream) {
+            select(hit.range, in: hit.field)
+        }
+        if event.type == .leftMouseDown, modifiers == .control, let hit = word(at: event.locationInWindow) { controlDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.

@@ -350,6 +350,24 @@ enum Check {
             check(defined == ["ephemeral"] && input.selectedRange() == NSRange(location: 9, length: 9), "an option-click on selected words asks to define them and keeps the selection")
             optionClick(NSPoint(x: 400, y: 100))
             check(defined.count == 1, "an option-click away from the selection defines nothing")
+            input.isEditable = false; input.setSelectedRange(NSRange(location: 0, length: 0))
+            let onHere = clickWindow.convertPoint(fromScreen: input.firstRect(forCharacterRange: NSRange(location: 20, length: 1), actualRange: nil).origin)
+            func controlClick(_ point: NSPoint, upAt end: NSPoint? = nil, escape: Bool = false) {
+                func mouse(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent { NSEvent.mouseEvent(with: type, location: at, modifierFlags: .control, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)! }
+                // A queued event for this never-shown window comes back shifted (y 10 read -790): post it pre-shifted.
+                NSApp.postEvent(mouse(.leftMouseDragged, .zero), atStart: false)
+                let shift = clickWindow.nextEvent(matching: .leftMouseDragged)!.locationInWindow
+                if let end { NSApp.postEvent(mouse(.leftMouseDragged, NSPoint(x: end.x - shift.x, y: end.y - shift.y)), atStart: false) }
+                if escape { NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!, atStart: false) }
+                NSApp.postEvent(mouse(.leftMouseUp, end ?? point), atStart: false)
+                clickWindow.sendEvent(mouse(.leftMouseDown, point))
+            }
+            controlClick(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
+            check(defined.last == "ephemeral" && input.selectedRange() == NSRange(location: 9, length: 9), "a control-click selects the word under it and asks to define it")
+            controlClick(NSPoint(x: onWord.x + 2, y: onWord.y + 6), upAt: NSPoint(x: onHere.x + 2, y: onHere.y + 6))
+            check(defined.last == "ephemeral here", "a control-drag asks about every word it covers")
+            controlClick(NSPoint(x: onWord.x + 2, y: onWord.y + 6), upAt: NSPoint(x: onHere.x + 2, y: onHere.y + 6), escape: true)
+            check(defined.count == 3, "Escape during a control-drag asks nothing")
             check(!clickWindow.isVisible, "the click fixture stays off screen")
             clickWindow.close()
         }
