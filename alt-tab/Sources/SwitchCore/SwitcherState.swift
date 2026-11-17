@@ -54,22 +54,27 @@ public struct SwitcherState {
 
     public var isOpen: Bool { selected != nil }
 
-    /// A window fits when one word of its application name or title starts with the letters.
-    public static func matches(_ window: WindowInfo, _ query: String) -> Bool {
+    /// A window fits when one word of its application name starts with the letters; titles are
+    /// searched only when no application name in the list fits, so "f" is Firefox before a
+    /// window titled "finance".
+    public static func matches(_ window: WindowInfo, _ query: String, among windows: [WindowInfo]) -> Bool {
         guard !query.isEmpty else { return true }
+        let byApp = windows.contains { starts($0.appName, query) }
+        return starts(byApp ? window.appName : window.title, query)
+    }
+
+    private static func starts(_ text: String, _ query: String) -> Bool {
         let needle = query.lowercased()
-        return (window.appName + " " + window.title)
-            .split { !$0.isLetter && !$0.isNumber }
-            .contains { $0.lowercased().hasPrefix(needle) }
+        return text.split { !$0.isLetter && !$0.isNumber }.contains { $0.lowercased().hasPrefix(needle) }
     }
 
     public func dimmed(in windows: [WindowInfo]) -> Set<CGWindowID> {
-        Set(windows.filter { !Self.matches($0, query) }.map(\.id))
+        Set(windows.filter { !Self.matches($0, query, among: windows) }.map(\.id))
     }
 
     /// The indices Tab can land on.
     private func allowed(_ windows: [WindowInfo]) -> [Int] {
-        windows.indices.filter { Self.matches(windows[$0], query) }
+        windows.indices.filter { Self.matches(windows[$0], query, among: windows) }
     }
 
     /// Re-states the panel over a list that has changed underneath it — a window closed, or
@@ -132,7 +137,7 @@ public struct SwitcherState {
             // the top row up, or the bottom row down, the clamp would slide sideways.
             let target = min(max(i + stride, 0), windows.count - 1)
             guard i / abs(stride) != target / abs(stride),
-                  Self.matches(windows[target], query) else { return nil }
+                  Self.matches(windows[target], query, among: windows) else { return nil }
             selected = windows[target].id
             previousIndex = target
             return .move(target)
@@ -141,14 +146,14 @@ public struct SwitcherState {
             // Unguarded by `isOpen`: a tile can only be clicked while the panel is up, and the
             // click is answered by the window it named, not by whatever the keyboard had.
             guard let window = windows.first(where: { $0.id == id }),
-                  Self.matches(window, query) else { return nil }
+                  Self.matches(window, query, among: windows) else { return nil }
             selected = nil
             return .raise(window)
 
         case let .type(letter):
             guard isOpen else { return nil }
             let candidate = query + String(letter).lowercased()
-            guard let first = windows.firstIndex(where: { Self.matches($0, candidate) }) else {
+            guard let first = windows.firstIndex(where: { Self.matches($0, candidate, among: windows) }) else {
                 return .reject(letter)
             }
             query = candidate
@@ -159,8 +164,14 @@ public struct SwitcherState {
         case .erase:
             guard let current = selected, !query.isEmpty else { return nil }
             query.removeLast()
-            return .filter(query, dimmed(in: windows),
-                           windows.firstIndex(where: { $0.id == current }) ?? 0)
+            // Fewer letters can narrow the list: "fin" searched titles, "fi" names Firefox again.
+            var index = windows.firstIndex(where: { $0.id == current }) ?? 0
+            if !windows.indices.contains(index) || !Self.matches(windows[index], query, among: windows) {
+                index = allowed(windows).first ?? 0
+            }
+            if windows.indices.contains(index) { selected = windows[index].id }
+            previousIndex = index
+            return .filter(query, dimmed(in: windows), index)
 
         case .commit:
             // A modifier released while nothing is open is the common case, not an error:

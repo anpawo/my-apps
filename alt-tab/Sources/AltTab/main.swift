@@ -223,8 +223,8 @@ if arguments.contains("--render") {
             NSApplication.shared.setActivationPolicy(.accessory)
             // `--query=<letters>` draws the panel filtered by them, as typed with ⌘ held.
             let query = arguments.first(where: { $0.hasPrefix("--query=") }).map { String($0.dropFirst("--query=".count)) } ?? ""
-            let dimmed = Set(list.filter { !SwitcherState.matches($0, query) }.map(\.id))
-            let selected = query.isEmpty ? 1 : list.firstIndex(where: { SwitcherState.matches($0, query) }) ?? 0
+            let dimmed = Set(list.filter { !SwitcherState.matches($0, query, among: list) }.map(\.id))
+            let selected = query.isEmpty ? 1 : list.firstIndex(where: { SwitcherState.matches($0, query, among: list) }) ?? 0
             guard var data = Panel.png(list, selected: selected, settle: 2.5, query: query, dimmed: dimmed) else {
                 print("could not draw the panel")
                 exit(1)
@@ -245,12 +245,12 @@ if arguments.contains("--render") {
             // Two Tabs, then the window named rather than stepped to: "m" leaves Mail and Music,
             // "a" Mail alone, and an "x" that fits nothing is refused.
             @MainActor func filtered(_ query: String, refusing letter: Character? = nil) -> Data? {
-                let dimmed = Set(list.filter { !SwitcherState.matches($0, query) }.map(\.id))
-                let first = list.firstIndex(where: { SwitcherState.matches($0, query) }) ?? 0
+                let dimmed = Set(list.filter { !SwitcherState.matches($0, query, among: list) }.map(\.id))
+                let first = list.firstIndex(where: { SwitcherState.matches($0, query, among: list) }) ?? 0
                 return Panel.png(list, selected: first, settle: 0.5, query: query, dimmed: dimmed,
                                  refusing: letter, roomForBadge: true)
             }
-            let last = list.firstIndex(where: { SwitcherState.matches($0, "ma") }) ?? 0
+            let last = list.firstIndex(where: { SwitcherState.matches($0, "ma", among: list) }) ?? 0
             // Each state drawn once by the panel itself; the steps between are cuts.
             let panels = [nil, Panel.png(list, selected: 1, settle: 0.5, roomForBadge: true),
                           Panel.png(list, selected: 2, settle: 0.5, roomForBadge: true),

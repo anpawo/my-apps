@@ -332,6 +332,29 @@ scenario("a letter that fits nothing is refused and not kept") {
     expect(closed.handle(.type("f"), windows: list) == nil, "a letter acted while closed")
 }
 
+scenario("app names are searched before titles, and erasing goes back to them") {
+    let list = [
+        WindowInfo(id: 1, pid: 1, appName: "Vibe Code X", title: "one-text", element: nil, size: CGSize(width: 800, height: 500)),
+        WindowInfo(id: 2, pid: 1, appName: "Vibe Code X", title: "finance", element: nil, size: CGSize(width: 800, height: 500)),
+        WindowInfo(id: 3, pid: 2, appName: "Firefox", title: "Stele roadmap", element: nil, size: CGSize(width: 800, height: 500)),
+    ]
+    var state = SwitcherState()
+    _ = state.handle(.next, windows: list)
+    guard case let .filter(_, dimmed, index)? = state.handle(.type("f"), windows: list) else {
+        return expect(false, "a letter filtered nothing")
+    }
+    expect(list[index].appName == "Firefox" && dimmed == [1, 2], "a title beat an app name")
+    _ = state.handle(.type("i"), windows: list)
+    guard case let .filter(_, _, title)? = state.handle(.type("n"), windows: list) else {
+        return expect(false, "no app named fin, and no title searched")
+    }
+    expect(list[title].title == "finance", "the title fallback missed")
+    guard case let .filter(_, _, back)? = state.handle(.erase, windows: list) else {
+        return expect(false, "erase did nothing")
+    }
+    expect(list[back].appName == "Firefox", "erasing left a dimmed window selected")
+}
+
 scenario("a new session starts unfiltered") {
     let list = named(["Ghostty", "Firefox"])
     var state = SwitcherState()

@@ -73,7 +73,7 @@ you quit and reopen the app, not the moment you grant it.
 | **⌘Tab** | open the switcher, and step through the windows (or whatever chord you bound) |
 | **let ⌘ go** | switch to the selected window |
 | **← →** | step back or forward, with ⌘ still held |
-| **type letters** | with ⌘ still held: keep only the windows whose app name or title has a word starting with them, and select the first; Tab then steps among those, Delete takes a letter back |
+| **type letters** | with ⌘ still held: keep only the windows whose app name has a word starting with them (their titles when no app name fits), and select the first; Tab then steps among those, Delete takes a letter back |
 | **Escape** | change your mind |
 | **click a tile** | switch to that window, with ⌘ still held, since letting go ends the session |
 | **click the red cross** | close that window |
