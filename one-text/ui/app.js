@@ -343,7 +343,7 @@ function drawGroups() {
     prev = sec;
   }
   let add = box.querySelector('.newgroup');
-  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+ New group' }); add.onclick = () => newTab(add); }
+  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+', title: 'New group', ariaLabel: 'New group' }); add.onclick = () => newTab(add); }
   box.append(add);
 }
 // A name typed in place of the label; Enter keeps it, esc drops it.
@@ -1136,7 +1136,7 @@ function askReel(a) {
   if (openMenu?._anchor === a) return closeMenu();
   menu(a, m => m.append(
     item('Play here', { hint: 'downloads it', action: () => { closeMenu(); playReel(a); } }),
-    item('Open in browser', { action: () => { closeMenu(); invoke('open_url', { url: a.href }); } })), { center: true });
+    item('Open in browser', { action: () => { closeMenu(); invoke('open_url', { url: a.href }); } })), { side: true });
 }
 async function playReel(a) {
   if (a.classList.contains('loading')) return;
@@ -1653,7 +1653,7 @@ function closeMenu() {
   anim(m, { opacity: [1, 0], transform: ['none', `translateY(${m._up ? 6 : -6}px) scale(.98)`] }, 160).finished.then(() => m.remove()).catch(() => m.remove());
 }
 // menu-drop template: the panel fades in and settles 6 px from where it hangs.
-function menu(anchor, build, { up = false, right = false, center = false } = {}) {
+function menu(anchor, build, { up = false, right = false, center = false, side = false } = {}) {
   closeMenu();
   const m = document.createElement('div');
   m.className = 'menu';
@@ -1661,6 +1661,16 @@ function menu(anchor, build, { up = false, right = false, center = false } = {})
   build(m);
   document.body.append(m);
   const r = anchor.getBoundingClientRect(), below = innerHeight - r.bottom - 14, above = r.top - 14;
+  // Beside the anchor (the roomier side), centred on it.
+  if (side) {
+    const left = r.left - m.offsetWidth - 8 >= 8;
+    m.style.left = (left ? r.left - m.offsetWidth - 8 : r.right + 8) + 'px';
+    m.style.top = Math.max(8, Math.min(r.top + r.height / 2 - m.offsetHeight / 2, innerHeight - m.offsetHeight - 8)) + 'px';
+    m.style.transformOrigin = left ? 'right' : 'left';
+    anchor.classList.add('open');
+    anim(m, { opacity: [0, 1], transform: [`translateX(${left ? 6 : -6}px) scale(.98)`, 'none'] }, 200);
+    return (openMenu = m);
+  }
   // It opens on the side it fits, else on the roomier one, scrolling past what the window cannot hold.
   if (m.offsetHeight > (up ? above : below)) up = (up ? above : below) < (up ? below : above) ? !up : up;
   m._up = up;
