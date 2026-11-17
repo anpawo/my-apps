@@ -6,6 +6,7 @@ import SwitchCore
 // actor-isolated static — which is why these are plain globals.
 private nonisolated(unsafe) var emit: ((SwitchCommand) -> Void)?
 private nonisolated(unsafe) var commandForID: [UInt32: SwitchCommand] = [:]
+private nonisolated(unsafe) var listening = false
 
 /// Where key presses come from.
 ///
@@ -193,12 +194,18 @@ enum Trigger {
     /// ⌫ never reached us. Needs Accessibility, which raising windows already does; without it
     /// the local monitor is all there is.
     private static func listenToKeys(_ on: Bool) {
+        listening = on
         if on, tap == nil {
             tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                     eventsOfInterest: 1 << CGEventType.keyDown.rawValue,
                                     callback: { _, type, event, _ in
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    DispatchQueue.main.async { MainActor.assumeIsolated { Trigger.listenToKeys(true) } }
+                    DispatchQueue.main.async { MainActor.assumeIsolated { if listening { Trigger.listenToKeys(true) } } }
+                    return Unmanaged.passUnretained(event)
+                }
+                // Never a key typed outside a switch, nor one without ⌘ held: a tap left on by any
+                // path took the whole keyboard.
+                guard listening, !event.flags.isDisjoint(with: [.maskCommand, .maskAlternate, .maskControl]) else {
                     return Unmanaged.passUnretained(event)
                 }
                 // Tab stays with the Carbon hotkey that steps through the list.
