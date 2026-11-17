@@ -10,7 +10,8 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - A conversation opens on its last messages; scrolling up loads older ones, a page at a time from each app, kept in time order.
 - ⌘F finds a word in the open conversation (case and accents aside): ↵ goes to the older match, loading older messages past the last one, ⇧↵ to the newer; esc closes. Over a row or a favorite, ⌘F still adds or removes the favorite.
 - Voice messages play in the thread, their length shown before you play them and a dot on those you have not heard to the end; stickers show as pictures. The mic button beside send records one: click it again to send, esc to drop (macOS asks once for the microphone). ⌘V on an image (a screenshot, a copied picture) sends it at once; the text in the field stays.
-- A shared Instagram reel shows as a card; clicking it asks beside it: Play here downloads it then (a few seconds, logged out, with `yt-dlp` from Homebrew, kept in the app's cache) and plays it in the window, Open in browser opens Instagram.
+- A shared Instagram reel shows as a card; clicking it downloads it then (a few seconds, logged out, with `yt-dlp` from Homebrew, kept in the app's cache) and plays it in the window, or opens Instagram when Play reels here is off in Settings.
+- Settings (the gear above the list, or ⌘,) holds the switches and lists every keyboard shortcut.
 - Under your last message: Sent, then Seen and its time once they read it (in a group, Seen by how many).
 - Hovering a message shows your 5 most used reactions beside it: click one to react, click your reaction under the message to take it back. The + at the end of that bar opens every emoji, 5 to a row, most used first: type to search them by name, ↵ picks the first.
 - Right-click a message: Reply, React…, Copy; on yours, Edit (its text fills the field, ↵ saves, esc cancels) and Delete (a second click: it goes for everyone).

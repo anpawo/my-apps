@@ -1135,12 +1135,9 @@ function showViewer(thumb, video) {
   anim(viewer, { opacity: [0, 1] }, 300);
   anim(img, { transform: [fromThumb(thumb, img), 'none'] }, 320);
 }
-// A reel asks first: played here it is downloaded then (a few seconds, kept in the app's cache), else Instagram opens.
+// Settings › Play reels here: on, a reel is downloaded then (a few seconds, kept in the app's cache) and plays here; off, Instagram opens.
 function askReel(a) {
-  if (openMenu?._anchor === a) return closeMenu();
-  menu(a, m => m.append(
-    item('Play here', { hint: 'downloads it', action: () => { closeMenu(); playReel(a); } }),
-    item('Open in browser', { action: () => { closeMenu(); invoke('open_url', { url: a.href }); } })), { side: true });
+  if (localStorage.playReels !== '0') playReel(a); else invoke('open_url', { url: a.href });
 }
 async function playReel(a) {
   if (a.classList.contains('loading')) return;
@@ -1682,7 +1679,12 @@ function menu(anchor, build, { up = false, right = false, center = false, side =
   m.style.overflowY = 'auto';
   if (up) m.style.bottom = innerHeight - r.top + 6 + 'px'; else m.style.top = r.bottom + 6 + 'px';
   if (right) m.style.right = Math.max(8, innerWidth - r.right) + 'px';
-  else if (center) m.style.left = Math.max(8, Math.min(r.left + r.width / 2 - m.offsetWidth / 2, innerWidth - m.offsetWidth - 8)) + 'px';
+  else if (center) {
+    // Kept centred while it grows (handles fill in after it opens, a morph changes its width).
+    const place = () => { m.style.left = Math.max(8, Math.min(r.left + r.width / 2 - m.offsetWidth / 2, innerWidth - m.offsetWidth - 8)) + 'px'; };
+    place();
+    new ResizeObserver(place).observe(m);
+  }
   else m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + 'px';
   m.style.transformOrigin = up ? 'bottom' : 'top';
   anchor.classList.add('open');
@@ -1708,6 +1710,26 @@ function item(label, { hint = '', icon = '', action }) {
   b.onclick = action;
   return b;
 }
+
+// Settings: the switches, then every shortcut the app answers to.
+const KEYS = [['Search people and groups', '⌘D'], ['Find in the conversation', '⌘F'], ['Favorite the one under the pointer', '⌘F'],
+  ['Mark as seen', '⌘K'], ['Reply', '⌘R'], ['Alias', '⌘M'], ['Move a favorite', '⌘ ←↑↓→'], ['New line', '⇧↩'],
+  ['Reply on another app', '/ig /ws /dc …'], ['Close', 'esc'], ['Settings', '⌘,']];
+function openSettings() {
+  const gear = $('#gear');
+  if (openMenu?._anchor === gear) return closeMenu();
+  menu(gear, m => {
+    const reels = item('Play reels here', { hint: '', action: () => {
+      localStorage.playReels = localStorage.playReels === '0' ? '1' : '0';
+      reels.querySelector('.switch').classList.toggle('on', localStorage.playReels !== '0');
+    } });
+    reels.insertAdjacentHTML('beforeend', `<span class="switch${localStorage.playReels !== '0' ? ' on' : ''}"></span>`);
+    m.append(reels, Object.assign(document.createElement('div'), { className: 'sep' }));
+    m.insertAdjacentHTML('beforeend', '<p class="keys-title">Keyboard</p>' + KEYS.map(([what, k]) => `<div class="key"><span>${esc(what)}</span><kbd>${esc(k)}</kbd></div>`).join(''));
+  }, { right: true });
+}
+$('#gear').onclick = openSettings;
+addEventListener('keydown', e => { if (e.metaKey && e.key === ',') { e.preventDefault(); openSettings(); } });
 
 function openMore(anchor) {
   if (openMenu?._anchor === anchor) return closeMenu();
@@ -1740,6 +1762,8 @@ function openMore(anchor) {
       m.append(b);
       const hint = b.querySelector('.hint');
       if (person.kind !== 'person') hint.textContent = c.title;
+      // LinkedIn's handle is an opaque id: worth showing only to tell two LinkedIn accounts apart.
+      else if (k === 'linkedin' && person.chats.filter(o => netOf(o) === k).length < 2) hint.textContent = '';
       else (profile.cache[c.id] ||= api('GET', `/v1/chats/${enc(c.id)}`).catch(() => null)).then(full => {
         const p = full?.participants?.items?.find(p => !p.isSelf);
         hint.textContent = p?.username ? '@' + p.username.replace(/^@/, '') : p?.phoneNumber || '';
