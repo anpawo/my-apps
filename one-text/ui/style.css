@@ -231,7 +231,7 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 .tabrow { flex: 1 0 100%; display: flex; padding-top: 5px; margin-top: -5px; align-items: flex-start; column-gap: 2px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to left, transparent, #000 24px); }
 .tabrow::-webkit-scrollbar { display: none; }
 .tabrow > * { flex: none; }
-.tabrow > .newgroup { width: 48px; height: 48px; margin: 0 0 10px 8px; border-radius: 50%; background: #2a2a2a; font-size: 22px; font-weight: 400; }
+.tabrow > .newgroup { width: 48px; height: 48px; margin: 0 0 10px 8px; border-radius: 14px; background: #2a2a2a; font-size: 22px; font-weight: 400; }
 .tabrow > .newgroup:hover { background: #363636; }
 .tabrow > .newgroup.drop { background: var(--tint); }
 #tabbox > input, .tabrow > input { margin: 0 8px 8px; }

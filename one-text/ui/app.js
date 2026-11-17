@@ -308,9 +308,9 @@ function drawGroups() {
   let row = box.querySelector('.tabrow');
   if (!row) { row = Object.assign(document.createElement('div'), { className: 'tabrow' }); box.prepend(row); }
   let add = row.querySelector('.newgroup');
-  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+', title: 'New group', ariaLabel: 'New group' }); add.onclick = () => newTab(add); row.prepend(add); }
-  // A folded group goes in the row after the +, an open one under the row, each in the groups' order.
-  const prev = new Map([[row, add], [box, row]]);
+  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+', title: 'New group', ariaLabel: 'New group' }); add.onclick = () => newTab(add); }
+  // A folded group goes in the row before the +, an open one under the row, each in the groups' order.
+  const prev = new Map([[row, null], [box, row]]);
   for (const tab of state.tabs) {
     let sec = [...box.querySelectorAll('.group')].find(g => g.dataset.name === tab.name);
     if (!sec) {
@@ -337,7 +337,7 @@ function drawGroups() {
         item(`Delete ${tab.name}`, { hint: 'favorites stay', action: () => { closeMenu(); state.tabs = state.tabs.filter(t => t !== tab); saveTabs(); showLists(); } })));
     };
     bubble.oncontextmenu = label.oncontextmenu;
-    const parent = open ? box : row, at = prev.get(parent).nextSibling;
+    const parent = open ? box : row, p = prev.get(parent), at = p ? p.nextSibling : parent.firstChild;
     if (sec !== at) parent.insertBefore(sec, at);
     prev.set(parent, sec);
     if (open) {
@@ -348,6 +348,7 @@ function drawGroups() {
     }
     else strip.hidden = true;
   }
+  if (row.lastChild !== add) row.append(add);
 }
 // A name typed in place of the label; Enter keeps it, esc drops it.
 function nameTab(button, value, done) {
