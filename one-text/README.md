@@ -55,6 +55,7 @@ Settings is the gear above the list, or ⌘,. It holds the Play reels here switc
 | ⌘F | Find in the conversation; over a row, add or remove the favorite |
 | ⌘K | Seen, nothing to say: clears the badge and sends the read receipt |
 | ⌘R | Reply to the message under the pointer, or their last one |
+| ⌘G | Edit my message under the pointer, or my last one |
 | ⌘M | Alias the person or group under the pointer, or the open one |
 | ⌘ ← ↑ ↓ → | Move the favorite under the pointer, or the open one |
 | ⇧↩ | New line (↩ sends) |

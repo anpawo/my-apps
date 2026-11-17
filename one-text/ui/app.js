@@ -613,6 +613,14 @@ addEventListener('keydown', e => {
     const id = document.querySelector('#thread .msg:hover')?.dataset.id;
     setReply(state.msgs.find(m => m.id === id) || state.msgs.findLast(m => !m.isSender));
   }
+  // ⌘G edits my message under the pointer, or my last one.
+  if (e.metaKey && e.key.toLowerCase() === 'g' && state.cur) {
+    e.preventDefault();
+    const id = document.querySelector('#thread .msg:hover:not(.pending)')?.dataset.id;
+    const mine = m => m.isSender && plain(m.text)?.trim();
+    const m = state.msgs.find(m => m.id === id && mine(m)) || state.msgs.findLast(mine);
+    if (m) { setReply(m, true); input.focus(); }
+  }
   // ⌘M gives an alias to the person or group under the pointer, or the open one.
   if (e.metaKey && e.key.toLowerCase() === 'm') {
     e.preventDefault();
@@ -1607,7 +1615,7 @@ $('#thread').addEventListener('contextmenu', e => {
     mm.append(item('Reply', { hint: '⌘R', action: () => { closeMenu(); setReply(m); } }));
     mm.append(item('React…', { action: () => { closeMenu(); openPicker(row); } }));
     if (text) mm.append(item('Copy', { action: () => { closeMenu(); copyText(text); } }));
-    if (m.isSender && text) mm.append(item('Edit', { action: () => { closeMenu(); setReply(m, true); } }));
+    if (m.isSender && text) mm.append(item('Edit', { hint: '⌘G', action: () => { closeMenu(); setReply(m, true); } }));
     if (m.isSender) {
       const del = item('Delete', { action: () => {
         // A second click, so a stray one deletes nothing: the message goes for everyone in the chat.
@@ -1713,7 +1721,7 @@ function item(label, { hint = '', icon = '', action }) {
 
 // Settings: the switches, then every shortcut the app answers to.
 const KEYS = [['Search people and groups', '⌘D'], ['Find in the conversation', '⌘F'], ['Favorite the one under the pointer', '⌘F'],
-  ['Mark as seen', '⌘K'], ['Reply', '⌘R'], ['Alias', '⌘M'], ['Move a favorite', '⌘ ←↑↓→'], ['New line', '⇧↩'],
+  ['Mark as seen', '⌘K'], ['Reply', '⌘R'], ['Edit my message', '⌘G'], ['Alias', '⌘M'], ['Move a favorite', '⌘ ←↑↓→'], ['New line', '⇧↩'],
   ['Reply on another app', '/ig /ws /dc …'], ['Close', 'esc'], ['Settings', '⌘,']];
 function openSettings() {
   const gear = $('#gear');

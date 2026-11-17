@@ -773,6 +773,16 @@ await page.fill('#input', 'thank you so much');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(150);
 const edited = await page.evaluate(() => [msgText(document.querySelector('#thread .msg[data-id="l2"]')), __log.filter(([c, a]) => c === 'api' && a.method === 'PUT').map(([, a]) => a.body.text).join(), document.querySelector('#input').value]);
+// ⌘G over my message edits it, over theirs edits my last one.
+await page.hover('#thread .msg[data-id="l2"] .bubble');
+await page.keyboard.press('Meta+g');
+const gOver = await page.evaluate(() => [document.querySelector('#reply b')?.textContent, state.edit?.id, document.activeElement.id]);
+await page.keyboard.press('Escape');
+await page.hover('#thread .msg[data-id="h1"] .bubble');
+await page.keyboard.press('Meta+g');
+const gLast = await page.evaluate(() => [state.edit?.id, state.msgs.findLast(m => m.isSender && plain(m.text)?.trim())?.id]);
+await page.keyboard.press('Escape');
+check(JSON.stringify(gOver) === '["Editing","l2","input"]' && gLast[0] && gLast[0] === gLast[1], `⌘G edits my hovered message, else my last one (${JSON.stringify([gOver, gLast])})`);
 await page.click('#thread .msg[data-id="l2"] .bubble', { button: 'right' });
 await page.waitForTimeout(250);
 await page.click('.menu .item:has-text("Delete")');
