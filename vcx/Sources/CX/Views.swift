@@ -1770,8 +1770,8 @@ final class BandTextView: NSTextView {
                 guard let color = value as? NSColor else { return }
                 var rect = NSRect.null
                 manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)) { _, used, _, _, _ in rect = rect.union(used) }
-                // The last line's rect carries the line spacing below it; without it the box pads its text evenly.
-                rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0
+                // The box's last line rect carries the line spacing below it, except on the text's very last line.
+                if NSMaxRange(range) < storage.length { rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0 }
                 color.setFill()
                 NSBezierPath(roundedRect: NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad + bandBottom), xRadius: 10, yRadius: 10).fill()
             }
