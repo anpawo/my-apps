@@ -43,7 +43,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [one-text](one-text)
 
-[![Lea Martin's conversation: her Instagram and WhatsApp messages in one timeline, an Instagram reel shown as a card, and at the top right the logos of both apps, Instagram highlighted as the one replies go to](one-text/docs/screenshot.png)](one-text)
+[![A walk through One Text on made-up chats: Lea Martin's Instagram and WhatsApp messages in one thread with a reel card, a reply typed and sent, Hugo R's menu centred under his name with a Split row per app, the ⌘D search, then Settings with the Play reels here switch and every shortcut](one-text/docs/demo.gif)](one-text)
 
 ### [opener](opener)
 
