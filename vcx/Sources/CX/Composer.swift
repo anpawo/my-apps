@@ -10,6 +10,7 @@ final class ComposerWindow: NSWindow {
     var define: (String) -> Void = { _ in }
     private var clickStart: NSPoint?
     private weak var lens: NSTextView?
+    private var hovering = false, movedBefore = false
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     // Read-only text only: the composer keeps Control for its own keys.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
@@ -42,7 +43,13 @@ final class ComposerWindow: NSWindow {
     }
     override func sendEvent(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        if event.type == .flagsChanged, modifiers == .control, NSEvent.pressedMouseButtons == 0, let hit = word(at: mouseLocationOutsideOfEventStream) {
+        // While Control alone is held, the selection follows the word under the pointer.
+        if event.type == .flagsChanged {
+            if modifiers == .control, !hovering { hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true }
+            else if modifiers != .control, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
+        }
+        if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .control, NSEvent.pressedMouseButtons == 0,
+           let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
             select(hit.range, in: hit.field)
         }
         if event.type == .leftMouseDown, modifiers == .control, let hit = word(at: event.locationInWindow) { controlDrag(from: hit); return }

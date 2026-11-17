@@ -368,6 +368,16 @@ enum Check {
             check(defined.last == "ephemeral here", "a control-drag asks about every word it covers")
             controlClick(NSPoint(x: onWord.x + 2, y: onWord.y + 6), upAt: NSPoint(x: onHere.x + 2, y: onHere.y + 6), escape: true)
             check(defined.count == 3, "Escape during a control-drag asks nothing")
+            func flags(_ modifiers: NSEvent.ModifierFlags) { clickWindow.sendEvent(NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 59)!) }
+            func move(_ point: NSPoint) { clickWindow.sendEvent(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: .control, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!) }
+            flags(.control)
+            check(clickWindow.acceptsMouseMovedEvents, "holding Control tracks the pointer")
+            move(NSPoint(x: onHere.x + 2, y: onHere.y + 6))
+            check(input.selectedRange() == NSRange(location: 19, length: 4), "with Control held, the selection follows the hovered word")
+            move(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
+            check(input.selectedRange() == NSRange(location: 9, length: 9) && defined.count == 3, "hovering another word moves the selection and asks nothing")
+            flags([])
+            check(!clickWindow.acceptsMouseMovedEvents, "releasing Control stops tracking the pointer")
             check(!clickWindow.isVisible, "the click fixture stays off screen")
             clickWindow.close()
         }
