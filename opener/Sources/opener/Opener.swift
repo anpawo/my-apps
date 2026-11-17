@@ -19,7 +19,7 @@ enum Catalog {
         let paths = folders.flatMap { dir in
             ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".app") }.map { "\(dir)/\($0)" }
         } + ["/System/Library/CoreServices/Finder.app"]
-        var seen = Set<String>()
+        var seen: Set<String> = [fm.displayName(atPath: Bundle.main.bundlePath)]
         return paths.compactMap { path in
             var name = fm.displayName(atPath: path)
             if name.hasSuffix(".app") { name = String(name.dropLast(4)) }

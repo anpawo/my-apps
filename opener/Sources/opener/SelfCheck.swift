@@ -54,6 +54,7 @@ enum SelfCheck {
         expect(press(kVK_ANSI_Q, "q", .command), false, "a ⌘ chord is not typed")
         expect(press(kVK_F5, "\u{F708}"), false, "nor a function key")
         expect(Catalog.apps().contains { $0.name == "Finder" }, true, "Finder is listed")
+        expect(Catalog.apps().contains { $0.name == "Opener" }, false, "Opener does not list itself")
         return failures
     }
 }
