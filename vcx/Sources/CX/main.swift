@@ -471,13 +471,14 @@ if args.first == "--sessions" { exit(AgentMessages.list()) }
 if args.first == "--recall" { print(ErrorsRecall.note(ErrorsRecall.recall(args.dropFirst().joined(separator: " "), cwd: FileManager.default.currentDirectoryPath))); exit(0) }
 if args.first == "--send" { exit(AgentMessages.send(Array(args.dropFirst()))) }
 if args.first == "--set-model" { exit(ModelControl.request(Array(args.dropFirst()))) }
+if args.first == "--set-dir" { exit(ModelControl.requestDirectory(Array(args.dropFirst()))) }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.first == "--route-project" {
     let prompt = args.dropFirst().joined(separator: " ")
     Task { print(await routeProject([prompt], account: Settings.shared.value.accounts.first { $0.provider == "claude" && $0.enabled }) ?? "none"); exit(0) }
     dispatchMain()
 }
-if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included.\nvcx --set-model <window id or name | self> [auto|claude|codex|qwen] [model] [effort] switches a window's model or provider; a busy window switches when its turn ends."); exit(0) }
+if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included.\nvcx --set-model <window id or name | self> [auto|claude|codex|qwen] [model] [effort] switches a window's model or provider; a busy window switches when its turn ends.\nvcx --set-dir <window id or name | self> <folder> files a window under another folder and keeps its conversation."); exit(0) }
 if args.contains(where: { ["--check", "--provider-check", "--qwen-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)

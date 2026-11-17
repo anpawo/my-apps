@@ -252,6 +252,9 @@ final class SessionBackend: RuntimeBackend {
             await session.changeModel(model, effort: effort)
             guard session.model == model, session.effectiveEffort == effort else { throw CXError(message: "Model change did not complete.") }
             session.save()
+        case "moveDirectory":
+            guard let path = params["path"] as? String, let directory = workingDirectory(path, within: "/") else { throw CXError(message: "Directory does not exist.") }
+            if directory != session.cwd { session.moveDirectory(directory) }
         case "refreshCatalog": await session.refreshCatalog()
         case "refreshUsage": await session.refreshUsage(force: params["force"] as? Bool ?? true)
         case "refreshRepository": await session.refreshRepository()

@@ -29,6 +29,23 @@ enum ModelControl {
         } catch { fputs(error.localizedDescription + "\n", stderr); return 1 }
     }
 
+    /// Files a window under another folder and keeps its conversation: after the first prompt a cd no longer moves it (93cd7a3).
+    static func requestDirectory(_ args: [String]) -> Int32 {
+        let all = AgentMessages.windows()
+        let window = args.first.flatMap { $0 == "self" ? AgentMessages.caller(all) : AgentMessages.match($0, all) }
+        guard let window, args.count == 2,
+              let directory = workingDirectory(URL(fileURLWithPath: (args[1] as NSString).expandingTildeInPath, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)).path, within: "/") else {
+            fputs("usage: vcx --set-dir <window id or name | self> <existing folder>\n", stderr)
+            return 2
+        }
+        do {
+            _ = try RuntimeUpdate.writeTicket(["sessionId": window.id, "directory": directory, "sentAt": Date().timeIntervalSince1970], suffix: suffix)
+            DistributedNotificationCenter.default().postNotificationName(RuntimeUpdate.openNotification, object: nil, userInfo: nil, deliverImmediately: true)
+            print("Folder change to \(directory) requested for \(window.name) (\(window.id.prefix(8))).")
+            return 0
+        } catch { fputs(error.localizedDescription + "\n", stderr); return 1 }
+    }
+
     static func drain(_ windows: [AppDelegate.FrontendWindow]) {
         let files = (try? FileManager.default.contentsOfDirectory(at: RuntimeIdentity.directory, includingPropertiesForKeys: nil)) ?? []
         var waiting = false
@@ -41,6 +58,15 @@ enum ModelControl {
             waiting = true
             guard let session = windows.first(where: { $0.session.runtimeClient?.sessionID == id })?.session,
                   !session.disabled, let client = session.runtimeClient else { continue }
+            if let directory = value["directory"] as? String {
+                active.insert(file.path)
+                Task {
+                    defer { active.remove(file.path) }
+                    do { _ = try await client.perform("moveDirectory", ["path": directory]); try? FileManager.default.removeItem(at: file) }
+                    catch { NSLog("VCX folder control pending for %@: %@", id, error.localizedDescription) }
+                }
+                continue
+            }
             let provider = value["provider"] as? String ?? "codex", model = value["model"] as? String
             var effort = value["effort"] as? String
             // The other provider's catalog is only known once it is connected: /model checks it there.
