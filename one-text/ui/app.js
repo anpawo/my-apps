@@ -840,7 +840,8 @@ const once = s => { const k = s?.match(/^This (\w+) can only be (?:re)?played on
 const ONCE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3.2 2.4"/><path d="M10.5 9.5 12 8v8"/></svg>';
 
 function bubbleHTML(m) {
-  if (m.isDeleted) return `<div class="bubble note">Message deleted</div>`;
+  // Beeper keeps a deleted message's text and media: shown as sent, marked deleted (msgNodes); the placeholder only when nothing was kept.
+  if (m.isDeleted && !m.text?.trim() && !m.attachments?.length) return `<div class="bubble note">Message deleted</div>`;
   const parts = [];
   const text = plain(m.text)?.trim();
   if (once(text)) return `<div class="bubble once">${ONCE}${once(text)}</div>`;
@@ -887,11 +888,11 @@ function msgNodes(m, prev) {
     nodes.push(d);
   }
   const row = document.createElement('div');
-  row.className = `msg${m.isSender ? ' me' : ''}`;
+  row.className = `msg${m.isSender ? ' me' : ''}${m.isDeleted ? ' deleted' : ''}`;
   row.dataset.id = m.id;
   row.dataset.net = m.net;
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
-  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}</div>`;
+  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}${m.isDeleted && (m.text?.trim() || m.attachments?.length) ? '<div class="gone">Deleted</div>' : ''}</div>`;
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
   row.querySelectorAll('.bubble.video video').forEach(v => videoIO.observe(v));
   if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {

@@ -19,6 +19,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 
 - Hovering a message shows your 5 most used reactions beside it: click one to react, click your reaction under the message to take it back. The + at the end of that bar opens every emoji, 5 to a row, most used first: type to search them by name, ↵ picks the first.
 - Right-click a message: Reply, React…, Copy; on yours, Edit (its text fills the field, ↵ saves, esc cancels) and Delete (a second click: it goes for everyone).
+- A message deleted by its sender still shows what it said (Beeper keeps it), dimmed and marked Deleted; "Message deleted" only when nothing was kept.
 - ⌘R replies to the message under the pointer (or to their last one), on its app. A reply shows the message it answers above it, behind a white line (in a group, with who wrote it).
 - `:` and two letters list emoji by name (`:joy` → 😂): ↑ ↓ to pick, ↵ or tab to put it in.
 - Voice messages play in the thread, their length shown before you play them and a dot on those you have not heard to the end; stickers show as pictures. The mic button beside send records one: click it again to send, esc to drop (macOS asks once for the microphone).

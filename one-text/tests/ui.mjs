@@ -962,6 +962,13 @@ const u3 = await upd();
 check(grow.every((h, i) => !i || h >= grow[i - 1]) && grow[0] < u1[3] && u1[0] && u1[1] === 'Building update · Snapchat chats get their logo and /sc' && u1[2] > 0 && u2[2] > u1[2] && !u3[0] && u3[3] === 0,
   `an update being built grows in under the list, its line moves forward, and it goes once done (${grow} / ${u1} / ${u2} / ${u3})`);
 
+// A deleted message Beeper still has the text of shows it, dimmed and marked Deleted; with nothing kept, the placeholder.
+const gone = await page.evaluate(() => {
+  const row = msgNodes({ id: 'gone-1', isDeleted: true, text: 'see you at 8', timestamp: new Date().toISOString(), net: 'discord' }).at(-1);
+  return [row.classList.contains('deleted'), row.querySelector('.bubble').textContent, row.querySelector('.gone')?.textContent, bubbleHTML({ isDeleted: true, text: '' }).includes('Message deleted')];
+});
+check(JSON.stringify(gone) === '[true,"see you at 8","Deleted",true]', `a deleted message keeps its text, marked Deleted (${JSON.stringify(gone)})`);
+
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');
