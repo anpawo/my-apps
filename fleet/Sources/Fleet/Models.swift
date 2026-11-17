@@ -417,18 +417,29 @@ struct Session: Identifiable {
                 let dir = projects + parts.prefix(depth).joined(separator: "/")
                 guard FileManager.default.fileExists(atPath: dir + "/.git", isDirectory: &folder) else { continue }
                 if folder.boolValue { return parts[depth - 1] }
-                if let pointer = try? String(contentsOfFile: dir + "/.git", encoding: .utf8),
-                   pointer.hasPrefix("gitdir: "),
-                   let cut = pointer.range(of: "/.git/worktrees/") {
-                    let main = String(pointer[pointer.index(pointer.startIndex, offsetBy: 8)..<cut.lowerBound])
-                    let repo = main.hasPrefix("/") ? main : ((dir as NSString).appendingPathComponent(main) as NSString).standardizingPath
-                    return project(for: repo, under: projects, outermost: outermost)
-                }
+                if let repo = worktreeRepo(dir) { return project(for: repo, under: projects, outermost: outermost) }
             }
             if let project = parts.first { return project }
+        } else {
+            // A worktree cut outside ~/self (/tmp/sc-outcome from s14/scientcapital, 2026-11-17).
+            var dir = cwd
+            while dir.count > 1 {
+                if let repo = worktreeRepo(dir), repo.hasPrefix(projects) {
+                    return project(for: repo, under: projects, outermost: outermost)
+                }
+                dir = (dir as NSString).deletingLastPathComponent
+            }
         }
         let n = (cwd as NSString).lastPathComponent
         return n.isEmpty ? cwd : n
+    }
+
+    private static func worktreeRepo(_ dir: String) -> String? {
+        guard let pointer = try? String(contentsOfFile: dir + "/.git", encoding: .utf8),
+              pointer.hasPrefix("gitdir: "),
+              let cut = pointer.range(of: "/.git/worktrees/") else { return nil }
+        let main = String(pointer[pointer.index(pointer.startIndex, offsetBy: 8)..<cut.lowerBound])
+        return main.hasPrefix("/") ? main : ((dir as NSString).appendingPathComponent(main) as NSString).standardizingPath
     }
 
     /// A `.fleet` file splits a group: each line names a sub-folder of its folder that gets a

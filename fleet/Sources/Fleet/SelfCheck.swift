@@ -391,6 +391,8 @@ enum SelfCheck {
                "projects: a worktree outside its repo is named by the repo it was cut from")
         expect(Session.project(for: root + "temp/far", under: root, outermost: true), "repo",
                "projects: and sits in that repo's group")
+        expect(Session.project(for: root + "temp/far/src", under: root + "repo/", outermost: true), "sub",
+               "projects: a worktree outside the projects folder still sits in its repo's group")
         expect(Session.project(for: root + "plain/a/src", under: root), "a",
                "projects: a repo inside a plain folder is its own group, named alone")
         expect(Session.project(for: root + "plain/b", under: root), "plain",
