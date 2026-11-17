@@ -86,6 +86,7 @@ function nextPicture(img) {
   const [url, ...rest] = JSON.parse(img.dataset.next);
   if (url) { img.dataset.next = JSON.stringify(rest); img.src = asset(url); return; }
   const av = img.parentNode;
+  if (!av) return;
   av.style.background = av.dataset.color;
   av.textContent = av.dataset.initials;
 }
@@ -304,7 +305,12 @@ function drawGroups() {
   box.hidden = !state.tabs.length && !(state.all || []).some(isFav);
   const keep = new Set(state.tabs.map(t => t.name));
   for (const sec of [...box.querySelectorAll('.group')]) if (!keep.has(sec.dataset.name)) collapse(sec, true).then(() => sec.remove());
-  let prev = null;
+  let row = box.querySelector('.tabrow');
+  if (!row) { row = Object.assign(document.createElement('div'), { className: 'tabrow' }); box.prepend(row); }
+  let add = row.querySelector('.newgroup');
+  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+', title: 'New group', ariaLabel: 'New group' }); add.onclick = () => newTab(add); row.prepend(add); }
+  // A folded group goes in the row after the +, an open one under the row, each in the groups' order.
+  const prev = new Map([[row, add], [box, row]]);
   for (const tab of state.tabs) {
     let sec = [...box.querySelectorAll('.group')].find(g => g.dataset.name === tab.name);
     if (!sec) {
@@ -331,8 +337,9 @@ function drawGroups() {
         item(`Delete ${tab.name}`, { hint: 'favorites stay', action: () => { closeMenu(); state.tabs = state.tabs.filter(t => t !== tab); saveTabs(); showLists(); } })));
     };
     bubble.oncontextmenu = label.oncontextmenu;
-    const at = prev ? prev.nextSibling : box.firstChild;
-    if (sec !== at) box.insertBefore(sec, at);
+    const parent = open ? box : row, at = prev.get(parent).nextSibling;
+    if (sec !== at) parent.insertBefore(sec, at);
+    prev.set(parent, sec);
     if (open) {
       drawFavs(strip, people, tab);
       const fold = Object.assign(document.createElement('button'), { className: 'folder less', title: `Fold ${tab.name}`, textContent: '–' });
@@ -340,11 +347,7 @@ function drawGroups() {
       strip.append(fold);
     }
     else strip.hidden = true;
-    prev = sec;
   }
-  let add = box.querySelector('.newgroup');
-  if (!add) { add = Object.assign(document.createElement('button'), { className: 'newgroup', textContent: '+', title: 'New group', ariaLabel: 'New group' }); add.onclick = () => newTab(add); }
-  box.append(add);
 }
 // A name typed in place of the label; Enter keeps it, esc drops it.
 function nameTab(button, value, done) {

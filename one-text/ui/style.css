@@ -40,6 +40,7 @@ aside { --hover: #333336; position: relative; width: 313px; flex: none; display:
 .sel { position: absolute; left: 0; right: 0; top: 0; bottom: 100%; border-radius: 10px; background: var(--tint); opacity: 0; pointer-events: none; }
 .row { position: relative; display: flex; gap: 14px; align-items: center; padding: 8px 9px; border-radius: 10px; transition: background-color 150ms; }
 .row:hover:not(.on) { background: var(--hover); }
+.row.on:hover { background: rgb(255 255 255 / .06); }
 .row .body { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto auto; column-gap: 6px; align-items: center; }
 .row .top { display: contents; }
 .row .name { flex: 1; grid-row: 1 / span 2; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -68,6 +69,7 @@ aside .row:is(.on, :hover)::before, aside .row:is(.on, :hover) + .row::before { 
   box-shadow: 0 0 0 2px var(--frame); }
 .row:hover:not(.on) > .av.faces.members > .net { box-shadow: 0 0 0 2px var(--hover); }
 .row.on > .av.faces.members > .net { box-shadow: 0 0 0 2px #3e3e40; }
+.row.on:hover > .av.faces.members > .net { box-shadow: 0 0 0 2px #4a4a4c; }
 .av.tile { background: #3a3a3c; display: grid; grid-template-columns: repeat(2, 38%); align-content: center; justify-content: center; gap: 6%; }
 .av.tile img { width: 100%; aspect-ratio: 1; height: auto; border-radius: 50%; object-fit: cover; background: #363636; }
 .net { width: 14px; height: 14px; border-radius: 3.5px; display: inline-grid; place-items: center; color: #fff; font-size: 8.5px; font-weight: 700;
@@ -216,7 +218,7 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 /* Favorites: pictures only, above the list */
 .strip { display: grid; grid-template-columns: repeat(auto-fill, 48px); gap: 10px; }
 .group { margin: 0 8px 6px; padding: 0 8px 12px; border-bottom: 1px solid var(--rule); }
-#favs { position: relative; z-index: 1; margin-bottom: 8px; padding-bottom: 6px; box-shadow: 0 12px 12px -10px rgb(0 0 0 / .7); }
+#favs { position: relative; z-index: 1; margin-bottom: 8px; box-shadow: 0 12px 12px -10px rgb(0 0 0 / .7); }
 .group .label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .newgroup { display: block; margin: 0 16px 8px; color: var(--muted); font-size: 12px; font-weight: 600; transition: color 150ms; }
 .newgroup:hover { color: #f5f5f5; }
@@ -225,10 +227,14 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
 /* A folded group is one bubble with its name under it, side by side; an open one takes the whole width. */
 #tabbox { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 2px; padding: 0 8px; }
 #tabbox > .group.open { flex: 1 0 100%; margin: 0 0 6px; }
-#tabbox > .newgroup { width: 48px; height: 48px; margin: 0 0 10px 8px; border-radius: 50%; background: #2a2a2a; font-size: 22px; font-weight: 400; }
-#tabbox > .newgroup:hover { background: #363636; }
-#tabbox > .newgroup.drop { background: var(--tint); }
-#tabbox > input { margin: 0 8px 8px; }
+/* Folded groups sit in one row after the +, sliding sideways when they do not fit. */
+.tabrow { flex: 1 0 100%; display: flex; padding-top: 5px; margin-top: -5px; align-items: flex-start; column-gap: 2px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to left, transparent, #000 24px); }
+.tabrow::-webkit-scrollbar { display: none; }
+.tabrow > * { flex: none; }
+.tabrow > .newgroup { width: 48px; height: 48px; margin: 0 0 10px 8px; border-radius: 50%; background: #2a2a2a; font-size: 22px; font-weight: 400; }
+.tabrow > .newgroup:hover { background: #363636; }
+.tabrow > .newgroup.drop { background: var(--tint); }
+#tabbox > input, .tabrow > input { margin: 0 8px 8px; }
 .group:not(.open) { margin: 0 0 10px; padding: 0 0 0 8px; border: 0; }
 .group:not(.open) .label { width: 48px; margin: 5px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; text-align: center; }
 .grouptile, .group .label, .folder.less { cursor: pointer; }
