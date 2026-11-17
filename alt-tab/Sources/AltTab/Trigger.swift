@@ -164,6 +164,7 @@ enum Trigger {
     /// `flagsState` is the live state of the keyboard, readable from a background process with
     /// no grant of any kind. Polling it costs a timer for the half-second the panel is up.
     static func watchForRelease() {
+        listenToKeys(true)
         release?.invalidate()
         release = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { _ in
             MainActor.assumeIsolated {
@@ -179,8 +180,54 @@ enum Trigger {
     }
 
     static func stopWatchingForRelease() {
+        listenToKeys(false)
         release?.invalidate()
         release = nil
+    }
+
+    private static var tap: CFMachPort?
+
+    /// Keys typed while the switcher is open, caught before any app sees them. The local monitor
+    /// above only hears them once the panel is key, which comes after the reveal delay and an
+    /// activation macOS may delay or refuse: until then ⌘F reached the app behind (Finder) and
+    /// ⌫ never reached us. Needs Accessibility, which raising windows already does; without it
+    /// the local monitor is all there is.
+    private static func listenToKeys(_ on: Bool) {
+        if on, tap == nil {
+            tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                    eventsOfInterest: 1 << CGEventType.keyDown.rawValue,
+                                    callback: { _, type, event, _ in
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    DispatchQueue.main.async { MainActor.assumeIsolated { Trigger.listenToKeys(true) } }
+                    return Unmanaged.passUnretained(event)
+                }
+                // Tab stays with the Carbon hotkey that steps through the list.
+                guard type == .keyDown, let command = Trigger.command(for: event) else {
+                    return type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) != 48
+                        ? nil : Unmanaged.passUnretained(event)
+                }
+                DispatchQueue.main.async { emit?(command) }
+                return nil
+            }, userInfo: nil)
+            if let tap { CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes) }
+        }
+        if let tap { CGEvent.tapEnable(tap: tap, enable: on) }
+    }
+
+    /// What a key typed during a switch means; nil swallows it all the same.
+    private nonisolated static func command(for event: CGEvent) -> SwitchCommand? {
+        switch event.getIntegerValueField(.keyboardEventKeycode) {
+        case 53: return .cancel
+        case 51: return .erase
+        case 123: return .previous
+        case 124: return .next
+        case 125: return MainActor.assumeIsolated { .jump(Panel.perRow) }
+        case 126: return MainActor.assumeIsolated { .jump(-Panel.perRow) }
+        default:
+            guard let typed = NSEvent(cgEvent: event)?.charactersIgnoringModifiers?.lowercased(), typed.count == 1,
+                  let letter = typed.first, letter.isLetter || letter.isNumber else { return nil }
+            return .type(letter)
+        }
     }
 
     private static func carbonFlag(_ modifier: NSEvent.ModifierFlags) -> CGEventFlags {
