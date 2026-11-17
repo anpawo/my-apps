@@ -208,6 +208,7 @@ footer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10
   padding: 6px 6px 6px 16px; border-radius: 999px; background: #363636; color: #fff; font-size: 13px; box-shadow: 0 8px 24px rgb(0 0 0 / .5); z-index: 20; }
 .toast button { padding: 4px 12px; border-radius: 999px; background: #f2b632; color: #1d1d1f; font-weight: 600; }
 .toast.plain { padding: 8px 16px; }
+.toast.warn { background: #ff3b30; max-width: 60%; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   #thread.in .msg, #thread.in .day { animation-duration: 120ms; animation-delay: 0ms; }

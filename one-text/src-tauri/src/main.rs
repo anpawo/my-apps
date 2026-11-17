@@ -329,6 +329,20 @@ fn update_build() -> Option<Value> {
     Some(json!({ "started": started, "words": words, "expected": expected }))
 }
 
+/// My messages a bridge refused after Beeper took them (Teams dropped a file this way): the API lists them as sent,
+/// only Beeper's index keeps the bridge's status.
+#[tauri::command]
+fn send_failures(since: i64) -> Value {
+    let db = home().join(".beeper/profiles/server/background/index.db");
+    let query = format!(
+        "select cast(m.id as text) id, m.roomID chatID, json_extract(t.thread, '$.title') title, json_extract(m.sendStatus, '$.message') reason \
+         from mx_room_messages m left join threads t on t.threadID = m.roomID \
+         where m.isSentByMe = 1 and m.timestamp > {since} and json_extract(m.sendStatus, '$.status') like 'FAIL%'"
+    );
+    let out = std::process::Command::new("/usr/bin/sqlite3").args(["-readonly", "-json"]).arg(&db).arg(query).output();
+    out.ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or(json!([]))
+}
+
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
@@ -524,7 +538,7 @@ fn main() {
                 });
             });
         })
-        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url, reel, update_build])
+        .invoke_handler(tauri::generate_handler![api, people, overrides, set_overrides, open_url, reel, update_build, send_failures])
         .run(tauri::generate_context!())
         .expect("error while running one-text");
 }

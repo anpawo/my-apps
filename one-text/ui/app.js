@@ -1912,11 +1912,11 @@ function split(person, chat) {
 }
 
 // toast template: a dark pill rises 24 px with Undo; the next one takes its place.
-function toast(text, undo) {
+function toast(text, undo, warn) {
   const old = document.querySelector('.toast');
   old?.animate({ opacity: [1, 0] }, { duration: 100, fill: 'forwards' }).finished.then(() => old.remove());
   const el = document.createElement('div');
-  el.className = undo ? 'toast' : 'toast plain';
+  el.className = undo ? 'toast' : `toast plain${warn ? ' warn' : ''}`;
   el.role = 'status';
   el.innerHTML = `<span></span>${undo ? '<button>Undo</button>' : ''}`;
   el.firstChild.textContent = text;
@@ -1928,7 +1928,8 @@ function toast(text, undo) {
   if (undo) el.lastChild.onclick = async () => { await undo(); gone(); };
   document.body.append(el);
   anim(el, { translate: ['0 24px', '0 0'], opacity: [0, 1] }, 200, 'ease-out');
-  setTimeout(gone, undo ? 8000 : 2500);
+  if (warn) el.onclick = gone;
+  setTimeout(gone, undo ? 8000 : warn ? 12000 : 2500);
 }
 
 /* ---------- Profiles: a click on the header's picture or group bubble ---------- */
@@ -2066,6 +2067,20 @@ addEventListener('resize', () => { if (!state.more) showLists(); movePill(0); })
 // ponytail: polling every 3 s / 10 s; switch to the /v1/ws event stream if it ever feels late or heavy.
 setInterval(pollThread, 3000);
 setInterval(refreshList, 10000);
+// A bridge can refuse a message after Beeper took it: warn once, and keep its row ringed red across redraws.
+const failed = new Map(), failSince = Date.now() - 6e5;
+async function checkFailures() {
+  for (const f of await invoke('send_failures', { since: failSince }).catch(() => [])) {
+    if (failed.has(f.id)) continue;
+    failed.set(f.id, f.reason);
+    toast(`Not delivered to ${f.title || 'this chat'}: ${String(f.reason || 'refused by the bridge').split(':')[0]}`, null, true);
+  }
+  for (const [id, reason] of failed) {
+    const row = document.querySelector(`#thread .msg[data-id="${id}"]:not(.failed)`);
+    if (row) Object.assign(row, { title: `Not delivered: ${reason}` }).classList.add('failed');
+  }
+}
+setInterval(checkFailures, 3000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshList(); pollThread(); } });
 invoke('overrides').then(o => {
   state.pictures = o.pictures;
