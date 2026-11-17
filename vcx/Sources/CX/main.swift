@@ -219,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         try? JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: restoreFile + ".verification.json"), options: .atomic)
                         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: restoreFile + ".verification.json")
                     }
+                    // Ordering above another app's window does not hold once this app is active (17-11: the first window in front, the rest reversed); among its own windows it does.
+                    if !headless { for (above, below) in zip(windows, windows.dropFirst()) { below.window.order(.below, relativeTo: above.window.windowNumber) } }
                     do { try RuntimeUpdate.acknowledge(restoreFile) }
                     catch { swapLog("VCX frontend replacement could not acknowledge: %@", error.localizedDescription); exit(1) }
                     for entry in windows { entry.session.frontendReplacing = false }
