@@ -1856,7 +1856,8 @@ struct LinkText: NSViewRepresentable {
             }
         }
         if let view = view as? BandTextView, view.top != pads.top { view.top = pads.top; view.invalidateTextContainerOrigin() }
-        if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string); context.coordinator.sizes = [:] }
+        // The box's pads lie outside the text the storage invalidates: a streamed "⟶ " box turned blue kept a green top.
+        if view.textStorage?.isEqual(to: string) != true { view.textStorage?.setAttributedString(string); context.coordinator.sizes = [:]; view.needsDisplay = true }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
