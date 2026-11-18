@@ -425,7 +425,7 @@ struct CXView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     capability("Hooks")
                     capability("Skills")
-                    if !session.builtinCommands.isEmpty { capability("Commands") }
+                    if session.account.provider == "claude" { capability("Commands") }
                     capability("MCP")
                     capability("Instructions")
                     capability("RAG")
@@ -477,9 +477,9 @@ struct CXView: View {
                 HStack(spacing: 7) {
                     Image(systemName: ["Hooks": "link", "Skills": "sparkles", "Commands": "command", "MCP": "server.rack", "Instructions": "doc.text", "RAG": "brain"][title] ?? "circle")
                         .font(.system(size: 11, weight: .bold)).frame(width: 12)
-                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).fixedSize()
-                    Spacer(minLength: 0)
-                    Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6)
+                    Spacer(minLength: 4)
+                    Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1).fixedSize()
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
                     .frame(maxWidth: .infinity)
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
