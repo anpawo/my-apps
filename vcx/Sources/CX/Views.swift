@@ -1769,7 +1769,7 @@ func proseGroups(_ text: String) -> [ProseGroup] {
 private let bandKey = NSAttributedString.Key("vcxBand")
 private let bandPad: CGFloat = 12
 // Descenders sit lower in the line than caps sit high in it: an even pad read as a box short at the bottom.
-private let bandBottom: CGFloat = bandPad + 3
+private let bandBottom: CGFloat = bandPad + 2
 
 // Draws the answer lines' boxes behind the text, under the selection and the find tint. Here, not in the layout manager:
 // that one is clipped to the text container, which starts at the first line, so a first box lost its top.
