@@ -37,6 +37,8 @@ struct Measure {
                 }
                 e.pointee.fts_number = 0
             case FTS_DP:
+                // A skipped directory still comes back here, and an NFS mount point's own blocks are its whole disk.
+                if level > 0, let st, !allowedDevices.contains(st.pointee.st_dev) { continue }
                 let size = Int64(e.pointee.fts_number) + own
                 if size >= recordAtLeast || level == 1 { record(clean(String(cString: e.pointee.fts_path)), size) }
                 if level == 0 { total = size } else { e.pointee.fts_parent.pointee.fts_number += Int(size) }
