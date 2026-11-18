@@ -288,7 +288,7 @@ struct CXView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
-            sessionPanel.frame(width: 150)
+            sessionPanel.frame(width: 168)
             Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
             VStack(spacing: 0) {
                 transcript
@@ -477,7 +477,7 @@ struct CXView: View {
                 HStack(spacing: 7) {
                     Image(systemName: ["Hooks": "link", "Skills": "sparkles", "Commands": "command", "MCP": "server.rack", "Instructions": "doc.text", "RAG": "brain"][title] ?? "circle")
                         .font(.system(size: 11, weight: .bold)).frame(width: 12)
-                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6)
+                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).fixedSize()
                     Spacer(minLength: 4)
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1).fixedSize()
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
