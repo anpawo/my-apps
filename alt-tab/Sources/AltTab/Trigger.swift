@@ -7,6 +7,7 @@ import SwitchCore
 private nonisolated(unsafe) var emit: ((SwitchCommand) -> Void)?
 private nonisolated(unsafe) var commandForID: [UInt32: SwitchCommand] = [:]
 private nonisolated(unsafe) var listening = false
+private nonisolated(unsafe) var screenshotAt: Date?
 
 /// Where key presses come from.
 ///
@@ -81,7 +82,7 @@ enum Trigger {
             // Cleaned before comparing: local monitors emit bits nobody asked for, including
             // the function-key bit, and a raw equality test against them never matches.
             let held = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !held.contains(holdModifier) { emit?(.commit) }
+            if !held.contains(holdModifier), screenshotAt == nil { emit?(.commit) }
             return event
         }
 
@@ -171,6 +172,14 @@ enum Trigger {
             MainActor.assumeIsolated {
                 let held = CGEventSource.flagsState(.combinedSessionState)
                 guard !held.contains(carbonFlag(holdModifier)) else { return }
+                // After a screenshot chord the panel stays up while the screen is frozen, then
+                // closes without switching: the shot was the point, not a window.
+                if let shot = screenshotAt {
+                    guard Date().timeIntervalSince(shot) > 0.5 else { return }
+                    stopWatchingForRelease()
+                    emit?(.cancel)
+                    return
+                }
                 stopWatchingForRelease()
                 emit?(.commit)
             }
@@ -181,6 +190,7 @@ enum Trigger {
     }
 
     static func stopWatchingForRelease() {
+        screenshotAt = nil
         listenToKeys(false)
         release?.invalidate()
         release = nil
@@ -206,6 +216,12 @@ enum Trigger {
                 // Never a key typed outside a switch, nor one without ⌘ held: a tap left on by any
                 // path took the whole keyboard.
                 guard listening, !event.flags.isDisjoint(with: [.maskCommand, .maskAlternate, .maskControl]) else {
+                    return Unmanaged.passUnretained(event)
+                }
+                // ⌘⇧3/4/5/6 go on to the system, so the open switcher can be screenshotted.
+                if event.flags.contains([.maskCommand, .maskShift]),
+                   [20, 21, 23, 22].contains(event.getIntegerValueField(.keyboardEventKeycode)) {
+                    screenshotAt = Date()
                     return Unmanaged.passUnretained(event)
                 }
                 // Tab stays with the Carbon hotkey that steps through the list.
