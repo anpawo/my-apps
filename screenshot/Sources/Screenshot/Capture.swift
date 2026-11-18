@@ -81,7 +81,10 @@ enum Capture {
         let radii = cornerRadii(list.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
         return list.compactMap { w in
             guard let layer = w[kCGWindowLayer as String] as? Int,
-                  w[kCGWindowOwnerPID as String] as? Int32 != pid,
+                  let owner = w[kCGWindowOwnerPID as String] as? Int32, owner != pid,
+                  // A banner lives in a transparent full-screen window in front of every other
+                  // one: offered, it would take every click meant for the window behind.
+                  layer == 0 || NSRunningApplication(processIdentifier: owner)?.bundleIdentifier != "com.apple.notificationcenterui",
                   (w[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
                   let id = w[kCGWindowNumber as String] as? CGWindowID,
                   let bounds = CGRect(dictionaryRepresentation: w[kCGWindowBounds as String] as! CFDictionary),
