@@ -8,12 +8,15 @@ struct Measure {
         var s = stat()
         return lstat(path, &s) == 0 ? s.st_dev : nil
     })
-    static let recordAtLeast: Int64 = 1 << 20
 
-    /// Walks `root` without following links or leaving the startup disk, calls `record` for each directory of
-    /// 1 MB or more (and every directory at depth 1), and returns the allocated bytes under `root`.
-    static func run(_ root: String, record: (String, Int64) -> Void, skip: (String) -> Void = { _ in },
-                    progress: (Int) -> Void = { _ in }) -> Int64 {
+    /// A folder the walk leaves out: another disk or mount, or a second view of the startup disk.
+    static func outside(_ path: String, _ st: stat) -> Bool {
+        !allowedDevices.contains(st.st_dev) || skipped.contains(path)
+    }
+
+    /// Walks `root` without following links or leaving the startup disk, calls `record` with the weight of every
+    /// directory under it (itself included), and returns the allocated bytes under `root`.
+    static func run(_ root: String, record: (String, Int64) -> Void, progress: (Int) -> Void = { _ in }) -> Int64 {
         var hardLinks = Set<[UInt64]>()
         var files = 0
         var total: Int64 = 0
@@ -29,18 +32,17 @@ struct Measure {
             let own = st.map { Int64($0.pointee.st_blocks) * 512 } ?? 0
             switch Int32(e.pointee.fts_info) {
             case FTS_D:
-                let path = clean(String(cString: e.pointee.fts_path))
-                if level > 0, let st, !allowedDevices.contains(st.pointee.st_dev) || skipped.contains(path) {
-                    skip(path)
+                if level > 0, let st, outside(clean(String(cString: e.pointee.fts_path)), st.pointee) {
                     fts_set(fts, e, FTS_SKIP)
                     continue
                 }
                 e.pointee.fts_number = 0
             case FTS_DP:
+                let path = clean(String(cString: e.pointee.fts_path))
                 // A skipped directory still comes back here, and an NFS mount point's own blocks are its whole disk.
-                if level > 0, let st, !allowedDevices.contains(st.pointee.st_dev) { continue }
+                if level > 0, let st, outside(path, st.pointee) { continue }
                 let size = Int64(e.pointee.fts_number) + own
-                if size >= recordAtLeast || level == 1 { record(clean(String(cString: e.pointee.fts_path)), size) }
+                record(path, size)
                 if level == 0 { total = size } else { e.pointee.fts_parent.pointee.fts_number += Int(size) }
             case FTS_DC, FTS_ERR, FTS_NS:
                 continue

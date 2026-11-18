@@ -18,43 +18,49 @@ final class Model: ObservableObject {
     @Published var scanning = false
     @Published var problem: String?
 
-    private var sizes: [String: Int64] = [:]
-    private var skipped = Set<String>()
-    private let inbox = Inbox()
+    let store: Store
+    private var started = false
 
-    init(path: String = "/") { self.path = path }
+    init(path: String = "/", store: Store = Store()) {
+        self.path = path
+        self.store = store
+        store.onChange = { [weak self] in self?.fill() }
+    }
 
-    func scan() {
+    /// At launch: the saved weights show at once, then only what changed since is measured again.
+    func start() {
+        guard !started else { return }
+        started = true
+        follow { $0.start() }
+        let store = store
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
+                                               queue: nil) { _ in store.queue.sync { store.save() } }
+        Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { _ in store.queue.async { store.save() } }
+    }
+
+    func scan() { follow { $0.fullScan() } }
+
+    private func follow(_ work: @escaping @Sendable (Store) -> Void) {
         guard !scanning else { return }
         scanning = true
-        sizes = [:]; skipped = []; files = 0
-        _ = inbox.take()
-        inbox.finished = false
-        let root = "/", inbox = inbox
-        Thread.detachNewThread {
-            let total = Measure.run(root, record: { inbox.add(size: ($0, $1)) },
-                                    skip: { inbox.add(skip: $0) }, progress: { inbox.files = $0 })
-            inbox.add(size: (root, total))
-            inbox.finished = true
+        let store = store
+        store.queue.async {
+            work(store)
+            DispatchQueue.main.async { self.scanning = false; self.fill() }
         }
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
-                guard let self else { return timer.invalidate() }
-                let (got, skips, files, done) = self.inbox.take()
-                for (p, s) in got { self.sizes[p] = s }
-                self.skipped.formUnion(skips)
-                self.files = files
-                if done { self.scanning = false; timer.invalidate() }
-                if !got.isEmpty || done { self.fill() }
+                guard let self, self.scanning else { return timer.invalidate() }
+                self.files = store.files
+                self.fill()
             }
         }
         load()
     }
 
-    /// Loads a finished measure without the app's timer: for the self-check and the render.
+    /// Measures `root` in full, without the app's timers: for the self-check and the render.
     func adopt(_ root: String) {
-        sizes = [:]
-        sizes[root] = Measure.run(root, record: { self.sizes[$0] = $1 })
+        store.queue.sync { store.fullScan(root) }
         load()
     }
 
@@ -75,23 +81,21 @@ final class Model: ObservableObject {
             var s = stat()
             guard lstat(full, &s) == 0 else { return Item(id: full, name: name, isDir: false, size: nil) }
             let isDir = (s.st_mode & S_IFMT) == S_IFDIR
-            return Item(id: full, name: name, isDir: isDir, size: isDir ? nil : Int64(s.st_blocks) * 512)
+            return Item(id: full, name: name, isDir: isDir, size: isDir ? nil : Int64(s.st_blocks) * 512,
+                        unscanned: isDir && Measure.outside(full, s))
         }
         fill()
     }
 
-    private func fill() {
-        let done = !scanning
+    func fill() {
+        let busy = store.busy
         for i in items.indices where items[i].isDir {
-            let p = items[i].id
-            items[i].unscanned = skipped.contains(p)
-            // Under the record threshold a directory is never recorded: once the walk is over, it is small.
-            items[i].size = sizes[p] ?? (done && !items[i].unscanned ? 0 : nil)
+            items[i].size = store[items[i].id] ?? (busy || items[i].unscanned ? nil : 0)
         }
         items.sort { a, b in
             (a.size ?? -1, b.name.lowercased()) > (b.size ?? -1, a.name.lowercased())
         }
-        total = sizes[path]
+        total = store[path]
     }
 
     func remove(_ item: Item, permanently: Bool) {
@@ -105,41 +109,10 @@ final class Model: ObservableObject {
             problem = error.localizedDescription
             return
         }
-        let freed = item.size ?? 0
-        var p = item.id
-        while p != "/" {
-            p = (p as NSString).deletingLastPathComponent
-            if let s = sizes[p] { sizes[p] = s - freed }
-        }
-        sizes = sizes.filter { !$0.key.hasPrefix(item.id + "/") && $0.key != item.id }
+        let store = store, at = item.id
+        store.queue.sync { store.apply([at]) }
         items.removeAll { $0.id == item.id }
-        total = sizes[path]
-    }
-}
-
-/// Hands the walk's results from its thread to the main one.
-final class Inbox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var sizes: [(String, Int64)] = []
-    private var skips: [String] = []
-    private var _files = 0
-    private var _finished = false
-
-    var files: Int {
-        get { lock.withLock { _files } }
-        set { lock.withLock { _files = newValue } }
-    }
-    var finished: Bool {
-        get { lock.withLock { _finished } }
-        set { lock.withLock { _finished = newValue } }
-    }
-    func add(size: (String, Int64)) { lock.withLock { sizes.append(size) } }
-    func add(skip: String) { lock.withLock { skips.append(skip) } }
-    func take() -> ([(String, Int64)], [String], Int, Bool) {
-        lock.withLock {
-            defer { sizes = []; skips = [] }
-            return (sizes, skips, _files, _finished)
-        }
+        fill()
     }
 }
 

@@ -8,7 +8,7 @@ struct DiskMapApp: App {
         Window("Disk Map", id: "main") {
             Browser(model: model)
                 .navigationTitle(model.path)
-                .task { model.scan() }
+                .task { model.start() }
         }
         .defaultSize(width: 900, height: 620)
     }
@@ -22,7 +22,9 @@ if args.contains("--selftest") {
 }
 if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
     MainActor.assumeIsolated {
-        let model = Model(path: args[i + 1])
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("disk-map-render-\(getpid()).tsv")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let model = Model(path: args[i + 1], store: Store(file: scratch))
         model.adopt(args[i + 1])
         // ImageRenderer draws a ScrollView's lazy grid empty: host it in a window that is never ordered front.
         _ = NSApplication.shared
