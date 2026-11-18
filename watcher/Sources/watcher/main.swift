@@ -40,6 +40,7 @@ if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
         let items = [
             item("needs", "photo of her ID", "Mum sent her ID; the licence request now needs your FranceConnect login."),
             item("done", "CROUS deposit refund", "CROUS confirmed the 412 € refund, so the todo is ticked and its reply is filed with the ARPEJ papers."),
+            item("done", "a line wider than the screen", String(repeating: "A finding much longer than any screen is wide. ", count: 12)),
         ]
         Inbox.render(items, to: path)
         Inbox.render(items, asking: true, to: beside("asking"))

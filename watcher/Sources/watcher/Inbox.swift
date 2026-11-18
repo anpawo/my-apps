@@ -368,6 +368,25 @@ final class Inbox: NSObject, ObservableObject {
     }
 }
 
+/// Its content at its ideal width, but never wider than the screen less `margin`: `fixedSize` let one long line
+/// carry the card past both edges, and the lines then cut short.
+struct Capped: Layout {
+    var margin: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews[0].sizeThatFits(fit(proposal, subviews))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews[0].place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: fit(proposal, subviews))
+    }
+
+    private func fit(_ proposal: ProposedViewSize, _ subviews: Subviews) -> ProposedViewSize {
+        let ideal = subviews[0].sizeThatFits(.unspecified).width
+        return ProposedViewSize(width: min(ideal, (proposal.width ?? .infinity) - margin), height: nil)
+    }
+}
+
 final class InboxPanel: NSPanel {
     var onKey: (UInt16, NSEvent.ModifierFlags) -> Bool = { _, _ in false }
 
@@ -406,14 +425,15 @@ struct InboxView: View {
     private var main: some View {
         VStack(spacing: 0) {
             Spacer()
-            // Fixed to its ideal size, the stack is as wide as the line, and the row under it spreads to that width.
-            VStack(spacing: 10) {
-                subject
-                bar.frame(maxWidth: .infinity)
-                controls.frame(maxWidth: .infinity)
-                    .padding(.top, 2)
+            // At its ideal size, the stack is as wide as the line, and the row under it spreads to that width.
+            Capped(margin: 160) {
+                VStack(spacing: 10) {
+                    subject
+                    bar.frame(maxWidth: .infinity)
+                    controls.frame(maxWidth: .infinity)
+                        .padding(.top, 2)
+                }
             }
-            .fixedSize()
             .foregroundStyle(Site.ink)
             .padding(16)
             .card()
