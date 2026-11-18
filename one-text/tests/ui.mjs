@@ -128,6 +128,16 @@ await page.evaluate(() => refreshList());
 check(!(await page.$('#people .row[data-id="ig-lea"] .badge')), '⌘K clears the badge, and it stays cleared after a refresh');
 const readSent = await page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).map(([, a]) => a.path).sort());
 check(JSON.stringify(readSent) === JSON.stringify(['/v1/chats/ig-lea/read', '/v1/chats/wa-lea/read']), `⌘K sends the read receipt to each app (${readSent})`);
+// Escape is ⌘K on the open chat, only with the thread at its end.
+const escReads = async (end) => {
+  const count = () => page.evaluate(() => __log.filter(([c, a]) => c === 'api' && a.path.endsWith('/read')).length);
+  const before = await count();
+  await page.evaluate(end => { state.cur.chats[0].unread = 1; state.cur.unread = 1; atEnd = end; document.activeElement.blur(); }, end);
+  await page.keyboard.press('Escape');
+  return (await count()) - before;
+};
+const escUp = await escReads(false), escEnd = await escReads(true);
+check(escUp === 0 && escEnd === 1 && (await page.evaluate(() => state.cur.unread)) === 0, `Escape sends the read receipt only at the end of the thread (${escUp}, ${escEnd})`);
 // ⌘F finds a word in the open conversation, accents and case aside; Enter goes to the older match.
 await page.mouse.move(900, 300);
 await page.keyboard.press('Meta+f');

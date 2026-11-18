@@ -607,6 +607,8 @@ addEventListener('keydown', e => {
     const item = state.byId.get(document.querySelector('#list .row:hover, .fav:hover')?.dataset.id) || state.cur;
     if (item?.unread) markRead(item);
   }
+  // Escape in the field (or nowhere) with the thread scrolled to its end is ⌘K on the open chat; one that closes something is not.
+  if (e.key === 'Escape' && !e.defaultPrevented && !openMenu && (e.target === input || e.target === document.body) && atEnd && state.cur?.unread) markRead(state.cur);
   // ⌘R replies to the message under the pointer, or to the last one they sent.
   if (e.metaKey && e.key.toLowerCase() === 'r' && state.cur) {
     e.preventDefault();
@@ -1722,7 +1724,7 @@ function item(label, { hint = '', icon = '', action }) {
 
 // Settings: the switches, then every shortcut the app answers to.
 const KEYS = [['Search people and groups', '⌘D'], ['Find in the conversation', '⌘F'], ['Favorite the one under the pointer', '⌘F'],
-  ['Mark as seen', '⌘K'], ['Reply', '⌘R'], ['Edit my message', '⌘G'], ['Alias', '⌘M'], ['Move a favorite', '⌘ ←↑↓→'], ['New line', '⇧↩'],
+  ['Mark as seen', '⌘K'], ['Mark as seen at the end', 'esc'], ['Reply', '⌘R'], ['Edit my message', '⌘G'], ['Alias', '⌘M'], ['Move a favorite', '⌘ ←↑↓→'], ['New line', '⇧↩'],
   ['Reply on another app', '/ig /ws /dc …'], ['Close', 'esc'], ['Settings', '⌘,']];
 function openSettings() {
   const gear = $('#gear');

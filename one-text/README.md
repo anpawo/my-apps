@@ -55,6 +55,7 @@ Settings is the gear above the list, or ⌘,. It holds the Play reels here switc
 | ⌘D | Search people and groups |
 | ⌘F | Find in the conversation; over a row, add or remove the favorite |
 | ⌘K | Seen, nothing to say: clears the badge and sends the read receipt |
+| Esc | The same as ⌘K on the open conversation, when its thread is scrolled to the end |
 | ⌘R | Reply to the message under the pointer, or their last one |
 | ⌘G | Edit my message under the pointer, or my last one |
 | ⌘M | Alias the person or group under the pointer, or the open one |
@@ -77,7 +78,7 @@ One Text is a window on Beeper: it talks only to Beeper Server on this Mac (`127
 
 What One Text itself does:
 
-- **Sends nothing on its own.** Opening a conversation sends no read receipt and no typing notice. A read receipt goes out only when you answer, react, or press ⌘K.
+- **Sends nothing on its own.** Opening a conversation sends no read receipt and no typing notice. A read receipt goes out only when you answer, react, or press ⌘K (or Escape at the end of the thread).
 - **Keeps no messages.** The thread is fetched from Beeper each time. What it stores stays on this Mac: favorites, groups, drafts, what you marked seen and your reaction counts in its WebKit storage; merges, aliases and your pictures in `~/Library/Application Support/com.mr.one-text/overrides.json`, profile-picture fingerprints beside it in `pictures.json`.
 - **One outside call.** Playing a reel here runs `yt-dlp` logged out against instagram.com (the video is kept in the app's cache); with Play reels here off, the link opens in your browser instead. Links open in your browser.
 
