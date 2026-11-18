@@ -2302,6 +2302,21 @@ enum Render {
             if let url = js(kitView, "kit.chart.takeScreenshot().toDataURL()") as? String, let data = Data(base64Encoded: String(url.drop { $0 != "," }.dropFirst())) {
                 try? data.write(to: URL(fileURLWithPath: directory + "/chart-kit-plot.png"))
             }
+            // Two days of intraday points: a dated bracket under each day's hours, and a zoom that narrows the time axis, never the page.
+            _ = js(kitView, "document.querySelector('.vcx-card').remove(); const t0 = Date.UTC(2026, 10, 17, 9, 30) / 1000, rows = []; for (const d of [0, 1]) for (let i = 0; i < 79; i++) rows.push({ time: t0 + d * 86400 + i * 300, value: 150 + d * 4 + Math.sin(i / 9) * 3 }); vcx.chart({ title: 'Two days', data: rows }).then(c => window.days = c); 0")
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            let dates = js(kitView, "Array.from(document.querySelectorAll('.vcx-days .day'), d => d.textContent).join(', ')") as? String ?? ""
+            if !dates.contains("Tue 17 Nov") || !dates.contains("Wed 18 Nov") { fputs("FAIL: vcx.chart dates each day under its hours (\(dates))\n", stderr); exit(1) }
+            _ = js(kitView, "const img = new Image(); img.src = days.chart.takeScreenshot().toDataURL(); img.style.cssText = 'position:absolute;left:0;top:0;width:100%'; const plot = document.querySelector('.vcx-plot'); plot.querySelector('.tv-lightweight-charts').style.visibility = 'hidden'; plot.prepend(img); 0")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            snap(kitView, "chart-days.png")
+            _ = js(kitView, "const ts = days.chart.timeScale(), a = ts.getVisibleLogicalRange(); window.before = Math.round(a.to - a.from); vcx.zoom(2, 300, 150); 0")
+            // The library applies a new range on its next frame, which a window off screen never draws: a screenshot paints it.
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let narrowed = js(kitView, "(() => { days.chart.takeScreenshot(); const b = days.chart.timeScale().getVisibleLogicalRange(); return [before, Math.round(b.to - b.from), vcx.scale].join(' ') })()") as? String ?? ""
+            let spans = narrowed.split(separator: " ").compactMap { Double($0) }
+            if spans.count != 3 || spans[1] >= spans[0] || spans[2] != 1 { fputs("FAIL: zooming a vcx.chart narrows its time axis and keeps the page's scale (\(narrowed))\n", stderr); exit(1) }
+            print("vcx.chart days: \(dates); zoom bars/page scale: \(narrowed)")
             kitWindow.close()
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }

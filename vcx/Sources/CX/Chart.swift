@@ -139,9 +139,10 @@ private struct ChartWeb: NSViewRepresentable {
         get scale() { return s },
         live(url, seconds, callback) { const id = ++n; subs[id] = callback; webkit.messageHandlers.live.postMessage({ id, url: String(url), seconds: Number(seconds) || 30 }) },
         _push(id, data) { subs[id] && subs[id](data) },
-        zoom(factor, px, py) { const k = Math.min(20, Math.max(1, s * factor)); x = px - (px - x) * k / s; y = py - (py - y) * k / s; s = k; apply() },
-        pan(dx, dy) { x += dx; y += dy; apply() },
-        reset() { s = 1; apply() },
+        // A page that draws with vcx.chart zooms its time axis instead (onzoom/onpan/onreset), so the price scale stays in view.
+        zoom(factor, px, py) { if (vcx.onzoom?.(factor, px, py)) return; const k = Math.min(20, Math.max(1, s * factor)); x = px - (px - x) * k / s; y = py - (py - y) * k / s; s = k; apply() },
+        pan(dx, dy) { if (vcx.onpan?.(dx, dy)) return; x += dx; y += dy; apply() },
+        reset() { if (vcx.onreset?.()) return; s = 1; apply() },
       };
       addEventListener('wheel', e => setTimeout(() => {
         if (e.defaultPrevented) return;
@@ -165,8 +166,8 @@ private struct ChartWeb: NSViewRepresentable {
       });
       const css = `
     .vcx-card{font:13px/1.4 -apple-system,system-ui,Inter,sans-serif;color:#09090b}
-    .vcx-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-height:30px;margin:0 2px 8px}
-    .vcx-title{font-weight:600;font-size:14px}
+    .vcx-head{display:flex;align-items:baseline;gap:2px 10px;flex-wrap:wrap;min-height:30px;margin:0 2px 8px}
+    .vcx-title{font-weight:600;font-size:14px;flex-basis:100%}
     .vcx-value{font-weight:600;font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
     .vcx-change{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
     .vcx-up{color:#16a34a}.vcx-down{color:#dc2626}
@@ -175,13 +176,18 @@ private struct ChartWeb: NSViewRepresentable {
     .vcx-plot .legend{position:absolute;left:2px;top:0;z-index:3;pointer-events:none;font-size:11px;white-space:nowrap;opacity:0;transition:opacity 120ms ease-out}
     .vcx-plot.hover .legend{opacity:1}
     .vcx-plot .legend .n{color:#71717a;margin-left:8px}.vcx-plot .legend .n:first-child{margin-left:0}
-    .vcx-plot .legend b{font-weight:600;font-variant-numeric:tabular-nums}`;
+    .vcx-plot .legend b{font-weight:600;font-variant-numeric:tabular-nums}
+    .vcx-days{position:relative;height:22px;overflow:hidden}
+    .vcx-days .day{position:absolute;top:5px;border-top:1px solid #d4d4d8;padding-top:2px;text-align:center;font-size:11px;color:#71717a;white-space:nowrap;overflow:hidden}
+    .vcx-days .day::before,.vcx-days .day::after{content:'';position:absolute;top:-5px;width:1px;height:5px;background:#d4d4d8}
+    .vcx-days .day::before{left:0}.vcx-days .day::after{right:0}`;
+      const charts = [];
       vcx.chart = async (o = {}) => {
         // A page that is only this script runs it in the head, before there is a body to draw into.
         if (!document.body) await new Promise(ready => addEventListener('DOMContentLoaded', ready, { once: true }));
         if (!styled) { styled = true; const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style) }
         const card = document.createElement('div'); card.className = 'vcx-card';
-        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="legend"></div></div>';
+        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="legend"></div></div><div class="vcx-days"></div>';
         ((typeof o.el === 'string' ? document.querySelector(o.el) : o.el) || document.body).appendChild(card);
         const $ = s => card.querySelector(s), plot = $('.vcx-plot'), legend = $('.legend');
         plot.style.height = (o.height || 260) + 'px';
@@ -197,7 +203,8 @@ private struct ChartWeb: NSViewRepresentable {
           crosshair: { mode: L.CrosshairMode.Normal, vertLine: { color: '#a1a1aa', labelBackgroundColor: '#18181b' }, horzLine: { color: '#a1a1aa', labelBackgroundColor: '#18181b' } },
           localization: { priceFormatter: fmt },
         });
-        const candles = o.data?.[0]?.open !== undefined;
+        // OHLC rows draw their close as a line; candles only when asked.
+        const candles = !!o.candles && o.data?.[0]?.open !== undefined;
         const series = candles
           ? chart.addSeries(L.CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false, priceLineVisible: false, lastValueVisible: false })
           : chart.addSeries(L.AreaSeries, { lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
@@ -215,22 +222,54 @@ private struct ChartWeb: NSViewRepresentable {
         const time = t => t instanceof Date ? Math.round(t / 1000) : typeof t === 'number' && t > 1e11 ? Math.round(t / 1000) : t;
         let fitted = false;
         const set = rows => {
-          const data = rows.map(r => candles ? { ...r, time: time(r.time) } : { time: time(r.time ?? r.x), value: +(r.value ?? r.y) })
+          const data = rows.map(r => candles ? { ...r, time: time(r.time) } : { time: time(r.time ?? r.x), value: +(r.value ?? r.close ?? r.y) })
             .sort((a, b) => (a.time > b.time ? 1 : -1)).filter((r, i, all) => !i || r.time !== all[i - 1].time);
           series.setData(data);
           if (!fitted && data.length) { chart.timeScale().fitContent(); fitted = true }
+          days();
           if (!o.symbol && data.length) { const first = data[0].value ?? data[0].close, last = data.at(-1).value ?? data.at(-1).close; show(last, last - first, (last - first) / first * 100) }
         };
         // Like TradingView: the crosshair's price and time sit on the axes, the hovered bar's values in a legend at the top left.
         chart.subscribeCrosshairMove(p => {
           const d = p.point && p.time !== undefined ? p.seriesData.get(series) : null;
           if (!d) { plot.classList.remove('hover'); return }
-          const rows = d.open !== undefined ? [['O', d.open], ['H', d.high], ['L', d.low], ['C', d.close]] : [[o.name || o.symbol || o.title || 'Value', d.value]];
+          const rows = d.open !== undefined ? [['O', d.open], ['H', d.high], ['L', d.low], ['C', d.close]] : [[o.name || o.symbol || '', d.value]];
           const move = d.open !== undefined ? d.close - d.open : NaN, tone = move >= 0 ? 'vcx-up' : 'vcx-down';
           legend.innerHTML = rows.map(([n, x]) => `<span class="n">${n}</span> <b>${fmt(x)}</b>`).join('')
             + (isFinite(move) ? ` <b class="${tone}">${move >= 0 ? '+' : '−'}${fmt(Math.abs(move))} (${(move / d.open * 100).toFixed(2)}%)</b>` : '');
           plot.classList.add('hover');
         });
+        // Intraday data gets a date under each day's hours, on a bracket spanning them (days in UTC, as the axis shows them).
+        function days() {
+          const row = $('.vcx-days'), data = series.data(), ts = chart.timeScale(), w = ts.width();
+          if (!data.length || typeof data[0].time !== 'number' || data.every(r => r.time % 86400 === 0)) { row.style.display = 'none'; return }
+          row.style.display = '';
+          const spans = [];
+          data.forEach((r, i) => { const day = Math.floor(r.time / 86400); if (spans.at(-1)?.day === day) spans.at(-1).last = i; else spans.push({ day, first: i, last: i }) });
+          row.innerHTML = spans.map(({ day, first, last }) => {
+            const a = Math.max(0, ts.logicalToCoordinate(first) + 2), b = Math.min(w, ts.logicalToCoordinate(last) - 2);
+            if (!(b - a > 4)) return '';
+            const name = new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+            return `<div class="day" style="left:${a}px;width:${b - a}px">${b - a > 70 ? name : ''}</div>`;
+          }).join('');
+        }
+        chart.timeScale().subscribeVisibleLogicalRangeChange(days);
+        chart.timeScale().subscribeSizeChange(days);
+        charts.push({ chart, plot });
+        const hit = (px, py) => charts.find(c => { const r = c.plot.getBoundingClientRect(); return py >= r.top && py <= r.bottom + 30 }) || charts[0];
+        vcx.onzoom = (factor, px, py) => {
+          const c = hit(px, py), ts = c.chart.timeScale(), r = ts.getVisibleLogicalRange();
+          if (!r || (r.to - r.from) / factor < 4) return true;
+          const m = ts.coordinateToLogical(Math.min(Math.max(px - c.plot.getBoundingClientRect().left, 0), ts.width())) ?? (r.from + r.to) / 2;
+          ts.setVisibleLogicalRange({ from: m - (m - r.from) / factor, to: m + (r.to - m) / factor });
+          return true;
+        };
+        vcx.onpan = dx => {
+          const ts = charts[0].chart.timeScale(), r = ts.getVisibleLogicalRange();
+          if (r) { const k = dx * (r.to - r.from) / ts.width(); ts.setVisibleLogicalRange({ from: r.from - k, to: r.to - k }) }
+          return true;
+        };
+        vcx.onreset = () => { charts.forEach(c => c.chart.timeScale().fitContent()); return true };
         if (o.data) set(o.data);
         if (o.symbol) {
           const base = `https://api.nasdaq.com/api/quote/${encodeURIComponent(o.symbol.toUpperCase())}/`, every = o.live ?? 15, n = t => parseFloat(String(t).replace(/[$,+%]/g, ''));
