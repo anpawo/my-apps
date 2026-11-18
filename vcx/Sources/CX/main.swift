@@ -140,6 +140,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     } else { for entry in windows.reversed() { entry.window.makeKeyAndOrderFront(nil) } }
                 }
                 Task {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    for entry in windows where entry.session.runtimeClient?.isAttached != true {
+                        swapLog("VCX frontend replacement: %@ (%@) not attached after 10 s", entry.session.runtimeClient?.sessionID ?? "no runtime", entry.session.cwd)
+                    }
+                    if self.restoreFile != nil { swapLog("VCX frontend replacement: %d of %d windows still restoring after 10 s", restorePending, entries.count) }
+                }
+                Task {
                     // The old frontend holds the lock until every window here attached, which it allows 15 s: 10 s here cut a slow handover short.
                     for _ in 0..<250 {
                         if let lock = try? RuntimeUpdate.lockFrontend() { frontendLock = lock; break }
