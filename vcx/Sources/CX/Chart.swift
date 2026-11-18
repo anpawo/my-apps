@@ -208,6 +208,8 @@ private struct ChartWeb: NSViewRepresentable {
         const series = candles
           ? chart.addSeries(L.CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false, priceLineVisible: false, lastValueVisible: false })
           : chart.addSeries(L.AreaSeries, { lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        // A page that feeds OHLC rows to series.setData itself (written when they drew candles) still draws their close.
+        if (!candles) { const own = series.setData.bind(series); series.setData = rows => own(rows.map(r => r.value === undefined && r.close !== undefined ? { time: r.time, value: +r.close } : r)) }
         const tint = c => { plot.style.setProperty('--line', c); if (!candles) series.applyOptions({ lineColor: c, topColor: c + '29', bottomColor: c + '00' }) };
         tint(o.color || '#18181b');
         const show = (value, change, percent) => {

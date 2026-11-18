@@ -2317,6 +2317,8 @@ enum Render {
             let spans = narrowed.split(separator: " ").compactMap { Double($0) }
             if spans.count != 3 || spans[1] >= spans[0] || spans[2] != 1 { fputs("FAIL: zooming a vcx.chart narrows its time axis and keeps the page's scale (\(narrowed))\n", stderr); exit(1) }
             print("vcx.chart days: \(dates); zoom bars/page scale: \(narrowed)")
+            let fed = js(kitView, "days.series.setData(days.series.data().map(r => ({ time: r.time, open: r.value, high: r.value, low: r.value, close: r.value }))); days.series.data().filter(r => isFinite(r.value)).length") as? Int ?? 0
+            if fed != 158 { fputs("FAIL: OHLC rows fed to a vcx.chart line's series.setData draw their close (\(fed) of 158)\n", stderr); exit(1) }
             kitWindow.close()
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
@@ -2467,6 +2469,7 @@ enum Render {
         write(CXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
         write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
+        write(MarkdownBody(text: "Message:\n\n```\nsome code\n```\n\n⟶ Next: say go and I post it.").padding(24).background(Color.white), size: CGSize(width: 600, height: 220), path: directory + "/next-after-code.png")
         write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
         let linkFixture = "Preview the installed logo, fused C and X, white on charcoal black, wrapping onto a second line here."
         write(ProseView(text: [linkFixture, linkFixture.replacingOccurrences(of: "installed logo", with: "[installed logo](file:///tmp/icon.png)"), "⟶ " + linkFixture, "⟶ Next: open " + "[compare.png](file:///tmp/compare.png) and check the C."].joined(separator: "\n\n")).padding(24).background(Color.white), size: CGSize(width: 520, height: 420), path: directory + "/links.png")
