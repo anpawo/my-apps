@@ -41,9 +41,21 @@ enum SelfCheck {
         codexRollout(expect)
         codexBinding(expect)
         vcx(expect)
+        diskGrowth(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    /// A child that grew is named, its parent only for what grew beside it, and the free space
+    /// no folder accounts for comes last.
+    private static func diskGrowth(_ expect: (String, String, String) -> Void) {
+        let gb: Int64 = 1_000_000_000 / 1024
+        let old = ["/Library": 10 * gb, "/Library/A": 2 * gb, "/Library/B": 1 * gb]
+        let new = ["/Library": 16 * gb, "/Library/A": 3 * gb, "/Library/B": gb + gb / 10, "/Library/C": 2 * gb]
+        let rows = DiskGrowth.growth(from: old, to: new, freeDrop: 7 * gb * 1024)
+            .map { "\($0.path) \(($0.bytes + 50_000_000) / 100_000_000)" }.joined(separator: ", ")
+        expect(rows, "/Library 30, /Library/C 20, /Library/A 10, System, snapshots, other 10", "disk growth: deepest first, parent's rest, unexplained")
     }
 
     private static func vcx(_ expect: (Bool, Bool, String) -> Void) {

@@ -208,7 +208,7 @@ struct OverlayView: View {
                 let held = controller.commandHeld
                 sideColumn(keys: ["spending", "mail", "todo"]) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
-                    DiskStrip(reaper: controller.reaper)
+                    DiskStrip(reaper: controller.reaper, growth: controller.reaper.growth)
                 } blocks: { free in
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
@@ -1360,6 +1360,9 @@ struct MemoryStrip: View {
 /// The startup disk, drawn as MEMORY's gauge right under it (asked 2026-11-13).
 struct DiskStrip: View {
     @ObservedObject var reaper: Reaper
+    @ObservedObject var growth: DiskGrowth
+    /// Unfolded to what grew while the pointer is on it, like MEMORY (asked 2026-11-18).
+    @State private var open = CommandLine.arguments.contains("--disk-open")
 
     var body: some View {
         let (free, total) = reaper.disk
@@ -1381,8 +1384,47 @@ struct DiskStrip: View {
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .titleGround()
         } content: {
-            EmptyView()
+            if open {
+                DiskGrowthPane(growth: growth)
+                    .transition(.modifier(active: Reveal(shown: 0), identity: Reveal(shown: 1)))
+            }
         }
+        .onHover { inside in withAnimation(OverlayView.fold) { open = inside } }
+    }
+}
+
+/// The folders that took half a gigabyte or more since about a day ago, biggest first.
+private struct DiskGrowthPane: View {
+    @ObservedObject var growth: DiskGrowth
+
+    var body: some View {
+        let time = { (d: Date) in d.formatted(.dateTime.weekday(.abbreviated).hour().minute()) }
+        VStack(alignment: .leading, spacing: 3) {
+            if let since = growth.since {
+                Text("GROWN SINCE \(time(since).uppercased())").foregroundStyle(.white.opacity(0.5))
+                if growth.rows.isEmpty {
+                    Text("Nothing over 0.5 GB").foregroundStyle(.white.opacity(0.7))
+                }
+                ForEach(growth.rows) { row in
+                    HStack(spacing: 8) {
+                        Text(DiskGrowth.label(row.path)).lineLimit(1).truncationMode(.head)
+                            .foregroundStyle(.white.opacity(0.7))
+                        Spacer(minLength: 0)
+                        Text(String(format: "+%.1f GB", Double(row.bytes) / 1e9)).fixedSize()
+                    }
+                }
+            } else {
+                Text(growth.lastScan.map { "First reading \(time($0)), growth from the next hour" }
+                     ?? "Measuring folders, about a minute")
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 4)
     }
 }
 

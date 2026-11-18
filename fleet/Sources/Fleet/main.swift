@@ -1034,7 +1034,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--idle"),
 // to look like a silent success, and left a second copy of Fleet scanning beside launchd's.
 let knownFlags: Set<String> = [
     "--ax-probe", "--bench", "--blocks-open", "--bench-panel", "--check-reel", "--close", "--cmd", "--demo",
-    "--deferred", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
+    "--deferred", "--disk-open", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
     "--launch", "--mail", "--memory", "--memory-open", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels",
     "--live", "--mail-open", "--money-open", "--reels-run", "--render", "--render-demo", "--render-settings", "--route", "--scan", "--screen",
     "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",

@@ -281,6 +281,7 @@ final class Reaper: ObservableObject {
     @Published private(set) var details = MemoryDetails()
     /// The DISK block under MEMORY, read on the slow half of the tick: it moves in gigabytes an hour.
     @Published private(set) var disk = MemoryPressure.disk()
+    let growth = DiskGrowth()
     /// Set by the MEMORY block while it is unfolded.
     var detailsOpen = false {
         didSet {
@@ -349,6 +350,7 @@ final class Reaper: ObservableObject {
         guard Date().timeIntervalSince(lastScan) >= Config.reapInterval else { return }
         lastScan = Date()
         disk = MemoryPressure.disk()
+        growth.tick()
 
         let candidates = Reaper.candidates()
         sampleIdleness(candidates)
