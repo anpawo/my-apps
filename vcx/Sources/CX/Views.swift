@@ -411,6 +411,7 @@ struct CXView: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { session.showingSettings = true } label: {
                 HStack(spacing: 7) {
+                    Image(systemName: "gearshape").frame(width: 12)
                     Text("SETTINGS").tracking(1.2)
                     Spacer()
                 }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
@@ -438,10 +439,10 @@ struct CXView: View {
                 withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.25)) { copiedID = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.25)) { copiedID = false } }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 7) {
+                    Image(systemName: copiedID ? "checkmark" : "doc.on.doc").frame(width: 12).contentTransition(.opacity)
                     Text(copiedID ? "COPIED" : "SESSION ID").tracking(1.2).lineLimit(1).fixedSize().contentTransition(.opacity)
                     Spacer(minLength: 0)
-                    Image(systemName: copiedID ? "checkmark" : "doc.on.doc").font(.system(size: 9, weight: .bold)).contentTransition(.opacity)
                 }.font(.system(size: 11, weight: .bold)).foregroundStyle(.black.opacity(0.75))
                     .padding(12).frame(maxWidth: .infinity)
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
@@ -474,8 +475,10 @@ struct CXView: View {
     private func capability(_ title: String) -> some View {
         Button { openCapability = title } label: {
                 HStack(spacing: 7) {
-                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2)
-                    Spacer()
+                    Image(systemName: ["Hooks": "link", "Skills": "sparkles", "Commands": "command", "MCP": "server.rack", "Instructions": "doc.text", "RAG": "brain"][title] ?? "circle")
+                        .font(.system(size: 11, weight: .bold)).frame(width: 12)
+                    Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).fixedSize()
+                    Spacer(minLength: 0)
                     Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
                     .frame(maxWidth: .infinity)
@@ -840,7 +843,7 @@ final class ActivityDotView: NSView {
     }
 }
 
-enum SettingsTab: String, CaseIterable { case session = "Session", accounts = "Accounts", qwen = "Qwen", background = "Background" }
+enum SettingsTab: String, CaseIterable { case session = "Session", accounts = "Accounts", qwen = "Qwen", background = "Background", keys = "Keys" }
 
 struct SettingsPopup: View {
     @ObservedObject var session: Session
@@ -875,6 +878,22 @@ struct SettingsPopup: View {
              "When an account reaches its usage limit mid-turn, the next enabled account takes the last prompt, with up to 48 KB of the recent conversation.")
         task("Resume recovery", "When needed",
              "When Claude cannot resume a saved conversation, a new one starts and gets the pending prompt with up to 48 KB of recent messages.")
+    }
+    private static let shortcuts: [(keys: [String], action: String)] = [
+        (["↩"], "Send the prompt"), (["⇧", "↩"], "New line; on an empty composer, send the waiting prompt now"), (["⌥", "↩"], "New line"),
+        (["↑"], "Withdraw the unread prompt, or recall the previous one"), (["↓"], "Next prompt in history"), (["⇥"], "Expand the last paste, or complete a command"),
+        (["esc"], "Close find, a preview or a panel, else stop the turn"), (["1–9"], "Pick an option of the open question"),
+        (["⌘", "F"], "Find in the transcript"), (["⌘", ","], "Settings"), (["⌘", "⇧", "N"], "New window"), (["⌘", "O"], "Open project"),
+        (["⌘", "W"], "Close window"), (["⌘", "Q"], "Close session"), (["⌥", "click"], "Define the word; drag to widen it"), (["⌥"], "Held, select the word under the pointer"),
+    ]
+    private var keys: some View {
+        ForEach(Self.shortcuts, id: \.action) { shortcut in
+            HStack(spacing: 3) {
+                ForEach(shortcut.keys, id: \.self) { Keycap($0) }
+                Spacer(minLength: 16)
+                Text(shortcut.action).foregroundStyle(.black.opacity(0.55)).multilineTextAlignment(.trailing)
+            }.font(.system(size: 12)).padding(.vertical, 6)
+        }
     }
     private func setting(_ title: String, _ value: String, _ command: String) -> some View {
         Button {
@@ -924,6 +943,8 @@ struct SettingsPopup: View {
                     setting("Model", settings.value.qwenModel, "/qwen model ")
                     case .background:
                     background
+                    case .keys:
+                    keys
                     }
                 }.padding(20).id(tab).transition(.opacity)
             }
