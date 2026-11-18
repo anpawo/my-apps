@@ -538,7 +538,7 @@ enum Check {
         let cardSession = Session(cwd: cardPath)
         await part {
             await cardSession.refreshRepository()
-            check(cardSession.directoryLabel == "atlas/app", "a .fleet sub-folder shows as its own card")
+            check(cardSession.directoryLabel == "app", "a .fleet sub-folder shows by its own name, as its Fleet card")
         }
         let profile = directory.appendingPathComponent("claude-profile")
         try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)

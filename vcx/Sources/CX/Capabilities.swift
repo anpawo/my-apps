@@ -210,7 +210,7 @@ extension Session {
             while let outer = git(["rev-parse", "--show-toplevel"], at: URL(fileURLWithPath: top).deletingLastPathComponent().path), outer != top {
                 top = outer; name = URL(fileURLWithPath: top).lastPathComponent + "/" + name
             }
-            // A `.fleet` sub-folder is a Fleet card of its own: my-apps/fleet, not my-apps (asked 2026-11-17).
+            // A `.fleet` sub-folder is shown by its own name, as Fleet names its card: vcx, not my-apps/vcx (asked 2026-11-18).
             let here = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path, base = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
             var folder = here, card: String?
             while card == nil, folder == base || folder.hasPrefix(base + "/") {
@@ -221,7 +221,7 @@ extension Session {
                 }
                 folder = (folder as NSString).deletingLastPathComponent
             }
-            if let card { name += "/" + card }
+            if let card { name = card }
             let branch = git(["branch", "--show-current"]) ?? ""
             let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
             let status: String, porcelain = git(["status", "--porcelain"])
