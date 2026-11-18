@@ -426,7 +426,7 @@ struct InboxView: View {
         VStack(spacing: 0) {
             Spacer()
             // At its ideal size, the stack is as wide as the line, and the row under it spreads to that width.
-            Capped(margin: 160) {
+            Capped(margin: 420) {
                 VStack(spacing: 10) {
                     subject
                     bar.frame(maxWidth: .infinity)
@@ -478,7 +478,7 @@ struct InboxView: View {
         .lineLimit(1)
         .multilineTextAlignment(.center)
         .padding(.horizontal, 28)
-        .frame(minWidth: 620, minHeight: Inbox.barHeight)
+        .frame(minWidth: 620, maxWidth: .infinity, minHeight: Inbox.barHeight)
         .block(in: Capsule(), fill: inbox.asking.map { _ in Color.white.mix(with: Self.yes, by: 0.25) })
         .contentShape(Capsule())
         .onTapGesture { _ = inbox.key(UInt16(kVK_Return)) }
