@@ -12,7 +12,7 @@ final class ComposerWindow: NSWindow {
     private weak var lens: NSTextView?
     private var hovering = false, movedBefore = false
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
-    // Read-only text only: the composer keeps Control for its own keys.
+    // Read-only text only: Option still types its characters in the composer.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
         guard attachedSheet == nil, let field = contentView?.hitTest(point) as? NSTextView, !field.isEditable, let range = word(in: field, at: point),
               !(field.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -27,8 +27,8 @@ final class ComposerWindow: NSWindow {
         if lens !== field { lens?.setSelectedRange(NSRange(location: 0, length: 0)) }
         lens = field; field.setSelectedRange(range)
     }
-    // Control-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
-    private func controlDrag(from start: (field: NSTextView, range: NSRange)) {
+    // Option-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
+    private func optionDrag(from start: (field: NSTextView, range: NSRange)) {
         var range = start.range, cancelled = false
         select(range, in: start.field)
         while let next = nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
@@ -43,16 +43,16 @@ final class ComposerWindow: NSWindow {
     }
     override func sendEvent(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        // While Control alone is held, the selection follows the word under the pointer.
+        // While Option alone is held, the selection follows the word under the pointer.
         if event.type == .flagsChanged {
-            if modifiers == .control, !hovering { hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true }
-            else if modifiers != .control, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
+            if modifiers == .option, !hovering { hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true }
+            else if modifiers != .option, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
         }
-        if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .control, NSEvent.pressedMouseButtons == 0,
+        if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .option, event.type == .mouseMoved || NSEvent.pressedMouseButtons == 0,
            let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
             select(hit.range, in: hit.field)
         }
-        if event.type == .leftMouseDown, modifiers == .control, let hit = word(at: event.locationInWindow) { controlDrag(from: hit); return }
+        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.
