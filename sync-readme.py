@@ -15,6 +15,7 @@ TABLES = {
     },
     "My own apps": {
         "autocorrect": "Fixes the word you just typed, in French and in English.",
+        "disk-map": "What fills the disk: every folder and file with its weight in GB.",
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",

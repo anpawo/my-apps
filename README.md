@@ -19,6 +19,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | | App | What it does |
 |:-:|---|---|
 | <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
+| <img src="disk-map/docs/icon.png" width="40" alt=""> | [disk-map](disk-map) | What fills the disk: every folder and file with its weight in GB. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
@@ -32,6 +33,10 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 ### [autocorrect](autocorrect)
 
 [![Three lines typed into a text field, each word fixed on space: ça va très bien, I don't think the plan is ready, and tema, changed to team then put back with ⌫](autocorrect/docs/demo.gif)](autocorrect)
+
+### [disk-map](disk-map)
+
+[![Disk Map on the my-apps folder: one tile per folder and file, one-text first at 3.22 GB, then vcx, fleet and alt-tab](disk-map/docs/shot.png)](disk-map)
 
 ### [fleet](fleet)
 

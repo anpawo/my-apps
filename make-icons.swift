@@ -69,6 +69,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("one-text", oneBubble),
     ("mac-guard", guardedApple),
+    ("disk-map", { glyph("square.grid.2x2", box: 470) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {
