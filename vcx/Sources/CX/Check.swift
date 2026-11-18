@@ -1363,6 +1363,7 @@ enum Check {
                 check(moving.currentConversationID == conversation && moving.nativeRecent().contains { $0.id == conversation }, "project selection preserves conversation identity and resume discovery")
                 await moving.refreshCatalog()
                 check(!moving.recent.contains { $0.id == conversation }, "/resume leaves out a conversation still open in a window")
+                try? "Opener grant".write(to: moving.fleetContextFile, atomically: true, encoding: .utf8)
                 moving.close()
                 let resumed = Session(cwd: directory.path, stateDirectory: state)
                 var launchFolder: String?
@@ -1381,6 +1382,13 @@ enum Check {
                 check(lister.recent.first?.id == conversation, "/resume lists the last closed conversation first")
                 check(lister.lastAnswer([["kind": "assistant", "items": [["text": "⟶ Old answer"]]], ["kind": "assistant", "items": [["text": "Work.\n⟶ Fixed the [panel](file:///a) **now**.\n\n⟶ Next: run it"]]], ["kind": "user", "items": []]]) == "Fixed the panel now." && lister.lastAnswer([["kind": "user", "items": [["text": "⟶ Mine"]]]]) == nil, "/resume names a conversation by its last green answer line")
                 check(FileManager.default.fileExists(atPath: lister.nativeDirectory.appendingPathComponent(String(empty.dropFirst(7)) + ".json").path) && !lister.nativeRecent().contains { $0.id == empty }, "/resume leaves out a conversation closed without a message")
+                let elsewhere = Session(cwd: repoPath, stateDirectory: state)
+                elsewhere.connectionFactory = { account, _ in FixtureConnection(account) }
+                await elsewhere.connect(resume: nil)
+                check(elsewhere.recent.first?.id == conversation && elsewhere.recent.first?.title.hasPrefix("Opener grant: ") == true, "/resume lists a conversation closed in another folder first, named by its Fleet label")
+                let switched = await elsewhere.switchThread(conversation, fromCommand: true)
+                check(switched && elsewhere.currentConversationID == conversation && elsewhere.cwd == repoPath && FileManager.default.fileExists(atPath: lister.nativeDirectory.appendingPathComponent(String(conversation.dropFirst(7)) + ".json").path), "a conversation from another folder resumes and keeps its saved record in place")
+                elsewhere.close()
             }
         }
         let envA = agentEnvironment(Account(name: "A", provider: "codex", home: "/tmp/account-a"))

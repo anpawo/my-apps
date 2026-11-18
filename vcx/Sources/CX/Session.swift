@@ -1275,13 +1275,23 @@ final class Session: ObservableObject {
         catch { recordID = previousRecord; notice(error.localizedDescription) }
     }
 
+    // Every folder's records, newest first: a session that cd'd into a project saved its record under that project, not this window's folder.
     func nativeRecent() -> [Recent] {
-        let directory = nativeDirectory
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        return files.sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }.prefix(40).compactMap { url in
-            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, record["cwd"] as? String == conversationDirectory, (record["rows"] as? [Any])?.isEmpty == false else { return nil }
-            return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: lastAnswer(record["rows"] as? [JSON] ?? []) ?? record["title"] as? String ?? "New conversation", backendID: record["threadId"] as? String)
-        }
+        let manager = FileManager.default, root = stateDirectory.appendingPathComponent("native")
+        let files = ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).flatMap { (try? manager.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] }
+        let dated = files.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+        return dated.sorted { $0.1 > $1.1 }.lazy.compactMap { url, _ -> Recent? in
+            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, (record["rows"] as? [Any])?.isEmpty == false else { return nil }
+            let answer = self.lastAnswer(record["rows"] as? [JSON] ?? []) ?? record["title"] as? String ?? "New conversation"
+            let label = (record["fleetContext"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: label.isEmpty ? answer : label + ": " + answer, backendID: record["threadId"] as? String)
+        }.prefix(40).map { $0 }
+    }
+    private func nativeRecordURL(_ id: String) -> URL? {
+        let own = nativeDirectory.appendingPathComponent(id + ".json"), manager = FileManager.default
+        if manager.fileExists(atPath: own.path) { return own }
+        let root = stateDirectory.appendingPathComponent("native")
+        return ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).map { $0.appendingPathComponent(id + ".json") }.first { manager.fileExists(atPath: $0.path) }
     }
     // The last green answer line, as the chat shows it, names a conversation better than its first prompt.
     func lastAnswer(_ rows: [JSON]) -> String? {
@@ -1347,7 +1357,7 @@ final class Session: ObservableObject {
             suppressSave = false
             if !accepted, let claimed { flock(claimed, LOCK_UN); Darwin.close(claimed) }
         }
-        let url = nativeDirectory.appendingPathComponent(id + ".json")
+        guard let url = nativeRecordURL(id) else { throw CXError(message: "The saved conversation no longer exists.") }
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
         providerChoice = record["providerChoice"] as? String ?? providerChoice; accountChoice = record["accountChoice"] as? String ?? accountChoice; modeChoice = record["modeChoice"] as? String ?? modeChoice
         let settings = Settings.shared
@@ -1356,12 +1366,14 @@ final class Session: ObservableObject {
         guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
         let resumeID = selected.id == accountID ? thread : nil
         let generation = draftGeneration
-        let previousDirectory = cwd
+        let previousDirectory = cwd, previousConversationDirectory = conversationDirectory
+        if url.deletingLastPathComponent() != nativeDirectory, let home = record["cwd"] as? String { conversationDirectory = home }
         let restoredDirectory = record["workingDirectory"] as? String ?? record["cwd"] as? String ?? conversationDirectory
         cwd = workingDirectory(restoredDirectory, within: conversationDirectory) ?? conversationDirectory
         do { try await activate(selected, resume: resumeID, keepRows: true) }
-        catch { cwd = previousDirectory; pendingRestore = id; throw error }
+        catch { cwd = previousDirectory; conversationDirectory = previousConversationDirectory; pendingRestore = id; throw error }
         pendingRestore = nil
+        if conversationDirectory != previousConversationDirectory { (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X" }
         do { try (record["fleetContext"] as? String ?? "").write(to: fleetContextFile, atomically: true, encoding: .utf8) }
         catch { NSLog("VCX: could not restore Fleet context: %@", error.localizedDescription) }
         effort = selected.id == accountID ? record["effort"] as? String : nil
