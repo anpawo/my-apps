@@ -526,7 +526,8 @@ struct CXView: View {
         ZStack(alignment: .bottom) {
             TranscriptTable(session: session, rows: session.rows, revision: session.revision, details: session.details, replacing: session.frontendReplacing,
                             sending: sending, geometry: geometry, reduceMotion: reduceMotion)
-                .overlay(alignment: .top) { PinnedQuestion(session: session, geometry: geometry) }
+                // Clipped to the transcript: pushed up by the next question, it would slide over a pinned chart.
+                .overlay(alignment: .top) { PinnedQuestion(session: session, geometry: geometry).clipped() }
             if !session.follow.attached {
                 Button { session.landOnEnd?() } label: {
                     Label("Back to latest", systemImage: "arrow.down").font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule()).raised(Capsule())

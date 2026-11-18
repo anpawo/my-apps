@@ -2427,6 +2427,10 @@ enum Render {
             sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
         }
         write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
+        // Under a pinned chart, the question pushed up by the next one slides under the chart, never over it.
+        sticky.chartPin.offer("<div style=\"height:200px\"></div>")
+        write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky-pinned.png", scrollOffsets: [900, 1000, 1100, 1200, 0])
+        sticky.chartPin.toggle("<div style=\"height:200px\"></div>")
         followKeepsEnd(session: sticky)
         opensOnAnswer(directory: directory)
         opensOnEnd(directory: directory)
