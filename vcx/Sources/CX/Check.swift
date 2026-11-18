@@ -2223,6 +2223,50 @@ enum Render {
             if abs(inline.height - (640 - 24) * 200 / 600 - 16) > 4 { fputs("FAIL: a chart block takes its page's height (\(inline))\n", stderr); exit(1) }
             let zoom = shoot(ChartPreview(chart: opened ?? ChartZoom(html: page, size: inline), size: CGSize(width: 1120, height: 820)) {}.frame(width: 1120, height: 820).background(Color.gray), CGSize(width: 1120, height: 820), "chart-zoom.png")
             if zoom.width <= inline.width || abs(zoom.width / zoom.height - inline.width / inline.height) > 0.01 { fputs("FAIL: a zoomed chart keeps its ratio (\(inline) -> \(zoom))\n", stderr); exit(1) }
+            do {
+                // A page taller than the 900 pt cap: the wheel scrolls it to its bottom, inline and enlarged, and only then reaches the transcript.
+                let tall = ##"<body style="padding:14px"><div style="height:1830px;background:linear-gradient(#7c3aed,#16a34a)"></div></body>"##
+                func run(_ view: WKWebView, _ script: String) -> Any? {
+                    var result: Any?, done = false
+                    view.evaluateJavaScript(script) { value, _ in result = value; done = true }
+                    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+                    return result
+                }
+                func wheel(_ dy: Int32) -> NSEvent { NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0)!)! }
+                func scroller(_ view: NSView) -> NSScrollView? { (view as? NSScrollView) ?? view.subviews.lazy.compactMap(scroller).first }
+                // A page not seen before, so it is first laid out taller than it is, as in a new answer.
+                for (html, bottom) in [(tall, true), (page + "<!-- fits -->", false)] {
+                    let host = NSHostingView(rootView: ScrollView { VStack(spacing: 0) { ChartBlock(html: html); Color.white.frame(height: 2000) }.frame(width: 640) })
+                    host.frame = NSRect(x: 0, y: 0, width: 640, height: 1000)
+                    let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false; window.contentView = host
+                    RunLoop.main.run(until: Date().addingTimeInterval(2))
+                    guard let view = web(host), let transcript = scroller(host) else { fputs("FAIL: a chart block in a scroll view draws a web view\n", stderr); exit(1) }
+                    for _ in 0..<12 { view.scrollWheel(with: wheel(-200)); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+                    let down = run(view, "[scrollY, document.documentElement.scrollHeight - innerHeight].join(' ')") as? String ?? ""
+                    let numbers = down.split(separator: " ").compactMap { Double($0) }, moved = transcript.contentView.bounds.origin.y
+                    let reached = numbers.count == 2 && (bottom ? numbers[1] > 800 && abs(numbers[0] - numbers[1]) < 1 && moved > 0 && moved < 2400 - numbers[1] : numbers[0] == 0 && moved > 0)
+                    if !reached { fputs("FAIL: the wheel scrolls an inline chart \(bottom ? "taller than its block to its bottom, then the transcript" : "that fits its block not at all, the transcript instead") (scrollY, room: \(down); transcript: \(moved))\n", stderr); exit(1) }
+                    if bottom {
+                        view.scrollWheel(with: wheel(400)); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                        let up = run(view, "scrollY") as? Double ?? -1
+                        if abs(up - (numbers[1] - 400)) > 1 { fputs("FAIL: the wheel scrolls a tall inline chart back up (\(up))\n", stderr); exit(1) }
+                        print("chart scroll: inline page of \(Int(numbers[1])) px to scroll reached its bottom, the transcript took the rest (\(Int(moved)) px), then the page went up to \(Int(up))")
+                    }
+                    window.close()
+                }
+                let host = NSHostingView(rootView: ChartPreview(chart: ChartZoom(html: tall, size: CGSize(width: 616, height: 900)), size: CGSize(width: 1120, height: 820)) {})
+                host.frame = NSRect(x: 0, y: 0, width: 1120, height: 820)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.contentView = host
+                RunLoop.main.run(until: Date().addingTimeInterval(2))
+                guard let view = web(host) else { fputs("FAIL: an enlarged chart draws a web view\n", stderr); exit(1) }
+                _ = run(view, "dispatchEvent(new WheelEvent('wheel', { deltaY: 300, clientX: 300, clientY: 80 })); 0")
+                RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                let scrolled = run(view, "[scrollY, vcx.scale].join(' ')") as? String ?? ""
+                if scrolled != "300 1" { fputs("FAIL: the wheel scrolls an enlarged chart taller than its view instead of zooming it (scrollY, scale: \(scrolled))\n", stderr); exit(1) }
+                window.close()
+            }
             // In the transcript itself, where rows are laid out lazily.
             let chatting = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-state"))
             chatting.ready = true; chatting.status = "Ready"

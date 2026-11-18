@@ -100,9 +100,21 @@ struct ChartPreview: View {
 private final class ChartWebView: WKWebView {
     var inline = true
     var click: ((CGSize) -> Void)?
+    var pageHeight: CGFloat = 0
+    var offset: CGFloat = 0
     private var down: NSPoint?
-    // Inline, the transcript scrolls over the chart instead of the page swallowing the wheel.
-    override func scrollWheel(with event: NSEvent) { if inline { nextResponder?.scrollWheel(with: event) } else { super.scrollWheel(with: event) } }
+    private var latch: Bool?
+    // Inline, the transcript scrolls over the chart, unless the page is taller than its block: then a gesture that starts
+    // where the page can still move scrolls the page, momentum included, and the next one at its edge goes to the transcript.
+    override func scrollWheel(with event: NSEvent) {
+        guard inline else { return super.scrollWheel(with: event) }
+        if event.phase == .began || event.phase == .mayBegin || (event.phase.isEmpty && event.momentumPhase.isEmpty) { latch = nil }
+        let dy = -event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 10) / pageZoom, end = max(0, pageHeight - bounds.height / pageZoom)
+        if latch == nil, dy != 0 { latch = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) && (dy > 0 ? offset < end - 0.5 : offset > 0.5) }
+        guard latch == true, dy != 0 else { nextResponder?.scrollWheel(with: event); return }
+        offset = min(end, max(0, offset + dy))
+        evaluateJavaScript("scrollTo(0, \(offset))")
+    }
     override func magnify(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil), y = isFlipped ? point.y : bounds.height - point.y
         evaluateJavaScript("vcx.zoom(\(1 + event.magnification), \(point.x / pageZoom), \(y / pageZoom))")
@@ -128,11 +140,12 @@ private struct ChartWeb: NSViewRepresentable {
     // `vcx.live` polls a URL from the Mac, where no CORS applies (a page loaded from a string has origin null), and hands the page its JSON.
     // Zoom magnifies the whole page around the pointer (pinch anywhere; the wheel where it reaches the page) and a drag pans it;
     // a page that takes the wheel itself (preventDefault, as lightweight-charts does on its x axis) keeps it.
+    // A page taller than its view scrolls instead, for each wheel burst that starts where it can still move.
     static let script = #"""
     window.vcx = (() => {
-      const subs = {}; let n = 0, s = 1, x = 0, y = 0, drag = null;
+      const subs = {}; let n = 0, s = 1, x = 0, y = 0, drag = null, mode = null, last = 0;
       const apply = () => {
-        x = Math.min(0, Math.max(innerWidth * (1 - s), x)); y = Math.min(0, Math.max(innerHeight * (1 - s), y));
+        x = Math.min(0, Math.max(innerWidth * (1 - s), x)); y = Math.min(scrollY * (1 - s), Math.max((scrollY + innerHeight) * (1 - s), y));
         document.body.style.transformOrigin = '0 0'; document.body.style.transform = s > 1 ? `translate(${x}px,${y}px) scale(${s})` : '';
       };
       const vcx = {
@@ -140,13 +153,17 @@ private struct ChartWeb: NSViewRepresentable {
         live(url, seconds, callback) { const id = ++n; subs[id] = callback; webkit.messageHandlers.live.postMessage({ id, url: String(url), seconds: Number(seconds) || 30 }) },
         _push(id, data) { subs[id] && subs[id](data) },
         // A page that draws with vcx.chart zooms its time axis instead (onzoom/onpan/onreset), so the price scale stays in view.
-        zoom(factor, px, py) { if (vcx.onzoom?.(factor, px, py)) return; const k = Math.min(20, Math.max(1, s * factor)); x = px - (px - x) * k / s; y = py - (py - y) * k / s; s = k; apply() },
+        zoom(factor, px, py) { if (vcx.onzoom?.(factor, px, py)) return; const k = Math.min(20, Math.max(1, s * factor)); x = px - (px - x) * k / s; y = py + scrollY - (py + scrollY - y) * k / s; s = k; apply() },
         pan(dx, dy) { if (vcx.onpan?.(dx, dy)) return; x += dx; y += dy; apply() },
         reset() { if (vcx.onreset?.()) return; s = 1; apply() },
       };
       addEventListener('wheel', e => setTimeout(() => {
         if (e.defaultPrevented) return;
-        if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) vcx.zoom(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); else vcx.pan(-e.deltaX, 0);
+        const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX), room = document.documentElement.scrollHeight - innerHeight;
+        if (e.timeStamp - last > 200) mode = null; last = e.timeStamp;
+        mode ??= vertical && s === 1 && e.deltaY && (e.deltaY > 0 ? scrollY < room - 0.5 : scrollY > 0.5) ? 'scroll' : 'zoom';
+        if (mode === 'scroll') { if (vertical) scrollBy(0, e.deltaY) }
+        else if (vertical) vcx.zoom(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); else vcx.pan(-e.deltaX, 0);
       }), { passive: true });
       addEventListener('mousedown', e => { if (s > 1 && e.button === 0) { drag = [e.clientX, e.clientY]; e.preventDefault() } }, true);
       addEventListener('mousemove', e => { if (drag) { vcx.pan(e.clientX - drag[0], e.clientY - drag[1]); drag = [e.clientX, e.clientY] } });
@@ -308,7 +325,7 @@ private struct ChartWeb: NSViewRepresentable {
         view.inline = inline
         view.click = inline ? click : nil
         view.pageZoom = zoom
-        if context.coordinator.html != html { context.coordinator.html = html; context.coordinator.stop(); view.loadHTMLString(html.lowercased().contains("<!doctype") ? html : "<!doctype html>" + html, baseURL: nil) }
+        if context.coordinator.html != html { context.coordinator.html = html; context.coordinator.stop(); view.offset = 0; view.loadHTMLString(html.lowercased().contains("<!doctype") ? html : "<!doctype html>" + html, baseURL: nil) }
     }
     static func dismantleNSView(_ view: ChartWebView, coordinator: Coordinator) {
         view.configuration.userContentController.removeScriptMessageHandler(forName: "size")
@@ -321,10 +338,10 @@ private struct ChartWeb: NSViewRepresentable {
         var height: (CGFloat) -> Void = { _ in }
         // A window that is not on screen runs no ResizeObserver, so the height is also read once the page has loaded.
         func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
-            view.evaluateJavaScript(ChartWeb.measure) { [weak self] value, _ in self?.report(value) }
+            view.evaluateJavaScript(ChartWeb.measure) { [weak self, weak view] value, _ in self?.report(value, in: view) }
         }
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "live" { live(message.body, in: message.webView) } else { report(message.body) }
+            if message.name == "live" { live(message.body, in: message.webView) } else { report(message.body, in: message.webView) }
         }
         // ponytail: each view polls on its own (inline, pinned and enlarged copies of one chart each fetch); share one feed per URL if that ever costs.
         private var feeds: [Task<Void, Never>] = []
@@ -349,8 +366,12 @@ private struct ChartWeb: NSViewRepresentable {
                 }
             })
         }
-        private func report(_ body: Any?) {
+        private func report(_ body: Any?, in view: WKWebView?) {
             guard let value = (body as? NSNumber)?.doubleValue, value > 0 else { return }
+            // The scroll end is the document's, which counts the body's own padding and margins, once it overflows the view.
+            view?.evaluateJavaScript("document.documentElement.scrollHeight > innerHeight ? document.documentElement.scrollHeight : 0") { end, _ in
+                (view as? ChartWebView)?.pageHeight = max(CGFloat(value), CGFloat((end as? NSNumber)?.doubleValue ?? 0))
+            }
             let height = self.height
             Task { @MainActor in height(min(max(CGFloat(value), 40), 900)) }
         }
