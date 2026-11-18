@@ -69,7 +69,6 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("one-text", oneBubble),
     ("mac-guard", guardedApple),
-    ("trade", { glyph("chart.line.uptrend.xyaxis", box: 500) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {

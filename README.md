@@ -22,7 +22,6 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
-| <img src="trade/docs/icon.png" width="40" alt=""> | [trade](trade) | Bourse Direct and Trade Republic kept logged in, one key apart, beside the allocation check. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
 | <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | Watches what you are waiting for: mail answers, PR reviews and more... |
 
@@ -53,10 +52,6 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 ### [screenshot](screenshot)
 
 [![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](screenshot/docs/demo.gif)](screenshot)
-
-### [trade](trade)
-
-[![Trade: the Trade Republic login page on the left, the allocation check on the right](trade/docs/screenshot.png)](trade)
 
 ### [vcx](vcx)
 
