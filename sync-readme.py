@@ -18,6 +18,7 @@ TABLES = {
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",
+        "trade": "Bourse Direct and Trade Republic kept logged in, one key apart, beside the allocation check.",
         "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
         "watcher": "Watches what you are waiting for: mail answers, PR reviews and more...",
     },
