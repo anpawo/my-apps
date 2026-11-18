@@ -35,7 +35,7 @@ final class Model: ObservableObject {
         let store = store
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
                                                queue: nil) { _ in store.queue.sync { store.save() } }
-        Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { _ in store.queue.async { store.save() } }
+        Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { _ in store.queue.async { store.save() } }
     }
 
     func scan() { follow { $0.fullScan() } }

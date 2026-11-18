@@ -48,7 +48,7 @@ struct Browser: View {
                 ProgressView().controlSize(.small)
                 Text("Scanning, \(model.files.formatted()) files").foregroundStyle(.secondary).monospacedDigit()
             }
-            Text(gigabytes(model.total)).font(.headline).monospacedDigit()
+            Text("Total \(gigabytes(model.total))").font(.headline).monospacedDigit()
             Button { model.scan() } label: { Image(systemName: "arrow.clockwise") }
                 .disabled(model.scanning).help("Scan again")
         }

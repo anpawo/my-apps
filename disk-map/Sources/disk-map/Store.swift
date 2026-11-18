@@ -19,6 +19,9 @@ final class Store: @unchecked Sendable {
     private var _files = 0
     private var _busy = false
     private var stream: FSEventStreamRef?
+    private let events = DispatchQueue(label: "disk-map.events")
+    private var pending = Pending()
+    private var scannedAt = Date.distantPast
 
     init(file: URL = Store.defaultFile) { self.file = file }
 
@@ -38,10 +41,13 @@ final class Store: @unchecked Sendable {
 
     func fullScan(_ root: String = "/") {
         let since = FSEventsGetCurrentEventId()
-        lock.withLock { total = [:]; removed = []; _files = 0; _busy = true }
-        _ = Measure.run(root, record: set,
+        lock.withLock { _files = 0; _busy = true }
+        // The old weights stay on screen until the new ones replace them.
+        var fresh: [String: Int64] = [:]
+        _ = Measure.run(root, record: { fresh[$0] = $1; self.set($0, $1) },
                         progress: { n in self.lock.withLock { self._files = n } })
-        lock.withLock { lastEvent = since; _busy = false }
+        lock.withLock { total = fresh; removed = []; lastEvent = since; _busy = false }
+        scannedAt = Date()
         save()
     }
 
@@ -51,7 +57,13 @@ final class Store: @unchecked Sendable {
         var levels: [Int: Set<String>] = [:]
         func add(_ p: String) { levels[depth(p), default: []].insert(p) }
         for p in deep where !excluded(p) {
-            if p == "/" { return fullScan() }
+            // A whole-disk scan blocks the queue long enough for FSEvents to drop events and name "/": rescanning
+            // at once would loop forever.
+            if p == "/" {
+                if Date().timeIntervalSince(scannedAt) > 600 { return fullScan() }
+                add("/")
+                continue
+            }
             if isDirectory(p) {
                 let before = self[p] ?? 0
                 let after = Measure.run(p, record: set)
@@ -164,20 +176,43 @@ final class Store: @unchecked Sendable {
                 let p = normalize(String(cString: cPaths[i]))
                 if f & rescan != 0 { deep.append(p) } else { plain.append(p) }
             }
-            if wrapped { store.fullScan() } else { store.apply(plain, deep: deep) }
-            let last = (0..<count).map { ids[$0] }.max() ?? 0
-            store.lock.withLock { if last > store.lastEvent { store.lastEvent = last } }
-            DispatchQueue.main.async { store.onChange?() }
+            store.enqueue(plain, deep: deep, wrapped: wrapped, last: (0..<count).map { ids[$0] }.max() ?? 0)
         }
         guard let s = FSEventStreamCreate(nil, callback, &context, paths as CFArray, since, 1.0,
                                           FSEventStreamCreateFlags(kFSEventStreamCreateFlagNone)) else { return }
         stream = s
-        FSEventStreamSetDispatchQueue(s, queue)
+        FSEventStreamSetDispatchQueue(s, events)
         FSEventStreamStart(s)
+    }
+
+    /// The callback only queues the paths: one that waits for a long weighing makes FSEvents drop events, and a
+    /// drop names "/", a whole-disk scan.
+    private func enqueue(_ plain: [String], deep: [String], wrapped: Bool, last: FSEventStreamEventId) {
+        let first = lock.withLock { () -> Bool in
+            let idle = pending.plain.isEmpty && pending.deep.isEmpty && !pending.wrapped && pending.last == 0
+            pending.plain.formUnion(plain); pending.deep.formUnion(deep)
+            pending.wrapped = pending.wrapped || wrapped; pending.last = max(pending.last, last)
+            return idle
+        }
+        guard first else { return }
+        queue.async {
+            let batch = self.lock.withLock { () -> Pending in let b = self.pending; self.pending = Pending(); return b }
+            if batch.wrapped { self.fullScan() } else { self.apply(Array(batch.plain), deep: Array(batch.deep)) }
+            self.lock.withLock { if batch.last > self.lastEvent { self.lastEvent = batch.last } }
+            DispatchQueue.main.async { self.onChange?() }
+        }
     }
 }
 
-private func parent(_ path: String) -> String { (path as NSString).deletingLastPathComponent }
+private struct Pending {
+    var plain = Set<String>(), deep = Set<String>(), wrapped = false, last = FSEventStreamEventId(0)
+}
+
+// Not NSString's deletingLastPathComponent: its bridged strings hash slowly, and save() hashes millions of them.
+private func parent(_ path: String) -> String {
+    guard let i = path.lastIndex(of: "/"), i != path.startIndex else { return "/" }
+    return String(path[..<i])
+}
 private func depth(_ path: String) -> Int { path.reduce(0) { $1 == "/" ? $0 + 1 : $0 } }
 private func isDirectory(_ path: String) -> Bool {
     var st = stat()
