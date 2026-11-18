@@ -2288,8 +2288,8 @@ enum Render {
             // The library listens on its own pane elements: each gets the pointer, where a real hover reaches it.
             _ = js(kitView, "const r = document.querySelector('.vcx-plot canvas').getBoundingClientRect(), at = { clientX: r.left + r.width * 0.6, clientY: r.top + r.height / 2 }; for (const e of document.querySelectorAll('.vcx-plot *')) for (const t of ['mouseenter', 'mousemove']) e.dispatchEvent(new MouseEvent(t, at)); 0")
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-            print("vcx.chart hover card: \(js(kitView, "document.querySelector('.vcx-plot').classList.contains('hover')") as? Bool == true ? "shown" : "not shown (synthetic pointer)")")
-            // A snapshot leaves composited canvases out: the chart's own picture of them stands in, under the hover card.
+            print("vcx.chart hover legend: \(js(kitView, "document.querySelector('.vcx-plot').classList.contains('hover')") as? Bool == true ? "shown, " + (js(kitView, "document.querySelector('.vcx-plot .legend').textContent") as? String ?? "") : "not shown (synthetic pointer)")")
+            // A snapshot leaves composited canvases out: the chart's own picture of them stands in, under the hover legend.
             _ = js(kitView, "const img = new Image(); img.src = kit.chart.takeScreenshot().toDataURL(); img.style.cssText = 'position:absolute;left:0;top:0;width:100%'; const plot = document.querySelector('.vcx-plot'); plot.querySelector('.tv-lightweight-charts').style.visibility = 'hidden'; plot.prepend(img); 0")
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             snap(kitView, "chart-kit.png")

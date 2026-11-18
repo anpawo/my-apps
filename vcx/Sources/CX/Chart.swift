@@ -30,7 +30,7 @@ struct ChartBlock: View {
     init(html: String, pin: Bool = false) { self.html = html; self.pin = pin; _height = State(initialValue: chartHeights[html] ?? 240) }
     var body: some View {
         ChartWeb(html: html, zoom: 1, inline: true, height: { h in chartHeights[html] = h; if abs(height - h) > 0.5 { height = h } }, click: { size in openChart?(ChartZoom(html: html, size: size)) })
-            .frame(maxWidth: 760).frame(height: height)
+            .frame(maxWidth: .infinity).frame(height: height)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
             .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.1)))
@@ -155,7 +155,7 @@ private struct ChartWeb: NSViewRepresentable {
     })();
     """#
     // vcx.chart: a clean chart in one call (TradingView's lightweight-charts, Apache-2.0, from unpkg), zinc greys like shadcn's,
-    // with the tooltip of web template `tooltip` (a dot, a guide and a card that glide to the hovered point).
+    // with a TradingView crosshair (price and time labels on the axes) and the hovered values in a legend.
     static let kit = #"""
     (() => {
       const lib = 'https://unpkg.com/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js';
@@ -172,22 +172,18 @@ private struct ChartWeb: NSViewRepresentable {
     .vcx-up{color:#16a34a}.vcx-down{color:#dc2626}
     .vcx-note{color:#71717a;font-size:12px;margin-left:auto}
     .vcx-plot{position:relative}
-    .vcx-plot :is(.guide,.dot,.tip){position:absolute;left:0;top:0;opacity:0;pointer-events:none;z-index:3;transition:translate 150ms ease-out,opacity 120ms ease-out}
-    .vcx-plot.hover :is(.guide,.dot,.tip){opacity:1}
-    .vcx-plot.still :is(.guide,.dot,.tip){transition:opacity 120ms ease-out}
-    .vcx-plot .guide{width:1px;height:calc(100% - 26px);background:rgb(0 0 0/.18)}
-    .vcx-plot .dot{width:9px;height:9px;margin:-4.5px;border-radius:50%;background:var(--line);box-shadow:0 0 0 2px #fff}
-    .vcx-plot .tip{padding:7px 10px;border-radius:8px;background:#fff;border:1px solid #e4e4e7;box-shadow:0 4px 16px rgb(0 0 0/.10);font-size:11px;white-space:nowrap}
-    .vcx-plot .tip .t{color:#71717a;margin-bottom:2px}.vcx-plot .tip .n{color:#71717a}
-    .vcx-plot .tip b{font-weight:600;font-variant-numeric:tabular-nums}`;
+    .vcx-plot .legend{position:absolute;left:2px;top:0;z-index:3;pointer-events:none;font-size:11px;white-space:nowrap;opacity:0;transition:opacity 120ms ease-out}
+    .vcx-plot.hover .legend{opacity:1}
+    .vcx-plot .legend .n{color:#71717a;margin-left:8px}.vcx-plot .legend .n:first-child{margin-left:0}
+    .vcx-plot .legend b{font-weight:600;font-variant-numeric:tabular-nums}`;
       vcx.chart = async (o = {}) => {
         // A page that is only this script runs it in the head, before there is a body to draw into.
         if (!document.body) await new Promise(ready => addEventListener('DOMContentLoaded', ready, { once: true }));
         if (!styled) { styled = true; const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style) }
         const card = document.createElement('div'); card.className = 'vcx-card';
-        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="guide"></div><div class="dot"></div><div class="tip"></div></div>';
+        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="legend"></div></div>';
         ((typeof o.el === 'string' ? document.querySelector(o.el) : o.el) || document.body).appendChild(card);
-        const $ = s => card.querySelector(s), plot = $('.vcx-plot'), [guide, dot, tip] = ['.guide', '.dot', '.tip'].map($);
+        const $ = s => card.querySelector(s), plot = $('.vcx-plot'), legend = $('.legend');
         plot.style.height = (o.height || 260) + 'px';
         $('.vcx-title').textContent = o.title ?? o.symbol ?? '';
         const fmt = o.format || (v => (o.symbol ? '$' : '') + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -198,7 +194,7 @@ private struct ChartWeb: NSViewRepresentable {
           grid: { vertLines: { visible: false }, horzLines: { color: '#f4f4f5' } },
           rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
           timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true },
-          crosshair: { vertLine: { visible: false }, horzLine: { visible: false, labelVisible: false } },
+          crosshair: { mode: L.CrosshairMode.Normal, vertLine: { color: '#a1a1aa', labelBackgroundColor: '#18181b' }, horzLine: { color: '#a1a1aa', labelBackgroundColor: '#18181b' } },
           localization: { priceFormatter: fmt },
         });
         const candles = o.data?.[0]?.open !== undefined;
@@ -225,22 +221,14 @@ private struct ChartWeb: NSViewRepresentable {
           if (!fitted && data.length) { chart.timeScale().fitContent(); fitted = true }
           if (!o.symbol && data.length) { const first = data[0].value ?? data[0].close, last = data.at(-1).value ?? data.at(-1).close; show(last, last - first, (last - first) / first * 100) }
         };
-        const label = t => {
-          const intraday = typeof t === 'number' && t % 86400 !== 0;
-          const date = typeof t === 'number' ? new Date(t * 1000) : typeof t === 'string' ? new Date(t + 'T00:00:00Z') : new Date(Date.UTC(t.year, t.month - 1, t.day));
-          return date.toLocaleString('en-US', { ...(intraday ? { hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric' }), timeZone: 'UTC' }) + (intraday && o.symbol ? ' ET' : '');
-        };
-        let shown = null;
+        // Like TradingView: the crosshair's price and time sit on the axes, the hovered bar's values in a legend at the top left.
         chart.subscribeCrosshairMove(p => {
           const d = p.point && p.time !== undefined ? p.seriesData.get(series) : null;
-          if (!d) { plot.classList.remove('hover'); shown = null; return }
-          const v = d.value ?? d.close, x = chart.timeScale().timeToCoordinate(p.time), y = series.priceToCoordinate(v);
-          if (x === null || y === null) return;
-          plot.classList.toggle('still', shown === null); shown = p.time;
-          const rows = d.open !== undefined ? [['Open', d.open], ['High', d.high], ['Low', d.low], ['Close', d.close]] : [[o.name || o.symbol || o.title || 'Value', v]];
-          tip.innerHTML = `<div class="t">${label(p.time)}</div>` + rows.map(([n, x]) => `<div><span class="n">${n}</span> <b>${fmt(x)}</b></div>`).join('');
-          const w = tip.offsetWidth, h = tip.offsetHeight, left = Math.min(Math.max(0, x - w / 2), plot.clientWidth - w), top = y - h - 12 < 0 ? y + 12 : y - h - 12;
-          guide.style.translate = `${x}px 0`; dot.style.translate = `${x}px ${y}px`; tip.style.translate = `${left}px ${top}px`;
+          if (!d) { plot.classList.remove('hover'); return }
+          const rows = d.open !== undefined ? [['O', d.open], ['H', d.high], ['L', d.low], ['C', d.close]] : [[o.name || o.symbol || o.title || 'Value', d.value]];
+          const move = d.open !== undefined ? d.close - d.open : NaN, tone = move >= 0 ? 'vcx-up' : 'vcx-down';
+          legend.innerHTML = rows.map(([n, x]) => `<span class="n">${n}</span> <b>${fmt(x)}</b>`).join('')
+            + (isFinite(move) ? ` <b class="${tone}">${move >= 0 ? '+' : '−'}${fmt(Math.abs(move))} (${(move / d.open * 100).toFixed(2)}%)</b>` : '');
           plot.classList.add('hover');
         });
         if (o.data) set(o.data);
