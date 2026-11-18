@@ -1376,7 +1376,7 @@ struct DiskStrip: View {
             : red.mix(with: blue, by: max((left - 0.10) / 0.15, 0))
         let gb = { (b: UInt64) in String(format: "%.0f", Double(b) / 1_000_000_000) }
         return Block(title: "DISK", tint: tint.opacity(0.45), fill: .black.opacity(0.41),
-                     level: BlockLevel(share: share, tint: tint.opacity(0.42))) {
+                     level: BlockLevel(share: share, tint: tint.opacity(0.42)), bodyGap: 13) {
             EmptyView()
         } trailing: {
             (Text("\(gb(min(free, total))) GB").foregroundColor(tint)
