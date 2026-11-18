@@ -2224,6 +2224,53 @@ enum Render {
             chatting.show(["id": "chart-answer", "type": "agentMessage", "provider": "Claude", "text": "Here it is:\n\n```chart\n" + page + "\n```\n\nAfter."])
             let inChat = shoot(CXView(session: chatting), CGSize(width: 1120, height: 820), "chart-chat.png")
             if abs(inChat.height - inChat.width * 200 / 600 - 16) > 4 { fputs("FAIL: a chart in the transcript takes its page's height (\(inChat))\n", stderr); exit(1) }
+            // Live: the page asks VCX for Nasdaq's quote, which a page of origin null cannot fetch, and gets it again without a new message.
+            let live = ##"<div style="font:13px sans-serif;padding:8px"><b>NVDA</b> <span id="p">…</span> <small id="n">0</small><svg viewBox="0 0 600 160" width="100%"><polyline fill="none" stroke="#16a34a" stroke-width="3" points="0,120 150,90 300,100 450,40 600,60"/></svg></div><script>let n = 0; vcx.live("https://api.nasdaq.com/api/quote/NVDA/info?assetclass=stocks", 5, d => { document.getElementById("p").textContent = d.data.primaryData.lastSalePrice; document.getElementById("n").textContent = ++n })</script>"##
+            let pinning = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-pin-state"))
+            pinning.ready = true; pinning.status = "Ready"
+            pinning.show(["id": "chart-live", "type": "agentMessage", "provider": "Claude", "text": "Pinned, live:\n\n```chart pin\n" + live + "\n```\n\nAfter."])
+            let host = NSHostingView(rootView: CXView(session: pinning))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            func js(_ view: WKWebView, _ script: String) -> Any? {
+                var result: Any?, done = false
+                view.evaluateJavaScript(script) { value, _ in result = value; done = true }
+                while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+                return result
+            }
+            func snap(_ view: WKWebView, _ name: String) {
+                var done = false
+                view.takeSnapshot(with: nil) { image, _ in
+                    if let data = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: data) { try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: directory + "/" + name)) }
+                    done = true
+                }
+                while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            }
+            func webs(_ view: NSView) -> [WKWebView] { (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webs) }
+            RunLoop.main.run(until: Date().addingTimeInterval(13))
+            write(CXView(session: pinning), size: CGSize(width: 1120, height: 820), path: directory + "/chart-pinned.png")
+            if pinning.chartPin.html != live { fputs("FAIL: a block tagged chart pin pins itself\n", stderr); exit(1) }
+            let views = webs(host)
+            if views.count != 2 { fputs("FAIL: a pinned chart is drawn above the transcript beside its block (\(views.count) web views)\n", stderr); exit(1) }
+            for view in views {
+                let price = js(view, "document.getElementById('p').textContent") as? String ?? "", pushes = Int(js(view, "document.getElementById('n').textContent") as? String ?? "") ?? 0
+                if !price.hasPrefix("$") || pushes < 2 { fputs("FAIL: a live chart gets its quote again and again (\(price), \(pushes) pushes)\n", stderr); exit(1) }
+            }
+            let view = views[0]
+            snap(view, "chart-live.png")
+            _ = js(view, "dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 300, clientY: 80 })); 0")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let zoomed = js(view, "vcx.scale") as? Double ?? 1
+            _ = js(view, "dispatchEvent(new MouseEvent('mousedown', { clientX: 300, clientY: 80 })); dispatchEvent(new MouseEvent('mousemove', { clientX: 400, clientY: 80 })); dispatchEvent(new MouseEvent('mouseup')); 0")
+            let panned = js(view, "document.body.style.transform") as? String ?? ""
+            snap(view, "chart-live-zoomed.png")
+            if zoomed < 2 || !panned.contains("scale") { fputs("FAIL: the wheel zooms a chart and a drag pans it (\(zoomed), \(panned))\n", stderr); exit(1) }
+            _ = js(view, "dispatchEvent(new MouseEvent('dblclick')); 0")
+            if js(view, "vcx.scale") as? Double != 1 { fputs("FAIL: a double-click resets the zoom\n", stderr); exit(1) }
+            pinning.chartPin.toggle(live)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            if pinning.chartPin.html != nil || webs(host).count != 1 { fputs("FAIL: the pin button unpins the chart\n", stderr); exit(1) }
+            window.close()
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }
         for open in [false, true] {

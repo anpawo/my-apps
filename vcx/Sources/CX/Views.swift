@@ -391,6 +391,7 @@ struct CXView: View {
         .onChange(of: session.editorHeight) { FreezeTrace.shape(of: session) }
         .environment(session.find)
         .environment(\.openChart) { session.chart = $0 }
+        .environment(session.chartPin)
         .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
         .onExitCommand {
             guard !session.frontendReplacing else { return }
@@ -512,6 +513,16 @@ struct CXView: View {
     }
 
     private var transcript: some View {
+        VStack(spacing: 0) {
+            if let html = session.chartPin.html {
+                PinnedChart(html: html, pins: session.chartPin).id(html)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            }
+            transcriptTable
+        }.clipped().animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(duration: 0.3), value: session.chartPin.html)
+    }
+
+    private var transcriptTable: some View {
         ZStack(alignment: .bottom) {
             TranscriptTable(session: session, rows: session.rows, revision: session.revision, details: session.details, replacing: session.frontendReplacing,
                             sending: sending, geometry: geometry, reduceMotion: reduceMotion)
@@ -1469,8 +1480,8 @@ struct MarkdownBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(markdownBlocks(text)) { block in
-                if block.code, block.closed, block.language.lowercased() == "chart" {
-                    ChartBlock(html: block.text)
+                if block.code, block.closed, case let tags = block.language.lowercased().split(separator: " "), tags.first == "chart" {
+                    ChartBlock(html: block.text, pin: tags.contains("pin"))
                 } else if block.code {
                     CodeBlock(block: block)
                 } else {

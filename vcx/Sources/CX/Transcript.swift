@@ -289,6 +289,8 @@ final class TranscriptController: NSObject {
             .transformPreference(MessageFrames.self) { $0 = [:] }
             .environmentObject(parent.sending)
             .environment(parent.session.find)
+            .environment(parent.session.chartPin)
+            .environment(\.openChart) { [weak session = parent.session] in session?.chart = $0 }
             .environment(\.findLanded) { [weak self] in self?.landed(key, at: $0) }
             .disabled(parent.replacing)
             .fontDesign(.monospaced)
