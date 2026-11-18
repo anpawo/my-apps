@@ -354,20 +354,25 @@ enum Check {
             let onHere = clickWindow.convertPoint(fromScreen: input.firstRect(forCharacterRange: NSRange(location: 20, length: 1), actualRange: nil).origin)
             func optionDrag(_ point: NSPoint, upAt end: NSPoint? = nil, escape: Bool = false) {
                 func mouse(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent { NSEvent.mouseEvent(with: type, location: at, modifierFlags: .option, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)! }
-                // A queued event for this never-shown window comes back shifted (y 10 read -790): post it pre-shifted.
-                NSApp.postEvent(mouse(.leftMouseDragged, .zero), atStart: false)
-                let shift = clickWindow.nextEvent(matching: .leftMouseDragged)!.locationInWindow
-                if let end { NSApp.postEvent(mouse(.leftMouseDragged, NSPoint(x: end.x - shift.x, y: end.y - shift.y)), atStart: false) }
-                if escape { NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!, atStart: false) }
-                NSApp.postEvent(mouse(.leftMouseUp, end ?? point), atStart: false)
-                clickWindow.sendEvent(mouse(.leftMouseDown, point))
+                // A queued event for this never-shown window comes back shifted (y 10 read -790 once, 0 on 18/11): post it pre-shifted,
+                // and drag again when the shift moved meanwhile (1 drag in about 300 missed its words).
+                func shift() -> NSPoint { NSApp.postEvent(mouse(.leftMouseDragged, .zero), atStart: false); return clickWindow.nextEvent(matching: .leftMouseDragged)!.locationInWindow }
+                for _ in 0..<3 {
+                    let before = shift()
+                    if let end { NSApp.postEvent(mouse(.leftMouseDragged, NSPoint(x: end.x - before.x, y: end.y - before.y)), atStart: false) }
+                    if escape { NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!, atStart: false) }
+                    NSApp.postEvent(mouse(.leftMouseUp, end ?? point), atStart: false)
+                    clickWindow.sendEvent(mouse(.leftMouseDown, point))
+                    if shift() == before { return }
+                }
             }
             optionDrag(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
             check(defined.last == "ephemeral" && input.selectedRange() == NSRange(location: 9, length: 9), "an option-click selects the word under it and asks to define it")
             optionDrag(NSPoint(x: onWord.x + 2, y: onWord.y + 6), upAt: NSPoint(x: onHere.x + 2, y: onHere.y + 6))
             check(defined.last == "ephemeral here", "an option-drag asks about every word it covers")
+            let asked = defined.count
             optionDrag(NSPoint(x: onWord.x + 2, y: onWord.y + 6), upAt: NSPoint(x: onHere.x + 2, y: onHere.y + 6), escape: true)
-            check(defined.count == 3, "Escape during an option-drag asks nothing")
+            check(defined.count == asked, "Escape during an option-drag asks nothing")
             func flags(_ modifiers: NSEvent.ModifierFlags) { clickWindow.sendEvent(NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 59)!) }
             func move(_ point: NSPoint) { clickWindow.sendEvent(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: .option, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!) }
             flags(.option)
@@ -375,7 +380,7 @@ enum Check {
             move(NSPoint(x: onHere.x + 2, y: onHere.y + 6))
             check(input.selectedRange() == NSRange(location: 19, length: 4), "with Option held, the selection follows the hovered word")
             move(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
-            check(input.selectedRange() == NSRange(location: 9, length: 9) && defined.count == 3, "hovering another word moves the selection and asks nothing")
+            check(input.selectedRange() == NSRange(location: 9, length: 9) && defined.count == asked, "hovering another word moves the selection and asks nothing")
             flags([])
             check(!clickWindow.acceptsMouseMovedEvents, "releasing Option stops tracking the pointer")
             // The drags left an Option event as NSApp.currentEvent, which later Return checks read as Option-Return.
