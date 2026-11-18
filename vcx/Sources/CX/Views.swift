@@ -1004,11 +1004,12 @@ struct CommandPalette: View {
                 ScrollView {
                     LazyVStack(spacing: 3) {
                         ForEach(Array(session.commandOptions.enumerated()), id: \.element.id) { index, command in
+                            if index > 0, command.detail.isEmpty { Divider().overlay(.black.opacity(0.03)).padding(.horizontal, 10) }
                             Button { session.chooseCommand(command) } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(command.name).font(.system(size: 12, weight: .medium, design: .monospaced)).lineLimit(1)
-                                        Text(command.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).lineLimit(1)
+                                        if !command.detail.isEmpty { Text(command.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).lineLimit(1) }
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                     Text(command.source).font(.system(size: 9, weight: .medium)).foregroundStyle(accent.opacity(0.9)).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.1), in: Capsule())
                                 }.padding(.horizontal, 10).padding(.vertical, 9).background(index == session.commandSelection ? accent.opacity(0.17) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
@@ -1025,7 +1026,7 @@ struct CommandPalette: View {
                 .onChange(of: session.commandQuery, initial: true) { _, _ in
                     if session.commandOptions.indices.contains(session.commandSelection) { proxy.scrollTo(session.commandOptions[session.commandSelection].id, anchor: .center) }
                 }
-            }.frame(height: min(max(CGFloat(session.commandOptions.count) * 51 + 12, 65), maxListHeight))
+            }.frame(height: min(max(session.commandOptions.reduce(12) { $0 + ($1.detail.isEmpty ? 38 : 51) }, 65), maxListHeight))
             Divider().overlay(.black.opacity(0.03))
             HStack {
                 Keycap("↑"); Keycap("↓"); Text("navigate").padding(.trailing, 6); Keycap("↩"); Text("select").padding(.trailing, 6); Keycap("⇥"); Text("complete")

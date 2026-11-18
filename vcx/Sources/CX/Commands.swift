@@ -143,7 +143,7 @@ extension Session {
                 }
             case "/login": choices = ["claude", "codex", "cancel"].map { option($0, $0 == "cancel" ? "Cancel sign-in" : "Sign in with subscription") }
             case "/qwen": choices = ["url ", "proxy ", "model "].map { option($0, "Enter the value after this setting") }
-            case "/resume": choices = recent.map { option($0.id, "Resume conversation", label: $0.title) }
+            case "/resume": choices = recent.map { option($0.id, "", label: $0.title) }
             default: return []
             }
             return choices.filter { argument.isEmpty || $0.name.lowercased().contains(argument) || $0.insert.lowercased().contains(query.lowercased()) }
