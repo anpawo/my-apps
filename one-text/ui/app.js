@@ -679,6 +679,14 @@ const videoIO = new IntersectionObserver(es => es.forEach(({ isIntersecting, tar
     })
     .catch(() => v.parentElement.replaceWith(Object.assign(document.createElement('div'), { className: 'bubble note', textContent: 'Video could not load' })));
 }), { rootMargin: '400px' });
+// Each video and voice row holds its whole file as a blob URL: freed once the row leaves the thread.
+new MutationObserver(ms => ms.forEach(m => m.removedNodes.forEach(n => {
+  if (n.nodeType !== 1 || n.isConnected) return;
+  for (const el of [n, ...n.querySelectorAll('video, .bubble.voice')]) {
+    const src = el.tagName === 'VIDEO' ? el.src : el._audio?.src;
+    if (src?.startsWith('blob:')) URL.revokeObjectURL(src);
+  }
+}))).observe($('#thread'), { childList: true, subtree: true });
 const voiceIO = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && (voiceIO.unobserve(e.target), voiceLoad(e.target))), { rootMargin: '400px' });
 $('#thread').addEventListener('click', async e => {
   const v = e.target.closest('.bubble.voice');
@@ -903,7 +911,7 @@ function msgNodes(m, prev) {
       for (const p of parts.slice(0, -1)) document.querySelector(`#thread .msg[data-id="${CSS.escape(p.id)}"] .reacts`)?.remove();
       row.querySelector('.col').insertAdjacentHTML('beforeend', reactsHTML(parts.find(x => x.reactions?.length) || m));
     }
-    row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${e}">${e}</button>`).join('')}<button class="all" title="All emoji">${PLUS}</button></div>`);
+    row.insertAdjacentHTML('beforeend', `<div class="quick">${topEmoji().map(e => `<button data-e="${esc(e)}">${esc(e)}</button>`).join('')}<button class="all" title="All emoji">${PLUS}</button></div>`);
   }
   row.insertAdjacentHTML('beforeend', `<span class="at">${new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>`);
   nodes.push(row);
@@ -1185,7 +1193,7 @@ async function openPicker(row) {
   const draw = async () => {
     const q = field.value.trim();
     const list = q ? (await emojiFind(q)).map(([e]) => e) : [...new Set([...topEmoji(), ...Object.keys(reactCount), ...(EMOJI ||= await fetch('emoji.json').then(r => r.json())).map(([e]) => e)])];
-    grid.innerHTML = list.map(e => `<button data-e="${e}">${e}</button>`).join('') || '<div class="none">No emoji by that name</div>';
+    grid.innerHTML = list.map(e => `<button data-e="${esc(e)}">${esc(e)}</button>`).join('') || '<div class="none">No emoji by that name</div>';
     grid.scrollTop = 0;
   };
   field.value = '';
@@ -1515,7 +1523,7 @@ async function send() {
 
 // Shows the message at once, faded, then sends it to the chosen app; `upload` (a voice message) goes to Beeper first.
 async function post(m, upload, from) {
-  const chat = state.target.chat;
+  const chat = state.target.chat, to = state.cur;
   const reply = state.reply?.chatID === chat.id ? state.reply.id : undefined;
   setReply(null);
   Object.assign(m, { id: 'pending-' + Date.now(), linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' });
@@ -1533,7 +1541,7 @@ async function post(m, upload, from) {
   try {
     const attachment = upload && (await upload());
     await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text: m.text, attachment, replyToMessageID: reply });
-    markRead(state.cur);
+    markRead(state.byId.get(to.id) || to);
     setTimeout(pollThread, 600);
   } catch (e) {
     row.classList.remove('pending');
