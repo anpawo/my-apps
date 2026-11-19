@@ -87,6 +87,9 @@ final class Tap {
         switch event.getIntegerValueField(.keyboardEventKeycode) {
         case 51: return .backspace
         case 36, 76: return .char("\r")
+        // ← and → alone move the caret a letter: the line can still be followed. With ⇧ or ⌥ they select or jump.
+        case 123 where event.flags.isDisjoint(with: [.maskShift, .maskAlternate]): return .left
+        case 124 where event.flags.isDisjoint(with: [.maskShift, .maskAlternate]): return .right
         default: break
         }
         var length = 0

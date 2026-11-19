@@ -8,6 +8,8 @@ struct Mine: Codable {
     var fixes: [String: Int] = [:]
     /// When each fix was last taken back (seconds since 1970): it is held off ten minutes from then.
     var refusedAt: [String: Double] = [:]
+    /// Typos he put right by hand, going back with the arrows: typed → what he meant → times.
+    var taught: [String: [String: Int]] = [:]
 
     init() {}
     // A file from before `fixes` lacks the key, and the synthesized decoder would refuse it whole.
@@ -17,6 +19,7 @@ struct Mine: Codable {
         rejected = try c.decodeIfPresent([String: Int].self, forKey: .rejected) ?? [:]
         fixes = try c.decodeIfPresent([String: Int].self, forKey: .fixes) ?? [:]
         refusedAt = try c.decodeIfPresent([String: Double].self, forKey: .refusedAt) ?? [:]
+        taught = try c.decodeIfPresent([String: [String: Int]].self, forKey: .taught) ?? [:]
     }
 }
 
@@ -148,6 +151,11 @@ final class Words {
               // An accent French has not: another language (já, aí).
               typed.lowercased().allSatisfy({ $0.isASCII || "àâäçéèêëîïôöùûüÿœæ’".contains($0) }) else { return nil }
         let lower = typed.lowercased().replacingOccurrences(of: "’", with: "'")
+        if let (meant, n) = mine.taught[lower]?.max(by: { $0.value < $1.value }),
+           n > mine.rejected[lower + "\t" + meant] ?? 0, !refused(lower + "\t" + meant) {
+            let spelled = Self.cased(capital[meant] ?? meant, like: typed)
+            return spelled == typed ? nil : spelled
+        }
         let chars = Array(typed)
         if entries[lower] == nil, let cut = chars.firstIndex(where: { $0 == "'" || $0 == "’" }) {
             // Typed with its apostrophe: an elision has only its word to fix (j'etais), and an
@@ -176,7 +184,7 @@ final class Words {
             // Taken back: held off ten minutes, then a little weaker for each time it was.
             let pair = lower + "\t" + key
             guard !refused(pair), frenchAccents(key) else { return }
-            let weaker = score * pow(Self.refusalWeight, Double(mine.rejected[pair] ?? 0))
+            let weaker = score * pow(Self.refusalWeight, refusals(pair))
             scores[key] = max(scores[key] ?? 0, weaker)
         }
         for key in byBase[base] ?? [] where key != lower {
@@ -328,7 +336,7 @@ final class Words {
         scores = scores.compactMap { x, y, score in
             let keys = [la + " " + lb + "\t" + x + " " + y] + (x == la ? [lb + "\t" + y] : [])
             guard !keys.contains(where: refused) else { return nil }
-            return (x, y, score * pow(Self.refusalWeight, Double(keys.reduce(0) { $0 + (mine.rejected[$1] ?? 0) })))
+            return (x, y, score * pow(Self.refusalWeight, keys.reduce(0) { $0 + refusals($1) }))
         }
         scores.sort { $0.2 > $1.2 }
         guard let best = scores.first, best.2 >= Self.agreeBar, scores.count < 2 || best.2 >= 3 * scores[1].2 else { return nil }
@@ -496,6 +504,39 @@ final class Words {
     private func refused(_ key: String) -> Bool {
         guard let at = mine.refusedAt[key] else { return false }
         return Date().timeIntervalSince1970 - at < Self.refusalHold
+    }
+
+    /// Times a fix was taken back, less the times he let it stand: one he keeps is right again.
+    private func refusals(_ pair: String) -> Double {
+        Double(max(0, (mine.rejected[pair] ?? 0) - (mine.fixes[pair] ?? 0)))
+    }
+
+    /// He went back with the arrows and made `old` into `new` by hand. `typed`: what he had
+    /// typed, when `old` was a fix: the fix was wrong. Otherwise `old` was a typo it left, unless
+    /// it is a word (he reworded).
+    func revise(_ old: String, _ new: String, typed: String?) {
+        let o = old.lowercased(), n = new.lowercased()
+        guard o != n else { return }
+        if let typed {
+            let t = typed.lowercased()
+            unlearn(o, typed: t)
+            reject(t, o)
+            learn(n)
+            teach(t, n)
+        } else if !isWord(o), !known(o), isWord(n) || known(n) || mine.counts[n] != nil {
+            unlearn(o, typed: nil)
+            learn(n)
+            teach(o, n)
+        }
+    }
+
+    /// A typo to put right next time, not a word with other accents: which one fits is the
+    /// context's call (verifie: vérifie or vérifié).
+    private func teach(_ typed: String, _ meant: String) {
+        guard !isWord(typed), !known(typed), Self.fold(typed) != Self.fold(meant), abs(typed.count - meant.count) <= 2,
+              !meant.contains(" ") else { return }
+        mine.taught[typed, default: [:]][meant, default: 0] += 1
+        dirty = true
     }
 
     func reject(_ typed: String, _ fixed: String, at date: Date = Date()) {

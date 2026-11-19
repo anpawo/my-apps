@@ -145,6 +145,28 @@ enum SelfCheck {
         for c in "res" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .edit(delete: 2, type: "ès", thenKey: true), "⌫ inside a word follows it")
 
+        var r = Typist(words)
+        _ = r.handle(.focus)
+        for c in "tema is " { _ = r.handle(.char(c)) }
+        for _ in 0..<4 { _ = r.handle(.left) }
+        for _ in 0..<3 { _ = r.handle(.backspace) }
+        for c in "ema" { _ = r.handle(.char(c)) }
+        expect(words.mine.rejected["tema\tteam"], nil, "a word he is changing after ← is not judged yet")
+        _ = r.handle(.right)
+        expect(words.mine.rejected["tema\tteam"], 1, "once he leaves it, a fix he put back by hand counts as taken back")
+        _ = r.handle(.focus)
+        for c in "wnat it " { _ = r.handle(.char(c)) }
+        for _ in 0..<4 { _ = r.handle(.left) }
+        for _ in 0..<3 { _ = r.handle(.backspace) }
+        for c in "ant" { _ = r.handle(.char(c)) }
+        _ = r.handle(.focus)
+        expect(fix("wnat it"), "want it", "a typo it left and he put right by hand is fixed the next time")
+        for c in "helo" { _ = r.handle(.char(c)) }
+        _ = r.handle(.left)
+        _ = r.handle(.char("l"))
+        _ = r.handle(.focus)
+        expect(words.mine.taught["helo"], nil, "a word still being typed teaches nothing")
+
         expect(words.correct("eip", fr: 0.5), "épi", "a word the lexicon lacks scores 0 itself")
         words.reject("eip", "épi")
         expect(words.correct("eip", fr: 0.5), nil, "yet one ⌫ is enough to stop that fix")
@@ -161,6 +183,8 @@ enum SelfCheck {
         expect(words.correct("quil", fr: 0.5), "qu'il", "a sure fix outlives a stray ⌫")
         for _ in 0..<20 { words.reject("quil", "qu'il", at: past) }
         expect(words.correct("quil", fr: 0.5), nil, "but each refusal weighs it a little less")
+        for _ in 0..<20 { words.keep("quil", "qu'il") }
+        expect(words.correct("quil", fr: 0.5), "qu'il", "and each time he keeps it weighs it back")
 
         for _ in 0..<200 { words.learn("ca") }
         expect([words.mine.counts["ca"] == nil ? "" : "counted", fix("ca va")], ["", "ça va"],

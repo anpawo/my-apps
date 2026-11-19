@@ -52,7 +52,9 @@ defaults write com.mr.autocorrect skip -array-add <bundle id> && launchctl kicks
 
 `~/Library/Application Support/autocorrect/learned.json`, readable by you alone: how often you kept each
 word, the fixes you took back with ⌫, and the ones you let stand. A word you kept is never fixed as a typo
-again, a fix you took back waits ten minutes and weighs a little less after, and among close spellings the one you use wins.
+again, a fix you took back waits ten minutes and weighs a little less after (each time you let it stand weighs it
+back), and among close spellings the one you use wins. It follows ← and → too: a fix you go back to and undo by
+hand counts as taken back, and a typo it left that you put right that way is fixed the next time (`ehat` → `what`).
 
 Once a day it has Claude (`~/.local/bin/claude -p`, Opus, no tools) read what it learned since the last
 time and take the mistakes out: a typo you left, which then counts as your word; a fix you let stand and put
