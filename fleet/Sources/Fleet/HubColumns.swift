@@ -397,6 +397,8 @@ struct HubColumn<Content: View>: View {
         if let badgeText {
             badgeText
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .titleGround()
         } else if let cornerLabel {
             Text(cornerLabel)
