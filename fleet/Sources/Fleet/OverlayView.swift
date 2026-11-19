@@ -87,16 +87,12 @@ struct OverlayView: View {
     /// start read as a delay (asked 2026-11-09).
     static let fold: Animation = .easeOut(duration: 0.25)
 
-    /// The leftover width goes to the two edges, equally.
-    private static let edgeWeight = 2
-
     /// What the eye sees between any two blocks, across and down — the one margin on the
     /// panel, asked for on 2026-09-27.
     static let frameGap: CGFloat = 25
 
-    /// Between a side column and the fleet: the side frame reaches 13pt past its column, the
-    /// fleet's 26pt past its grid.
-    private static let innerGap: CGFloat = frameGap + 13 + fleetSpread
+    /// What a side column's frame reaches past it toward the fleet, plus the fleet's toward it.
+    private static let innerReach: CGFloat = blockSpread + fleetSpread
 
     /// How far the fleet's frame reaches past its grid either side: a tile's hover glow
     /// reaches 22pt, and a frame inside that is a line the cards wipe over.
@@ -173,11 +169,12 @@ struct OverlayView: View {
         .onTapGesture { controller.hidePanel() }
     }
 
-    /// Flexible space of a given weight. Adjacent `Spacer`s in an HStack split the slack
-    /// equally, so three of them are half again as wide as two — which is the only way to say
-    /// "flex-grow" in SwiftUI.
-    @ViewBuilder private func gap(_ weight: Int) -> some View {
-        ForEach(0 ..< weight, id: \.self) { _ in Spacer(minLength: 8) }
+    /// One of the four gaps across, screen edge to side frame and side frame to the fleet's:
+    /// what the frames reach past their content is fixed, and the `Spacer`s split the slack
+    /// equally, so the eye sees the same space at all four (asked 2026-11-20).
+    @ViewBuilder private func gap(reach: CGFloat) -> some View {
+        Color.clear.frame(width: reach)
+        Spacer(minLength: 0)
     }
 
     /// A ScrollView claims hit-testing across its whole area, so taps landing in the gaps
@@ -197,11 +194,11 @@ struct OverlayView: View {
     /// The whole panel below the header, across: one column of every side block, folded to
     /// its heading but the one under the pointer, then the fleet (asked 2026-11-09).
     ///
-    /// The two are fixed and `frameGap` apart; the two edges carry all of the flex. The column
+    /// The blocks are fixed; the four gaps across carry the flex equally, see `gap`. The column
     /// vanishes on a machine with no key in the Keychain, and the grid re-centres.
     private func board(scrolling: Bool) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            gap(Self.edgeWeight)
+            gap(reach: Self.blockSpread)
             if controller.hub.isConfigured {
                 // Left (asked 2026-11-10): the memory standing on top, the spending under it.
                 let held = controller.commandHeld
@@ -213,7 +210,7 @@ struct OverlayView: View {
                                 open: sideOpen == "spending")
                         .onHover { side("spending", $0) }
                 }
-                Spacer(minLength: 0).frame(width: Self.innerGap)
+                gap(reach: Self.innerReach)
             }
             // A wall for layout: a geometry reader's own size never depends on what is in it,
             // which keeps a grid re-laid at each frame of a fold from re-running the board
@@ -244,7 +241,7 @@ struct OverlayView: View {
             if controller.hub.isConfigured {
                 let hub = controller.hub
                 let held = controller.commandHeld
-                Spacer(minLength: 0).frame(width: Self.innerGap)
+                gap(reach: Self.innerReach)
                 sideColumn(keys: ["mail", "todo"] + controller.plugins.blocks.map(\.id)) {
                     EmptyView()
                 } blocks: { free in
@@ -267,7 +264,7 @@ struct OverlayView: View {
                                   })
                 }
             }
-            gap(Self.edgeWeight)
+            gap(reach: Self.blockSpread)
         }
         .frame(maxWidth: .infinity)
         // Room for the glow on the top row — the ScrollView clips to its bounds, and the
