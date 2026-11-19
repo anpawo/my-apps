@@ -178,7 +178,10 @@ final class RuntimeServer {
             if entries[sessionID] === entry { entries[sessionID] = nil }
             throw error
         }
-        guard !stopped, peers[peer.channel.id] === peer, entry.attachment == attachment else { throw RuntimeFault(code: "superseded", message: "This attachment was superseded or disconnected.") }
+        guard !stopped, peers[peer.channel.id] === peer, entry.attachment == attachment else {
+            if !stopped, entry.backend == nil, entry.attachment == attachment { releaseUnclaimed(entry, backend, attachment) }
+            throw RuntimeFault(code: "superseded", message: "This attachment was superseded or disconnected.")
+        }
         let nextLease = UUID().uuidString
         let snapshot: JSON = ["sessionId": entry.id, "lease": nextLease, "revision": entry.revision, "state": backend.snapshot(), "lastSequence": entry.lastSequence]
         guard try JSONSerialization.data(withJSONObject: ["id": id, "result": snapshot]).count <= RuntimeChannel.maximumFrame else {
@@ -191,6 +194,18 @@ final class RuntimeServer {
         entry.writer = peer.channel; entry.lease = nextLease
         // Enqueue the snapshot before yielding so no update can overtake attachment.
         try reply(id, peer, snapshot)
+    }
+
+    // Its frontend left while the session started, before saving the window file a later frontend would find it by:
+    // unless an attach claims it within the grace, it closes, ending its agent and releasing its conversation.
+    private func releaseUnclaimed(_ entry: Entry, _ backend: any RuntimeBackend, _ attachment: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.idleGrace * 1_000_000_000))
+            guard let self, !stopped, entries[entry.id] === entry, entry.backend == nil, entry.attachment == attachment else { return }
+            entries[entry.id] = nil
+            backend.close()
+            checkEmpty()
+        }
     }
 
     private func bind(_ backend: any RuntimeBackend, _ entry: Entry) {
