@@ -1237,6 +1237,8 @@ async function loadOlder() {
       const o = state.older[c.id];
       const cursor = o?.cursor || state.msgs.find(m => m.chatID === c.id)?.sortKey;
       const r = await api('GET', `/v1/chats/${enc(c.id)}/messages` + (cursor ? `?cursor=${enc(cursor)}&direction=before` : ''));
+      // A page that lands after another conversation opened belongs to neither.
+      if (seq !== state.seq) return;
       const items = (r.items || []).map(m => ({ ...m, net: netOf(c) }));
       state.older[c.id] = { cursor: r.oldestCursor || items.at(-1)?.sortKey, more: !!r.hasMore && items.length > 0, oldest: items.reduce((t, m) => (m.timestamp < t ? m.timestamp : t), o?.oldest || '9') };
       state.pool.push(...items);
