@@ -186,7 +186,18 @@ final class RuntimeSwap {
             do {
                 sessions.append((id, session["revision"] as? Int ?? 0, session["lastSequence"] as? Int ?? 0, try SessionBackend(adopting: state)))
                 carried += (((state["connection"] as? JSON)?["agent"] as? JSON)?["leftover"] as? String).flatMap { Data(base64Encoded: $0) }?.count ?? 0
-            } catch { swapLog("VCX live update: session %@ was not adopted: %@", id, error.localizedDescription) }
+            } catch {
+                swapLog("VCX live update: session %@ was not adopted: %@", id, error.localizedDescription)
+                // execv kept its agent's pipes for this image alone: closed and signalled, the agent ends instead of
+                // running on, unread, as long as the worker lives.
+                if let agent = (state["connection"] as? JSON)?["agent"] as? JSON {
+                    for key in ["input", "output"] { if let fd = agent[key] as? Int, fd > 2 { close(Int32(fd)) } }
+                    if let raw = agent["pid"] as? Int, let pid = pid_t(exactly: raw), pid > 1 {
+                        kill(pid, SIGTERM)
+                        DispatchQueue.global().async { var status: Int32 = 0; waitpid(pid, &status, 0) }
+                    }
+                }
+            }
         }
         try server.adopt(listener: Int32(listener), lock: Int32(lock), closedIDs: manifest["closedIDs"] as? [String] ?? [], sessions: sessions)
         swapLog("VCX live update: adopted %d sessions on build %@, carrying %d unparsed bytes", sessions.count, RuntimeIdentity.build, carried)
