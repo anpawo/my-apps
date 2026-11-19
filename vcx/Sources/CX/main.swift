@@ -9,6 +9,7 @@ struct LaunchOptions {
     var runtimeID: String?
     var socketPath: String?
     var recoveryEntry: RuntimeRecovery.Entry?
+    var detached = false
     init(_ args: [String]) throws {
         var i = 0, words: [String] = []
         while i < args.count {
@@ -128,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     guard let cwd = entry["cwd"] as? String, let id = entry["sessionId"] as? String, UUID(uuidString: id) != nil,
                           let socket = entry["socket"] as? String else { throw CXError(message: "Invalid window restore entry.") }
                     var launch = try LaunchOptions(["--cwd", cwd])
-                    launch.runtimeID = id; launch.socketPath = socket
+                    launch.runtimeID = id; launch.socketPath = socket; launch.detached = entry["detached"] as? Bool == true
                     createWindow(launch, state: entry["windowState"] as? JSON ?? [:])
                 }
                 if !headless {
@@ -213,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             do { try await client.connect(resume: options.resume, prompt: options.prompt) }
             catch {
-                if restoring != nil { swapLog("VCX frontend replacement could not attach: %@", error.localizedDescription); exit(1) }
+                if restoring != nil, !options.detached { swapLog("VCX frontend replacement could not attach: %@", error.localizedDescription); exit(1) }
                 session.notice(error.localizedDescription); session.status = error.localizedDescription
             }
             window.title = "\(session.folder) · Vibe Code X"
@@ -294,13 +295,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 var entries: [JSON] = []
                 // Front to back, so the replacement can put the window he was on back in front.
                 let order = NSApp.orderedWindows
+                for entry in windows {
+                    guard let runtime = entry.session.runtimeClient else { continue }
+                    await runtime.settle()
+                    if !runtime.isAttached { try? await runtime.reclaim() }
+                }
                 for entry in windows { entry.session.runtimeClient?.holdReconnect = true }
                 for entry in windows.sorted(by: { (order.firstIndex(of: $0.window) ?? .max) < (order.firstIndex(of: $1.window) ?? .max) }) {
                     entry.session.frontendReplacing = true
                     guard let runtime = entry.session.runtimeClient else { continue }
                     let state = RuntimeUpdate.state(window: entry.window, session: entry.session)
-                    try await runtime.checkpointWindow(state)
-                    entries.append(["cwd": entry.session.cwd, "sessionId": runtime.sessionID, "socket": runtime.socketPath, "windowState": state, "windowNumber": entry.window.windowNumber])
+                    // A window whose worker stays away moves over detached, as it stands here, instead of
+                    // failing the update for every window; its window file keeps what it had.
+                    let detached = !runtime.isAttached
+                    if detached { try? await runtime.checkpointWindow(state) } else { try await runtime.checkpointWindow(state) }
+                    entries.append(["cwd": entry.session.cwd, "sessionId": runtime.sessionID, "socket": runtime.socketPath, "windowState": state, "windowNumber": entry.window.windowNumber, "detached": detached])
                 }
                 let file = try RuntimeUpdate.writeTicket(["windows": entries], suffix: ".restore.json")
                 handoffFile = file

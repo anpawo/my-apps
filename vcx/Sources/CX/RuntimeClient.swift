@@ -95,6 +95,12 @@ final class RuntimeClient {
         try await task.value
     }
 
+    // Lets a connect or reconnect in flight end before a handover judges the window detached.
+    func settle() async {
+        if let connectTask { _ = try? await connectTask.value }
+        if let reconnectTask { await reconnectTask.value }
+    }
+
     func reclaim() async throws {
         guard !closed else { throw CXError(message: "This frontend is closed.") }
         superseded = false

@@ -89,12 +89,12 @@ enum FrontendCheck {
             held.close(); session.close()
         }
 
-        for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "moving", "success", "close"] {
+        for mode in ["launch-failure", "preflight-failure", "partial", "stubborn", "moving", "detached", "success", "close"] {
             let frontend = AppDelegate()
             frontends.append(frontend)
             frontend.headless = true
             frontend.replacementBinary = mode == "preflight-failure" ? URL(fileURLWithPath: "/usr/bin/false") : RuntimeIdentity.executable
-            frontend.replacementTimeout = ["partial", "stubborn"].contains(mode) ? 1.5 : 8
+            frontend.replacementTimeout = ["partial", "stubborn"].contains(mode) ? 1.5 : mode == "detached" ? 15 : 8
             NSApp.delegate = frontend
             frontend.observeFrontendEvents()
             for index in 0..<2 {
@@ -122,6 +122,14 @@ enum FrontendCheck {
                 try check(!entry.session.follow.attached && entry.session.details, "empty restoration overwrote viewport edits")
                 try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: entry.window, session: entry.session))
                 try check(!entry.window.isVisible, "verification displayed a window")
+            }
+            if mode == "detached" {
+                // Its worker gone for good: the update must carry the healthy window over, not fail for every window.
+                try FileManager.default.moveItem(atPath: sockets[1], toPath: sockets[1] + ".gone")
+                old[1].session.runtimeClient?.holdReconnect = true
+                old[1].session.runtimeClient?.dropConnectionForCheck()
+                try await wait { old[1].session.runtimeClient?.isAttached == false }
+                old[1].session.runtimeClient?.holdReconnect = false
             }
             if mode == "close" {
                 let menu = NSMenu(), appMenu = NSMenu()
@@ -159,7 +167,7 @@ enum FrontendCheck {
                     }
                     let candidate = Process()
                     candidate.executableURL = RuntimeIdentity.executable
-                    candidate.arguments = ["--frontend-handoff-fixture", ticket.path, mode == "moving" ? "success" : mode]
+                    candidate.arguments = ["--frontend-handoff-fixture", ticket.path, ["moving", "detached"].contains(mode) ? "success" : mode]
                     if mode == "stubborn" {
                         candidate.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
                         candidate.arguments = ["-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
@@ -173,7 +181,8 @@ enum FrontendCheck {
             frontend.replaceFrontend()
             guard let task = frontend.replacementTask else { throw CXError(message: "Frontend replacement did not start.") }
             await task.value
-            if mode == "success" || mode == "moving" {
+            if mode == "detached" { try FileManager.default.moveItem(atPath: sockets[1] + ".gone", toPath: sockets[1]) }
+            if ["success", "moving", "detached"].contains(mode) {
                 try check(frontend.windows.isEmpty, "acknowledged old windows were not retired")
                 try check(candidates.last?.isRunning == true, "replacement exited after attachment")
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
@@ -185,6 +194,8 @@ enum FrontendCheck {
                 try check(restored.count == 2, "replacement lost a window")
                 for index in 0..<2 {
                     guard let record = restored.first(where: { $0["sessionId"] as? String == ids[index] }) else { throw CXError(message: "Replacement session identity changed.") }
+                    // Its worker gone, it comes over detached, as it stood in the old frontend.
+                    if mode == "detached", index == 1 { continue }
                     let state = record["state"] as? JSON ?? [:]
                     let draft = record["draft"] as? [JSON] ?? []
                     try check(draft.first?["text"] as? String == "handoff draft \(index)", "replacement lost draft text")
