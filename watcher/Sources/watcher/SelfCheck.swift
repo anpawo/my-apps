@@ -66,8 +66,8 @@ enum SelfCheck {
         inbox(expect, headless: headless)
         glass(expect)
         let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: Date())! }
-        expect(Hourly.slot(before: at(14, 5)), at(13, 10), "hourly: at 14:05 the slot owed is 13:10")
-        expect(Hourly.slot(before: at(14, 10)), at(14, 10), "hourly: at 14:10 it is 14:10")
+        expect(Hourly.slot(before: at(14, 5)), at(14, 3), "check: at 14:05 the slot owed is 14:03")
+        expect(Hourly.slot(before: at(14, 6)), at(14, 6), "check: at 14:06 it is 14:06")
         if headless { expect(NSApplication.shared.windows.allSatisfy { !$0.isVisible }, true, "headless checks never display a window") }
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures

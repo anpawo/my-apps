@@ -1,6 +1,7 @@
 import Foundation
 
-/// The checker's hourly look for awaited answers (`checker.mjs check`, at :10), run by Watcher since 2026-10-30. As a
+/// The checker's look for awaited answers (`checker.mjs check`, every 3 minutes since 19/11/2026: "un check par heure
+/// c'est pas suffisant"), run by Watcher since 2026-10-30. As a
 /// LaunchAgent of its own it was a second row in Login Items beside Watcher's: macOS nests an app's agents under its
 /// row only for an app signed with a Team ID, and Watcher has none.
 ///
@@ -18,12 +19,11 @@ enum Hourly {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in MainActor.assumeIsolated { tick() } }
     }
 
-    /// The last :10 at or before `now`.
+    static let every: TimeInterval = 180
+
+    /// The last 3-minute mark at or before `now`.
     static func slot(before now: Date) -> Date {
-        var parts = Calendar.current.dateComponents([.year, .month, .day, .hour], from: now)
-        parts.minute = 10
-        let slot = Calendar.current.date(from: parts)!
-        return slot <= now ? slot : slot.addingTimeInterval(-3600)
+        Date(timeIntervalSince1970: (now.timeIntervalSince1970 / every).rounded(.down) * every)
     }
 
     /// `checker.mjs sweep`, every minute: a new mail sends the checks it concerns to `check` at once.
@@ -45,8 +45,8 @@ enum Hourly {
         sweep()
         let now = Date()
         let done = (try? log.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-        // Ten minutes between two starts: a run that dies before writing its line must not start again every minute.
-        guard !running, done < slot(before: now), now.timeIntervalSince(started) > 600 else { return }
+        // One slot between two starts: a run that dies before writing its line must not start again every minute.
+        guard !running, done < slot(before: now), now.timeIntervalSince(started) >= every - 5 else { return }
         running = true
         started = now
         let task = Process()
@@ -58,7 +58,7 @@ enum Hourly {
         task.terminationHandler = { _ in DispatchQueue.main.async { MainActor.assumeIsolated { running = false } } }
         do { try task.run() } catch {
             running = false
-            NSLog("%@", "watcher: could not start the hourly check — \(error)")
+            NSLog("%@", "watcher: could not start the check — \(error)")
         }
     }
 }
