@@ -979,6 +979,18 @@ const gone = await page.evaluate(() => {
 });
 check(JSON.stringify(gone) === '[true,"see you at 8","Deleted",true]', `a deleted message keeps its text, marked Deleted (${JSON.stringify(gone)})`);
 
+// A network whose read never answers leaves the others drawn within 3 s; its messages come with a later poll.
+await page.evaluate(() => select('grp-2'));
+await page.evaluate(() => (window.__held = new Set(['wa-lea'])));
+await page.click('#people .row:has-text("Lea Martin")');
+await page.waitForTimeout(3000);
+const heldOpen = await page.$$eval('#thread .msg', ms => ms.map(msgText));
+await page.evaluate(() => window.__held.clear());
+await page.waitForTimeout(3500);
+const heldLater = await page.$$eval('#thread .msg', ms => ms.map(msgText));
+check(heldOpen.includes('see you at 8 then') && !heldOpen.includes('the usual place') && heldLater.includes('the usual place'),
+  `a held read does not blank the thread (${heldOpen.length} then ${heldLater.length} messages)`);
+
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');

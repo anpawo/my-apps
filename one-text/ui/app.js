@@ -818,9 +818,11 @@ async function select(id) {
 
 // Bridges post "X was invited", "X joined the chat" as messages with no type: the app they come from shows none.
 const shownMsg = m => !m.isHidden && !!m.type;
+// A read Beeper's server is slow to answer can wait up to its 30 s deadline: the others are drawn after 2.5 s and the held one comes in with a later poll, instead of a blank thread until it answers.
 async function loadMessages(item) {
-  const pages = await Promise.all(item.chats.map(c =>
-    api('GET', `/v1/chats/${enc(c.id)}/messages`).then(r => (r.items || []).map(m => ({ ...m, net: netOf(c) }))).catch(() => [])));
+  const pages = await Promise.all(item.chats.map(c => Promise.race([
+    api('GET', `/v1/chats/${enc(c.id)}/messages`).then(r => (r.items || []).map(m => ({ ...m, net: netOf(c) }))).catch(() => []),
+    new Promise(r => setTimeout(r, 2500, []))])));
   return keepMine(pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10));
 }
 // Beeper lists a reaction sent from here only seconds later: until it does (30 s at most), the poll's copy keeps mine.

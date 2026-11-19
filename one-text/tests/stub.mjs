@@ -82,6 +82,7 @@ export const stub = () => {
       const id = m && decodeURIComponent(m[1]);
       if (args.method === 'GET' && m) {
         const before = new URLSearchParams(query).get('cursor');
+        if (!before && window.__held?.has(id)) await new Promise(() => {});
         const all = [...msgs[id]].reverse().filter(x => !before || Number(x.sortKey) < Number(before));
         const items = all.slice(0, window.__page || 20);
         return { items, hasMore: all.length > items.length, oldestCursor: items.at(-1)?.sortKey };
