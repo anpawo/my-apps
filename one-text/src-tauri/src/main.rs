@@ -35,7 +35,7 @@ fn read_target() -> Option<(String, String)> {
 
 fn beeper(overrides: PathBuf) -> Beeper {
     let hashes = fs::read_to_string(overrides.with_file_name("pictures.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::new(), overrides, unread: Default::default(), hashes: Mutex::new(hashes), hashing: AtomicBool::new(false) }
+    Beeper { target: Mutex::new(read_target()), nudged: Mutex::new(None), http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).build().unwrap_or_default(), overrides, unread: Default::default(), hashes: Mutex::new(hashes), hashing: AtomicBool::new(false) }
 }
 
 impl Beeper {
@@ -66,7 +66,13 @@ impl Beeper {
     async fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
         let (base, token) = self.target()?;
         let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+        // Only reads get a deadline: a stalled one otherwise holds the list's refresh forever. A POST can be a long
+        // voice or video upload, so it keeps none.
+        let read = method == reqwest::Method::GET;
         let mut req = self.http.request(method, format!("{base}{path}")).bearer_auth(&token);
+        if read {
+            req = req.timeout(Duration::from_secs(30));
+        }
         if let Some(body) = body {
             req = req.json(&body);
         }
