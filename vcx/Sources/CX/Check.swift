@@ -2253,6 +2253,8 @@ enum Render {
                     window.isReleasedWhenClosed = false; window.contentView = host
                     RunLoop.main.run(until: Date().addingTimeInterval(2))
                     guard let view = web(host), let transcript = scroller(host) else { fputs("FAIL: a chart block in a scroll view draws a web view\n", stderr); exit(1) }
+                    // wheels sent with no pause after the first draw never moved the transcript (19/11); 0.2 s more and they do
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                     for _ in 0..<12 { view.scrollWheel(with: wheel(-200)); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
                     let down = run(view, "[scrollY, document.documentElement.scrollHeight - innerHeight].join(' ')") as? String ?? ""
                     let numbers = down.split(separator: " ").compactMap { Double($0) }, moved = transcript.contentView.bounds.origin.y
