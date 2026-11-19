@@ -2066,7 +2066,8 @@ enum Check {
             }
             await transitions.connect(resume: nil)
             transitions.draft = draftA
-            transitionDelay = 100_000_000
+            // With 100 ms, the serialized check below failed 6 of 196 auto-update installs, retries of the same commit passing; BugCheck holds starts 1 s too.
+            transitionDelay = 1_000_000_000
         }
         let typedWhileConnecting = NSMutableAttributedString(string: "Typed while connecting ")
         typedWhileConnecting.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
@@ -2080,7 +2081,7 @@ enum Check {
                 let source = operation == "failed-directory" ? "/dir " + nextDirectory.path : "/resume " + secondID
                 transitions.showCommands(source, preserveDraft: false); transitions.commandQuery = nil
                 let pendingTransition = Task { await transitions.command(source) }
-                for _ in 0..<100 where !transitions.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
+                for _ in 0..<500 where !transitions.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 check(transitions.changing, "connection startup keeps transitions serialized")
                 let connection = transitions.rpc
