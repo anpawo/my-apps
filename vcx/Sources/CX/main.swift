@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var replacementBinary = RuntimeUpdate.installed.appendingPathComponent("Contents/MacOS/VCX")
     var replacementLaunch: ((URL) async throws -> FrontendReplacementProcess)?
     var replacementTimeout: Double = 15
+    var terminationReply: ((Bool) -> Void)?
     private(set) var replacementTask: Task<Void, Never>?
     private var updating = false
     private var terminating = false
@@ -450,16 +451,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let busy = windows.compactMap { entry in runningWork(entry.session).map { "\(entry.session.folder): \($0)" } }
         if !headless, !busy.isEmpty, closeAlert("Quit Vibe Code X?", busy.joined(separator: "\n"), button: "Quit").runModal() != .alertFirstButtonReturn { return .terminateCancel }
         Task {
+            var ended: [NSWindow] = []
             do {
                 for entry in windows {
                     entry.session.frontendReplacing = true
-                    try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: entry.window, session: entry.session))
-                    _ = try await entry.session.runtimeClient?.perform("close")
+                    do {
+                        try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: entry.window, session: entry.session))
+                        _ = try await entry.session.runtimeClient?.perform("close")
+                    } catch let error where entry.session.runtimeClient.map({ !$0.isAttached }) ?? false {
+                        // As its own close: a dead worker can neither save nor close, and its window does not hold up quit.
+                        if let client = entry.session.runtimeClient { try? RuntimeRecovery.requestClose(sessionID: client.sessionID) }
+                        NSLog("VCX quit past a window whose runtime is gone: %@", error.localizedDescription)
+                    }
+                    ended.append(entry.window)
                 }
-                terminating = true; sender.reply(toApplicationShouldTerminate: true)
+                terminating = true; (terminationReply ?? sender.reply(toApplicationShouldTerminate:))(true)
             } catch {
+                // Their sessions already ended: those windows go, the others stay open.
+                for window in ended { closing.insert(ObjectIdentifier(window)); window.close() }
                 for entry in windows { entry.session.frontendReplacing = false; entry.session.notice("Cannot quit before saving drafts: " + error.localizedDescription) }
-                sender.reply(toApplicationShouldTerminate: false)
+                (terminationReply ?? sender.reply(toApplicationShouldTerminate:))(false)
             }
         }
         return .terminateLater

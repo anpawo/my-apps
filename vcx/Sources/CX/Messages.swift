@@ -128,8 +128,9 @@ enum AgentMessages {
             }
             guard session.ready, !session.busy, !session.changing else { waiting = true; continue }
             try? FileManager.default.removeItem(at: file)
-            // A generation no draft has, so his half-typed draft in that window stays where it is.
-            Task { await session.send(text: text, images: [], commandHandled: true, expectedDraft: NSAttributedString(), expectedGeneration: -1) }
+            // A generation no draft has, so his half-typed draft in that window stays where it is; a send that fails puts
+            // the message back in that draft, its ticket being gone.
+            Task { await session.send(text: text, images: [], commandHandled: true, expectedDraft: NSAttributedString(string: text), expectedGeneration: -1) }
         }
         guard waiting, !retrying else { return }
         retrying = true

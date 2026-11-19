@@ -40,7 +40,7 @@ enum FrontendCheck {
             }
             throw CXError(message: "Frontend handoff fixture timed out.")
         }
-        for index in 0..<2 {
+        for index in 0..<4 {
             let folder = directory.appendingPathComponent("session-\(index)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             guard mkfifo(folder.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create handoff fixture gate.") }
@@ -225,6 +225,39 @@ enum FrontendCheck {
                 candidate.terminate()
                 await Task.detached { candidate.waitUntilExit() }.value
             }
+        }
+        do {
+            let frontend = AppDelegate()
+            frontends.append(frontend)
+            frontend.headless = true
+            NSApp.delegate = frontend
+            for index in 2..<4 {
+                var options = try LaunchOptions(["--cwd", directory.appendingPathComponent("session-\(index)").path])
+                options.runtimeID = ids[index]; options.socketPath = sockets[index]
+                frontend.createWindow(options)
+            }
+            try await wait { frontend.windows.count == 2 && frontend.windows.allSatisfy { $0.session.ready } }
+            guard let live = frontend.windows.first(where: { $0.session.runtimeClient?.sessionID == ids[2] }),
+                  let gone = frontend.windows.first(where: { $0.session.runtimeClient?.sessionID == ids[3] }) else { throw CXError(message: "Quit fixture windows are missing.") }
+            // A peer message whose turn fails lands in the target's draft: its ticket is already gone.
+            try Data().write(to: directory.appendingPathComponent("session-2/fail-turn"))
+            let message = "claude from [fixture]: \"peer handoff message\""
+            _ = try RuntimeUpdate.writeTicket(["sessionId": ids[2], "text": message, "sentAt": Date().timeIntervalSince1970], suffix: AgentMessages.suffix)
+            AgentMessages.drain(frontend.windows)
+            for _ in 0..<500 where draftContent(live.session.draft).first?["text"] as? String != message { try await Task.sleep(nanoseconds: 10_000_000) }
+            try check(draftContent(live.session.draft).first?["text"] as? String == message, "a peer message whose turn failed was lost")
+            // Quit with one window's worker gone: that window cannot save, as its own close, and quit goes on.
+            try FileManager.default.moveItem(atPath: sockets[3], toPath: sockets[3] + ".gone")
+            gone.session.runtimeClient?.holdReconnect = true
+            gone.session.runtimeClient?.dropConnectionForCheck()
+            try await wait { gone.session.runtimeClient?.isAttached == false }
+            gone.session.runtimeClient?.holdReconnect = false
+            var replied: Bool?
+            frontend.terminationReply = { replied = $0 }
+            try check(frontend.applicationShouldTerminate(NSApp) == .terminateLater, "quit did not save the windows first")
+            for _ in 0..<500 where replied == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+            try check(replied == true, "a window whose runtime is gone refused quit")
+            try FileManager.default.moveItem(atPath: sockets[3] + ".gone", toPath: sockets[3])
         }
         for worker in workers where worker.isRunning {
             worker.terminate(); await Task.detached { worker.waitUntilExit() }.value

@@ -96,6 +96,9 @@ for line in sys.stdin:
     elif method == 'model/list':
         result = {'data': [{'id': 'fixture-model', 'defaultReasoningEffort': 'high', 'supportedReasoningEfforts': [{'reasoningEffort': 'high'}]}]}
     elif method == 'turn/start':
+        if (directory / 'fail-turn').exists():
+            send({'id': message['id'], 'error': {'code': -32000, 'message': 'fixture turn failure'}})
+            continue
         turns += 1
         record('turns.json', {'count': turns})
         result = {'turn': {'id': 'runtime-fixture-turn'}}
