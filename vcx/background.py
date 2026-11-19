@@ -407,6 +407,7 @@ class Runner:
     def turn(self, content):
         args = self.args
         failures = []
+        owner = args.provider if args.provider in ('claude', 'codex') else 'codex' if args.codex else 'claude'
         for account in candidates(self.prefs, args, self.account):
             provider = account['provider']
             # Restricted file tools have no equivalent in the other command-line engines.
@@ -417,7 +418,7 @@ class Runner:
                 failures.append('qwen: this task requires web verification')
                 continue
             prior = self.context()
-            same = not args.no_session_persistence and (self.account == account['id'] or self.account is None and (provider == ('codex' if args.codex else 'claude')))
+            same = not args.no_session_persistence and (self.account == account['id'] or self.account is None and provider == owner)
             resume = self.backend if same else None
             task = list(content)
             self.activity = []
