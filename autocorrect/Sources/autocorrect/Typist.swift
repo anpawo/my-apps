@@ -68,9 +68,11 @@ struct Typist {
             return .pass
         case .backspace:
             if let u = last {
+                word = []; tail = []; clean = false; prev = nil
+                // A period or comma he takes off: the fix it made stays.
+                if wasEarly { return .pass }
                 words.reject(u.typed, u.fixed)
                 kept = (u.typed, nil)
-                word = []; tail = []; clean = true; prev = nil
                 return .edit(delete: u.delete, type: u.type, thenKey: false)
             }
             kept = nil
@@ -153,7 +155,9 @@ struct Typist {
         let same = zip(zip(shown, typed), fixed).prefix { $0.0 == $1 && $0.1 == $1 }.count
         let shownTail = String(shown.dropFirst(same)) + punctuation, fixedTail = String(fixed.dropFirst(same)) + punctuation
         // After Return the message may be gone (sent): a ⌫ there is not about the word.
-        if c != "\r", c != "\n" { undo = (fixedTail.count + 1, String(typed.dropFirst(same)) + punctuation + String(c), typed, fixed) }
+        // The ⌫ takes the space (or period) too: the word is back with the caret after it, so a space
+        // he types next is not a second one.
+        if c != "\r", c != "\n" { undo = (fixedTail.count + 1, String(typed.dropFirst(same)) + punctuation + (c == " " ? "" : String(c)), typed, fixed) }
         return .edit(delete: shownTail.count, type: fixedTail, thenKey: true)
     }
 

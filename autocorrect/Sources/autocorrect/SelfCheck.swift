@@ -86,6 +86,9 @@ enum SelfCheck {
             ("ses récits et ses demandes", "ses récits et ses demandes", "ses is never made ces"),
             ("j'ai manger une pomme", "j'ai mangé une pomme", "a past participle after avoir"),
             ("je vais mangé", "je vais manger", "an infinitive after aller"),
+            ("il a parler", "il a parlé", "after avoir's a"),
+            ("he is a lancer", "he is a lancer", "not after English a"),
+            ("Their is a cat", "Their is a cat", "a capitalized word is never changed"),
             ("le marché de noël", "le marché de noël", "a noun ending in é stays"),
         ] {
             expect(fix(typed), want, what.isEmpty ? typed : "\(what): \(typed)")
@@ -101,12 +104,14 @@ enum SelfCheck {
         t.clean = true
         for c in "deja" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .edit(delete: 3, type: "éjà", thenKey: true), "space fixes the word, erasing from the first letter that changes")
-        expect(t.handle(.backspace), .edit(delete: 4, type: "eja ", thenKey: false), "⌫ right after puts back what was typed")
+        expect(t.handle(.backspace), .edit(delete: 4, type: "eja", thenKey: false), "⌫ right after puts back what was typed, without the space")
+        expect(t.handle(.char(" ")), .pass, "so a space typed next is the only one")
         for c in "deja" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .pass, "and the same word is then left alone")
         for c in "il et parti" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .edit(delete: 7, type: "st parti", thenKey: true), "the word before is put right once the next one ends")
-        expect(t.handle(.backspace), .edit(delete: 9, type: "t parti ", thenKey: false), "and ⌫ puts both back")
+        expect(t.handle(.backspace), .edit(delete: 9, type: "t parti", thenKey: false), "and ⌫ puts both back")
+        _ = t.handle(.char(" "))
         _ = t.handle(.reset)
         for c in "tres" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(" ")), .pass, "a word begun after an arrow is never fixed")
@@ -122,9 +127,13 @@ enum SelfCheck {
         expect(t.handle(.backspace), .pass, "but a ⌫ after Return does not take it back")
         for c in " apres" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(".")), .edit(delete: 2, type: "ès", thenKey: true), "a period fixes the word at once, as a space does")
-        expect(t.handle(.backspace), .edit(delete: 3, type: "es.", thenKey: false), "and ⌫ takes it back with the period")
+        expect(t.handle(.backspace), .pass, "and ⌫ takes off the period alone, the fix kept")
+        expect(words.mine.rejected["apres\taprès"], nil, "nor counted as refused")
         for c in " tres" { _ = t.handle(.char(c)) }
         expect(t.handle(.char(",")), .edit(delete: 2, type: "ès", thenKey: true), "so does a comma")
+        expect(t.handle(.backspace), .pass, "⌫ after it takes off the comma alone")
+        for c in " tres" { _ = t.handle(.char(c)) }
+        _ = t.handle(.char(","))
         expect(t.handle(.char(" ")), .pass, "and the space after it fixes nothing more")
         for c in "tres" { _ = t.handle(.char(c)) }
         _ = t.handle(.char("."))
@@ -144,6 +153,11 @@ enum SelfCheck {
         words.reject("eip", "épi")
         let past = Date() - Words.refusalHold - 60
         words.reject("quil", "qu'il", at: past)
+        words.reject("et parti", "est parti")
+        expect(fix("il et parti"), "il et parti", "a pair put right and taken back is held off")
+        words.reject("et parti", "est parti", at: past)
+        expect(fix("il et parti"), "il est parti", "for ten minutes, as a word is")
+
         expect(words.correct("quil", fr: 0.5), "qu'il", "a sure fix outlives a stray ⌫")
         for _ in 0..<20 { words.reject("quil", "qu'il", at: past) }
         expect(words.correct("quil", fr: 0.5), nil, "but each refusal weighs it a little less")

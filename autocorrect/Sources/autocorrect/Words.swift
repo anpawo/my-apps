@@ -264,7 +264,7 @@ final class Words {
               b.first!.isLowercase, !a.dropFirst().contains(where: \.isUppercase),
               (mine.counts[la] ?? 0) <= 1, mine.counts[b] == nil, !isWord(la), !isWord(b), !known(la), !known(b),
               isWord(joined), known(joined), !Self.rude.contains(joined),
-              mine.rejected[la + " " + b + "\t" + joined] == nil else { return nil }
+              !refused(la + " " + b + "\t" + joined) else { return nil }
         return Self.cased(capital[joined] ?? joined, like: a)
     }
 
@@ -305,7 +305,7 @@ final class Words {
               b.first?.isLowercase == true else { return nil }
         let usable = { (w: String) in self.isWord(w) && self.frenchAccents(w) }
         var scores: [(String, String, Double)] = []
-        for x in Self.confusable[la] ?? [] where usable(x) && pairs[Self.pairKey(x, lb)] != nil {
+        for x in Self.confusable[la] ?? [] where a.first?.isLowercase == true && usable(x) && pairs[Self.pairKey(x, lb)] != nil {
             scores.append((x, lb, context(x, fr: fr, after: pp, own: false) * context(lb, fr: fr, after: x, own: false) / (context(la, fr: fr, after: pp, own: false) * context(lb, fr: fr, after: la, own: false))))
         }
         if lb.count >= 3 {
@@ -314,7 +314,8 @@ final class Words {
             let verb = String(la.split(separator: "'").last ?? ""), stem = lb.hasSuffix("er") || lb.hasSuffix("ez") ? String(lb.dropLast(2))
                 : lb.hasSuffix("é") ? String(lb.dropLast()) : nil
             if let stem, stem.count >= 2 {
-                if Self.participle.contains(verb) { other.append(stem + "é") }
+                // English a (he is a lancer) is not avoir.
+                if Self.participle.contains(verb), verb != "a" || fr > 0.5 { other.append(stem + "é") }
                 if Self.infinitive.contains(verb) { other.append(stem + "er") }
                 if verb == "vous" { other.append(stem + "ez") }
                 other.removeAll { $0 == lb }
@@ -323,10 +324,14 @@ final class Words {
                 scores.append((la, y, context(y, fr: fr, after: la, own: false) / context(lb, fr: fr, after: la, own: false)))
             }
         }
+        // Taken back: held off ten minutes, then a little weaker for each time it was, as in `correct`.
+        scores = scores.compactMap { x, y, score in
+            let keys = [la + " " + lb + "\t" + x + " " + y] + (x == la ? [lb + "\t" + y] : [])
+            guard !keys.contains(where: refused) else { return nil }
+            return (x, y, score * pow(Self.refusalWeight, Double(keys.reduce(0) { $0 + (mine.rejected[$1] ?? 0) })))
+        }
         scores.sort { $0.2 > $1.2 }
-        guard let best = scores.first, best.2 >= Self.agreeBar, scores.count < 2 || best.2 >= 3 * scores[1].2,
-              mine.rejected[la + " " + lb + "\t" + best.0 + " " + best.1] == nil,
-              best.0 != la || mine.rejected[lb + "\t" + best.1] == nil else { return nil }
+        guard let best = scores.first, best.2 >= Self.agreeBar, scores.count < 2 || best.2 >= 3 * scores[1].2 else { return nil }
         let spell = { (w: String, like: String) in
             let s = Self.cased(self.capital[w] ?? w, like: like)
             return like.contains("’") ? s.replacingOccurrences(of: "'", with: "’") : s

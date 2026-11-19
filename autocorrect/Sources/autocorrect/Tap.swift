@@ -44,6 +44,7 @@ final class Tap {
     private func handle(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         let pass = Unmanaged.passUnretained(event)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            NSLog("autocorrect: tap disabled (\(type == .tapDisabledByTimeout ? "timeout" : "user input")), re-enabled")
             if let port { CGEvent.tapEnable(tap: port, enable: true) }
             _ = typist.handle(.reset)
             return pass
@@ -57,8 +58,17 @@ final class Tap {
         }
         if front != app { app = front; _ = typist.handle(.focus) }
         guard let key = Self.key(event) else { return pass }
-        switch typist.handle(key) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let act = typist.handle(key)
+        // Past the tap's timeout macOS has already let the key through: a fix typed now would
+        // erase the wrong characters and type the key a second time (counted  in).
+        let late = DispatchTime.now().uptimeNanoseconds - start > Self.lateNanoseconds
+        switch act {
         case .pass:
+            return pass
+        case .edit where late:
+            NSLog("autocorrect: a fix took over \(Self.lateNanoseconds / 1_000_000) ms, dropped")
+            _ = typist.handle(.reset)
             return pass
         case let .edit(delete, text, thenKey):
             let source = CGEventSource(stateID: .privateState)
@@ -68,6 +78,8 @@ final class Tap {
             return nil
         }
     }
+
+    static let lateNanoseconds: UInt64 = 250_000_000
 
     /// nil for a dead key: it types nothing yet, the next key brings the accented letter.
     private static func key(_ event: CGEvent) -> Typist.Key? {
