@@ -1761,8 +1761,9 @@ final class Session: ObservableObject {
     }
 
     func close() {
-        DiskCleanup.run(cwd, force: true)
+        // A frontend window detaches only (its session lives on in the worker, an update handover too): the worker's own close cleans up.
         if let runtimeClient { runtimeClient.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()); return }
+        DiskCleanup.run(cwd, force: true)
         if busy {
             needsAttention = true; status = "Interrupted"; busy = false
             notice("Work interrupted because the session runtime closed. Send a message to continue.")
