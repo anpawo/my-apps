@@ -97,6 +97,18 @@ case "$1" in
     exec {shlex.quote(str(binary))} "$@"
     ;;
 esac
+# open starts the app in /: a relative folder given here is made absolute from the caller's.
+folder= words=
+for argument in "$@"; do
+  if [ -n "$folder" ]; then
+    case "$argument" in /*|~*) ;; *) argument="$PWD/$argument" ;; esac
+    folder=
+  elif [ -z "$words" ]; then
+    case "$argument" in --cwd|-C) folder=1 ;; --) words=1 ;; esac
+  fi
+  set -- "$@" "$argument"
+  shift
+done
 exec /usr/bin/open -n $background -a {shlex.quote(str(target))} --args --cwd "$PWD" "$@"
 '''
     for launcher in launchers:

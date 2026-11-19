@@ -96,6 +96,32 @@ class NativeInstallTests(unittest.TestCase):
                 self.assertIn('--cwd "$PWD" "$@"', text)
                 subprocess.run(['/bin/sh', '-n', str(commands / name)], check=True)
 
+    def test_relative_cwd_is_resolved_against_the_callers_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+
+            def run(arguments, **kwargs):
+                if arguments[0] == '/usr/bin/ditto':
+                    Path(arguments[2]).mkdir(parents=True)
+
+            with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
+                installer.install()
+            # open starts the app in /, so a relative --cwd must leave the launcher already resolved.
+            opener = home / 'open'
+            opener.write_text('#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done\n')
+            opener.chmod(0o755)
+            launcher = home / 'vcx-launcher'
+            launcher.write_text((home / '.local/bin/vcx').read_text().replace('/usr/bin/open', str(opener)))
+            launcher.chmod(0o755)
+            (home / 'work/sub dir').mkdir(parents=True)
+            for arguments, flag, folder in [(['--cwd', '.'], '--cwd', home / 'work'), (['-C', 'sub dir', 'fix it'], '-C', home / 'work/sub dir'),
+                                            (['--cwd', str(home)], '--cwd', home), (['--cwd', '~'], '--cwd', Path('~')),
+                                            (['fix', '--', '-C', 'x'], '-C', Path('x'))]:
+                with self.subTest(arguments=arguments):
+                    output = subprocess.run([str(launcher)] + arguments, cwd=home / 'work', capture_output=True, text=True, check=True).stdout.splitlines()
+                    given = output[len(output) - output[::-1].index(flag)]
+                    self.assertEqual(os.path.normpath(given), str(folder))
+
     def test_terminal_fallback_bootstraps_a_missing_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
