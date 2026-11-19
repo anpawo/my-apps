@@ -775,7 +775,7 @@ async function select(id) {
   localStorage.lastChat = item.chats[0].id;
   state.target = null;
   setReply(null);
-  input.value = drafts[item.chats[0].id] || '';
+  input.value = draftOf(item) || '';
   autosize();
   if (!find.box.hidden) closeFind();
   openProfile(item);
@@ -1397,12 +1397,14 @@ function chatFor(netKey) {
 }
 
 const input = $('#input');
-// Each conversation's unsent text, by its first chat id, kept across launches.
+// Each conversation's unsent text, kept across launches under one of its chat ids: the newest chat, which changes as
+// they write on another app, so it is looked up under every one.
 const drafts = JSON.parse(localStorage.drafts || '{}');
+const draftOf = item => item.chats.map(c => drafts[c.id]).find(Boolean);
 function keepDraft() {
   if (!state.cur || state.edit) return;
-  const k = state.cur.chats[0].id;
-  if (input.value.trim()) drafts[k] = input.value; else delete drafts[k];
+  state.cur.chats.forEach(c => delete drafts[c.id]);
+  if (input.value.trim()) drafts[state.cur.chats[0].id] = input.value;
   localStorage.drafts = JSON.stringify(drafts);
 }
 function autosize() {
