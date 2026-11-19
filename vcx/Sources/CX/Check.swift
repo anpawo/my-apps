@@ -2374,6 +2374,17 @@ enum Render {
             print("vcx.chart days: \(dates); zoom bars/page scale: \(narrowed)")
             let fed = js(kitView, "days.series.setData(days.series.data().map(r => ({ time: r.time, open: r.value, high: r.value, low: r.value, close: r.value }))); days.series.data().filter(r => isFinite(r.value)).length") as? Int ?? 0
             if fed != 158 { fputs("FAIL: OHLC rows fed to a vcx.chart line's series.setData draw their close (\(fed) of 158)\n", stderr); exit(1) }
+            // Tables and headline cards: data only, no library; a number column aligns right, a tone tints its row, set() redraws.
+            _ = js(kitView, "document.querySelectorAll('.vcx-card').forEach(c => c.remove()); vcx.chart({ kind: 'cards', title: 'Today', data: [{ label: 'Breaks', value: 3, tone: 'red' }, { label: 'Matched', value: 1284, unit: 'trades', tone: 'green' }, { label: 'Pending', value: 0, note: 'since 9:30' }] }).then(c => window.cards = c); vcx.chart({ kind: 'table', title: 'Breaks', data: [{ ticker: 'NVDA', qty: 1200, price: 181.5, side: 'Buy', tone: 'red' }, { ticker: 'AAPL', qty: -300, price: 228.04, side: 'Sell' }] }).then(t => window.table = t); 0")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            let plain = js(kitView, "[document.querySelectorAll('.vcx-tile').length, document.querySelector('.vcx-tile .v').textContent, document.querySelectorAll('.vcx-tile')[1].innerText.replace(/\\s+/g, ' ').trim(), Array.from(document.querySelectorAll('.vcx-table th'), t => t.textContent + (t.className ? '>' : '')).join(','), document.querySelectorAll('.vcx-table tbody tr').length, document.querySelector('.vcx-table tbody tr').className, document.querySelector('.vcx-table tbody td:nth-child(2)').textContent, document.querySelector('.vcx-table tbody td:nth-child(3)').textContent, document.querySelectorAll('.vcx-tile.zero').length].join('|')") as? String ?? ""
+            snap(kitView, "chart-plain.png")
+            if plain != "3|3|Matched 1,284 trades|ticker,qty>,price>,side|2|t-red|1,200|181.50|1" { fputs("FAIL: vcx.chart draws a table and headline cards from data (\(plain))\n", stderr); exit(1) }
+            _ = js(kitView, "cards.set([{ label: 'Breaks', value: 2 }]); table.set([['MSFT', 10]]); 0")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            let redrawn = js(kitView, "[document.querySelectorAll('.vcx-tile').length, document.querySelector('.vcx-tile .v').textContent, document.querySelector('.vcx-tile').className, document.querySelectorAll('.vcx-table th').length, document.querySelector('.vcx-table tbody tr').innerText.replace(/\\s+/g, ' ').trim()].join('|')") as? String ?? ""
+            if redrawn != "1|2|vcx-tile|0|MSFT 10" { fputs("FAIL: set() redraws a table and its cards with new data (\(redrawn))\n", stderr); exit(1) }
+            print("vcx.chart table and cards: \(plain); after set: \(redrawn)")
             kitWindow.close()
         }
         let sent = ["Council seat: domain expert", "Council seat: skeptic", "Council seat: operator"].map { Row("peer", [Item(["id": $0, "type": "peerMessage", "direction": "sent", "name": $0, "text": "Round 2 of the council: review the others.", "status": "completed"])]) }

@@ -197,15 +197,87 @@ private struct ChartWeb: NSViewRepresentable {
     .vcx-days{position:relative;height:22px;overflow:hidden}
     .vcx-days .day{position:absolute;top:5px;border-top:1px solid #d4d4d8;padding-top:2px;text-align:center;font-size:11px;color:#71717a;white-space:nowrap;overflow:hidden}
     .vcx-days .day::before,.vcx-days .day::after{content:'';position:absolute;top:-5px;width:1px;height:5px;background:#d4d4d8}
-    .vcx-days .day::before{left:0}.vcx-days .day::after{right:0}`;
+    .vcx-days .day::before{left:0}.vcx-days .day::after{right:0}
+    .vcx-card+.vcx-card{margin-top:16px}
+    .vcx-card>.vcx-title{margin:0 2px 8px}
+    .vcx-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+    .vcx-table th{font-weight:500;font-size:12px;color:#71717a;text-align:left;padding:6px 10px;border-bottom:1px solid #e4e4e7;white-space:nowrap}
+    .vcx-table td{padding:6px 10px;border-bottom:1px solid #f4f4f5}
+    .vcx-table .num{text-align:right}
+    .vcx-table tbody tr{transition:background-color 150ms ease-out}
+    .vcx-table tbody tr:hover{background:#fafafa}
+    .vcx-tiles{display:flex;flex-wrap:wrap;gap:8px;margin:0}
+    .vcx-tile{min-width:96px;padding:8px 12px;border:1px solid #e4e4e7;border-radius:12px;background:#fff;transition:background-color 300ms ease-out,border-color 300ms ease-out}
+    .vcx-tile dt{font-size:12px;line-height:16px;color:#71717a}
+    .vcx-tile dd{margin:0;font-size:20px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
+    .vcx-tile dd .v{display:inline-block}
+    .vcx-tile.zero dd{color:#a1a1aa}
+    .vcx-tile small{font-size:12px;font-weight:500;color:#71717a}
+    .vcx-tile small.under{display:block;line-height:16px}
+    .t-green{background:#f0fdf4!important;border-color:#bbf7d0}.t-red{background:#fef2f2!important;border-color:#fecaca}
+    .t-orange{background:#fff7ed!important;border-color:#fed7aa}.t-blue{background:#eff6ff!important;border-color:#bfdbfe}`;
+      const text = (v, f) => f ? f(v) : typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 2 }) : v ?? '';
+      // Tables and headline figures need no library. A row or a card may carry a tone (green, red, orange, blue); set(data) redraws
+      // with new data, and a card's figure that changes rises into place (the template base's counter tiles, in VCX's light greys).
+      const plain = (o, card) => {
+        if (o.title) card.append(Object.assign(document.createElement('div'), { className: 'vcx-title', textContent: o.title }));
+        const make = (tag, props) => Object.assign(document.createElement(tag), props);
+        let set;
+        if (o.kind === 'table') {
+          const table = make('table', { className: 'vcx-table' }), head = table.createTHead(), body = table.createTBody();
+          card.append(table);
+          set = rows => {
+            const keyed = rows.find(r => r && !Array.isArray(r));
+            const cols = o.columns || (keyed ? Object.keys(keyed).filter(k => k !== 'tone') : []);
+            const width = cols.length || Math.max(0, ...rows.map(r => r.length));
+            const cell = (r, i) => Array.isArray(r) ? r[i] : r[cols[i]];
+            const num = Array.from({ length: width }, (_, i) => rows.some(r => typeof cell(r, i) === 'number') && rows.every(r => cell(r, i) == null || cell(r, i) === '' || typeof cell(r, i) === 'number'));
+            // A number column shows every figure with as many decimals as its most precise one, two at most.
+            const places = num.map((n, i) => n ? Math.max(0, ...rows.map(r => Math.min(2, (String(cell(r, i) ?? '').split('.')[1] || '').length))) : 0);
+            const fmt = i => (typeof o.format === 'function' ? o.format : o.format?.[cols[i]]) || (num[i] ? v => typeof v === 'number' ? v.toLocaleString('en-US', { minimumFractionDigits: places[i], maximumFractionDigits: places[i] }) : v ?? '' : null);
+            const tr = (tag, values, tone) => {
+              const row = make('tr', { className: tone ? 't-' + tone : '' });
+              row.append(...values.map((v, i) => make(tag, { className: num[i] ? 'num' : '', textContent: tag === 'th' ? v : text(v, fmt(i)) })));
+              return row;
+            };
+            head.replaceChildren(...(o.columns || keyed ? [tr('th', cols)] : []));
+            body.replaceChildren(...rows.map(r => tr('td', Array.from({ length: width }, (_, i) => cell(r, i)), r.tone)));
+          };
+        } else {
+          const box = make('dl', { className: 'vcx-tiles' });
+          card.append(box);
+          const fill = (tile, c) => {
+            tile.className = 'vcx-tile' + (c.tone ? ' t-' + c.tone : '') + (c.value === 0 || c.value === '0' ? ' zero' : '');
+            tile.querySelector('dt').textContent = c.label ?? '';
+            tile.querySelector('.unit').textContent = c.unit ? ' ' + c.unit : '';
+            tile.querySelector('.under').textContent = c.note ?? '';
+            const v = tile.querySelector('.v'), figure = String(text(c.value, o.format));
+            if (v.textContent === figure) return;
+            // The figure is written at once: an animation's end never comes in a page that is not drawn.
+            const old = v.textContent; v.textContent = figure;
+            if (old && !matchMedia('(prefers-reduced-motion: reduce)').matches) v.animate({ transform: ['translateY(40%)', 'none'], opacity: [0, 1] }, { duration: 220, easing: 'ease-out' });
+          };
+          set = items => {
+            items.forEach((c, i) => {
+              let tile = box.children[i];
+              if (!tile) { tile = make('div', { innerHTML: '<dt></dt><dd><span class="v"></span><small class="unit"></small><small class="under"></small></dd>' }); box.append(tile) }
+              fill(tile, c);
+            });
+            while (box.children.length > items.length) box.lastChild.remove();
+          };
+        }
+        set(o.data || []);
+        return { el: card, set };
+      };
       const charts = [];
       vcx.chart = async (o = {}) => {
         // A page that is only this script runs it in the head, before there is a body to draw into.
         if (!document.body) await new Promise(ready => addEventListener('DOMContentLoaded', ready, { once: true }));
         if (!styled) { styled = true; const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style) }
         const card = document.createElement('div'); card.className = 'vcx-card';
-        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="legend"></div></div><div class="vcx-days"></div>';
         ((typeof o.el === 'string' ? document.querySelector(o.el) : o.el) || document.body).appendChild(card);
+        if (o.kind === 'table' || o.kind === 'cards') return plain(o, card);
+        card.innerHTML = '<div class="vcx-head"><span class="vcx-title"></span><span class="vcx-value"></span><span class="vcx-change"></span><span class="vcx-note"></span></div><div class="vcx-plot"><div class="legend"></div></div><div class="vcx-days"></div>';
         const $ = s => card.querySelector(s), plot = $('.vcx-plot'), legend = $('.legend');
         plot.style.height = (o.height || 260) + 'px';
         $('.vcx-title').textContent = o.title ?? o.symbol ?? '';
