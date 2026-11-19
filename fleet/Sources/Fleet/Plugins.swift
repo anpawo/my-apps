@@ -191,18 +191,21 @@ struct PluginColumns: View {
     var expanded: String?
     /// These files' blocks before the others, in this order; the rest by file name.
     var first: [String] = []
-    /// These files' blocks open whatever the pointer does.
+    /// These files' blocks open under ⌘ only — see `OverlayView.expanded`.
     var pinned: Set<String> = []
     var onHover: (String, Bool) -> Void = { _, _ in }
     /// A click on an item that names a session to start.
     var onOpen: (PluginBlock.Launch) -> Void = { _ in }
 
+    private func full(_ block: PluginBlock) -> Bool { expanded == block.id || opened == "plugins" }
+
     var body: some View {
         let rank = { (id: String) in first.firstIndex(of: id) ?? first.count }
         ForEach(store.blocks.enumerated().sorted { (rank($0.1.id), $0.0) < (rank($1.1.id), $1.0) }.map(\.1)) { block in
-            PluginColumn(block: block, store: store, commandHeld: commandHeld, full: expanded == block.id,
+            PluginColumn(block: block, store: store, commandHeld: commandHeld, full: full(block),
                          scrolling: scrolling, limit: limit,
-                         open: opened == block.id || opened == "plugins" || pinned.contains(block.id),
+                         open: pinned.contains(block.id) ? full(block)
+                             : opened == block.id || opened == "plugins",
                          onOpen: onOpen)
                 .onHover { onHover(block.id, $0) }
         }

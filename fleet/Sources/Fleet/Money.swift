@@ -211,7 +211,8 @@ enum Money {
 
     /// The months of an export, newest first, and the day of its newest line. Only a debit is
     /// spending — a credit is not money spent backwards — and not a debit that only moved to
-    /// savings, the PEA at Bourse Direct included: it left the account without being spent.
+    /// savings, the PEA at Bourse Direct included, or to a sender of `invested`, his own broker
+    /// accounts (Trade Republic): it left the account without being spent.
     ///
     /// One credit does count, against a debit: a cover, by the word in its category ("loan
     /// instalment cover"), pays for the kind that category names, in its own month. That
@@ -220,7 +221,7 @@ enum Money {
     /// is not in: the month's figure would otherwise carry an instalment for the weeks its
     /// cover takes to come.
     static func months(csv: String, rules: [Rule] = [], income: [String] = [],
-                       payers: [String] = []) -> (months: [Month], latest: String?) {
+                       payers: [String] = [], invested: [String] = []) -> (months: [Month], latest: String?) {
         var months: [String: Month] = [:]
         var covers: [String: [Kind: Double]] = [:]
         var refunds: [String: Double] = [:], earned: [String: Double] = [:], salaried: Set<String> = []
@@ -234,6 +235,7 @@ enum Money {
             let kind = Kind(category: row[2], bankCode: row.count > 6 ? row[6] : "", merchant: row.count > 3 ? row[3] : "")
             let saving = row[2].localizedCaseInsensitiveContains("saving")
                 || row.dropFirst(3).prefix(2).joined(separator: " ").localizedCaseInsensitiveContains("bourse direct")
+                || row.count > 3 && invested.contains(row[3])
             if saving {
                 continue
             } else if amount > 0 {
@@ -361,7 +363,7 @@ final class MoneyStore: ObservableObject {
     init() { rereadIfWritten() }
 
     func rereadIfWritten() {
-        let files = [file] + ["payback.json", "income.json", "payers.json", "balances.json"]
+        let files = [file] + ["payback.json", "income.json", "payers.json", "balances.json", "invested.json"]
             .map { file.deletingLastPathComponent().appending(path: $0) }
         let dates = files.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
         guard dates != written || dates[0] == nil else { return }
@@ -371,8 +373,11 @@ final class MoneyStore: ObservableObject {
         let income = (try? Data(contentsOf: files[2])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
         // The exact merchant names a payback comes from.
         let payers = (try? Data(contentsOf: files[3])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+        // The exact merchant names a transfer to his own broker accounts goes to.
+        let invested = (try? Data(contentsOf: files[5])).flatMap { try? JSONDecoder().decode([String].self, from: $0) }
         let read = (try? String(contentsOf: file, encoding: .utf8))
-            .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? [], payers: payers ?? []) }
+            .map { Money.months(csv: $0, rules: rules ?? [], income: income ?? [], payers: payers ?? [],
+                                invested: invested ?? []) }
         months = read?.months ?? []
         latest = read?.latest
         balances = (try? Data(contentsOf: files[4]))

@@ -49,9 +49,10 @@ struct OverlayView: View {
         ("--mail-open", "mail"), ("--money-open", "spending"), ("--blocks-open", "plugins"),
         ("--todo-open", "todo"),
     ].first { CommandLine.arguments.contains($0.0) }?.1
-    /// The side block showing its whole list: the one under the pointer when ⌘ goes down, kept
-    /// while ⌘ is held or the pointer stays on it (asked 2026-11-10), so it can be scrolled
-    /// with ⌘ let go. See `settle`. `FLEET_EXPAND=<key>` seeds it for a render.
+    /// The side block showing its whole list: the one under the pointer while ⌘ is down, kept
+    /// with ⌘ let go while the pointer stays on it (asked 2026-11-10), so it can be scrolled.
+    /// MAIL, TODO, S14 and messages are folded to their heading until then (asked 2026-11-19).
+    /// See `settle`. `FLEET_EXPAND=<key>` seeds it for a render.
     @State private var expanded: String? = ProcessInfo.processInfo.environment["FLEET_EXPAND"]
     /// How tall the grid's own area is, measured: the heading above it is laid out, not
     /// arithmetic. See `room`.
@@ -202,26 +203,15 @@ struct OverlayView: View {
         HStack(alignment: .top, spacing: 0) {
             gap(Self.edgeWeight)
             if controller.hub.isConfigured {
-                // Left (asked 2026-11-10): the memory standing on top, the spending under it, then
-                // the mail and the todos, both open.
-                let hub = controller.hub
+                // Left (asked 2026-11-10): the memory standing on top, the spending under it.
                 let held = controller.commandHeld
-                sideColumn(keys: ["spending", "mail", "todo"]) {
+                sideColumn(keys: ["spending"]) {
                     MemoryStrip(reaper: controller.reaper, commandHeld: held)
                     DiskStrip(reaper: controller.reaper, growth: controller.reaper.growth)
                 } blocks: { free in
                     MoneyColumn(store: controller.money, scrolling: !eagerLayout, limit: free,
                                 open: sideOpen == "spending")
                         .onHover { side("spending", $0) }
-                    MailColumn(hub: hub, full: expanded == "mail", scrolling: !eagerLayout,
-                               limit: free, open: true)
-                        .onHover { side("mail", $0) }
-                    TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
-                               scrolling: !eagerLayout, open: true, full: expanded == "todo")
-                        // The whole list only under ⌘: open, it is three picks — see `TodoColumn.listing`.
-                        .frame(maxHeight: !hub.todoEmpty && (expanded == "todo" || hub.composing)
-                               ? .infinity : nil)
-                        .onHover { side("todo", $0) }
                 }
                 Spacer(minLength: 0).frame(width: Self.innerGap)
             }
@@ -249,13 +239,24 @@ struct OverlayView: View {
                             .offset(y: -Self.overLine)
                     }
                 }
-            // Right: S14 and the messages, open (asked 2026-11-10), then any other plugin.
+            // Right: the mail and the todos (asked 2026-11-19), S14 and the messages, then any
+            // other plugin.
             if controller.hub.isConfigured {
+                let hub = controller.hub
                 let held = controller.commandHeld
                 Spacer(minLength: 0).frame(width: Self.innerGap)
-                sideColumn(keys: controller.plugins.blocks.map(\.id)) {
+                sideColumn(keys: ["mail", "todo"] + controller.plugins.blocks.map(\.id)) {
                     EmptyView()
                 } blocks: { free in
+                    MailColumn(hub: hub, full: expanded == "mail", scrolling: !eagerLayout,
+                               limit: free, open: expanded == "mail")
+                        .onHover { side("mail", $0) }
+                    TodoColumn(hub: hub, commandHeld: held, onDismiss: controller.dismiss,
+                               scrolling: !eagerLayout, open: expanded == "todo", full: expanded == "todo")
+                        // The whole list only under ⌘: open, it is three picks — see `TodoColumn.listing`.
+                        .frame(maxHeight: !hub.todoEmpty && (expanded == "todo" || hub.composing)
+                               ? .infinity : nil)
+                        .onHover { side("todo", $0) }
                     PluginColumns(store: controller.plugins, commandHeld: held,
                                   scrolling: !eagerLayout, limit: free, opened: sideOpen, expanded: expanded,
                                   first: ["s14.json", "messages.json"], pinned: ["s14.json", "messages.json"],
@@ -330,8 +331,7 @@ struct OverlayView: View {
         settle()
     }
 
-    /// ⌘ down with nothing expanded expands the block under the pointer; with ⌘ up, the pointer
-    /// off the expanded block folds it back to its brief.
+    /// ⌘ down expands the block under the pointer; the pointer off it folds it back, ⌘ held or not.
     private func settle() {
         let next = Self.expansion(held: controller.commandHeld, expanded: expanded, under: sideOpen)
         guard expanded != next else { return }
@@ -339,7 +339,7 @@ struct OverlayView: View {
     }
 
     static func expansion(held: Bool, expanded: String?, under: String?) -> String? {
-        held ? expanded ?? under : under == expanded ? expanded : nil
+        held || under == expanded ? under : nil
     }
 
     /// The tiles with the prompt bubble immediately under them, as one block. The bubble rides

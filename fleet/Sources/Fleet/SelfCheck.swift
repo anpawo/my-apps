@@ -493,7 +493,8 @@ enum SelfCheck {
         expect(VCX.folder(for: "zz qq nothing here") == NSHomeDirectory() + "/self", true, "todo: no folder named, ~/self")
         expect(VCX.folder(for: "Fix the Fleet panel").hasSuffix("/fleet"), true, "todo: a folder named, that folder")
         expect(OverlayView.expansion(held: true, expanded: nil, under: "mail") == "mail", true, "⌘: expands the block under the pointer")
-        expect(OverlayView.expansion(held: true, expanded: "mail", under: "todo") == "mail", true, "⌘ held: the expanded block stays")
+        expect(OverlayView.expansion(held: true, expanded: "mail", under: "todo") == "todo", true, "⌘ held: the block under the pointer expands")
+        expect(OverlayView.expansion(held: true, expanded: "mail", under: nil) == nil, true, "⌘ held, pointer off: folds back")
         expect(OverlayView.expansion(held: false, expanded: "mail", under: "mail") == "mail", true, "⌘ up: stays while the pointer is on it")
         expect(OverlayView.expansion(held: false, expanded: "mail", under: "todo") == nil, true, "⌘ up, pointer off: folds back")
         expect(OverlayView.expansion(held: false, expanded: nil, under: "mail") == nil, true, "no ⌘: nothing expands")
@@ -524,6 +525,8 @@ enum SelfCheck {
         expect(read.months.last?.spent == [.food: 10], true, "money: a quoted category keeps its comma")
         let ai = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-20.00,Subscriptions & apps,Anthropic* Clau\n2026-11-02,-5.00,Other,Openai *chatgpt\n2026-11-03,-3.00,Subscriptions & apps,Spotify\n2026-11-06,-20.00,Transfers to people,VIREMENT,VIR SEPA BOURSE DIRECT PEA\n")
         expect(ai.months.first?.spent == [.ai: 25, .subscriptions: 3], true, "money: Claude and ChatGPT are AI, by their merchant")
+        let broker = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-9.00,Train,C\n2026-11-18,-3000.00,Transfers to people,Me\n", invested: ["Me"])
+        expect(broker.months.first?.total == 9, true, "money: a transfer to his own broker is invested, not spent")
         let earned = Money.months(csv: "date,amount,category,merchant\n2026-11-01,-1.00,Train,C\n2026-11-02,100.00,Salary,S14\n2026-11-03,30.00,Other income,Mme X\n2026-11-04,5.00,Other income,Y\n", income: ["Mme X"])
         expect(earned.months.first?.earned == 130 && earned.months.first?.salaried == true, true,
                "money: earned is the salary and what an income sender sent")
