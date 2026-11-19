@@ -1530,22 +1530,26 @@ async function send() {
 }
 
 // Shows the message at once, faded, then sends it to the chosen app; `upload` (a voice message) goes to Beeper first.
-async function post(m, upload, from) {
-  const chat = state.target.chat, to = state.cur;
-  const reply = state.reply?.chatID === chat.id ? state.reply.id : undefined;
-  setReply(null);
+// A recording or a pasted picture passes the chat and conversation it was made in: if another is open by then, it is
+// sent without a row there.
+async function post(m, upload, from, chat = state.target.chat, to = state.cur) {
+  const here = to.id === state.cur?.id;
+  const reply = here && state.reply?.chatID === chat.id ? state.reply.id : undefined;
+  if (here) setReply(null);
   Object.assign(m, { id: 'pending-' + Date.now(), linkedMessageID: reply, isSender: true, net: netOf(chat), chatID: chat.id, timestamp: new Date().toISOString(), sortKey: '' });
   const [row] = msgNodes(m, state.msgs[state.msgs.length - 1]).slice(-1);
   row.classList.add('pending');
   row._chat = chat.id;
-  // "Sent" will stand under this one: its place is kept now, the old one folds away.
-  document.querySelectorAll('#thread .receipt').forEach(r => collapse(r, true, 260));
-  row.querySelector('.col').insertAdjacentHTML('beforeend', '<div class="receipt">&nbsp;</div>');
-  $('#thread').append(row);
-  row.hidden = true;
-  collapse(row, false, 300);
-  fly(row.querySelector('.bubble'), from);
-  followEnd(row);
+  if (here) {
+    // "Sent" will stand under this one: its place is kept now, the old one folds away.
+    document.querySelectorAll('#thread .receipt').forEach(r => collapse(r, true, 260));
+    row.querySelector('.col').insertAdjacentHTML('beforeend', '<div class="receipt">&nbsp;</div>');
+    $('#thread').append(row);
+    row.hidden = true;
+    collapse(row, false, 300);
+    fly(row.querySelector('.bubble'), from);
+    followEnd(row);
+  }
   try {
     const attachment = upload && (await upload());
     await api('POST', `/v1/chats/${enc(chat.id)}/messages`, { text: m.text, attachment, replyToMessageID: reply });
@@ -1555,6 +1559,11 @@ async function post(m, upload, from) {
     row.classList.remove('pending');
     row.classList.add('failed');
     row.title = `Not sent: ${e}`;
+    if (to.id !== state.cur?.id) toast(`Not sent to ${to.name}: ${e}`, null, true);
+    // The field and the draft were cleared on send: the text goes back to whichever is still empty.
+    if (!m.text) return;
+    if (to.id === state.cur?.id && !input.value.trim()) { input.value = m.text; autosize(); }
+    else if (!draftOf(to)) { drafts[to.chats[0].id] = m.text; localStorage.drafts = JSON.stringify(drafts); }
   }
 }
 
@@ -1564,6 +1573,8 @@ const rec = { mr: null, chunks: [], t0: 0, timer: 0 };
 async function toggleRecord() {
   if (rec.mr) return stopRecord(true);
   if (!state.target) return;
+  // It goes where it was started, whatever is open when the mic is clicked again.
+  const chat = state.target.chat, to = state.cur;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1572,7 +1583,7 @@ async function toggleRecord() {
   }
   const type = ['audio/mp4', 'audio/webm;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t));
   rec.mr = new MediaRecorder(stream, type ? { mimeType: type } : {});
-  rec.chunks = [];
+  Object.assign(rec, { chunks: [], chat, to });
   rec.mr.ondataavailable = e => e.data.size && rec.chunks.push(e.data);
   rec.mr.start();
   rec.t0 = Date.now();
@@ -1582,16 +1593,16 @@ async function toggleRecord() {
   rec.timer = setInterval(tick, 500);
 }
 function stopRecord(keep) {
-  const mr = rec.mr;
+  const { mr, chat, to } = rec;
   if (!mr) return;
   rec.mr = null;
   clearInterval(rec.timer);
   $('#mic').classList.remove('recording');
-  input.placeholder = `Message on ${NETS[netOf(state.target.chat)].label}`;
+  input.placeholder = state.target ? `Message on ${NETS[netOf(state.target.chat)].label}` : '';
   const secs = (Date.now() - rec.t0) / 1000;
   mr.onstop = () => {
     mr.stream.getTracks().forEach(t => t.stop());
-    if (keep && rec.chunks.length) sendVoice(new Blob(rec.chunks, { type: mr.mimeType.split(';')[0] || 'audio/mp4' }), secs);
+    if (keep && rec.chunks.length) sendVoice(new Blob(rec.chunks, { type: mr.mimeType.split(';')[0] || 'audio/mp4' }), secs, chat, to);
   };
   mr.stop();
 }
@@ -1601,11 +1612,11 @@ async function uploadBlob(blob, fileName) {
   if (!up.uploadID) throw up.error || 'upload failed';
   return up;
 }
-function sendVoice(blob, secs) {
+function sendVoice(blob, secs, chat, to) {
   post({ attachments: [{ type: 'audio', isVoiceNote: true, srcURL: URL.createObjectURL(blob), mimeType: blob.type }] }, async () => {
     const up = await uploadBlob(blob, `voice.${blob.type.includes('webm') ? 'webm' : 'm4a'}`);
     return { uploadID: up.uploadID, type: 'voice-note', duration: up.duration || secs };
-  });
+  }, undefined, chat, to);
 }
 $('#mic').onclick = toggleRecord;
 // A pasted image (a screenshot, a copied picture) is sent at once; the text in the field stays.
@@ -1614,10 +1625,10 @@ input.addEventListener('paste', e => {
   if (!file || !state.target) return;
   e.preventDefault();
   // Decoded off the main thread first: its row then opens at the picture's own height.
-  const from = input.getBoundingClientRect(), img = new Image();
+  const from = input.getBoundingClientRect(), img = new Image(), chat = state.target.chat, to = state.cur;
   img.src = URL.createObjectURL(file);
   img.decode().catch(() => {}).then(() => post({ attachments: [{ type: 'img', srcURL: img.src, mimeType: file.type, size: { width: img.naturalWidth, height: img.naturalHeight } }] },
-    async () => ({ uploadID: (await uploadBlob(file, file.name || `image.${file.type.split('/')[1]}`)).uploadID }), from));
+    async () => ({ uploadID: (await uploadBlob(file, file.name || `image.${file.type.split('/')[1]}`)).uploadID }), from, chat, to));
 });
 addEventListener('keydown', e => { if (e.key === 'Escape' && rec.mr) { e.preventDefault(); stopRecord(false); } }, true);
 
