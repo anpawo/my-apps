@@ -41,7 +41,7 @@ class BackgroundProcessTests(unittest.TestCase):
         launcher.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, str(ROOT / 'background.py')]) + ' "$@"\n')
         launcher.chmod(0o700)
         self.config.mkdir()
-        (self.config / 'settings.json').write_text(json.dumps({'provider': 'codex', 'mode': 'bypass', 'limits': {}, 'accounts': [
+        (self.config / 'settings.json').write_text(json.dumps({'defaultProvider': 'codex', 'mode': 'bypass', 'limits': {}, 'accounts': [
             {'id': 'codex-fixture', 'provider': 'codex'}, {'id': 'claude-fixture', 'provider': 'claude'}]}))
         self.env = dict(os.environ, HOME=str(self.home), VCX_CONFIG_HOME=str(self.config), VCX_STATE_HOME=str(self.state),
                         VCX_FIXTURE_CALLS=str(self.calls), VCX_FIXTURE_READY=str(self.home / 'ready.json'))
