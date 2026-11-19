@@ -1150,6 +1150,8 @@ function showViewer(thumb, video) {
   viewer.replaceChildren(img);
   viewer.hidden = false;
   viewer._thumb = thumb;
+  // Only a reel's blob is the viewer's own; a thread video's or a pasted picture's belongs to its row.
+  viewer._own = video;
   thumb.style.visibility = 'hidden';
   anim(viewer, { opacity: [0, 1] }, 300);
   anim(img, { transform: [fromThumb(thumb, img), 'none'] }, 320);
@@ -1173,11 +1175,11 @@ async function playReel(a) {
 function closeViewer() {
   if (viewer.hidden || viewer._closing) return;
   viewer._closing = true;
-  const thumb = viewer._thumb, img = viewer.firstChild;
+  const thumb = viewer._thumb, img = viewer.firstChild, own = viewer._own;
   const back = thumb.isConnected ? anim(img, { transform: ['none', fromThumb(thumb, img)] }, 260) : anim(img, { opacity: [1, 0] }, 200);
   back.effect.updateTiming({ fill: 'forwards' });
   anim(viewer, { opacity: [1, 0] }, 260).effect.updateTiming({ fill: 'forwards' });
-  back.finished.finally(() => { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
+  back.finished.finally(() => { if (own) URL.revokeObjectURL(own); thumb.style.visibility = ''; viewer.hidden = true; viewer._closing = false; viewer.getAnimations().forEach(a => a.cancel()); });
 }
 viewer.onclick = e => e.target.tagName !== 'VIDEO' && closeViewer();
 addEventListener('keydown', e => { if (e.key === 'Escape' && !viewer.hidden) { e.preventDefault(); e.stopPropagation(); closeViewer(); } }, true);
