@@ -679,10 +679,12 @@ const videoIO = new IntersectionObserver(es => es.forEach(({ isIntersecting, tar
     })
     .catch(() => v.parentElement.replaceWith(Object.assign(document.createElement('div'), { className: 'bubble note', textContent: 'Video could not load' })));
 }), { rootMargin: '400px' });
-// Each video and voice row holds its whole file as a blob URL: freed once the row leaves the thread.
+// Each video and voice row holds its whole file as a blob URL: freed once the row leaves the thread. A voice message's
+// Audio is in no document, so it would play on with no control left: it stops too.
 new MutationObserver(ms => ms.forEach(m => m.removedNodes.forEach(n => {
   if (n.nodeType !== 1 || n.isConnected) return;
   for (const el of [n, ...n.querySelectorAll('video, .bubble.voice')]) {
+    el._audio?.pause();
     const src = el.tagName === 'VIDEO' ? el.src : el._audio?.src;
     if (src?.startsWith('blob:')) URL.revokeObjectURL(src);
   }
