@@ -30,10 +30,83 @@ func conversationSections(_ rows: [Row]) -> [ConversationSection] {
 }
 
 // The last message (the latest thought while working, the answer once done) stays visible; the rest folds into one block.
-func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row]) {
-    var work = rows.filter { !["notice", "peer"].contains($0.kind) }
+func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], debates: [Row]) {
+    var work = rows.filter { !["notice", "peer", "debate"].contains($0.kind) }
     let last = work.lastIndex(where: { $0.kind == "assistant" }).map { work.remove(at: $0) }
-    return (work, last, rows.filter { ["notice", "peer"].contains($0.kind) })
+    return (work, last, rows.filter { ["notice", "peer"].contains($0.kind) }, rows.filter { $0.kind == "debate" })
+}
+
+// A round between models run from this session (stat-critic's ask-codex.sh): its output holds each turn after a `<<debate <speaker> [model]>>` line.
+func isDebate(_ command: String) -> Bool { command.contains("ask-codex.sh") || command.contains("ask-qwen.sh") }
+
+struct DebateTurn { let speaker: String, model: String, text: String }
+
+func debateTurns(_ output: String) -> [DebateTurn] {
+    var turns: [DebateTurn] = [], head: (String, String)?, lines: [String] = []
+    func close() { if let head { turns.append(DebateTurn(speaker: head.0, model: head.1, text: lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))) }; lines = [] }
+    for line in output.components(separatedBy: "\n") {
+        if line.hasPrefix("<<debate "), line.hasSuffix(">>") {
+            close()
+            let words = line.dropFirst(9).dropLast(2).split(separator: " ", maxSplits: 1).map(String.init)
+            head = (words.first?.lowercased() ?? "agent", words.count > 1 ? words[1] : "")
+        } else if head != nil { lines.append(line) }
+    }
+    close(); return turns
+}
+
+func debateColor(_ speaker: String) -> Color {
+    switch speaker {
+    case "claude": return Color(red: 0.78, green: 0.38, blue: 0.22)
+    case "codex": return Color(red: 0.04, green: 0.48, blue: 0.4)
+    case "qwen": return Color(red: 0.2, green: 0.38, blue: 0.82)
+    default: return .black.opacity(0.6)
+    }
+}
+
+extension Session {
+    // Every model that spoke in this conversation's debates, this session's own first; nil when there was none.
+    var debateModels: [String]? {
+        let others = rows.filter { $0.kind == "debate" }.flatMap { $0.items.flatMap { debateTurns($0.output) } }.filter { $0.speaker != "claude" }
+        guard !others.isEmpty else { return nil }
+        var names = [modelLabel]
+        for turn in others { let name = turn.speaker.capitalized + (turn.model.isEmpty ? "" : " " + turn.model); if !names.contains(name) { names.append(name) } }
+        return names
+    }
+}
+
+// The one who writes sits on the right, whoever answers on the left, each in its model's color.
+struct DebateView: View {
+    @ObservedObject var item: Item
+    let ownModel: String
+    var body: some View {
+        let turns = debateTurns(item.output), running = item.data["status"] as? String == "inProgress"
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(turns.enumerated()), id: \.offset) { index, turn in
+                bubble(turn.speaker, turn.speaker == "claude" ? ownModel : turn.speaker.capitalized + (turn.model.isEmpty ? "" : " " + turn.model), right: index == 0) { MarkdownBody(text: turn.text) }
+            }
+            if turns.isEmpty {
+                let to = item.data["command"] as? String ?? ""
+                bubble("claude", ownModel, right: true) {
+                    HStack(spacing: 8) {
+                        if running { ProgressView().controlSize(.small) }
+                        Text(running ? "Asking " + (to.contains("ask-qwen") ? "Qwen" : "Codex") + "…" : item.failed ? "The round failed: " + item.title : item.title).foregroundStyle(.black.opacity(0.6))
+                    }
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func bubble(_ speaker: String, _ name: String, right: Bool, @ViewBuilder content: () -> some View) -> some View {
+        let color = debateColor(speaker)
+        return HStack(spacing: 0) {
+            if right { Spacer(minLength: 60) }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(name).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(color)
+                    .padding(.horizontal, 8).padding(.vertical, 4).background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+                content()
+            }.padding(16).background(color.opacity(0.07), in: RoundedRectangle(cornerRadius: 17))
+            if !right { Spacer(minLength: 60) }
+        }
+    }
 }
 
 struct RoundButton: View {
@@ -624,6 +697,13 @@ struct CXView: View {
             setting("Model", value: session.modelStatusLabel, command: session.modelCommand, color: Color(red: 0.68, green: 0.18, blue: 0.45), loading: session.modelLoading)
             separator
             setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/perms ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
+            if let models = session.debateModels {
+                separator
+                Text("\(models.count) models").font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(debateColor("codex")).lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 5)
+                    .background(debateColor("codex").opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
+                    .help(models.joined(separator: "\n")).accessibilityLabel("\(models.count) models: " + models.joined(separator: ", "))
+            }
         }
     }
     private var usageStatus: some View {
@@ -1084,6 +1164,7 @@ struct ConversationRow: View, Equatable {
             if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible, pinnedIn: pinnedIn, lifted: lifted) }
             else if row.kind == "notice" { NoticeLine(item: item) }
             else if row.kind == "peer" { PeerLine(item: item).background(Color.white) }
+            else if row.kind == "debate" { DebateView(item: item, ownModel: session.modelLabel) }
             else { AssistantBubble(item: item).environment(\.codeEdits, session.codeEdits) }
         }
     }

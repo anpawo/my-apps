@@ -232,6 +232,7 @@ final class TranscriptController: NSObject {
             guard let rows = sections[id]?.rows else { return 100 }
             let parts = sectionParts(rows)
             return (parts.trail.isEmpty ? 0 : 64) + (parts.last.map { 51 + lines($0.items.first?.text ?? "") * 18 } ?? 0) + CGFloat(parts.notices.count) * 40 + 24
+                + parts.debates.reduce(0) { $0 + 80 + lines($1.items.first?.output ?? "") * 18 }
         default: return height(key)
         }
     }
@@ -267,6 +268,7 @@ final class TranscriptController: NSObject {
                 if !parts.trail.isEmpty {
                     WorkBlock(rows: parts.trail, details: on, reveal: { [weak self] in self?.scroll(to: section.question == nil ? key : .question(id), bottom: false, animated: !reduceMotion) }, viewportTop: top)
                 }
+                ForEach(parts.debates) { row in if let item = row.items.first { DebateView(item: item, ownModel: session.modelLabel) } }
                 if let last = parts.last { ConversationRow(row: last, session: session).equatable() }
                 if !sent.isEmpty {
                     WorkBlock(rows: sent, details: on, reveal: { [weak self] in self?.scroll(to: key, bottom: parts.last != nil, animated: !reduceMotion) }, viewportTop: top)

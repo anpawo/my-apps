@@ -589,6 +589,9 @@ final class Session: ObservableObject {
         } else if kind == "peerMessage" {
             group = nil
             rows.insert(Row("peer", [item]), at: unread)
+        } else if kind == "commandExecution", isDebate(data["command"] as? String ?? "") {
+            group = nil
+            rows.insert(Row("debate", [item]), at: unread)
         } else {
             if group == nil {
                 let row = Row("activity", [])
