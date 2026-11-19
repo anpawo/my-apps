@@ -1125,13 +1125,17 @@ struct WorkBlock: View {
     // Transcript rows are hosting views of their own: their hover fires under a sidebar panel drawn over them.
     @MainActor static var covered = false
     @State private var hovering = false
-    @State private var pinned = false
+    @State var pinned = false
     @State private var local: CGFloat = 0
+    @State var allSteps = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func animate(_ change: () -> Void) { withAnimation(reduceMotion ? nil : .smooth(duration: 0.28), change) }
     var body: some View {
         let actions = rows.filter { $0.kind == "activity" }.flatMap(\.items).count, notes = rows.filter { $0.kind == "assistant" }.count, sent = rows.filter { $0.kind == "peer" }.count
         let open = hovering || pinned || details
+        // Open, the block reads as a progress log: each note's short answer (its green line), the steps behind one control.
+        let log = rows.filter { $0.kind == "assistant" }.flatMap { row in row.items.flatMap { answerParagraphs($0.text).filter { $0.hasPrefix("⟶ ") && !$0.hasPrefix("⟶ Next:") } } }
+        let full = allSteps || details || log.isEmpty
         VStack(alignment: .leading, spacing: 0) {
             Button { animate { if pinned { pinned = false; hovering = false } else { pinned = true } } } label: {
                 HStack(spacing: 12) {
@@ -1146,10 +1150,19 @@ struct WorkBlock: View {
             }.buttonStyle(.reactive(Rectangle())).help(pinned ? "Collapse" : "Keep open (hovering the arrow opens it)")
             if open {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(rows) { row in
-                        if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
-                        else if row.kind == "peer", let item = row.items.first { PeerLine(item: item) }
-                        else if let item = row.items.first { WorkNote(item: item) }
+                    if full {
+                        ForEach(rows) { row in
+                            if row.kind == "activity" { ForEach(row.items) { ActionView(item: $0) } }
+                            else if row.kind == "peer", let item = row.items.first { PeerLine(item: item) }
+                            else if let item = row.items.first { WorkNote(item: item) }
+                        }.transition(.opacity)
+                    } else {
+                        ForEach(Array(log.enumerated()), id: \.offset) { ProseView(text: $0.element).opacity(0.6) }.transition(.opacity)
+                    }
+                    if !log.isEmpty, !details {
+                        Button { animate { allSteps.toggle() } } label: {
+                            Text(allSteps ? "Hide steps" : "Show all steps").font(.system(size: 11, weight: .medium)).foregroundStyle(.black.opacity(0.5)).padding(.horizontal, 6).padding(.vertical, 3)
+                        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(allSteps ? "Show only the short answers" : "Show every action and note")
                     }
                 }.padding(14).transition(.opacity)
             }

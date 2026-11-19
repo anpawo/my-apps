@@ -2369,6 +2369,14 @@ enum Render {
         for open in [false, true] {
             write(WorkBlock(rows: sent, details: open).padding(24).background(Color.white), size: CGSize(width: 760, height: open ? 220 : 90), path: directory + "/sent-\(open ? "open" : "closed").png")
         }
+        let trail = [Row("activity", [Item(["id": "w1", "type": "commandExecution", "command": "Wait for the Claude leg", "status": "completed"])]),
+                     Row("assistant", [Item(["id": "n1", "type": "agentMessage", "text": "Waiting for the Claude leg."])]),
+                     Row("assistant", [Item(["id": "n2", "type": "agentMessage", "text": "⟶ The /deep-review skill is written and its first test run is halfway: Codex is still reviewing.\n\n- Testing it on fix/followups.\n\n⟶ Next: nothing needed from you."])]),
+                     Row("activity", [Item(["id": "w2", "type": "commandExecution", "command": "Check Codex leg status", "status": "completed"])]),
+                     Row("assistant", [Item(["id": "n3", "type": "agentMessage", "text": "⟶ Claude's review file is written (2 findings); still waiting on Codex.\n\n⟶ Next: nothing needed from you."])])]
+        for all in [false, true] {
+            write(WorkBlock(rows: trail, details: false, pinned: true, allSteps: all).padding(24).background(Color.white).environment(\.colorScheme, .light), size: CGSize(width: 760, height: all ? 620 : 300), path: directory + "/work-\(all ? "all" : "log").png")
+        }
         let steps = [Item(["id": "s1", "type": "reasoning", "description": "Step 1", "seconds": 42, "status": "completed"]),
                      Item(["id": "c1", "type": "commandExecution", "command": "unzip -l mod.jar | head", "seconds": 1, "exitCode": 0, "status": "completed"]),
                      Item(["id": "s2", "type": "reasoning", "description": "Step 2", "status": "inProgress", "stepStartedAt": Date().timeIntervalSince1970 - 95])]
