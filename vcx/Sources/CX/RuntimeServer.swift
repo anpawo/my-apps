@@ -27,6 +27,7 @@ private struct RuntimeFault: LocalizedError {
 final class RuntimeServer {
     static let maximumSessions = 256
     static let maximumPeers = maximumSessions * 2 + 32
+    static let idleGrace: TimeInterval = 5
     private final class Peer {
         let channel: RuntimeChannel
         var ready = false
@@ -71,6 +72,7 @@ final class RuntimeServer {
     private var closedIDs: Set<String> = []
     private var requestBytes = 0
     private var stopped = false
+    private var idle: Timer?
     var onEmpty: () -> Void = {}
 
     init(socketPath: String, build: String, instanceID: String = UUID().uuidString, makeSession: @escaping (JSON) async throws -> any RuntimeBackend) {
@@ -82,6 +84,7 @@ final class RuntimeServer {
         let listener = RuntimeListener(path: socketPath) { [weak self] channel in self?.accept(channel) }
         try listener.start()
         self.listener = listener
+        retireWhenIdle()
     }
 
     private func accept(_ channel: RuntimeChannel) {
@@ -277,9 +280,20 @@ final class RuntimeServer {
         if entry.closeCompleted, entry.writer == nil { entries[entry.id] = nil }
     }
 
+    private var empty: Bool { !stopped && peers.isEmpty && entries.values.allSatisfy { $0.ended && $0.closeCompleted } }
+
     private func checkEmpty() {
-        guard !stopped, !closedIDs.isEmpty, peers.isEmpty, entries.values.allSatisfy({ $0.ended && $0.closeCompleted }) else { return }
-        onEmpty()
+        guard empty else { return }
+        if closedIDs.isEmpty { retireWhenIdle() } else { onEmpty() }
+    }
+
+    // A worker that never closed a session may be just spawned, just adopted or between a frontend's attach retries:
+    // it retires only once it has stayed without a session and a client for the whole grace period.
+    private func retireWhenIdle() {
+        idle?.invalidate()
+        idle = Timer.scheduledTimer(withTimeInterval: Self.idleGrace, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { if let self, self.empty { self.onEmpty() } }
+        }
     }
 
     private func reply(_ id: String, _ peer: Peer, _ result: JSON) throws { try peer.channel.send(["id": id, "result": result]) }
@@ -332,6 +346,7 @@ final class RuntimeServer {
             bind(backend, entry)
             entries[entry.id] = entry
         }
+        retireWhenIdle()
     }
 
     func stop() {
