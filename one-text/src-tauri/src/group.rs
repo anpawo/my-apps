@@ -324,10 +324,12 @@ pub fn build(chats: &[Value], overrides: &Value) -> Value {
             let faces: Vec<String> = if custom.is_some() { vec![] } else {
                 members.iter().flat_map(|&i| faces(groups[i], &pic_of)).filter(|f| seen.insert(f.clone())).collect()
             };
+            // A rename is saved under the newest room's id, which need not be the root's.
+            let alias = members.iter().find_map(|&i| overrides["names"][id(groups[i])].as_str());
             json!({
                 "id": id(c), "hidden": hidden.contains(&id(c)),
-                "name": overrides["names"][id(c)].as_str().map_or(c["title"].clone(), |n| json!(n)),
-                "original": overrides["names"][id(c)].as_str().and(c["title"].as_str()),
+                "name": alias.map_or(c["title"].clone(), |n| json!(n)),
+                "original": alias.and(c["title"].as_str()),
                 "imgs": custom.or(c["imgURL"].as_str()).into_iter().collect::<Vec<_>>(),
                 "faces": faces,
                 // Its members' names, so a search for someone with no conversation of their own finds the groups they are in.
@@ -512,6 +514,14 @@ mod tests {
         let all = [g("old", "2026-11-10T00:00:00Z"), g("new", "2026-11-12T00:00:00Z")];
         let out = build(&all, &json!({ "groupMerges": [["old", "new"]], "pictures": { "new": "data:mine" } }));
         assert_eq!((&out["groups"][0]["imgs"], &out["groups"][0]["faces"]), (&json!(["data:mine"]), &json!([])));
+    }
+
+    #[test]
+    fn rename_on_a_newer_room_of_a_merged_group() {
+        let g = |i: &str, at: &str| json!({ "id": i, "type": "group", "network": "Matrix", "title": i, "lastActivity": at });
+        let all = [g("old", "2026-11-10T00:00:00Z"), g("new", "2026-11-12T00:00:00Z")];
+        let out = build(&all, &json!({ "groupMerges": [["old", "new"]], "names": { "new": "Team" } }));
+        assert_eq!((&out["groups"][0]["name"], &out["groups"][0]["original"]), (&json!("Team"), &json!("old")));
     }
 
     #[test]
