@@ -230,7 +230,8 @@ final class RuntimeClient {
                 try RuntimeRecovery.remove(sessionID: sessionID)
                 return [:]
             }
-            if action == "close", error is RuntimeResponseError { try? RuntimeRecovery.cancelClose(sessionID: sessionID) }
+            // Every failed close leaves its window open (a dead worker's close marks it again on its own).
+            if action == "close" { try? RuntimeRecovery.cancelClose(sessionID: sessionID) }
             channel?.close(); throw error
         }
     }

@@ -80,6 +80,12 @@ enum FrontendCheck {
             Task { try? await Task.sleep(nanoseconds: 800_000_000); try? FileManager.default.moveItem(atPath: away, toPath: sockets[0]) }
             try await held.reclaim()
             try check(held.isAttached, "a rollback reclaim gave up while the worker moved")
+            // A close that never reached the worker keeps its window open: left marked closing, the window's state stops being saved.
+            held.dropConnectionForCheck()
+            let closed = try? await held.perform("close")
+            try check(closed == nil, "a close on a dropped connection reported success")
+            let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("recovery/" + ids[0] + ".window.json"))) as? JSON
+            try check(saved?["closeRequested"] == nil, "a close that failed before reaching the worker left its window marked closing")
             held.close(); session.close()
         }
 
