@@ -37,9 +37,16 @@ for _ in $(seq 60); do
     lsappinfo info -only bundleid "$(lsappinfo front)" | grep -q com.mr.one-text || break
     sleep 10
 done
+# Copied beside the installed app, then swapped in: a failed copy leaves the old app in place, and with no failed
+# marker the next run retries it.
+new="$app.new" old="$app.old"
+rm -rf "$new" "$old"
+ditto "$bundle" "$new" || { rm -rf "$new"; log "copy failed for ${head:0:7}, retried on the next run"; exit 1; }
 running=$(pgrep -x one-text)
 [ -n "$running" ] && { kill $running; for _ in $(seq 50); do pgrep -x one-text >/dev/null || break; sleep 0.2; done; }
-rm -rf "$app" && ditto "$bundle" "$app" || { echo "$head" > "$state/failed"; log "copy failed for ${head:0:7}"; exit 1; }
+{ [ ! -e "$app" ] || mv "$app" "$old"; } && mv "$new" "$app" || {
+    [ -e "$app" ] || mv "$old" "$app"; [ -n "$running" ] && open -g "$app"; log "swap failed for ${head:0:7}, retried on the next run"; exit 1; }
+rm -rf "$old"
 [ -n "$running" ] && open -g "$app"
 echo "$head" > "$state/installed"; rm -f "$state/failed"; log "installed ${head:0:7}"
 echo $(( $(date +%s) - started )) > "$state/last-duration"
