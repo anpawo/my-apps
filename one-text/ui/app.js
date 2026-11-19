@@ -572,7 +572,21 @@ async function refreshList() {
       // A merge or a split gives the person a new id: follow the chat we had open.
       const first = state.cur.chats[0].id;
       const now = state.byId.get(state.cur.id) || [...state.byId.values()].find(i => i.chats.some(c => c.id === first));
-      if (now) { const changed = now.id !== state.cur.id || now.chats.length !== state.cur.chats.length; state.cur = now; if (changed) drawHeader(); }
+      if (now) {
+        const changed = now.id !== state.cur.id || now.chats.length !== state.cur.chats.length;
+        state.cur = now;
+        if (changed) {
+          // A split takes its chat's messages out of the thread, and the reply target if it was that chat.
+          const ids = new Set(now.chats.map(c => c.id));
+          if (state.msgs.some(m => !ids.has(m.chatID))) {
+            state.msgs = state.msgs.filter(m => ids.has(m.chatID));
+            state.pool = state.pool.filter(m => ids.has(m.chatID));
+            drawThread(false, true);
+          }
+          if (state.target && !ids.has(state.target.chat.id)) pickTarget();
+          drawHeader();
+        }
+      }
     }
     // The open profile follows a merge or a split the same way, showing the apps it now has.
     const shown = !profile.box.hidden && profile.view?.chats && profile.view;
