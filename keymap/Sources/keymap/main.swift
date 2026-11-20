@@ -184,7 +184,14 @@ final class Mods: ObservableObject {
     @Published var hidden = Set((UserDefaults.standard.stringArray(forKey: "hidden") ?? []).compactMap(Kind.init)) {
         didSet { UserDefaults.standard.set(hidden.map(\.rawValue), forKey: "hidden") }
     }
+    // Shortcuts he gives up: shown struck out and counted as free. Until he picks, the menu items few people use.
+    @Published var freed = Set(UserDefaults.standard.stringArray(forKey: "freed") ?? rarelyUsed) {
+        didSet { UserDefaults.standard.set(Array(freed), forKey: "freed") }
+    }
+    func live(_ s: Shortcut) -> Bool { !hidden.contains(s.kind) && !freed.contains(s.mods + s.key) }
 }
+
+let rarelyUsed = ["⌘e", "⌘j", "⌘;", "⇧⌘;", "⌥⌘c", "⌥⌘v", "⌥⌘m", "⇧⌘a", "⇧⌘d", "⇧⌘h", "⇧⌘o"]
 
 struct Keyboard: View {
     @ObservedObject var mods: Mods
@@ -217,7 +224,9 @@ struct Keyboard: View {
             }
             .animation(.easeOut(duration: 0.2), value: mods.shown)
             .animation(.easeOut(duration: 0.2), value: mods.hidden)
-            Text("A key with no modifier held shows how many of its combinations are taken.")
+            .animation(.easeOut(duration: 0.2), value: mods.freed)
+            Text("Click a shortcut to strike it out and count it as free; click again to take it back. "
+                 + "With no modifier held, each key shows how many of its combinations are taken.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(20)
@@ -239,23 +248,29 @@ struct Keyboard: View {
                 .contentShape(Rectangle())
                 .onTapGesture { mods.toggle(Character(key.id)) }
         } else {
-            let hit = byCombo[mods.shown + key.id].flatMap { mods.hidden.contains($0.kind) ? nil : $0 }
-            let count = mods.shown.isEmpty ? shortcuts.filter { $0.key == key.id && !mods.hidden.contains($0.kind) }.count : 0
+            let combo = mods.shown + key.id
+            let hit = byCombo[combo].flatMap { mods.hidden.contains($0.kind) ? nil : $0 }
+            let free = mods.freed.contains(combo)
+            let count = mods.shown.isEmpty ? shortcuts.filter { $0.key == key.id && mods.live($0) }.count : 0
             face(key.cap, hit?.label ?? (count > 0 ? "\(count) taken" : nil),
-                 fill: hit.map { $0.kind.color.opacity(0.22) } ?? .clear, stroke: hit?.kind.color ?? .secondary, bold: false)
+                 fill: hit.map { free ? .clear : $0.kind.color.opacity(0.22) } ?? .clear,
+                 stroke: hit.map { free ? .secondary : $0.kind.color } ?? .secondary, bold: false, struck: free)
                 .frame(width: width, height: height)
-                .help(hit.map { "\(mods.shown)\(key.cap): \($0.label) (\($0.kind.rawValue))" } ?? "")
+                .contentShape(Rectangle())
+                .onTapGesture { if hit != nil { mods.freed.formSymmetricDifference([combo]) } }
+                .help(hit.map { "\(mods.shown)\(key.cap): \($0.label) (\($0.kind.rawValue)). Click: "
+                    + (free ? "take it back" : "count it as free") } ?? "")
         }
     }
 
-    func face(_ cap: String, _ note: String?, fill: Color, stroke: Color, bold: Bool) -> some View {
+    func face(_ cap: String, _ note: String?, fill: Color, stroke: Color, bold: Bool, struck: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: 6).fill(fill)
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(stroke.opacity(0.6)))
             .overlay(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(cap).font(.system(size: 12, weight: bold ? .bold : .medium))
                     if let note {
-                        Text(note).font(.system(size: 10)).lineLimit(3).minimumScaleFactor(0.8)
+                        Text(note).font(.system(size: 10)).strikethrough(struck).lineLimit(3).minimumScaleFactor(0.8)
                             .foregroundStyle(fill == .clear ? .secondary : .primary)
                     }
                 }.padding(5)
@@ -288,6 +303,7 @@ if args.contains("--selftest") {
     let combos = shortcuts.map { $0.mods + $0.key }
     precondition(Set(combos).count == combos.count, "a combination is listed twice")
     precondition(byCombo["⇧⌘3"]?.label == "Screenshot: screen" && byCombo["⌥⇧⌘v"]?.kind == .apps)
+    precondition(rarelyUsed.allSatisfy { byCombo[$0]?.kind == .apps }, "rarelyUsed names a combination not in the menus list")
     let m = Mods(); m.toggle("⌘"); m.toggle("⇧"); m.toggle("⌘")
     precondition(m.shown == "⇧")
     print("selftest ok: \(shortcuts.count) shortcuts")
