@@ -17,7 +17,7 @@ TABLES = {
         "autocorrect": "Fixes the word you just typed, in French and in English.",
         "disk-map": "What fills the disk: every folder and file with its weight in GB.",
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
-        "keymap": "A keyboard showing every shortcut macOS already takes.",
+        "keymap": "A keyboard showing my hotkeys, the ones macOS keeps, and every default.",
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",
         "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
