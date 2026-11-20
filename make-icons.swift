@@ -70,6 +70,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("one-text", oneBubble),
     ("mac-guard", guardedApple),
     ("disk-map", { glyph("square.grid.2x2", box: 470) }),
+    ("keymap", { glyph("keyboard", box: 520) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {

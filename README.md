@@ -21,6 +21,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
 | <img src="disk-map/docs/icon.png" width="40" alt=""> | [disk-map](disk-map) | What fills the disk: every folder and file with its weight in GB. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
+| <img src="keymap/docs/icon.png" width="40" alt=""> | [keymap](keymap) | A keyboard showing every shortcut macOS already takes. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
@@ -41,6 +42,10 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 ### [fleet](fleet)
 
 [![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: four sessions as tiles, portfolio green, atlas red, video-code purple, my-hub blue, beside the MEMORY, DISK, MONEY, MAIL and TODO cards; atlas finishes its turn and turns green, video-code asks a question and turns blue, and esc brings the desktop back](fleet/docs/demo.gif)](fleet)
+
+### [keymap](keymap)
+
+[![Keymap with ⌘ held: Q Quit, W Close window, Space Spotlight, Tab Switch app; 5 to 8 are tabs, \ ' and / are free](keymap/docs/shot.png)](keymap)
 
 ### [mac-guard](mac-guard)
 
