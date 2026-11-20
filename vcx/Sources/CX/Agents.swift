@@ -366,6 +366,8 @@ final class ClaudeConnection: Connection {
             }
             controls[id] = request
             let name = request["tool_name"] as? String ?? "Tool", input = request["input"] as? JSON ?? [:]
+            // Claude still asks in bypass when it cannot parse a command safely; bypass means never ask.
+            if mode == "bypass", name != "AskUserQuestion" { try? respond(id, ["decision": "accept"]); return }
             var params: JSON = ["threadId": thread, "command": input["command"] as? String ?? name + "\n" + pretty(input), "reason": request["decision_reason"] as? String ?? "Claude requests permission for \(name)."]
             let method: String
             if name == "AskUserQuestion" {
