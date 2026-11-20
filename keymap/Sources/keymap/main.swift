@@ -181,6 +181,9 @@ final class Mods: ObservableObject {
     @Published var held = ""
     var shown: String { held.isEmpty ? clicked : held }
     func toggle(_ m: Character) { clicked = modOrder.filter { ($0 == m) != clicked.contains($0) } }
+    @Published var hidden = Set((UserDefaults.standard.stringArray(forKey: "hidden") ?? []).compactMap(Kind.init)) {
+        didSet { UserDefaults.standard.set(hidden.map(\.rawValue), forKey: "hidden") }
+    }
 }
 
 struct Keyboard: View {
@@ -194,7 +197,15 @@ struct Keyboard: View {
                     .font(.title2.weight(.semibold))
                 Spacer()
                 ForEach(Kind.allCases, id: \.self) { kind in
-                    Label { Text(kind.rawValue) } icon: { RoundedRectangle(cornerRadius: 3).fill(kind.color).frame(width: 12, height: 12) }
+                    let on = !mods.hidden.contains(kind)
+                    Button { mods.hidden.formSymmetricDifference([kind]) } label: {
+                        Label { Text(kind.rawValue).strikethrough(!on) } icon: {
+                            RoundedRectangle(cornerRadius: 3).fill(kind.color).frame(width: 12, height: 12)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(on ? 1 : 0.35)
+                    .help(on ? "Hide these shortcuts" : "Show these shortcuts")
                 }
             }
             VStack(alignment: .leading, spacing: gap) {
@@ -205,6 +216,7 @@ struct Keyboard: View {
                 }
             }
             .animation(.easeOut(duration: 0.2), value: mods.shown)
+            .animation(.easeOut(duration: 0.2), value: mods.hidden)
             Text("A key with no modifier held shows how many of its combinations are taken.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -227,8 +239,8 @@ struct Keyboard: View {
                 .contentShape(Rectangle())
                 .onTapGesture { mods.toggle(Character(key.id)) }
         } else {
-            let hit = byCombo[mods.shown + key.id]
-            let count = mods.shown.isEmpty ? shortcuts.filter { $0.key == key.id }.count : 0
+            let hit = byCombo[mods.shown + key.id].flatMap { mods.hidden.contains($0.kind) ? nil : $0 }
+            let count = mods.shown.isEmpty ? shortcuts.filter { $0.key == key.id && !mods.hidden.contains($0.kind) }.count : 0
             face(key.cap, hit?.label ?? (count > 0 ? "\(count) taken" : nil),
                  fill: hit.map { $0.kind.color.opacity(0.22) } ?? .clear, stroke: hit?.kind.color ?? .secondary, bold: false)
                 .frame(width: width, height: height)

@@ -5,7 +5,8 @@ A keyboard where every key already taken by macOS shows what it does, for the mo
 ![Keymap with ⌘ held: Q Quit, W Close window, Space Spotlight, Tab Switch app; 5 to 8 are tabs, \ ' and / are free](docs/shot.png)
 
 Red: macOS, in every app (Spotlight, screenshots, Mission Control). Orange: the menus most apps share (Copy,
-Find, Hide). Blue: the keys of every text field (⌃A, ⌥←). With no modifier, each key says how many of its
+Find, Hide). Blue: the keys of every text field (⌃A, ⌥←). A click on a colour in the top right hides or shows its
+shortcuts; the choice is kept. With no modifier, each key says how many of its
 combinations are taken. The list is macOS 26's defaults on a U.S. layout, written in `main.swift`; your own
 apps' shortcuts are not in it.
 
