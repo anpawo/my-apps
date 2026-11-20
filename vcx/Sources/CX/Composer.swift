@@ -55,6 +55,11 @@ final class ComposerWindow: NSWindow {
         if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
+        // Up and Down in the find field go to the previous and next match.
+        if event.type == .keyDown, [125, 126].contains(event.keyCode), modifiers.isEmpty, let find, find.open,
+           ((firstResponder as? NSTextView)?.delegate as? NSTextField)?.placeholderString == "Find in conversation" {
+            find.move(event.keyCode == 126 ? -1 : 1); return
+        }
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.
         if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil,
            let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: event.keyCode) ?? [83, 84, 85, 86, 87, 88, 89, 91, 92].firstIndex(of: event.keyCode),

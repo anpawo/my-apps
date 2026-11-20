@@ -412,6 +412,17 @@ enum Check {
             check(closed == 1 && !find.open && typingField.string == "keep", "Escape closes the find bar before the composer sees it")
             inputWindow.toggleFind(nil)
             check(find.open, "⌘F opens the find bar")
+            let findField = NSTextField(string: ""); findField.placeholderString = "Find in conversation"
+            inputWindow.contentView?.addSubview(findField); inputWindow.makeFirstResponder(findField)
+            find.query = "needle"; find.search(findSession.rows, visible: [])
+            let before = find.index
+            inputWindow.sendEvent(key(125, "\u{F701}"))
+            check(find.index == (before + 1) % find.matches.count, "Down in the find field goes to the next match")
+            inputWindow.sendEvent(key(126, "\u{F700}")); inputWindow.sendEvent(key(126, "\u{F700}"))
+            check(find.index == (before + find.matches.count - 1) % find.matches.count, "Up in the find field goes to the previous match")
+            inputWindow.makeFirstResponder(typingField); findField.removeFromSuperview()
+            inputWindow.sendEvent(key(126, "\u{F700}"))
+            check(find.index == (before + find.matches.count - 1) % find.matches.count, "Up in the composer leaves the matches alone")
             inputWindow.toggleFind(nil)
             check(closed == 2 && !find.open, "⌘F again closes it")
             inputWindow.find = nil
