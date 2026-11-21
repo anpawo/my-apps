@@ -350,13 +350,15 @@ final class Session: ObservableObject {
     var directoryLabel: String {
         repositoryDirectory ?? Session.pathInSelf(cwd) ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored))
     }
-    /// Under ~/self the bar shows the path after it (epitech/hackathons/ai-championship-paris-2026); Fleet keeps its
-    /// shorter card name from `.fleet` (asked 2026-11-21: "fleet is more general ... vcx shows the path starting after self").
+    /// Under ~/self the bar shows the outer folder and the last one (epitech/ai-championship-paris-2026); Fleet keeps its
+    /// shorter card name from `.fleet` (asked 2026-11-21: "only display the outer dir with the last repo").
     nonisolated(unsafe) static var selfDirectory = NSHomeDirectory() + "/self"
     nonisolated static func pathInSelf(_ path: String) -> String? {
         let base = URL(fileURLWithPath: selfDirectory).resolvingSymlinksInPath().path + "/"
         let full = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        return full.hasPrefix(base) ? String(full.dropFirst(base.count)) : nil
+        guard full.hasPrefix(base) else { return nil }
+        let parts = full.dropFirst(base.count).split(separator: "/")
+        return parts.count > 2 ? "\(parts.first!)/\(parts.last!)" : parts.joined(separator: "/")
     }
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
     var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }

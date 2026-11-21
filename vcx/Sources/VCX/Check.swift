@@ -583,8 +583,8 @@ enum Check {
             let plain = Session(cwd: directory.appendingPathComponent("loose").path)
             try? FileManager.default.createDirectory(atPath: plain.cwd, withIntermediateDirectories: true)
             Session.selfDirectory = home
-            check(cardSession.directoryLabel == "atlas/app/src" && editedSession.directoryLabel == "atlas/app/src",
-                  "under ~/self the bar shows the path after it, the .fleet card name left to Fleet")
+            check(cardSession.directoryLabel == "atlas/src" && editedSession.directoryLabel == "atlas/src",
+                  "under ~/self the bar shows the outer folder and the last one, the .fleet card name left to Fleet")
             Session.selfDirectory = directory.path
             let loose = plain.directoryLabel
             Session.selfDirectory = home
