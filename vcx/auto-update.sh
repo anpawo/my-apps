@@ -15,8 +15,12 @@ log() { echo "$(date '+%F %T') $*"; }
 git -C "$repo" fetch -q https://github.com/anpawo/my-apps.git +refs/heads/main:refs/vcx-update/main || { log "fetch failed"; exit 75; }
 head=$(git -C "$repo" log -1 --format=%H refs/vcx-update/main -- "${paths[@]}") || exit 75
 [ "$head" = "$(cat "$state/installed" 2>/dev/null)" ] && exit 0
-# A commit that failed to install keeps the card red until a newer one replaces it.
-[ "$head" = "$(cat "$state/failed" 2>/dev/null)" ] && exit 1
+# A failed commit is tried again on the next runs: its checks time animations and freeze reports, and a CPU-heavy
+# job elsewhere on the Mac pushes them past their bounds (21-11: a 300 % python job failed 7 installs in a row).
+# Past the last attempt it keeps the card red until a newer commit replaces it.
+max_attempts=3
+read -r failed attempts 2>/dev/null < "$state/failed"
+[ "$head" = "${failed:-}" ] && [ "${attempts:-$max_attempts}" -ge "$max_attempts" ] && exit 1
 
 mkdir -p "$state"
 if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
@@ -31,5 +35,6 @@ if (cd "$tree/vcx" && python3 install-native.py); then
     echo "$head" > "$state/installed"; rm -f "$state/failed"; log "installed ${head:0:7}"
     echo $(( $(date +%s) - started )) > "$state/last-duration"
 else
-    echo "$head" > "$state/failed"; log "install failed for ${head:0:7}"; exit 1
+    [ "$head" = "${failed:-}" ] && attempts=$(( ${attempts:-0} + 1 )) || attempts=1
+    echo "$head $attempts" > "$state/failed"; log "install failed for ${head:0:7} (attempt $attempts of $max_attempts)"; exit 1
 fi
