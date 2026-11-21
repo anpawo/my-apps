@@ -506,12 +506,28 @@ final class ComposerText: NSTextView {
     }
 }
 
-func thumbnail(_ path: String, size: Int = 360) -> NSImage? {
+func thumbnail(_ path: String, size: Int = 360, trim: Bool = false) -> NSImage? {
     let source: CGImageSource?
     if path.hasPrefix("data:"), let comma = path.firstIndex(of: ","), let data = Data(base64Encoded: String(path[path.index(after: comma)...])) { source = CGImageSourceCreateWithData(data as CFData, nil) }
     else { source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) }
     guard let source, let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: size, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
-    return NSImage(cgImage: image, size: .zero)
+    return NSImage(cgImage: trim ? opaqueCrop(image) : image, size: .zero)
+}
+
+private let opaqueAlpha: UInt8 = 230
+
+// A window screenshot carries a wide transparent shadow margin, which a small card shows as an empty frame around the window.
+func opaqueCrop(_ image: CGImage) -> CGImage {
+    let width = image.width, height = image.height
+    guard image.alphaInfo != .none, image.alphaInfo != .noneSkipLast, image.alphaInfo != .noneSkipFirst,
+          let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+          let data = context.data else { return image }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    let alpha = data.bindMemory(to: UInt8.self, capacity: width * height)
+    var left = width, right = -1, top = height, bottom = -1
+    for y in 0..<height { for x in 0..<width where alpha[y * width + x] >= opaqueAlpha { left = min(left, x); right = max(right, x); top = min(top, y); bottom = max(bottom, y) } }
+    guard right >= left, right - left + 1 < width || bottom - top + 1 < height else { return image }
+    return image.cropping(to: CGRect(x: left, y: top, width: right - left + 1, height: bottom - top + 1)) ?? image
 }
 
 func agentImage(_ path: String) throws -> (Data, String) {

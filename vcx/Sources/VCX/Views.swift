@@ -1549,7 +1549,7 @@ struct PictureView: View {
                 VStack(alignment: .leading, spacing: 4) { Text(title).font(.system(size: 12, weight: .semibold)); Text("Click to preview").font(.system(size: 10)).opacity(0.6) }
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10)).opacity(0.5)
             }.padding(8).background(.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 11))
-        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 11))).task(id: path) { image = await Task.detached { thumbnail(path) }.value }
+        }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 11))).task(id: path) { image = await Task.detached { thumbnail(path, trim: true) }.value }
     }
 }
 

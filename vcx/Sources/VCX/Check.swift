@@ -180,6 +180,13 @@ enum Check {
             }
         }
         do {
+            let shadowed = CGContext(data: nil, width: 100, height: 80, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            shadowed.setFillColor(CGColor(gray: 0, alpha: 0.2)); shadowed.fill(CGRect(x: 0, y: 0, width: 100, height: 80))
+            shadowed.setFillColor(CGColor(gray: 1, alpha: 1)); shadowed.fill(CGRect(x: 20, y: 10, width: 60, height: 50))
+            let cropped = opaqueCrop(shadowed.makeImage()!)
+            check(cropped.width == 60 && cropped.height == 50, "an image chip drops a screenshot's transparent shadow margin")
+        }
+        do {
             let t0 = Date(timeIntervalSince1970: 1_000_000)
             let build = UpdateBuild.parse("1000000\t/resume hides closed conversations\n", expected: 200, now: t0)
             check(build?.words == "/resume hides closed conversations" && build?.expected == 200, "the update file gives its words")
