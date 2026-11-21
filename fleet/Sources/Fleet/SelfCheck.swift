@@ -1317,15 +1317,26 @@ enum SelfCheck {
             try? p.run()
             return p
         }
+        // ~/Applications is a symlink, and the kernel reports the real path under it.
+        let linked = URL(fileURLWithPath: NSHomeDirectory() + "/Applications")
+            .resolvingSymlinksInPath().appendingPathComponent(".fleet-check-sleep")
+        try? FileManager.default.removeItem(at: linked)
+        try? FileManager.default.copyItem(atPath: "/bin/sleep", toPath: linked.path)
         let orphan = spawn(owner: dead), child = spawn(owner: getpid())
         let app = spawn(owner: dead, from: installed.path)
-        defer { orphan.terminate(); child.terminate(); app.terminate() }
+        let userApp = spawn(owner: dead, from: linked.path)
+        defer {
+            orphan.terminate(); child.terminate(); app.terminate(); userApp.terminate()
+            try? FileManager.default.removeItem(at: linked)
+        }
         usleep(200_000)
 
         let found = Dictionary(uniqueKeysWithValues: Reaper.candidates().map { ($0.pid, $0.kind) })
         expect(found[orphan.processIdentifier] == .ghost, true, "ghosts: a tool process is a candidate")
         expect(app.isRunning && found[app.processIdentifier] == nil, true,
                "an installed app a session opened is not a ghost")
+        expect(userApp.isRunning && found[userApp.processIdentifier] == nil, true,
+               "an app in ~/Applications a session relaunched is not a ghost")
         expect(Reaper.ownerGone(orphan.processIdentifier), true, "its session gone, it is a ghost")
         expect(Reaper.ownerGone(child.processIdentifier), false, "its session alive, it is left alone")
     }

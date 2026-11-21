@@ -588,6 +588,9 @@ final class Reaper: ObservableObject {
         return kind
     }
 
+    private static let userApps = URL(fileURLWithPath: NSHomeDirectory() + "/Applications")
+        .resolvingSymlinksInPath().path + "/"
+
     private static func classifyUncached(_ pid: pid_t, ppid: pid_t) -> Reapable.Kind? {
         let path = ProcessScanner.executablePath(pid)
         guard !path.isEmpty else { return nil }
@@ -624,8 +627,9 @@ final class Reaper: ObservableObject {
 
         // An installed app is one somebody meant to keep, even when a session is what started it:
         // `open -a` from an install script passes CLAUDE_PID on, and mr. screenshot was reaped
-        // with its session (27-09).
-        if path.contains("/Applications/") { return nil }
+        // with its session (27-09). ~/Applications is a symlink to ~/apps and the kernel reports
+        // the resolved path, so VCX and One Text were reaped with the session that relaunched them (21-11).
+        if path.contains("/Applications/") || path.hasPrefix(userApps) { return nil }
 
         // Everything a session runs from its tools carries the session's pid in its environment.
         // Only a candidate here: whether that session is still there is the half that changes,
