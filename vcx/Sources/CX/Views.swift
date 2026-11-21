@@ -1068,8 +1068,8 @@ struct CapabilityPopup: View {
                                         if parts.contains("disabled") { Text("disabled") }
                                     }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).help(detail).accessibilityLabel(detail)
                                 }
-                            } else if !item.detail.isEmpty {
-                                Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).lineLimit(title == "RAG" ? 2 : nil).fixedSize(horizontal: false, vertical: true)
+                            } else if title != "RAG", !item.detail.isEmpty {
+                                Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                             .padding(12).contentShape(Rectangle())
