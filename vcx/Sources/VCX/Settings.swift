@@ -19,6 +19,9 @@ struct Preferences: Codable {
     var qwenURL = "http://localhost:11434/api/chat"
     var qwenModel = "qwen3.5-9b-abl"
     var qwenWake = false
+    // /qwen host: the same model served by this Mac's ollama, or by the Windows PC through the personal tailnet's SOCKS.
+    static let qwenHosts = ["mac": (url: "http://localhost:11434/api/chat", proxy: ""), "pc": (url: "http://100.100.151.8:11434/api/chat", proxy: "socks5h://127.0.0.1:1056")]
+    var qwenHost: String { Self.qwenHosts.first { $0.value.url == qwenURL && $0.value.proxy == qwenProxy }?.key ?? "custom" }
     // Workers started before live update write each session's /model pick into "provider"; a key they never write keeps that pick out of new sessions.
     enum CodingKeys: String, CodingKey { case provider = "defaultProvider", mode, accounts, limits, qwenProxy, qwenURL, qwenModel, qwenWake }
 }

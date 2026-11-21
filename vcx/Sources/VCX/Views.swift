@@ -1018,6 +1018,7 @@ struct SettingsPopup: View {
                     setting("Add account", "Claude or Codex", "/login ")
                     setting("Import profile", "Existing account folder", "/profile ")
                     case .qwen:
+                    setting("Runs on", ["mac": "This Mac", "pc": "Windows PC"][settings.value.qwenHost] ?? "Custom endpoint", "/qwen host ")
                     setting("Endpoint", settings.value.qwenURL, "/qwen url ")
                     setting("Proxy", settings.value.qwenProxy.isEmpty ? "None" : settings.value.qwenProxy, "/qwen proxy ")
                     setting("Model", settings.value.qwenModel, "/qwen model ")

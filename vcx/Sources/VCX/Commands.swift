@@ -142,7 +142,9 @@ extension Session {
                     return choices.filter { argument.hasSuffix(" ") || $0.name.lowercased().contains(accountParts[1]) || $0.insert.lowercased().contains(argument) }
                 }
             case "/login": choices = ["claude", "codex", "cancel"].map { option($0, $0 == "cancel" ? "Cancel sign-in" : "Sign in with subscription") }
-            case "/qwen": choices = ["url ", "proxy ", "model "].map { option($0, "Enter the value after this setting") }
+            case "/qwen":
+                choices = ["url ", "proxy ", "model "].map { option($0, "Enter the value after this setting") }
+                choices += [("mac", "Run Qwen on this Mac"), ("pc", "Run Qwen on the Windows PC")].map { option("host " + $0.0, $0.1, isCurrent: Settings.shared.value.qwenHost == $0.0) }
             case "/resume": choices = recent.map { option($0.id, "", label: $0.title) }
             default: return []
             }
@@ -455,10 +457,13 @@ extension Session {
             case "/qwen":
                 try idle()
                 let args = argument.split(separator: " ", maxSplits: 1).map(String.init)
-                guard args.count == 2, ["url", "proxy", "model"].contains(args[0]) else { showCommands("/qwen ", preserveDraft: false); return }
+                guard args.count == 2, ["url", "proxy", "model", "host"].contains(args[0]) else { showCommands("/qwen ", preserveDraft: false); return }
                 let value = args[1] == "none" ? "" : args[1]
                 guard args[0] != "model" || !value.isEmpty else { throw CXError(message: "Model names cannot be empty.") }
-                if args[0] == "url" {
+                if args[0] == "host" {
+                    guard let host = Preferences.qwenHosts[value] else { throw CXError(message: "Use /qwen host mac or /qwen host pc.") }
+                    settings.value.qwenURL = host.url; settings.value.qwenProxy = host.proxy
+                } else if args[0] == "url" {
                     guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { throw CXError(message: "Enter an HTTP or HTTPS Ollama URL without credentials.") }
                     settings.value.qwenURL = value
                 } else if args[0] == "proxy" {

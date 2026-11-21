@@ -1695,6 +1695,10 @@ enum Check {
             await first.command("/qwen proxy socks5://localhost")
             check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
             check(validQwenProxy("socks5h://localhost:1055"), "Jarvis SOCKS5 hostname-proxy URLs remain compatible")
+            await first.command("/qwen host pc")
+            let onPC = Settings.shared.value.qwenHost
+            await first.command("/qwen host mac")
+            check(onPC == "pc" && Settings.shared.value.qwenHost == "mac" && Settings.shared.value.qwenProxy.isEmpty && Settings.shared.value.qwenURL.hasPrefix("http://localhost:"), "/qwen host switches the endpoint and proxy between the PC and this Mac")
         }
         let question = Permission(rpcID: "fixture-question", method: "item/tool/requestUserInput", params: ["questions": [["id": "question", "question": "Choose"]]])
         await part {
