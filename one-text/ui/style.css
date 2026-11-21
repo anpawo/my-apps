@@ -148,6 +148,15 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .msg.me .bubble { background: var(--me); color: #fff; }
 .msg.me .bubble a { color: #fff; }
 .bubble a { color: #e0f1ff; }
+.bubble.rich { white-space: normal; }
+.bubble.rich :is(p, ul, ol, pre, blockquote, h1, h2, h3) { margin: 0 0 6px; }
+.bubble.rich > :last-child { margin-bottom: 0; }
+.bubble.rich :is(ul, ol) { padding-left: 20px; }
+.bubble.rich code { font: 12.5px ui-monospace, Menlo, monospace; background: rgba(0, 0, 0, .25); border-radius: 4px; padding: 1px 4px; }
+.bubble.rich pre { white-space: pre-wrap; }
+.bubble.rich pre code { display: block; padding: 6px 8px; }
+.bubble.rich blockquote { border-left: 3px solid rgba(255, 255, 255, .5); padding-left: 8px; }
+.bubble.rich :is(h1, h2, h3) { font-size: 1.1em; }
 .bubble.media { padding: 3px; background: none; }
 .msg.me .bubble.media { background: none; }
 .bubble.media.sticker { background: none; padding: 0; }

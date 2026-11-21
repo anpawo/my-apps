@@ -26,6 +26,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 - ⌘V on an image (a screenshot, a copied picture) sends it at once; the text in the field stays.
 - A picture or a video grows from its bubble to fill the window; a click beside it or esc shrinks it back.
 - A shared Instagram reel shows as a card. Clicking it downloads it (a few seconds, logged out, with `yt-dlp` from Homebrew, kept in the app's cache) and plays it in the window, or opens Instagram when Play reels here is off in Settings.
+- Formatted messages (Discord's lists, bold, inline code, code blocks, quotes) show their formatting.
 - ⌘F finds a word in the open conversation (case and accents aside): ↵ goes to the older match, loading older messages past the last one, ⇧↵ to the newer; esc closes.
 
 ## People, merging, aliases

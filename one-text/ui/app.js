@@ -861,6 +861,24 @@ function highlightTarget() {
 // Beeper hands Instagram shares over as HTML (<p><a href=…>…</a></p>): keep the text only.
 // Discord images come with the sender's name as their caption (<strong>name: </strong>): no text at all.
 const plain = s => (s && /^\s*<strong>[^<]*:\s*<\/strong>\s*$/.test(s) ? '' : s && /<\/?[a-z][^>]*>|&(#\d+|#x[\da-f]+|[a-z]+);/i.test(s) ? new DOMParser().parseFromString(s, 'text/html').body.textContent : s);
+// Discord and Matrix formatting reaches Beeper as HTML: these tags are kept, the others give way to their text.
+const RICH = new Set(['P', 'BR', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'CODE', 'PRE', 'BLOCKQUOTE', 'A', 'H1', 'H2', 'H3']);
+function rich(s) {
+  const body = new DOMParser().parseFromString(s, 'text/html').body;
+  const clean = n => {
+    for (const c of [...n.childNodes]) {
+      if (c.nodeType === 3) continue;
+      if (c.nodeType !== 1 || /^(SCRIPT|STYLE)$/.test(c.tagName)) { c.remove(); continue; }
+      clean(c);
+      if (!RICH.has(c.tagName)) { c.replaceWith(...c.childNodes); continue; }
+      const href = c.tagName === 'A' && /^https?:/i.test(c.getAttribute('href')) && c.getAttribute('href');
+      for (const a of [...c.attributes]) c.removeAttribute(a.name);
+      if (href) Object.assign(c, { href, target: '_blank', rel: 'noreferrer' });
+    }
+  };
+  clean(body);
+  return body.innerHTML.trim();
+}
 const SHARE = /https:\/\/www\.instagram\.com\/(?:reels?|p|stories)\/[\w-]+\/?\S*/;
 const PLAY = '<svg class="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>';
 const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
@@ -893,7 +911,7 @@ function bubbleHTML(m) {
     else if (a.type === 'img' && a.srcURL && !a.isSticker) parts.push(`<div class="bubble media"><img src="${esc(asset(a.srcURL))}"${fit(a.size)} loading="lazy" decoding="async"></div>`);
     else parts.push(`<div class="bubble note">${a.isVoiceNote ? 'Voice message' + (a.transcription ? `: ${esc(a.transcription)}` : '') : a.type === 'video' ? 'Video' : a.isSticker ? 'Sticker' : esc(a.fileName || 'Attachment')}</div>`);
   }
-  if (text) parts.push(`<div class="bubble">${linkify(text)}</div>`);
+  if (text) parts.push(/<\/?[a-z][^>]*>/i.test(m.text) ? `<div class="bubble rich">${rich(m.text)}</div>` : `<div class="bubble">${linkify(text)}</div>`);
   if (!parts.length) parts.push(`<div class="bubble note">${esc((m.type || 'event').toLowerCase())}</div>`);
   return parts.join('');
 }

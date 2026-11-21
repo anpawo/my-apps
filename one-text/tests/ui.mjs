@@ -991,6 +991,12 @@ const heldLater = await page.$$eval('#thread .msg', ms => ms.map(msgText));
 check(heldOpen.includes('see you at 8 then') && !heldOpen.includes('the usual place') && heldLater.includes('the usual place'),
   `a held read does not blank the thread (${heldOpen.length} then ${heldLater.length} messages)`);
 
+const rich = await page.evaluate(() => {
+  const b = Object.assign(document.createElement('div'), { innerHTML: bubbleHTML({ text: '<ul><li>a <code>x</code> <a href="https://e.com">e</a></li></ul><img src=x onerror="window.pwned=1"><a href="javascript:void 0">j</a>' }) });
+  return { li: b.querySelectorAll('li, code').length, hrefs: [...b.querySelectorAll('a[href]')].map(a => a.href), img: b.querySelectorAll('img').length };
+});
+check(rich.li === 2 && rich.img === 0 && rich.hrefs.join() === 'https://e.com/', `a formatted message keeps its list, code and links, nothing else (${JSON.stringify(rich)})`);
+
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');
