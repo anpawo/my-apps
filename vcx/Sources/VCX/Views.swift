@@ -675,6 +675,10 @@ struct CXView: View {
                     UpdateChip(build: build).onHover { hoveringUpdate = $0 }.transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     separator.transition(.opacity)
                 }
+                if let progress = session.progress {
+                    ProgressChip(progress: progress).transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                    separator.transition(.opacity)
+                }
                 identityStatus
                 separator
                 usageStatus
@@ -685,7 +689,8 @@ struct CXView: View {
                     setting("Pull request", value: session.pullRequest, command: session.pullRequestURL, color: Color(red: 0.42, green: 0.25, blue: 0.7))
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                 }
-            }.fixedSize().padding(8).animation(.easeOut(duration: 0.28), value: session.pullRequest.isEmpty).animation(.easeOut(duration: 0.28), value: update.build == nil)
+            }.fixedSize().padding(8).animation(.easeOut(duration: 0.28), value: session.pullRequest.isEmpty).animation(.easeOut(duration: 0.28), value: update.build == nil).animation(.easeOut(duration: 0.28), value: session.progress == nil)
+            .task(id: session.progressFile) { while !Task.isCancelled { session.readProgress(); try? await Task.sleep(nanoseconds: progressTick) } }
         // The scroll view clips what it holds: the chips' shadows need room inside it, taken back outside.
         }.scrollIndicators(.hidden).fixedSize(horizontal: false, vertical: true).padding(-8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -722,6 +727,26 @@ struct CXView: View {
         setting("Repo", value: session.repositoryLabel, command: "/repo", color: session.repositoryStatus == "uncommitted" ? Color(red: 0.68, green: 0.18, blue: 0.38) : session.repositoryStatus == "unpushed" ? Color(red: 0.55, green: 0.36, blue: 0.08) : session.repositoryStatus == "up to date" ? readyColor : .black.opacity(0.6))
     }
     private var separator: some View { Text("|").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.black.opacity(0.25)) }
+}
+
+let progressTick: UInt64 = 2_000_000_000
+
+// What the agent waits on ($VCX_PROGRESS_FILE), drawn like the update; read every progressTick, the line glides between reads.
+struct ProgressChip: View {
+    let progress: TaskProgress
+    var body: some View {
+        let label = progress.label.count > 40 ? String(progress.label.prefix(39)) + "…" : progress.label
+        HStack(spacing: 5) {
+            Text(label).fontWeight(.bold)
+            Text("·").opacity(0.5)
+            Text(progress.detail)
+        }.font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(accent).lineLimit(1).fixedSize()
+            .padding(.horizontal, 6).padding(.top, 5).padding(.bottom, 6)
+            .background(accent.opacity(0.1))
+            .overlay(alignment: .bottomLeading) { GlideBar(fraction: progress.fraction).frame(height: 2.5) }
+            .clipShape(RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
+            .accessibilityLabel(progress.label + ": " + progress.detail)
+    }
 }
 
 // Ticks each second and glides between ticks, so the line under the words moves forward without a stop.

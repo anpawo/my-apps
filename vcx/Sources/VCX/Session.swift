@@ -342,8 +342,25 @@ final class Session: ObservableObject {
     }
     var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+    // The agent runs in the runtime worker, whose Fleet folder the window learns from the snapshot.
+    var progressFile: String { runtimeProgressFile ?? progressPath(fleet: fleetContextFile.path) }
+    @Published var progress: TaskProgress?
+    private var runtimeProgressFile: String?
+    private var progressSamples: [(Date, Double)] = []
+    func readProgress(now: Date = Date()) {
+        let files = FileManager.default
+        var next: TaskProgress?
+        if let modified = (try? files.attributesOfItem(atPath: progressFile))?[.modificationDate] as? Date, now.timeIntervalSince(modified) < TaskProgress.staleAfter,
+           let text = try? String(contentsOfFile: progressFile, encoding: .utf8), var parsed = TaskProgress.parse(text) {
+            if parsed.source != progress?.source { progressSamples = [] }
+            var size: Double?
+            if case .file(let path, _) = parsed.source { size = ((try? files.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.doubleValue }
+            if parsed.measure(now: now, size: size, samples: &progressSamples) { next = parsed }
+        }
+        if next != progress { progress = next }
+    }
     // His CLAUDE.md labels Fleet through FLEET_CONTEXT_FILE and picks the project; this is what only VCX knows.
-    static let agentInstructions = "To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id or name> \"<message>\"`. A message shaped claude from [<window name>]: \"<text>\" (or codex, qwen) came from that agent in that window, not from Marius; answer it with `vcx --send \"<window name>\" \"<answer>\"` only when it asks something. To show a chart, write a fenced block tagged chart holding one self-contained HTML page. For a price or any time series, the page is one call that draws a clean chart (shadcn-like greys, TradingView crosshair with values on the axes, zoom): <script>vcx.chart({symbol: 'NVDA'})</script> for today's Nasdaq price, live every 15 s, or vcx.chart({title, data: [{time, value}] or OHLC rows, format: v => …}); it resolves to {chart, series, set} (TradingView lightweight-charts) for more. A table or a few headline figures is one call too: vcx.chart({kind: 'table', title, data: [{column: value}], columns: [their order], format: {column: v => …}}) or vcx.chart({kind: 'cards', title, data: [{label, value, unit, note}]}); a row or a card may carry tone: 'green', 'red', 'orange' or 'blue', and each resolves to {set} to redraw it with new data. Otherwise draw it yourself (inline SVG, or a script from a CDN): VCX draws it live in the chat, clipped to its page, so center each hover label just above the pointer (below it near the top edge, shifted inward near a side edge so it stays inside), one value per line with its name muted and its figure bold. For live data, call vcx.live(url, seconds, data => …): VCX fetches the URL from the Mac every `seconds` (no CORS) and calls back with its parsed JSON, e.g. https://api.nasdaq.com/api/quote/NVDA/info?assetclass=stocks (data.primaryData.lastSalePrice, data.marketStatus) or https://api.nasdaq.com/api/quote/NVDA/chart?assetclass=stocks (data.chart: today's points {x: ms, y: price}). Pinch, the wheel in the enlarged or pinned chart, and drag zoom and pan the whole page unless the page takes the wheel itself (preventDefault). Tag the block chart pin to pin it above the chat when Marius asks for it."
+    static let agentInstructions = "To write to the agent of another VCX window (Claude, Codex or Qwen), run `vcx --sessions` to list them, then `vcx --send <id or name> \"<message>\"`. A message shaped claude from [<window name>]: \"<text>\" (or codex, qwen) came from that agent in that window, not from Marius; answer it with `vcx --send \"<window name>\" \"<answer>\"` only when it asks something. To show a chart, write a fenced block tagged chart holding one self-contained HTML page. For a price or any time series, the page is one call that draws a clean chart (shadcn-like greys, TradingView crosshair with values on the axes, zoom): <script>vcx.chart({symbol: 'NVDA'})</script> for today's Nasdaq price, live every 15 s, or vcx.chart({title, data: [{time, value}] or OHLC rows, format: v => …}); it resolves to {chart, series, set} (TradingView lightweight-charts) for more. A table or a few headline figures is one call too: vcx.chart({kind: 'table', title, data: [{column: value}], columns: [their order], format: {column: v => …}}) or vcx.chart({kind: 'cards', title, data: [{label, value, unit, note}]}); a row or a card may carry tone: 'green', 'red', 'orange' or 'blue', and each resolves to {set} to redraw it with new data. Otherwise draw it yourself (inline SVG, or a script from a CDN): VCX draws it live in the chat, clipped to its page, so center each hover label just above the pointer (below it near the top edge, shifted inward near a side edge so it stays inside), one value per line with its name muted and its figure bold. For live data, call vcx.live(url, seconds, data => …): VCX fetches the URL from the Mac every `seconds` (no CORS) and calls back with its parsed JSON, e.g. https://api.nasdaq.com/api/quote/NVDA/info?assetclass=stocks (data.primaryData.lastSalePrice, data.marketStatus) or https://api.nasdaq.com/api/quote/NVDA/chart?assetclass=stocks (data.chart: today's points {x: ms, y: price}). Pinch, the wheel in the enlarged or pinned chart, and drag zoom and pan the whole page unless the page takes the wheel itself (preventDefault). Tag the block chart pin to pin it above the chat when Marius asks for it. While a download or a run of known size or length goes on, write one line to \"$VCX_PROGRESS_FILE\": `<label>\\t<file being written>\\t<final bytes>` or `<label>\\t<start epoch seconds>\\t<expected seconds>` (printf with \\t); VCX draws it in the status bar with its percent, speed and time left. Delete the file when the work ends."
     static let projectAdvice = "Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands."
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
@@ -1614,7 +1631,7 @@ final class Session: ObservableObject {
             "instructions": instructions, "activeMode": activeMode, "providerLabel": providerLabel,
             "models": models, "modelEfforts": modelEfforts, "modelDefaultEfforts": modelDefaultEfforts, "modelAliases": modelAliases,
             "planning": planning, "skillPaths": skillPaths, "legacyCommandPaths": legacyCommandPaths,
-            "recordID": recordID, "fleetContext": fleetContext, "recalledRules": recalledRules,
+            "recordID": recordID, "fleetContext": fleetContext, "progressFile": progressFile, "recalledRules": recalledRules,
             "recent": recent.map { ["id": $0.id, "title": $0.title, "backendID": $0.backendID as Any? ?? NSNull()] },
             "permissions": permissions.map { ["id": $0.id.uuidString, "rpcID": $0.rpcID, "method": $0.method, "params": $0.params] },
             "providerCommands": providerCommands.map { ["name": $0.name, "detail": $0.detail, "source": $0.source, "insert": $0.insert, "isCurrent": $0.isCurrent] }
@@ -1672,6 +1689,7 @@ final class Session: ObservableObject {
         planning = value["planning"] as? Bool ?? false
         conversationName = value["conversationName"] as? String
         runtimeFleetContext = value["fleetContext"] as? String
+        runtimeProgressFile = value["progressFile"] as? String ?? runtimeProgressFile
         recent = (value["recent"] as? [JSON] ?? []).compactMap { piece in
             guard let id = piece["id"] as? String, let title = piece["title"] as? String else { return nil }
             return Recent(id: id, title: title, backendID: piece["backendID"] as? String)

@@ -170,6 +170,8 @@ func parseLoginEnvironment(_ data: Data) -> [String: String]? {
 // Layered over the user's Claude settings in VCX sessions only, to leave out what is useless here (skillOverrides, enabledPlugins, claudeMdExcludes).
 let claudeSettingsFile = Settings.directory.appendingPathComponent("claude-settings.json")
 
+func progressPath(fleet: String) -> String { (fleet as NSString).deletingLastPathComponent + "/task.progress" }
+
 func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [String: String] {
     var environment = (loginEnvironment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("CLAUDE") && !["PWD", "OLDPWD", "SHLVL"].contains($0.key) }
     // Claude's Bash hook puts the build queue's swift first; Codex and Qwen shells get it here.
@@ -183,5 +185,6 @@ func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [Strin
     if let home = account?.home { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
     // His CLAUDE.md labels Fleet through this file; an inherited one belongs to another session.
     environment["FLEET_CONTEXT_FILE"] = fleet
+    environment["VCX_PROGRESS_FILE"] = fleet.map { progressPath(fleet: $0) }
     return environment
 }

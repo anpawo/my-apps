@@ -223,7 +223,17 @@ enum Check {
             let late = frame("vcx-update-chip-1.png")
             print("Update line pixels: \(early) then \(late), frames in \(NSTemporaryDirectory())vcx-update-chip-*.png")
             check(early > 0 && late > early, "the update chip's line grows under its words (\(early) then \(late))")
-            UpdateBuild.shared.build = nil; window.close()
+            UpdateBuild.shared.build = nil
+            // The agent's progress file is drawn the same way: 40% of a download, read off the file being written.
+            let target = NSTemporaryDirectory() + "vcx-progress-" + UUID().uuidString
+            FileManager.default.createFile(atPath: target, contents: Data(count: 400_000))
+            try? "Qwen weights from the PC\t\(target)\t1000000\n".write(toFile: session.progressFile, atomically: true, encoding: .utf8)
+            try? await Task.sleep(for: .seconds(2.5))
+            let progressLine = frame("vcx-progress-chip.png")
+            print("Progress line pixels: \(progressLine), frame \(NSTemporaryDirectory())vcx-progress-chip.png")
+            check(session.progress?.fraction == 0.4 && session.progress?.detail.hasPrefix("40% · ") == true && progressLine > 0, "an agent's progress file shows as a chip with its line (\(progressLine) px)")
+            try? FileManager.default.removeItem(atPath: session.progressFile); try? FileManager.default.removeItem(atPath: target)
+            window.close()
         }
         do {
             let host = NSHostingView(rootView: ProseView(text: "Open [compare.png](file:///tmp/compare.png) now.\n\n⟶ Next: open [it](file:///tmp/it.png).\n\nNo link here.").frame(width: 500))
@@ -1265,6 +1275,22 @@ enum Check {
             check(connections["claude-default"]?.opened.first?["developerInstructions"] as? String == Session.agentInstructions && connections["claude-default"]?.fleetFile == session.fleetContextFile.path,
                   "Claude gets the session's Fleet file through FLEET_CONTEXT_FILE, not a label or cd rule in its prompt")
             check(agentEnvironment(fleet: "/tmp/fleet-a")["FLEET_CONTEXT_FILE"] == "/tmp/fleet-a" && agentEnvironment()["FLEET_CONTEXT_FILE"] == nil, "an agent's FLEET_CONTEXT_FILE is its own session's, never an inherited one")
+            check(agentEnvironment(fleet: "/tmp/fleet-a/task.context")["VCX_PROGRESS_FILE"] == "/tmp/fleet-a/task.progress" && agentEnvironment()["VCX_PROGRESS_FILE"] == nil, "an agent's VCX_PROGRESS_FILE sits beside its Fleet file")
+            do {
+                let start = Date(timeIntervalSince1970: 1000)
+                var samples: [(Date, Double)] = []
+                var file = TaskProgress.parse("Weights\t/tmp/w.gguf\t1000000\n")
+                _ = file?.measure(now: start, size: 100000, samples: &samples)
+                _ = file?.measure(now: start.addingTimeInterval(10), size: 200000, samples: &samples)
+                var timer = TaskProgress.parse("Quantize\t1000\t600")
+                let live = timer?.measure(now: start.addingTimeInterval(150), size: nil, samples: &samples)
+                var late = timer
+                check(file?.fraction == 0.2 && file?.detail.hasPrefix("20% · ") == true && file?.detail.hasSuffix("1 min left") == true
+                      && live == true && timer?.fraction == 0.25 && timer?.detail == "7 min left"
+                      && late?.measure(now: start.addingTimeInterval(1300), size: nil, samples: &samples) == false
+                      && TaskProgress.parse("no tabs here") == nil && TaskProgress.parse("x\trelative/path\t5") == nil,
+                      "a progress line gives percent, speed and time left, and a timer twice past its length is dropped")
+            }
             do {
                 let home = directory.appendingPathComponent("fleet-home")
                 try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
