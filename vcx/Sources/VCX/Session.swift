@@ -693,7 +693,8 @@ final class Session: ObservableObject {
             scheduleFlush()
             return
         case "turn/started":
-            turnID = (p["turn"] as? JSON)?["id"] as? String; busy = true; status = "Working…"
+            // A turn a peer message starts never goes through send(): clear the interrupted flag here too.
+            turnID = (p["turn"] as? JSON)?["id"] as? String; busy = true; needsAttention = false; status = "Working…"
             if stopRequested { Task { await stop() } }
         case "turn/completed":
             if let turn = p["turn"] as? JSON, usageLimit(turn), !stopRequested {

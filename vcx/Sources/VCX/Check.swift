@@ -705,6 +705,9 @@ enum Check {
         fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted"]]])
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "waiting", "Fleet still asks for attention after an interrupted turn")
+        fleetSession.event(["method": "turn/started", "params": [:]])
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "working", "Fleet shows a turn started without a typed prompt as working, not waiting")
         fleetSession.busy = true
         await fleetSession.stop(source: "Escape")
         fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted", "error": ["message": "Claude did not finish the turn."]]]])
