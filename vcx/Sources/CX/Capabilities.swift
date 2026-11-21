@@ -194,7 +194,7 @@ extension Session {
     }
     func refreshRepository() async {
         if runtimeClient != nil { await performRuntime("refreshRepository"); return }
-        let directory = cwd
+        let directory = cwd, edited = editedFolder
         let result = await Task.detached { () -> (String?, String, String, String, String?, [String]) in
             func git(_ arguments: [String], at path: String? = nil) -> String? {
                 let process = Process(), output = Pipe()
@@ -222,6 +222,9 @@ extension Session {
                 folder = (folder as NSString).deletingLastPathComponent
             }
             if let card { name = card }
+            if let edited = edited.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }), edited.hasPrefix(here + "/") {
+                name += "/" + URL(fileURLWithPath: edited).lastPathComponent
+            }
             let branch = git(["branch", "--show-current"]) ?? ""
             let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
             let status: String, porcelain = git(["status", "--porcelain"])

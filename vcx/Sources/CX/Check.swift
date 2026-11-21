@@ -560,6 +560,15 @@ enum Check {
             await cardSession.refreshRepository()
             check(cardSession.directoryLabel == "app", "a .fleet sub-folder shows by its own name, as its Fleet card")
         }
+        let editedSession = Session(cwd: repoPath)
+        await part {
+            editedSession.editedFolder = cardPath
+            await editedSession.refreshRepository()
+            let inside = editedSession.directoryLabel
+            editedSession.editedFolder = NSHomeDirectory()
+            await editedSession.refreshRepository()
+            check(inside == "atlas/src" && editedSession.directoryLabel == "atlas", "the bar adds the folder of the last edit inside the project, nothing for one outside")
+        }
         let profile = directory.appendingPathComponent("claude-profile")
         try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         try! JSONSerialization.data(withJSONObject: ["effortLevel": "high", "modelSettings": ["claude-opus-5-5": ["effortLevel": "xhigh"]]]).write(to: profile.appendingPathComponent("settings.json"))

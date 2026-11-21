@@ -182,6 +182,8 @@ final class Session: ObservableObject {
     private var turnPrompt: String?
     private var sendingNow: String?
     private var turnCommands: [String] = []
+    /// The folder of the last file this session edited: the bar shows it after the project (my-setup/me-rag, asked 2026-11-21).
+    var editedFolder: String?
     @Published private var activeActions: Set<String> = []
     @Published var changing = false
     @Published var details = false
@@ -687,6 +689,10 @@ final class Session: ObservableObject {
             }
             flush(); turnID = nil; busy = false; stopRequested = false; activeActions.removeAll(); retryAttempt = nil
             if let directory = turnDirectory(turnCommands, current: cwd, initial: conversationDirectory) { moveDirectory(directory) }
+            if let path = turnCommands.compactMap(editedPath).last, (path as NSString).deletingLastPathComponent != editedFolder {
+                editedFolder = (path as NSString).deletingLastPathComponent
+                Task { await refreshRepository() }
+            }
             turnCommands = []
             DiskCleanup.run(cwd)
             pendingInput = nil
