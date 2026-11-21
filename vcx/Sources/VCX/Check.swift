@@ -3042,6 +3042,10 @@ extension Check {
             QwenConnection.stepLimit = previous
             check(stalled.status == "completed" && stalled.text.hasPrefix("Step 1 ran for over") && stalled.text.contains("Should I continue?"), "a model step past the time limit stops the turn with a question, not a failure")
             slow.close()
+            let cut = QwenConnection(preferences: preferences, cwd: directory)
+            let ended = try await turn(cut, "CUT")
+            check(ended.status == "failed", "a stream that ends without Ollama's done event fails the turn instead of passing a half answer as complete")
+            cut.close()
         } catch { check(false, "Qwen loop fixture: " + error.localizedDescription) }
         return !failed
     }

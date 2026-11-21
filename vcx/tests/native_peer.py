@@ -39,6 +39,9 @@ if mode == 'http':
                 self.wfile.write((json.dumps({'message': {'content': '', 'tool_calls': [{'function': {'name': 'run_command', 'arguments': {'command': 'printf native-tool-check'}}}]}, 'done': True}) + '\n').encode())
                 return
             text = body['messages'][-1]['content']
+            if text == 'CUT':
+                self.wfile.write((json.dumps({'message': {'content': '### 3. **Ker'}, 'done': False}) + '\n').encode())
+                return
             if text.startswith('DIRECTORY_TOOLS '):
                 commands = ['cd ' + shlex.quote(text.removeprefix('DIRECTORY_TOOLS ')), 'pwd -L']
                 calls = [{'function': {'name': 'run_command', 'arguments': {'command': command}}} for command in commands]

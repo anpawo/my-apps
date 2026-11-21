@@ -805,7 +805,7 @@ final class QwenConnection: Connection {
         let request = try chatRequest(url, ["model": model, "stream": true, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
-        var answer = "", calls: [JSON] = []
+        var answer = "", calls: [JSON] = [], finished = false
         let id = item + "-" + UUID().uuidString
         for try await line in bytes.lines {
             try Task.checkCancellation()
@@ -816,6 +816,7 @@ final class QwenConnection: Connection {
             answer += delta
             calls += message["tool_calls"] as? [JSON] ?? []
             if event["done"] as? Bool == true {
+                finished = true
                 let input = event["prompt_eval_count"] as? Int ?? 0, output = event["eval_count"] as? Int ?? 0
                 contextTokens = input + output
                 emit("cx/tokens", ["input": input, "output": output])
@@ -823,6 +824,8 @@ final class QwenConnection: Connection {
             emit("item/agentMessage/delta", ["itemId": id, "delta": delta])
         }
         if !answer.isEmpty { emit("item/completed", ["item": ["id": id, "type": "agentMessage", "text": answer, "provider": "Qwen"]]) }
+        // Ollama ends every answer with a done event; a stream closed before it was cut (runner reload, dropped proxy), not finished.
+        if !finished { throw CXError(message: "Qwen's answer was cut off: the server closed the stream before its final event. Send your message again.") }
         if answer.isEmpty && calls.isEmpty { throw CXError(message: "Qwen returned an empty answer. Send your message again.") }
         return (answer, calls)
     }
