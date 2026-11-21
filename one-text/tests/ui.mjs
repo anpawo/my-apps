@@ -658,6 +658,8 @@ await page.waitForSelector('.group');
 await page.waitForTimeout(300);
 const titles = await page.$$eval('#tabbox .group .grouptile', bs => bs.map(b => b.title).join('|'));
 check(titles === 'Work: Tom B|Family: Lea Martin' && !(await page.$('#tabbox .group.open')), `groups, their order and who is in them are kept after a restart, folded (${titles})`);
+const chatIn = await page.evaluate(() => { const g = state.all.find(i => i.kind === 'group'); addToTab(g, 'Work'); const out = [members(tabOf('Work')).includes(g), document.querySelector('.group[data-name="Work"] .grouptile').title.includes(g.name)]; addToTab(g, 'Work', false); return out; });
+check(chatIn.every(Boolean), `a group chat can join a group and shows in its bubble (${chatIn})`);
 
 // Dragging the sidebar's right edge widens it, and the width is kept after a restart.
 const sideW = () => page.evaluate(() => document.querySelector('aside').offsetWidth);

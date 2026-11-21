@@ -298,7 +298,7 @@ const saveTabs = () => { localStorage.tabs = JSON.stringify(state.tabs); };
 const tabOf = name => state.tabs.find(t => t.name === name);
 const inTab = (item, tab) => item.chats.some(c => tab.ids.includes(c.id));
 const tabRank = (item, tab) => Math.min(...item.chats.map(c => tab.ids.indexOf(c.id)).filter(n => n >= 0));
-const members = tab => (state.all || []).filter(i => i.kind !== 'group' && inTab(i, tab)).sort((a, b) => tabRank(a, tab) - tabRank(b, tab));
+const members = tab => (state.all || []).filter(i => inTab(i, tab)).sort((a, b) => tabRank(a, tab) - tabRank(b, tab));
 function drawGroups() {
   const box = $('#tabbox');
   if (box.querySelector('input')) return;
@@ -393,7 +393,7 @@ function dragFrom(el, sec) {
   el.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const item = sec ? null : state.byId.get(el.dataset.id);
-    if (!sec && (!item || item.kind !== 'person')) return;
+    if (!sec && !item) return;
     const x0 = e.clientX, y0 = e.clientY;
     let ghost = null, over = null;
     const move = ev => {
@@ -1813,13 +1813,11 @@ function openMore(anchor) {
   const m = menu(anchor, m => {
     const tab = state.tabs.find(t => inTab(person, t));
     m.append(item(isFav(person) ? 'Remove from favorites' : 'Add to favorites', { hint: '⌘F', action: () => { closeMenu(); toggleFav(person); } }));
-    if (person.kind === 'person') {
-      if (tab) m.append(item(`Remove from ${tab.name}`, { action: () => { closeMenu(); addToTab(person, tab.name, false); } }));
-      m.append(item(tab ? 'Move to another group…' : 'Add to a group…', { action: () => morph(m, mm => {
-        for (const t of state.tabs.filter(t => t !== tab)) mm.append(item(t.name, { action: () => { closeMenu(); addToTab(person, t.name); } }));
-        mm.append(item('New group…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
-      }) }));
-    }
+    if (tab) m.append(item(`Remove from ${tab.name}`, { action: () => { closeMenu(); addToTab(person, tab.name, false); } }));
+    m.append(item(tab ? 'Move to another group…' : 'Add to a group…', { action: () => morph(m, mm => {
+      for (const t of state.tabs.filter(t => t !== tab)) mm.append(item(t.name, { action: () => { closeMenu(); addToTab(person, t.name); } }));
+      mm.append(item('New group…', { action: () => { closeMenu(); newTab($('#tabbox .newgroup'), person); } }));
+    }) }));
     m.append(sep(), item('Alias…', { hint: '⌘M', action: () => { closeMenu(); rename(); } }));
     m.append(item('Change picture…', { action: () => { closeMenu(); pickPicture(person); } }));
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
