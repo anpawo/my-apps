@@ -21,6 +21,10 @@ head=$(git -C "$repo" log -1 --format=%H refs/vcx-update/main -- "${paths[@]}") 
 max_attempts=3
 read -r failed attempts 2>/dev/null < "$state/failed"
 [ "$head" = "${failed:-}" ] && [ "${attempts:-$max_attempts}" -ge "$max_attempts" ] && exit 1
+# Nor does a run start beside such a job: under 4 burners on the 4 performance cores, the spin check never fired.
+busy_cpu_percent=150
+top_cpu=$(ps -Ao pcpu= | sort -rn | head -1); top_cpu=${top_cpu%.*}
+[ "${top_cpu:-0}" -ge "$busy_cpu_percent" ] && { log "deferred: a process uses ${top_cpu}% CPU"; exit 75; }
 
 mkdir -p "$state"
 if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
