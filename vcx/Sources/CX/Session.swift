@@ -347,7 +347,17 @@ final class Session: ObservableObject {
     static let projectAdvice = "Select the task's project with a cd command alone in its shell call: VCX shows that folder as the session's directory and keeps the same conversation. Any other cd is temporary and changes nothing in VCX. Shell calls may be isolated or restarted in the starting folder: use the project's absolute path in later commands."
     var currentConversationID: String { "native:" + recordID }
     var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
-    var directoryLabel: String { repositoryDirectory ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored)) }
+    var directoryLabel: String {
+        repositoryDirectory ?? Session.pathInSelf(cwd) ?? (cwd == NSHomeDirectory() ? "~" : cwd.replacingOccurrences(of: NSHomeDirectory() + "/", with: "~/", options: .anchored))
+    }
+    /// Under ~/self the bar shows the path after it (epitech/hackathons/ai-championship-paris-2026); Fleet keeps its
+    /// shorter card name from `.fleet` (asked 2026-11-21: "fleet is more general ... vcx shows the path starting after self").
+    nonisolated(unsafe) static var selfDirectory = NSHomeDirectory() + "/self"
+    nonisolated static func pathInSelf(_ path: String) -> String? {
+        let base = URL(fileURLWithPath: selfDirectory).resolvingSymlinksInPath().path + "/"
+        let full = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        return full.hasPrefix(base) ? String(full.dropFirst(base.count)) : nil
+    }
     var repositoryLabel: String { branch.isEmpty ? "not a repo" : "@" + branch + (repositoryStatus.isEmpty ? "" : " - " + repositoryStatus) }
     var effectiveEffort: String? { effort ?? defaultEffort ?? modelDefaultEfforts[model] ?? (account.provider == "qwen" ? "off" : nil) }
     // Until the provider reports its model, the effort read from settings may belong to another model.

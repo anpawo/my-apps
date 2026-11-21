@@ -222,9 +222,9 @@ extension Session {
                 folder = (folder as NSString).deletingLastPathComponent
             }
             if let card { name = card }
-            if let edited = edited.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }), edited.hasPrefix(here + "/") {
-                name += "/" + URL(fileURLWithPath: edited).lastPathComponent
-            }
+            let editedHere = edited.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }.flatMap { $0.hasPrefix(here + "/") ? $0 : nil }
+            if let path = Session.pathInSelf(editedHere ?? here) { name = path }
+            else if let editedHere { name += "/" + URL(fileURLWithPath: editedHere).lastPathComponent }
             let branch = git(["branch", "--show-current"]) ?? ""
             let label = branch.isEmpty ? "detached " + (git(["rev-parse", "--short", "HEAD"]) ?? "?") : branch
             let status: String, porcelain = git(["status", "--porcelain"])

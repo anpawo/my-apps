@@ -568,6 +568,20 @@ enum Check {
             editedSession.editedFolder = NSHomeDirectory()
             await editedSession.refreshRepository()
             check(inside == "atlas/src" && editedSession.directoryLabel == "atlas", "the bar adds the folder of the last edit inside the project, nothing for one outside")
+            let home = Session.selfDirectory
+            Session.selfDirectory = directory.path
+            await cardSession.refreshRepository()
+            editedSession.editedFolder = cardPath
+            await editedSession.refreshRepository()
+            let plain = Session(cwd: directory.appendingPathComponent("loose").path)
+            try? FileManager.default.createDirectory(atPath: plain.cwd, withIntermediateDirectories: true)
+            Session.selfDirectory = home
+            check(cardSession.directoryLabel == "atlas/app/src" && editedSession.directoryLabel == "atlas/app/src",
+                  "under ~/self the bar shows the path after it, the .fleet card name left to Fleet")
+            Session.selfDirectory = directory.path
+            let loose = plain.directoryLabel
+            Session.selfDirectory = home
+            check(loose == "loose", "a folder under ~/self outside any repository shows its path after ~/self")
         }
         let profile = directory.appendingPathComponent("claude-profile")
         try! FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
