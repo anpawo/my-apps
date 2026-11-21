@@ -2994,8 +2994,8 @@ extension Check {
         check(qwenToolOutput("short") == "short" && cut.count < 8200 && cut.hasPrefix("aaa") && cut.hasSuffix("END") && cut.contains("12000 characters cut"),
               "a long command output reaches Qwen as about 8K characters of head and tail, with how much was cut")
         check(qwenToolOutput(String(repeating: "b", count: 32768), dropped: 100000).contains("124768 characters cut"), "the cut note counts what the output reader already dropped")
-        check(!qwenNeedsCompaction(tokens: 49151, bytes: 0) && qwenNeedsCompaction(tokens: 49152, bytes: 0) && qwenNeedsCompaction(tokens: 0, bytes: 150000),
-              "compaction starts at 75 % of the 65536-token window, by Ollama's count or by the history's size")
+        check(!qwenNeedsCompaction(tokens: 24575, bytes: 0) && qwenNeedsCompaction(tokens: 24576, bytes: 0) && qwenNeedsCompaction(tokens: 0, bytes: 75000),
+              "compaction starts at 75 % of the 32768-token window, by Ollama's count or by the history's size")
         check(qwenRepeats(["a", "b", "b", "b"]) && !qwenRepeats(["b", "a", "b", "b"]) && !qwenRepeats(["b", "b"]), "three identical commands in a row count as a loop")
         let fixture = Bundle.main.url(forResource: "native_peer", withExtension: "py")?.path
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/native_peer.py").path

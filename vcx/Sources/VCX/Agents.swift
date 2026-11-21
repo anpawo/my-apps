@@ -881,14 +881,14 @@ final class QwenConnection: Connection {
     }
 }
 
-// 8K characters is about 3K tokens: one output cannot fill the 65536-token window by itself. `dropped` counts what the
+// 8K characters is about 3K tokens: one output cannot fill the window by itself. `dropped` counts what the
 // reader already left out of the middle.
 func qwenToolOutput(_ text: String, dropped: Int = 0, limit: Int = 8000) -> String {
     guard text.count + dropped > limit else { return text }
     return String(text.prefix(limit / 2)) + "\n[… \(text.count + dropped - limit) characters cut from the middle of this output …]\n" + String(text.suffix(limit / 2))
 }
 
-let qwenWindow = 65536
+let qwenWindow = 32768
 
 // prompt_eval_count can leave out a prompt Ollama had cached, so the history's size (about 2.8 bytes of JSON per token)
 // backs it up; at 75 % the rest of the window still holds a step's outputs and the answer.
@@ -904,10 +904,10 @@ func qwenCompacted(_ messages: [JSON], request: JSON, summary: String) -> [JSON]
 }
 
 // Qwen's window holds prompt and answer together: at 8192 tokens, 41 messages of tool output took 8106 of them and it
-// answered nothing (07/11). He prefers memory to speed: 65536 spills 2.7 GB to the PC's RAM (8 tokens/s instead of 38);
-// 131072 left 0.19 GB of its 8 GB free. About 2.8 bytes of JSON per token, so 160 KB leaves room for the system prompt
-// and an answer. Oldest messages go first; the request in progress stays.
-func qwenHistory(_ messages: [JSON], limit: Int = 160000) -> [JSON] {
+// answered nothing (07/11). 65536 paged the 8 GB PC (8.46 GB loaded, 4.8 tokens/s) and a stream was cut; he picked
+// 32768 (7.12 GB, 6.2 tokens/s) on 21/11. About 2.8 bytes of JSON per token, so 2.5 bytes per window token leaves room
+// for the system prompt and an answer. Oldest messages go first; the request in progress stays.
+func qwenHistory(_ messages: [JSON], limit: Int = qwenWindow * 5 / 2) -> [JSON] {
     guard messages.count > 2 else { return messages }
     let task = max(1, messages.lastIndex { $0["role"] as? String == "user" } ?? 1)
     var before = Array(messages[1..<task]), after = Array(messages[task...])
