@@ -231,7 +231,7 @@ enum Check {
             check(links == ["/tmp/compare.png", "/tmp/it.png"], "reply links render in clickable text views")
             let joined = NSHostingView(rootView: ProseView(text: "⟶ The answer.\n\n- a point\n\n⟶ Next: the step.").frame(width: 500))
             joined.layoutSubtreeIfNeeded()
-            check(textViews(joined).map(\.string) == ["The answer.\n- a point\n+ Next: the step."], "a reply's paragraphs and answer lines are one selectable text")
+            check(textViews(joined).map(\.string) == ["The answer.\n• a point\n+ Next: the step."], "a reply's paragraphs and answer lines are one selectable text")
             // Borderless and never ordered in: the click goes to the text view directly.
             let linkWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
             linkWindow.isReleasedWhenClosed = false; linkWindow.contentView = host; host.layoutSubtreeIfNeeded()
@@ -496,6 +496,7 @@ enum Check {
         codeEdits.set("a", "c"); codeEdits.set("a", "a")
         check(codeEdits.attach(to: "") == "" && codeEdits.text["a"] == nil, "a block edited back to its original sends nothing")
         check(answerParagraphs("\n## Next\n\nText") == ["## Next", "Text"], "a heading after a fence stays a heading")
+        check(bulletDots("- One\n  - Two\n* Three\n-1 and **bold**") == "• One\n  • Two\n• Three\n-1 and **bold**", "list dashes show as dots, other lines stay")
         check(answerParagraphs("**Closed**\n| A | B |\n|---|---|\n| 1 | 2 |") == ["**Closed**", "| A | B |\n|---|---|\n| 1 | 2 |"], "a table right under a text line is its own block")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-check-" + UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

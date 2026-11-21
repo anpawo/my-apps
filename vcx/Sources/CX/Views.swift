@@ -1877,9 +1877,17 @@ func proseGroups(_ text: String) -> [ProseGroup] {
         else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
             let band = paragraph.hasPrefix("✓") ? NSColor(red: 1, green: 225 / 255, blue: 195 / 255, alpha: 1) : paragraph.hasPrefix("⟶ Next:") ? NSColor(red: 214 / 255, green: 230 / 255, blue: 1, alpha: 1) : NSColor(red: 214 / 255, green: 245 / 255, blue: 214 / 255, alpha: 1)
             parts.append(ProsePart(text: answerLine(paragraph), weight: .medium, lineSpacing: 5, band: band))
-        } else { parts.append(ProsePart(text: paragraph, weight: .regular, lineSpacing: 6, band: nil)) }
+        } else { parts.append(ProsePart(text: bulletDots(paragraph), weight: .regular, lineSpacing: 6, band: nil)) }
     }
     flush(); return groups
+}
+
+// Inline-only Markdown keeps a list's "- " as typed: shown as a dot, nested lists keeping their indent.
+func bulletDots(_ paragraph: String) -> String {
+    paragraph.components(separatedBy: "\n").map { line in
+        let indent = line.prefix { $0 == " " }, rest = line.dropFirst(indent.count)
+        return rest.hasPrefix("- ") || rest.hasPrefix("* ") ? indent + "• " + rest.dropFirst(2) : line
+    }.joined(separator: "\n")
 }
 
 private let bandKey = NSAttributedString.Key("vcxBand")
