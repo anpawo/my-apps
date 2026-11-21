@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import NaturalLanguage
 
@@ -17,7 +18,7 @@ enum AgentMessages {
         for file in files where file.hasSuffix(".json") {
             guard let data = FileManager.default.contents(atPath: home + "/fleet/" + file),
                   let root = try? JSONSerialization.jsonObject(with: data) as? JSON,
-                  let pid = (root["pid"] as? NSNumber)?.int32Value, kill(pid, 0) == 0 else { continue }
+                  let pid = (root["pid"] as? NSNumber)?.int32Value, alive(pid, startedAt: root["startedAt"]) else { continue }
             for record in root["sessions"] as? [JSON] ?? [] {
                 guard let id = record["sessionId"] as? String else { continue }
                 let recovery = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + id + ".window.json")
@@ -30,6 +31,15 @@ enum AgentMessages {
             }
         }
         return found
+    }
+
+    // A forced reboot leaves a frontend's file behind and hands its pid to another process (21-11: SystemUIServer
+    // took 444, every window listed twice and `--send` matched none), so the pid's start time must match too.
+    static func alive(_ pid: Int32, startedAt: Any?) -> Bool {
+        var info = proc_bsdinfo()
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 else { return false }
+        guard let startedAt = (startedAt as? NSNumber)?.uint64Value else { return true }
+        return info.pbi_start_tvsec == startedAt
     }
 
     // Fleet's card name for a window with no task label (Fleet VCX.swift shortTitle), so both say the same.
