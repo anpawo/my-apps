@@ -1180,7 +1180,7 @@ final class Session: ObservableObject {
             notice(stopped + " The network is down, so VCX restarts it once the network is back." + line, link: log); return
         }
         lastCrash = Date()
-        do { try await activate(account, resume: threadID, keepRows: true); await refreshCatalog(); notice(stopped + " Restarted it, context kept." + line, link: log) }
+        do { try await activate(account, resume: threadID, keepRows: true); needsAttention = false; await refreshCatalog(); notice(stopped + " Restarted it, context kept." + line, link: log) }
         catch { notice(stopped + " Restarting it failed: " + error.localizedDescription + line, link: log) }
     }
 

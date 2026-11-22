@@ -1222,7 +1222,7 @@ enum Check {
                 }
                 await crash()
                 let restarted = crashing.rows.last?.items.first?.data
-                check(fixtures.count == 2 && crashing.ready && fixtures.last?.opened.last?["threadId"] as? String == thread && fixtures.last?.logFile == crashing.agentLogFile
+                check(fixtures.count == 2 && crashing.ready && !crashing.needsAttention && fixtures.last?.opened.last?["threadId"] as? String == thread && fixtures.last?.logFile == crashing.agentLogFile
                       && restarted?["text"] as? String == "Claude stopped (killed by signal 9). Restarted it, context kept. Last error: Error: out of memory" && restarted?["link"] as? String == crashing.agentLogFile,
                       "an unexpected Claude exit restarts it once on its conversation and says why, with the log")
                 await crash()
