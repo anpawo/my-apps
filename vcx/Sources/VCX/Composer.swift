@@ -11,6 +11,7 @@ final class ComposerWindow: NSWindow {
     private var clickStart: NSPoint?
     private weak var lens: NSTextView?
     private var hovering = false, movedBefore = false
+    private var gathered: [NSTextView] = []
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     // Read-only text only: Option still types its characters in the composer.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
@@ -26,6 +27,13 @@ final class ComposerWindow: NSWindow {
     private func select(_ range: NSRange, in field: NSTextView) {
         if lens !== field { lens?.setSelectedRange(NSRange(location: 0, length: 0)) }
         lens = field; field.setSelectedRange(range)
+    }
+    // Held Option keeps every word it passes over, in every text it crosses, until the next press drops them.
+    private func gather(_ range: NSRange, in field: NSTextView) {
+        guard gathered.contains(where: { $0 === field }) else { gathered.append(field); field.setSelectedRange(range); return }
+        let ranges = field.selectedRanges.map(\.rangeValue)
+        guard !ranges.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { return }
+        field.selectedRanges = (ranges + [range]).sorted { $0.location < $1.location }.map { NSValue(range: $0) }
     }
     // Option-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
     private func optionDrag(from start: (field: NSTextView, range: NSRange)) {
@@ -43,14 +51,17 @@ final class ComposerWindow: NSWindow {
     }
     override func sendEvent(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        // While Option alone is held, the selection follows the word under the pointer.
+        // While Option alone is held, every word under the pointer joins the selection.
         if event.type == .flagsChanged {
-            if modifiers == .option, !hovering { hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true }
+            if modifiers == .option, !hovering {
+                hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true
+                gathered.forEach { $0.setSelectedRange(NSRange(location: 0, length: 0)) }; gathered = []
+            }
             else if modifiers != .option, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
         }
         if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .option, event.type == .mouseMoved || NSEvent.pressedMouseButtons == 0,
            let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
-            select(hit.range, in: hit.field)
+            gather(hit.range, in: hit.field)
         }
         if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.

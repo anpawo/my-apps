@@ -397,9 +397,13 @@ enum Check {
             move(NSPoint(x: onHere.x + 2, y: onHere.y + 6))
             check(input.selectedRange() == NSRange(location: 19, length: 4), "with Option held, the selection follows the hovered word")
             move(NSPoint(x: onWord.x + 2, y: onWord.y + 6))
-            check(input.selectedRange() == NSRange(location: 9, length: 9) && defined.count == asked, "hovering another word moves the selection and asks nothing")
+            let both = [NSRange(location: 9, length: 9), NSRange(location: 19, length: 4)]
+            check(input.selectedRanges.map(\.rangeValue) == both && defined.count == asked, "hovering another word adds it to the selection and asks nothing")
             flags([])
             check(!clickWindow.acceptsMouseMovedEvents, "releasing Option stops tracking the pointer")
+            check(input.selectedRanges.map(\.rangeValue) == both, "releasing Option keeps the hovered words selected")
+            flags(.option); flags([])
+            check(input.selectedRanges.count == 1, "pressing Option again drops the words the last hover gathered")
             // The drags left an Option event as NSApp.currentEvent, which later Return checks read as Option-Return.
             NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: true)
             _ = NSApp.nextEvent(matching: .applicationDefined, until: nil, inMode: .default, dequeue: true)
