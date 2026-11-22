@@ -63,6 +63,18 @@
 				<string>com.mr.text.ini</string>
 				<string>com.mr.text.cfg</string>
 				<string>com.mr.text.lock</string>
+				<string>com.mr.text.cjs</string>
+				<string>com.mr.text.tsx</string>
+				<string>com.mr.text.jsx</string>
+				<string>com.mr.text.rs</string>
+				<string>com.mr.text.go</string>
+				<string>com.mr.text.sql</string>
+				<string>com.mr.text.scss</string>
+				<string>com.mr.text.less</string>
+				<string>com.mr.text.vue</string>
+				<string>com.mr.text.gradle</string>
+				<string>com.mr.text.properties</string>
+				<string>com.mr.text.dart</string>
 				<string>com.mr.text.gitignore</string>
 			</array>
 		</dict>
@@ -90,6 +102,18 @@
 				<string>cfg</string>
 				<string>lock</string>
 				<string>gitignore</string>
+				<string>cjs</string>
+				<string>tsx</string>
+				<string>jsx</string>
+				<string>rs</string>
+				<string>go</string>
+				<string>sql</string>
+				<string>scss</string>
+				<string>less</string>
+				<string>vue</string>
+				<string>gradle</string>
+				<string>properties</string>
+				<string>dart</string>
 			</array>
 		</dict>
 	</array>
@@ -347,6 +371,210 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>gitignore</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.cjs</string>
+			<key>UTTypeDescription</key>
+			<string>cjs file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cjs</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.tsx</string>
+			<key>UTTypeDescription</key>
+			<string>tsx file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>tsx</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.jsx</string>
+			<key>UTTypeDescription</key>
+			<string>jsx file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>jsx</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.rs</string>
+			<key>UTTypeDescription</key>
+			<string>rs file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>rs</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.go</string>
+			<key>UTTypeDescription</key>
+			<string>go file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>go</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.sql</string>
+			<key>UTTypeDescription</key>
+			<string>sql file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>sql</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.scss</string>
+			<key>UTTypeDescription</key>
+			<string>scss file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>scss</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.less</string>
+			<key>UTTypeDescription</key>
+			<string>less file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>less</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.vue</string>
+			<key>UTTypeDescription</key>
+			<string>vue file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>vue</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.gradle</string>
+			<key>UTTypeDescription</key>
+			<string>gradle file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gradle</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.properties</string>
+			<key>UTTypeDescription</key>
+			<string>properties file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>properties</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mr.text.dart</string>
+			<key>UTTypeDescription</key>
+			<string>dart file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>dart</string>
 				</array>
 			</dict>
 		</dict>
