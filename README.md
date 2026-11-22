@@ -19,7 +19,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | | App | What it does |
 |:-:|---|---|
 | <img src="autocorrect/docs/icon.png" width="40" alt=""> | [autocorrect](autocorrect) | Fixes the word you just typed, in French and in English. |
-| <img src="desks/docs/icon.png" width="40" alt=""> | [desks](desks) | Desktops without the slide: go there at once, carry a window, from a hotkey. |
+| <img src="desks/docs/icon.png" width="40" alt=""> | [desks](desks) | Desktops from the command line: put a test window on one you are not looking at. |
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
