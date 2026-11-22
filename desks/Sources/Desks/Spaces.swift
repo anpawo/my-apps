@@ -135,7 +135,7 @@ enum Spaces {
 
     /// macOS 14.5 shut `SLSMoveWindowsToManagedSpace` to all but the Dock; the bridged
     /// operation SkyLight hands the Dock still moves a window. From Fleet's Spaces.swift.
-    private static func move(_ window: CGWindowID, to space: UInt64) -> Bool {
+    static func move(_ window: CGWindowID, to space: UInt64) -> Bool {
         guard let perform = performBridged,
               let type = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") as? NSObject.Type,
               let initialize = class_getMethodImplementation(type, initWithWindows) else { return false }
