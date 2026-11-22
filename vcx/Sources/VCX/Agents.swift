@@ -118,6 +118,7 @@ final class ClaudeConnection: Connection {
     private var sendingNow = false
     private var command: [String]?
     private var pendingUsers: [String] = []
+    private var resent: [String: String] = [:]
     private var metadata: JSON?
     private var waiting: [String: CheckedContinuation<JSON, Error>] = [:]
     private var timers: [String: DispatchWorkItem] = [:]
@@ -302,8 +303,8 @@ final class ClaudeConnection: Connection {
         event(["method": method, "params": params])
     }
     // claude -p can wait forever on an API request that never answers (2026-11-09: 204 of ~270 KB sent, then only
-    // keep-alives for 40 min, no event, no error). Until its first event the prompt is not in the transcript, so a new
-    // claude can take it again.
+    // keep-alives for 40 min, no event, no error). Claude saves the prompt before that request, and a resumed claude
+    // replays a saved uuid as done without running it (2026-11-22: "Thinking" for 72 min), so the resend takes a new uuid.
     static var firstEventTimeout: Double = 120
     private var firstEvent: DispatchWorkItem?
     private func watchFirstEvent(_ prompt: JSON, effort: String?, retried: Bool) {
@@ -321,6 +322,8 @@ final class ClaudeConnection: Connection {
                     let saved = ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: "\(projects)/\($0)/\(session).jsonl") }
                     try launch(resume: saved)
                     if let effort { _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15) }
+                    var prompt = prompt
+                    if let old = prompt["uuid"] as? String { let fresh = UUID().uuidString; prompt["uuid"] = fresh; resent[fresh] = old; pendingUsers = pendingUsers.map { $0 == old ? fresh : $0 } }
                     try write(prompt)
                     watchFirstEvent(prompt, effort: effort, retried: true)
                 } catch { emit("cx/error", ["message": "Claude did not answer and could not be restarted: " + error.localizedDescription]) }
@@ -331,7 +334,9 @@ final class ClaudeConnection: Connection {
     func receive(_ message: JSON) {
         if message["parent_tool_use_id"] is String { return }
         let kind = message["type"] as? String ?? ""
-        if ["stream_event", "assistant", "result", "user", "control_request"].contains(kind) || (kind == "system" && message["subtype"] as? String == "api_retry") { firstEvent?.cancel(); firstEvent = nil }
+        // The echo of a prompt is no answer: a resumed claude sends it for a prompt it will not run.
+        let echo = kind == "user" && message["isReplay"] as? Bool == true
+        if !echo, ["stream_event", "assistant", "result", "user", "control_request"].contains(kind) || (kind == "system" && message["subtype"] as? String == "api_retry") { firstEvent?.cancel(); firstEvent = nil }
         if kind == "system", message["subtype"] as? String == "api_retry" { retrying = true; emit("cx/apiRetry", ["delay": message["retry_delay_ms"] as? Int ?? 0]) }
         else if retrying, ["stream_event", "assistant", "result", "user"].contains(kind) { retrying = false; emit("cx/apiRetry", ["done": true]) }
         switch message["type"] as? String {
@@ -358,7 +363,7 @@ final class ClaudeConnection: Connection {
             if let id = message["request_id"] as? String { controls.removeValue(forKey: id); emit("serverRequest/resolved", ["requestId": id]) }
         // "queued" when a prompt waits for the running turn, "started" once the turn has taken it in.
         case "command_lifecycle":
-            if let id = message["command_uuid"] as? String { emit("cx/userQueue", ["id": id, "queued": message["state"] as? String == "queued"]) }
+            if let id = message["command_uuid"] as? String { emit("cx/userQueue", ["id": resent[id] ?? id, "queued": message["state"] as? String == "queued"]) }
         case "control_request":
             guard let id = message["request_id"] as? String, let request = message["request"] as? JSON else { return }
             guard request["subtype"] as? String == "can_use_tool" else {

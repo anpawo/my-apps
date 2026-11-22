@@ -919,16 +919,24 @@ enum Check {
                 }
                 do {
                     let stalled = ClaudeConnection(account: Account(id: "stall", name: "Stall", provider: "claude"), cwd: directory.path)
-                    let launches = directory.appendingPathComponent("stall-launches"), seen = directory.appendingPathComponent("stall-seen")
-                    var warned = false
-                    stalled.event = { if $0["method"] as? String == "warning" { warned = true } }
+                    let launches = directory.appendingPathComponent("stall-launches"), first = directory.appendingPathComponent("stall-first"), seen = directory.appendingPathComponent("stall-seen")
+                    var warned = false, queueIDs: [String] = []
+                    stalled.event = {
+                        if $0["method"] as? String == "warning" { warned = true }
+                        if $0["method"] as? String == "cx/userQueue", let id = ($0["params"] as? JSON)?["id"] as? String { queueIDs.append(id) }
+                    }
                     let previous = ClaudeConnection.firstEventTimeout; ClaudeConnection.firstEventTimeout = 0.3
-                    try await stalled.start(command: ["/bin/sh", "-c", "echo x >> '\(launches.path)'; if [ $(wc -l < '\(launches.path)') -gt 1 ]; then cat > '\(seen.path)'; else while read line; do :; done; fi"])
+                    // The second start echoes each prompt as a replay, as a resumed claude does for a prompt it will not run.
+                    try await stalled.start(command: ["/bin/sh", "-c", "echo x >> '\(launches.path)'; if [ $(wc -l < '\(launches.path)') -gt 1 ]; then while read line; do echo \"$line\" >> '\(seen.path)'; echo '{\"type\":\"user\",\"isReplay\":true}'; id=$(echo \"$line\" | sed -n 's/.*\"uuid\":\"\\([^\"]*\\)\".*/\\1/p'); echo \"{\\\"type\\\":\\\"command_lifecycle\\\",\\\"command_uuid\\\":\\\"$id\\\",\\\"state\\\":\\\"completed\\\"}\"; done; else while read line; do echo \"$line\" >> '\(first.path)'; done; fi"])
                     _ = try await stalled.request("turn/start", ["input": [["type": "text", "text": "Stalled prompt"]]])
                     for _ in 0..<300 where !((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") { try await Task.sleep(nanoseconds: 10_000_000) }
+                    let uuid = { (url: URL) in ((try? String(contentsOf: url, encoding: .utf8))?.split(separator: "\n").last).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSON }?["uuid"] as? String }
                     check(((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") && !warned, "Claude restarts and sends the prompt again when its first turn never answers")
+                    check(uuid(first) != nil && uuid(seen) != nil && uuid(first) != uuid(seen), "the resent prompt takes a new uuid, since a resumed claude skips a saved one")
+                    for _ in 0..<100 where queueIDs.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+                    check(!queueIDs.isEmpty && queueIDs.allSatisfy { $0 == uuid(first) }, "Claude's queue events for the resent prompt name the row's original uuid")
                     for _ in 0..<100 where !warned { try await Task.sleep(nanoseconds: 10_000_000) }
-                    check(warned && ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").count == 2, "a second silent start warns instead of restarting again")
+                    check(warned && ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").count == 2, "a second silent start warns even after claude echoes the prompt")
                     ClaudeConnection.firstEventTimeout = previous
                     stalled.close()
                 }
