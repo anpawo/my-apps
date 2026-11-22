@@ -770,7 +770,6 @@ final class Session: ObservableObject {
                 if outcome == "interrupted" { Task { await self.send(text: Self.keepGoing, images: [], expectedDraft: NSAttributedString(string: "")) } }
             }
             save()
-            if outcome == "completed" { Task { await self.sendUnread() } }
             resumeWhenOnline(after: turn)
             if let command = pendingModelCommand {
                 pendingModelCommand = nil
@@ -1550,19 +1549,6 @@ final class Session: ObservableObject {
         // Codex keeps an unread steer in the interrupted turn; a turn with no input then answers it.
         sendingNow = item.id
         await stop(source: "Shift+Return")
-    }
-
-    // A turn that ends with nothing queued has read every prompt it got, so a row still unread was lost on the way
-    // (its process died with it): it goes again, and on a failed send it comes back into the composer.
-    func sendUnread() async {
-        let unread = rows.filter { $0.kind == "user" && $0.items.first?.data["queued"] as? Bool == true }
-        guard !unread.isEmpty, ready, !busy, !submitting, !changing, !frontendReplacing, testing || !available.isEmpty else { return }
-        trace("resendUnread", ["count": unread.count])
-        for row in unread {
-            guard let content = row.items.first?.data["content"] as? [JSON] else { continue }
-            rows.removeAll { $0.id == row.id }; revision += 1
-            await send(text: content.compactMap { $0["text"] as? String }.joined(separator: "\n"), images: content.compactMap { $0["path"] as? String }, expectedDraft: withdrawnDraft(content))
-        }
     }
 
     private func continueWith(_ prompt: String) async {

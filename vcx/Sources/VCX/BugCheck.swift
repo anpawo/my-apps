@@ -289,14 +289,14 @@ enum BugCheck {
             check(connection.sent.count == afterNow && backendSession.busy, "Shift+Return does nothing once the prompt is the running turn's own")
             connection.event(["method": "cx/userQueue", "params": ["id": raced, "queued": false]])
             backendSession.editDraft(NSAttributedString(string: ""))
-            await backendSession.send(text: "lost behind a hang", images: [])
+            await backendSession.send(text: "held by Claude", images: [])
             _ = queueLast()
             let sentBeforeEnd = connection.sent.count
             connection.event(["method": "turn/completed", "params": ["turn": ["id": backendSession.turnID ?? "", "status": "completed"]]])
-            for _ in 0..<50 where connection.sent.count == sentBeforeEnd { await settle() }
-            let lostRows = backendSession.rows.filter { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "lost behind a hang" }
-            check(connection.sent.count == sentBeforeEnd + 1 && sentTexts().last == "lost behind a hang" && lostRows.count == 1 && lostRows.first?.items.first?.data["queued"] == nil && backendSession.busy,
-                  "a prompt still unread when the turn ends goes out again as the next turn, with one bubble")
+            for _ in 0..<10 { await settle() }
+            // 2026-11-23: Claude ends a turn with queued_turn_count 0 while it still holds the queued prompt, then runs it;
+            // sending it again queued a copy behind it, and each copy's turn sent another (7 identical prompts).
+            check(connection.sent.count == sentBeforeEnd, "a prompt still unread when the turn ends is not sent again, since Claude still holds it")
         }
         do {
             let ordered = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unread-order"))
