@@ -3,13 +3,16 @@ import AppKit
 /// `text --render out.png file...`: the window laid out offscreen with those files open (the
 /// first one shown), drawn into a PNG, then exit. How its look is checked without a window.
 ///
-/// On macOS 26 an offscreen `cacheDisplay` of the window draws the title bar but leaves the glass
-/// sidebar and the scroll views blank, so each part is drawn on its own and laid over it.
+/// On macOS 26 an offscreen `cacheDisplay` of the window leaves the glass (sidebar, toolbar
+/// capsules) and the scroll views blank or white, so each part is drawn on its own.
 enum Render {
     static let settle: TimeInterval = 0.2
     /// The sidebar's glass panel, as it shows over the dark window.
     static let panel = Theme.rgb(0x1c1d1f)
     static let panelRadius: CGFloat = 16
+    /// The toolbar's glass capsules, as they show over the dark window.
+    static let capsuleFill = Theme.rgb(0x262729)
+    static let capsuleEdge = Theme.rgb(0xffffff, alpha: 0x14)
     /// The traffic lights the window server draws: close, minimize, zoom.
     static let lights = [Theme.rgb(0xff5f57), Theme.rgb(0xfebc2e), Theme.rgb(0x28c840)]
     static let lightCenter = NSPoint(x: 28, y: 26)
@@ -44,32 +47,62 @@ enum Render {
     }
 
     private static func compose(_ main: MainWindow, over frame: NSView) {
-        let editor = main.scroll.superview!
-        let below = frame.convert(main.window.contentLayoutRect, from: nil)
-        let side = main.sidebar.view
-        let column = frame.convert(side.bounds, from: side)
         Theme.background.setFill()
-        NSRect(x: 0, y: 0, width: column.maxX, height: frame.bounds.height).fill()
-        frame.convert(editor.bounds, from: editor).intersection(below).fill()
+        frame.bounds.fill()
+        let side = main.folderList.view
         panel.setFill()
-        NSBezierPath(roundedRect: column, xRadius: panelRadius, yRadius: panelRadius).fill()
-        if let table = (side as? NSScrollView)?.documentView { draw(table, table.visibleRect, over: frame) }
+        NSBezierPath(roundedRect: frame.convert(side.bounds, from: side), xRadius: panelRadius, yRadius: panelRadius).fill()
+        for list in [side, main.fileList.view] {
+            if let table = (list as? NSScrollView)?.documentView { draw(table, table.visibleRect, over: frame) }
+        }
+        let editor = main.scroll.superview!
+        Theme.border.setFill()
+        NSRect(x: frame.convert(editor.bounds, from: editor).minX - 1, y: 0, width: 1, height: frame.bounds.height).fill()
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: below).setClip()
+        NSBezierPath(rect: frame.convert(main.window.contentLayoutRect, from: nil)).setClip()
         if main.current == nil {
             draw(main.emptyState, main.emptyState.bounds, over: frame)
         } else {
             let clip = main.scroll.contentView
             draw(main.textView, main.textView.convert(clip.bounds, from: clip), over: frame)
             if let gutter = main.scroll.verticalRulerView { draw(gutter, gutter.bounds, over: frame) }
+            draw(main.dateLabel, main.dateLabel.bounds, over: frame)
         }
         NSGraphicsContext.restoreGraphicsState()
+        toolbar(over: frame)
         for (i, color) in lights.enumerated() {
             let center = NSPoint(x: lightCenter.x + CGFloat(i) * lightGap, y: frame.bounds.height - lightCenter.y)
             color.setFill()
             NSBezierPath(ovalIn: NSRect(x: center.x - lightRadius, y: center.y - lightRadius,
                                         width: lightRadius * 2, height: lightRadius * 2)).fill()
         }
+    }
+
+    /// Each glass capsule as a filled one, then the items and the title over them.
+    private static func toolbar(over frame: NSView) {
+        guard let bar = find(frame, { $0.className == "NSToolbarView" }) else { return }
+        var glass: [NSView] = []
+        collect(bar, into: &glass) { $0.className == "NSGlassEffectView" }
+        for view in glass {
+            let rect = frame.convert(view.bounds, from: view)
+            let capsule = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+            capsuleFill.setFill()
+            capsule.fill()
+            capsuleEdge.setStroke()
+            capsule.stroke()
+        }
+        for item in bar.subviews where item.className != "NSGlassContainerView" { draw(item, item.bounds, over: frame) }
+    }
+
+    private static func find(_ root: NSView, _ match: (NSView) -> Bool) -> NSView? {
+        if match(root) { return root }
+        for child in root.subviews { if let hit = find(child, match) { return hit } }
+        return nil
+    }
+
+    private static func collect(_ root: NSView, into out: inout [NSView], _ match: (NSView) -> Bool) {
+        if match(root) { out.append(root) }
+        for child in root.subviews { collect(child, into: &out, match) }
     }
 
     private static func draw(_ view: NSView, _ rect: NSRect, over frame: NSView) {

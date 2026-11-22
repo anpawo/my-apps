@@ -65,7 +65,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [viewer-text](viewer-text)
 
-[![Viewer Text: the open files in a sidebar, a Swift file colored on the right](viewer-text/docs/screenshot.png)](viewer-text)
+[![Viewer Text: the open files' folders, their files listed by date, a Swift file colored on the right](viewer-text/docs/screenshot.png)](viewer-text)
 
 ### [watcher](watcher)
 

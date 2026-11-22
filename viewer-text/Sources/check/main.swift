@@ -134,5 +134,19 @@ expect(linkKind == .typeSymbolicLink, "saving through a symlink keeps the link")
 expect(try! String(contentsOf: script, encoding: .utf8).contains("bye"), "saving through a symlink writes its target")
 expect(scriptMode == 0o755, "a saved script stays executable")
 
+var utc = Calendar(identifier: .gregorian)
+utc.timeZone = TimeZone(identifier: "UTC")!
+let now = Date(timeIntervalSince1970: 1_795_334_880) // 2026-11-22 08:08 UTC, a Sunday
+func ago(_ days: Double) -> Date { now.addingTimeInterval(-days * 86_400) }
+expect(Recency.section(of: now.addingTimeInterval(-3_600), now: now, calendar: utc) == "Today", "a file saved an hour ago is under Today")
+expect(Recency.section(of: ago(3), now: now, calendar: utc) == "Previous 7 Days", "a file from three days ago is in the last week")
+expect(Recency.section(of: ago(20), now: now, calendar: utc) == "Previous 30 Days", "a file from 20 days ago is in the last month")
+expect(Recency.section(of: ago(60), now: now, calendar: utc) == "September", "an older file this year is under its month")
+expect(Recency.section(of: ago(340), now: now, calendar: utc) == "December 2025", "a file from last year names the year")
+expect(Recency.stamp(of: now.addingTimeInterval(-3_600), now: now, calendar: utc) == "07:08", "today's stamp is the time")
+expect(Recency.stamp(of: ago(3), now: now, calendar: utc) == "Thursday", "this week's stamp is the weekday")
+expect(Recency.stamp(of: ago(20), now: now, calendar: utc) == "02/11/2026", "an older stamp is the date")
+expect(Recency.long(now, calendar: utc) == "November 22, 2026 at 08:08", "the editor heading spells the date out")
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("check: all passed")

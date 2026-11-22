@@ -22,6 +22,8 @@ enum Theme {
     static let sidebarForeground = rgb(0xbfbfbf)
     static let secondary = rgb(0x8c8c8c)
     static let border = rgb(0x2a2b2c)
+    /// How much of a selected row's secondary text shows through.
+    static let dimmed: CGFloat = 0.7
     static let findMatch = rgb(0x276782, alpha: 0x90)
 
     static let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
@@ -74,35 +76,3 @@ enum Theme {
     }
 }
 
-/// An SF Symbol and a tint per language, for the sidebar.
-extension Language {
-    var symbol: String {
-        switch self {
-        case .swift: return "swift"
-        case .python, .ruby, .lua: return "chevron.left.forwardslash.chevron.right"
-        case .javascript, .c, .rust, .go, .java: return "curlybraces"
-        case .shell: return "terminal"
-        case .sql: return "cylinder"
-        case .markdown: return "doc.richtext"
-        case .json: return "curlybraces.square"
-        case .yaml, .toml: return "gearshape"
-        case .markup: return "chevron.left.slash.chevron.right"
-        case .csv, .tsv: return "tablecells"
-        case .plain: return "doc.text"
-        }
-    }
-
-    var tint: NSColor {
-        switch self {
-        case .swift, .java: return Theme.rgb(0xffa657)
-        case .python, .markdown, .c: return Theme.rgb(0x79c0ff)
-        case .javascript, .json: return Theme.rgb(0xdcdcaa)
-        case .rust, .markup, .ruby: return Theme.rgb(0xff7b72)
-        case .go: return Theme.rgb(0x4ec9b0)
-        case .shell, .csv, .tsv: return Theme.rgb(0xb5cea8)
-        case .yaml, .toml, .lua: return Theme.rgb(0xc586c0)
-        case .sql: return Theme.rgb(0xd7ba7d)
-        case .plain: return Theme.secondary
-        }
-    }
-}

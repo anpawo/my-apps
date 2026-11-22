@@ -18,6 +18,7 @@ final class Document: NSObject, NSTextStorageDelegate {
     var willReload: (() -> Void)?
     var didReload: (() -> Void)?
     private(set) var language = Language.plain
+    private(set) var modified = Date.distantPast
     private var highlighter: Highlighter?
     private var watcher: DispatchSourceFileSystemObject?
     private var reloadPending = false
@@ -25,6 +26,18 @@ final class Document: NSObject, NSTextStorageDelegate {
 
     var name: String { url.lastPathComponent }
     var folder: String { (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath }
+    /// The folder's own name, as the sidebar lists it.
+    var folderName: String { url.deletingLastPathComponent().lastPathComponent }
+
+    /// The first line with text on it, as Notes previews a note.
+    var preview: String {
+        var line = ""
+        (storage.string as NSString).enumerateLines { text, stop in
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { line = trimmed; stop.pointee = true }
+        }
+        return line
+    }
 
     init(url: URL) throws {
         self.url = url
@@ -39,6 +52,7 @@ final class Document: NSObject, NSTextStorageDelegate {
     private func load(_ file: (String, String.Encoding)) {
         let (text, encoding) = file
         self.encoding = encoding
+        readModified()
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         language = Language.detect(fileName: name, firstLine: FileText.firstLine(text))
         highlighter = size <= Self.maxColoredBytes ? Highlighter.shared(language) : nil
@@ -52,7 +66,14 @@ final class Document: NSObject, NSTextStorageDelegate {
 
     func save() throws {
         encoding = try FileText.write(storage.string, to: url, encoding: encoding)
+        readModified()
         dirty = false
+    }
+
+    private func readModified() {
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        modified = (try? fresh.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
     }
 
     private func color(_ range: NSRange) {
