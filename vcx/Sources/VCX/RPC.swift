@@ -212,10 +212,11 @@ func agentCrash(_ process: Process, log: (path: String, start: UInt64)?) -> JSON
     return crash
 }
 
-// Stack frames and Node's version banner name no cause; a line that says error or failed does.
+// Stack frames, Node's version banner and startup warnings (claude's "MCP server blocked by enterprise policy") name no cause;
+// a line that says error or failed does.
 func lastErrorLine(_ text: String) -> String? {
     let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-        .filter { !$0.isEmpty && !$0.hasPrefix("at ") && !$0.hasPrefix("Node.js v") && !$0.allSatisfy { "^~ ".contains($0) } }
+        .filter { !$0.isEmpty && !$0.hasPrefix("at ") && !$0.hasPrefix("Node.js v") && !$0.hasPrefix("Warning:") && !$0.allSatisfy { "^~ ".contains($0) } }
     let line = lines.last { $0.range(of: "error|fatal|failed|exception|panic|abort", options: [.regularExpression, .caseInsensitive]) != nil } ?? lines.last
     return line.map { $0.count > 300 ? String($0.prefix(300)) + "…" : $0 }
 }

@@ -841,6 +841,7 @@ enum Check {
                 check(completed?["status"] as? String == "interrupted", "Stop ends a turn whose Claude ignores the interrupt")
                 hung.close()
             } catch { check(false, "hung Claude fixture: " + error.localizedDescription) }
+            check(lastErrorLine("Warning: claude.ai MCP server blocked by enterprise policy: Docs\n") == nil, "a crash notice names no startup warning as its last error")
             do {
                 let home = directory.appendingPathComponent("claude-home"), saved = UUID().uuidString.lowercased()
                 try FileManager.default.createDirectory(at: home.appendingPathComponent("projects/-p"), withIntermediateDirectories: true)
