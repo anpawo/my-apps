@@ -69,6 +69,8 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("one-text", oneBubble),
     ("mac-guard", guardedApple),
+    ("viewer", { glyph("play.rectangle.on.rectangle", box: 500) }),
+    ("text", { glyph("chevron.left.forwardslash.chevron.right", box: 500) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {

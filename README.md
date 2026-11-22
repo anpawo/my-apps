@@ -22,7 +22,9 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | <img src="fleet/docs/icon.png" width="40" alt=""> | [fleet](fleet) | Every Claude Code session on the Mac, and which ones need you. |
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
+| <img src="text/docs/icon.png" width="40" alt=""> | [text](text) | A minimal viewer and editor for text and code, with coloring. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
+| <img src="viewer/docs/icon.png" width="40" alt=""> | [viewer](viewer) | Images, videos, GIFs and PDFs in one window, arrows to switch and change speed. |
 | <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | Watches what you are waiting for: mail answers, PR reviews and more... |
 
 ### [alt-tab](alt-tab)
@@ -53,9 +55,17 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 [![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](screenshot/docs/demo.gif)](screenshot)
 
+### [text](text)
+
+[![Text: the open files in a sidebar, a Swift file colored on the right](text/docs/screenshot.png)](text)
+
 ### [vcx](vcx)
 
 [![A prompt typed into an empty Vibe Code X window and sent with ↵: it flies into the chat, Claude's actions fold into one block that counts them as they run, a question card asks which button style to use and 1 picks the first option, then the answer comes back with its green summary, the orange Done line and the blue Next line; / opens the command palette, /model lists Claude, Codex and Qwen, and esc closes it](vcx/docs/demo.gif)](vcx)
+
+### [viewer](viewer)
+
+[![Viewer: a sidebar of loaded files beside the GIF being played](viewer/docs/screenshot.png)](viewer)
 
 ### [watcher](watcher)
 
