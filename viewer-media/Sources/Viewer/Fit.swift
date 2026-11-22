@@ -1,7 +1,7 @@
 import AppKit
 
 /// Keeps the viewer area 16:9 whatever the window's width and whichever columns show, so a 16:9 video
-/// fills it with no black bars: at launch as large as the screen allows, then on every resize or column toggle.
+/// fills it with no black bars: at launch at the usual width, then on every resize or column toggle.
 @MainActor
 final class StageFit: NSObject, NSWindowDelegate {
     private static let aspect: CGFloat = 16.0 / 9.0
@@ -24,12 +24,13 @@ final class StageFit: NSObject, NSWindowDelegate {
         }
     }
 
-    /// The window around the largest 16:9 viewer the screen's free area holds, centred.
+    /// The window at its usual width (or narrower when the screen is), its height making the viewer 16:9, centred.
     func fillScreen() {
         guard let area = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
         let chrome = chromeSize()
-        let width = min(area.width - chrome.width, (area.height - chrome.height) * Self.aspect)
-        let size = NSSize(width: width + chrome.width, height: (width / Self.aspect).rounded() + chrome.height)
+        let width = min(initialWindowSize.width, area.width) - chrome.width
+        let fitted = min(width, (area.height - chrome.height) * Self.aspect)
+        let size = NSSize(width: fitted + chrome.width, height: (fitted / Self.aspect).rounded() + chrome.height)
         lastChromeWidth = chrome.width
         adjusting = true
         window.setFrame(NSRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
