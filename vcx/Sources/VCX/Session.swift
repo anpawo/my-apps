@@ -447,8 +447,9 @@ final class Session: ObservableObject {
             } else {
                 try await activateAvailable(keepRows: false)
             }
-            await refreshCatalog()
+            // The catalog takes seconds; a prompt typed meanwhile went first and the opening task queued behind it (2026-11-22).
             if !prompt.isEmpty { await send(text: prompt, images: []) }
+            await refreshCatalog()
         } catch { usageLoading = false; notice(error.localizedDescription); status = "Connection failed" }
     }
 
