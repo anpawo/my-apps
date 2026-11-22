@@ -15,6 +15,7 @@ TABLES = {
     },
     "My own apps": {
         "autocorrect": "Fixes the word you just typed, in French and in English.",
+        "desks": "Desktops without the slide: go there at once, carry a window, from a hotkey.",
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",

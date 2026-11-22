@@ -71,6 +71,7 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("mac-guard", guardedApple),
     ("viewer-media", { glyph("play.rectangle.on.rectangle", box: 500) }),
     ("viewer-text", { glyph("chevron.left.forwardslash.chevron.right", box: 500) }),
+    ("desks", { glyph("square.split.2x1", box: 500) }),
 ]
 
 func png(_ px: Int, _ draw: () -> Void) -> Data {
