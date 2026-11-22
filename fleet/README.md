@@ -4,7 +4,7 @@ A macOS background app that shows you every Claude Code session on your machine 
 stop working, so you come back from a coffee and immediately see which sessions finished, which
 are still grinding, and which are sitting there waiting for you to answer something.
 
-![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: four sessions as tiles, portfolio green, atlas red, video-code purple, my-hub blue, beside the MEMORY, DISK, MONEY, MAIL and TODO cards; atlas finishes its turn and turns green, video-code asks a question and turns blue, and esc brings the desktop back](docs/demo.gif)
+![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: ten sessions in project groups (portfolio, atlas, video-code, my-hub, then fleet and siege on a second desktop under a rule), each card coloured by its state, between MEMORY, DISK and MONEY on the left and MAIL, TODO and MESSAGES on the right; atlas finishes its turn and turns green, portfolio asks a question and turns blue, then each side block unfolds in turn: MEMORY's kernel, GPU and top apps, the folders DISK saw grow, MONEY's accounts and spending pie, MAIL with a starred sender first, the TODO list and unread chats, and esc brings the desktop back](docs/demo.gif)
 
 Go idle for 45 seconds and a panel appears. One tile per running session, each bordered
 by what it's doing:
@@ -451,7 +451,7 @@ itself, keeping every key it does not know.
 | `--focus <pid>` | run just the tab-raising path for one session and report what happened |
 | `--route "<sentence>"` | run one sentence through the classifier and print where it would go |
 | `--render <path.png>` | draw the panel offscreen to a PNG; the mail and the todos are the ones the app last read, kept in `~/.claude/fleet/hub`; a render never reads Firestore itself |
-| `--render-demo <dir>` | draw the GIF above as frames and `list.txt`, with `--fake 4 --live`; `docs/make-demo.sh` runs it and makes the GIF |
+| `--render-demo <dir>` | draw the GIF above as frames and `list.txt`, with `--fake 3,2,1,1/2,1 --live`; `docs/make-demo.sh` runs it and makes the GIF |
 | `--parse <file.jsonl>` | print what one transcript parses to: pending tools, sub-agents, preview |
 | `--fake <n>` | draw a fleet of n invented sessions, with `--render` or `--demo`, to see the grid at a size you don't have running, or `--fake 4,2,1`, one count per directory, to see it with groups; with `--render` the side columns are invented too, so the picture holds nothing of yours |
 | `--start <dir> ["<prompt>"]` | open a session the way the panel does (new window, own desktop) without the classifier |

@@ -40,7 +40,7 @@ import Foundation
 
     /// Called on the reaper's slow tick; a scan is about a minute of `du` at the lowest priority.
     func tick() {
-        guard !scanning, Date().timeIntervalSince(snapshots.last?.at ?? .distantPast) >= 3600 else { return }
+        guard !pretending, !scanning, Date().timeIntervalSince(snapshots.last?.at ?? .distantPast) >= 3600 else { return }
         scanning = true
         DispatchQueue.global(qos: .utility).async {
             let snap = Self.scan()
@@ -73,6 +73,16 @@ import Foundation
         }
         guard !kb.isEmpty else { return nil }
         return Snapshot(at: Date(), free: Int64(MemoryPressure.disk().free), kb: kb)
+    }
+
+    private var pretending = false
+
+    /// Invented folders, for a picture that can be published: see `DemoFleet.fill`.
+    func pretend(_ rows: [Row], since: Date) {
+        pretending = true
+        self.rows = rows
+        self.since = since
+        lastScan = Date()
     }
 
     private func refresh() {

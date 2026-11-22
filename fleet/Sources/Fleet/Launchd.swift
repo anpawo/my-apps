@@ -646,9 +646,17 @@ final class LaunchdStore: ObservableObject {
         }
     }
 
+    private var pretending = false
+
+    /// No routine of this machine's, for a picture that can be published: see `DemoFleet.fill`.
+    func pretend() {
+        pretending = true
+        jobs = []
+    }
+
     /// Called from `AppController.tick`, on the timer that is already running.
     func tick(now: Date = Date()) {
-        guard !scanning, now.timeIntervalSince(lastScan) > 10 else { return }
+        guard !pretending, !scanning, now.timeIntervalSince(lastScan) > 10 else { return }
         scanning = true
         lastScan = now
         Task.detached(priority: .utility) {

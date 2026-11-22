@@ -94,12 +94,14 @@ enum DemoFleet {
             return try! JSONDecoder().decode(Firestore.Document.self, from: json)
         }
 
-        let mail = [("Invoice for the March sprint", "Ada Quill", -0.2),
-                    ("Your talk is accepted", "Lantern Conf", -1),
-                    ("Renewal notice for orchard.dev", "Harbour Domains", -3)]
+        // (gist, sender, action, days ago, starred)
+        let mail = [("Invoice for the March sprint", "Ada Quill", "Pay by Friday", -0.2, true),
+                    ("Your talk is accepted", "Lantern Conf", "Confirm the slot", -1, false),
+                    ("Renewal notice for orchard.dev", "Harbour Domains", "Renew the domain", -3, false)]
             .enumerated().compactMap { index, mail in
                 Mail(document("mail/\(index)", ["gist": text(mail.0), "sender": text(mail.1),
-                                                "receivedAt": stamp(mail.2)]))
+                                                "action": text(mail.2), "receivedAt": stamp(mail.3),
+                                                "favorite": ["booleanValue": mail.4]]))
             }
         let todos = [("Renew the domain", 2.0 as Double?), ("Reply to the sprint review", nil),
                      ("Book the train to Lyon", nil), ("Clean up the staging bucket", nil)]
@@ -144,70 +146,130 @@ enum DemoFleet {
 
         controller.hub.pretend(mail: mail, todos: todos, school: folder.appending(path: "state.json"))
         controller.money.file = folder.appending(path: "payments.csv")
-        // A folder never written: no block of his on a picture meant to be published.
-        controller.plugins.folder = folder.appending(path: "blocks")
+        controller.launchd.pretend()
+
+        let gb: UInt64 = 1 << 30
+        func rows(_ values: [(String, String)]) -> [MemoryDetails.Row] { values.map { .init(name: $0.0, value: $0.1) } }
+        controller.reaper.pretend(
+            used: 10 * gb, total: 16 * gb, disk: (free: 118_000_000_000, total: 494_000_000_000),
+            details: MemoryDetails(kernelZone: 412 << 20, wired: 2 * gb + gb / 2, gpuBusy: 7, gpuMemory: gb + gb / 5,
+                                   diskFree: 118_000_000_000, diskTotal: 494_000_000_000,
+                                   ram: rows([("Safari", "2.4 GB"), ("claude", "1.9 GB"), ("Xcode", "1.1 GB")]),
+                                   cpu: rows([("swift-frontend", "84%"), ("claude", "12%"), ("Safari", "6%")]),
+                                   gpu: rows([("WindowServer", "5%"), ("Safari", "2%")])))
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        controller.reaper.growth.pretend([("/projects/atlas/.build", 3_400_000_000),
+                                          ("/Library/Caches/Homebrew", 1_200_000_000),
+                                          ("/Downloads", 700_000_000)].map { .init(path: home + $0.0, bytes: $0.1) },
+                                         since: now.addingTimeInterval(-86_400))
+
+        // A block any script can write, here unread chats; the icons are the repo's own.
+        let blocks = folder.appending(path: "blocks")
+        try? FileManager.default.createDirectory(at: blocks.appending(path: "icons"), withIntermediateDirectories: true)
+        let icons = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appending(path: "../../blocks/icons").standardized
+        let chats = [("Ada Quill", "can you look at the deck?", "whatsapp", "2 min"),
+                     ("Lantern crew", "slides due tonight", "discord", "18 min"),
+                     ("Sam Orchard", "lunch on Thursday?", "sms", "1 h")]
+        for net in Set(chats.map(\.2)) {
+            try? FileManager.default.copyItem(at: icons.appending(path: "\(net).png"),
+                                              to: blocks.appending(path: "icons/\(net).png"))
+        }
+        let messages: [String: Any] = ["title": "Messages", "tint": "#3E6FB0", "groups": [[
+            "title": "3 unread chats",
+            "items": chats.map { ["text": "\($0.0) \u{00B7} \($0.1)", "detail": $0.3, "image": "icons/\($0.2).png"] },
+        ]]]
+        try? JSONSerialization.data(withJSONObject: messages).write(to: blocks.appending(path: "messages.json"))
+        controller.plugins.folder = blocks
     }
 
     /// `--render-demo <dir>`: the README's GIF as frames, plus `list.txt`, ffmpeg's concat list of
     /// how long each stays up. The live panel captured again each time the invented fleet under
-    /// it moves; `docs/make-demo.sh` makes the GIF.
+    /// it moves or the pointer goes to another block; `docs/make-demo.sh` makes the GIF. Meant
+    /// for `--fake 3,2,1,1/2,1`: four groups on this desktop, two on the next.
     @MainActor
-    static func film(_ controller: AppController, panel: NSView, desktop: NSView, to dir: URL) {
+    static func film(_ controller: AppController, panel: NSView, desktop: NSView,
+                     rebuild: () -> Void, to dir: URL) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var fleet = controller.sessions
         var list = "", count = 0
+        var cursor: CGPoint?
 
         func shot(_ view: NSView, _ seconds: Double, _ caption: String?) {
             for _ in 0 ..< 6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
             view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
             view.cacheDisplay(in: view.bounds, to: rep)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            // The offscreen window has no cursor of its own: one is drawn where the hover is.
+            if view === panel, let at = cursor {
+                let arrow = NSCursor.arrow
+                arrow.image.draw(at: CGPoint(x: at.x - arrow.hotSpot.x,
+                                             y: view.bounds.height - at.y - arrow.image.size.height + arrow.hotSpot.y),
+                                 from: .zero, operation: .sourceOver, fraction: 1)
+            }
             if let caption {
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
                 let text = NSAttributedString(string: caption, attributes: [
                     .font: NSFont.systemFont(ofSize: 26, weight: .semibold), .foregroundColor: NSColor.white])
-                // Inside the panel's empty lower half, which `make-demo.sh` crops just below.
-                // Under the panel's middle, or the middle of the cropped GIF on the bare desktop.
-                let mid = view === desktop ? 594 : rep.size.width / 2
-                let box = CGRect(x: mid - text.size().width / 2 - 24, y: 300,
+                // Low in the fleet's empty half, above the crop `make-demo.sh` makes.
+                let box = CGRect(x: view.bounds.midX - text.size().width / 2 - 24, y: 330,
                                  width: text.size().width + 48, height: 56)
                 NSColor(white: 0, alpha: 0.8).setFill()
                 NSBezierPath(roundedRect: box, xRadius: 28, yRadius: 28).fill()
                 text.draw(at: CGPoint(x: box.minX + 24, y: box.midY - text.size().height / 2))
-                NSGraphicsContext.restoreGraphicsState()
             }
+            NSGraphicsContext.restoreGraphicsState()
             count += 1
             let name = String(format: "%03d.png", count)
             try? rep.representation(using: .png, properties: [:])?.write(to: dir.appending(path: name))
             list += "file '\(name)'\nduration \(String(format: "%.2f", seconds))\n"
         }
         func show() { controller.pretendFleet = fleet }
-
-        // 0 ready, 1 running, 2 delegated, 3 waiting on an answer; the tile shows its title.
-        for (i, title) in ["Dark theme", "Parser fix", "Faster export", "Release v3"].enumerated() {
+        // The block under the pointer, as the `-open` flags and `FLEET_EXPAND` seed it.
+        func hover(_ at: CGPoint?, _ flag: String? = nil, expand: String? = nil) {
+            CommandLine.arguments.removeAll { $0.hasSuffix("-open") }
+            if let flag { CommandLine.arguments.append(flag) }
+            if let expand { setenv("FLEET_EXPAND", expand, 1) } else { unsetenv("FLEET_EXPAND") }
+            cursor = at
+            rebuild()
+        }
+        func set(_ i: Int, _ state: SessionState, _ title: String) {
+            fleet[i].state = state
             fleet[i].transcript?.title = title
         }
+
+        // portfolio 0-2, atlas 3-4, video-code 5, my-hub 6; next desktop: fleet 7-8, siege 9.
+        set(0, .ready, "Dark theme"); set(1, .running, "Contact form"); set(2, .delegated, "Image audit")
+        set(3, .ready, "Release v3"); set(4, .running, "Parser fix")
+        set(5, .apiError, "Faster export")
+        set(6, .fresh, "New session")
+        set(7, .ready, "Disk gauge"); set(8, .paused, "Docs pass")
+        set(9, .running, "Load test")
         show()
-        shot(desktop, 1.4, "You step away for 45 s, or press ⌘⌥L")
-        shot(panel, 2.6, "Every Claude Code session, coloured by its state")
-        shot(panel, 1.8, "Red: atlas is running a tool")
-        fleet[1].state = .ready
-        fleet[1].transcript?.hasPendingTool = false
-        fleet[1].transcript?.pendingToolNames = []
-        fleet[1].transcript?.pendingToolLabels = []
-        fleet[1].transcript?.pendingTaskIDs = []
-        fleet[1].transcript?.subagents = []
-        fleet[1].transcript?.turnOpen = false
+        shot(desktop, 1.4, "You step away for 45 s, or press \u{2318}\u{2325}L")
+        shot(panel, 2.8, "Every Claude Code session, grouped by project")
+        shot(panel, 2.4, "One band per desktop, one colour per state")
+        set(4, .ready, "Parser fix")
         show()
-        shot(panel, 2.2, "Green: its turn is over")
-        fleet[2].state = .awaitingAnswer
-        fleet[2].transcript?.pendingTaskIDs = []
-        fleet[2].transcript?.subagents = []
-        fleet[2].transcript?.backgroundShellsStartedAt = []
-        fleet[2].transcript?.pendingToolNames = ["AskUserQuestion"]
+        shot(panel, 2.2, "Green: atlas finished its turn")
+        set(2, .awaitingAnswer, "Image audit")
         show()
-        shot(panel, 2.4, "Blue: video-code waits for your answer")
+        shot(panel, 2.2, "Blue: portfolio asks you something")
+
+        hover(CGPoint(x: 174, y: 132), "--memory-open")
+        shot(panel, 2.8, "MEMORY: kernel, GPU and the top apps")
+        hover(CGPoint(x: 174, y: 198), "--disk-open")
+        shot(panel, 2.6, "DISK: what grew since yesterday")
+        hover(CGPoint(x: 174, y: 263), "--money-open")
+        shot(panel, 2.8, "MONEY: spent, saved and invested")
+        hover(CGPoint(x: 1337, y: 132), "--mail-open", expand: "mail")
+        shot(panel, 2.8, "MAIL under \u{2318}: what to do, starred first")
+        hover(CGPoint(x: 1337, y: 198), "--todo-open", expand: "todo")
+        shot(panel, 2.6, "TODO under \u{2318}: the phone's list")
+        hover(CGPoint(x: 1337, y: 263), expand: "messages.json")
+        shot(panel, 2.6, "Any script can add a block: unread chats")
+        hover(nil)
         shot(desktop, 1.4, "esc, and back to work")
         // The concat demuxer drops the last frame's duration unless the frame comes again.
         list += "file '\(String(format: "%03d.png", count))'\n"

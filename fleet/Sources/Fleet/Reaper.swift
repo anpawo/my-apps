@@ -342,6 +342,7 @@ final class Reaper: ObservableObject {
     /// table and runs every few seconds, because it is 24 ms of main thread and it is looking
     /// for a problem that takes days to build up.
     func tick(lateness: TimeInterval = 0, allowed: TimeInterval = 0) {
+        guard !pretending else { return }
         pressure = MemoryPressure.level()
         footprint = MemoryPressure.footprint()
         sampleFluidity(lateness: lateness, allowed: allowed)
@@ -429,6 +430,17 @@ final class Reaper: ObservableObject {
         // The hogs are what the alert is for, and the last scan may be seconds old.
         hogs = Reaper.topHogs(reapable: [])
         onFluidity?(true, struggleReason)
+    }
+
+    /// Set by `pretend`, never unset: nothing of this machine's is read after it.
+    private var pretending = false
+
+    /// Invented readings, for a picture that can be published: see `DemoFleet.fill`.
+    func pretend(used: UInt64, total: UInt64, disk: (free: UInt64, total: UInt64), details: MemoryDetails) {
+        pretending = true
+        footprint = MemoryPressure.Footprint(used: used, total: total)
+        self.disk = disk
+        self.details = details
     }
 
     /// For `--render --strain`: the amber state, over whatever is really holding the memory.
@@ -761,6 +773,7 @@ final class Reaper: ObservableObject {
     /// Reads `details`: RAM and CPU over his own processes (macOS's are not readable without
     /// root), GPU over every process, each summed by `programName`, top three of each.
     func sampleDetails() {
+        guard !pretending else { return }
         let now = Date(), me = getuid()
         let since = lastDetails.map { now.timeIntervalSince($0.at) * 1e9 } ?? 0
         var timebase = mach_timebase_info_data_t()

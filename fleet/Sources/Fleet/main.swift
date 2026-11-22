@@ -895,12 +895,15 @@ if let i = CommandLine.arguments.firstIndex(of: "--render") ?? CommandLine.argum
         let backdrop = Backdrop.named(CommandLine.arguments.firstIndex(of: "--backdrop")
             .flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil } ?? "light",
                                       size: size)
-        let view = CommandLine.arguments.contains("--settings")
-            ? AnyView(ControlCenterView(controller: controller).frame(width: 420, height: 620))
-            : AnyView(OverlayView(controller: controller, eagerLayout: !live)
+        func panel() -> AnyView {
+            AnyView(OverlayView(controller: controller, eagerLayout: !live)
                 .frame(width: size.width, height: size.height)
                 .background(LinearGradient(colors: backdrop.colors, startPoint: .top, endPoint: .bottom))
                 .environment(\.renderBackdrop, backdrop))
+        }
+        let view = CommandLine.arguments.contains("--settings")
+            ? AnyView(ControlCenterView(controller: controller).frame(width: 420, height: 620))
+            : panel()
         if live {
             let host = NSHostingView(rootView: view)
             host.frame = CGRect(origin: .zero, size: size)
@@ -939,7 +942,15 @@ if let i = CommandLine.arguments.firstIndex(of: "--render") ?? CommandLine.argum
                 let desktop = NSHostingView(rootView: LinearGradient(colors: backdrop.colors, startPoint: .top, endPoint: .bottom))
                 desktop.frame = host.frame
                 NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false).contentView = desktop
-                DemoFleet.film(controller, panel: host, desktop: desktop, to: URL(fileURLWithPath: outPath))
+                // A pointer event sent to this never-shown window hovered the same block wherever
+                // it pointed, and the real cursor folded what a flag had opened (2026-11-22): the
+                // window goes where no cursor reaches, and a hover is drawn from the flags that
+                // seed it, on a view made again: a `@State` takes its first value when the view
+                // is made, not when its identity changes.
+                window.setFrameOrigin(CGPoint(x: -30_000, y: -30_000))
+                DemoFleet.film(controller, panel: host, desktop: desktop,
+                               rebuild: { host.rootView = AnyView(panel().id(UUID())) },
+                               to: URL(fileURLWithPath: outPath))
                 exit(0)
             }
             host.layoutSubtreeIfNeeded()
