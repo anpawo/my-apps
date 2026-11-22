@@ -159,7 +159,8 @@ enum SelfCheck {
         let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }
-        try? Data(#"{"id":"w","name":"W","chat":"Maman","since":5}"#.utf8).write(to: state.appending(path: "w.json"))
+        try? FileManager.default.createDirectory(at: state.appending(path: "checks"), withIntermediateDirectories: true)
+        try? Data(#"{"id":"w","name":"W","chat":"Maman","since":5}"#.utf8).write(to: state.appending(path: "checks/w.json"))
         try? Data(#"{"id":"a","name":"A","cmd":"x","since":1,"fired":{"at":9}}"#.utf8).write(to: state.appending(path: "fired/a.json"))
         try? Data(#"{"id":"d","name":"D","chat":"Maman","since":1,"dropped":3}"#.utf8).write(to: state.appending(path: "fired/d.json"))
         let checks = CheckEntry.load(state: state)
@@ -195,7 +196,7 @@ enum SelfCheck {
         watcher.addBack(checks.entries[2]) // it left no line: watched again
         expect(watcher.checks.first.map { "\($0.id)\($0.state.rawValue)" } == "awaiting", true, "checks: Add back shows it waiting at once")
         let given = Date().addingTimeInterval(10)
-        while Date() < given, !FileManager.default.fileExists(atPath: state.appending(path: "a.json").path) {
+        while Date() < given, !FileManager.default.fileExists(atPath: state.appending(path: "checks/a.json").path) {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
@@ -211,7 +212,7 @@ enum SelfCheck {
             .write(to: state.appending(path: "inbox/done/r.json"))
         expect(watcher.settings, true, "checks: still on the watch list before Add back")
         watcher.addBack(CheckEntry.load(state: state).entries.first { $0.id == "b" }!)
-        expect(watcher.current?.id == "r" && !watcher.settings && !FileManager.default.fileExists(atPath: state.appending(path: "b.json").path), true,
+        expect(watcher.current?.id == "r" && !watcher.settings && !FileManager.default.fileExists(atPath: state.appending(path: "checks/b.json").path), true,
                "checks: Add back brings back the line its follow-up left, shown, and watches nothing again")
         // A check clicked: the session its follow-up ended in, else the one that asked; raised while it runs, else
         // resumed in the folder its transcript names.

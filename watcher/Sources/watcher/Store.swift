@@ -3,7 +3,7 @@ import AppKit
 /// The state the checker (`~/.claude/skills/checker`) keeps on disk. The app reads it here; nothing talks to a
 /// running app.
 enum Store {
-    static let state = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/checker")
+    static let state = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/watcher")
     static var inbox: URL { state.appending(path: "inbox") }
 
     /// Today's line by its hour alone, written the French way (10h40); an older one with its day (13/10 10h40).
@@ -135,7 +135,7 @@ struct InboxItem: Codable, Equatable {
     var opens: Bool { session != nil || prompt != nil || kind == "guard" }
 }
 
-/// One thing the hourly checker watches or watched: still waiting (`<id>.json`), arrived (`fired/`), or dropped
+/// One thing the hourly checker watches or watched: still waiting (`checks/<id>.json`), arrived (`fired/`), or dropped
 /// (`fired/` with a `dropped` stamp: nothing watches it any more).
 struct CheckEntry: Equatable {
     enum State: String { case waiting, dropped, arrived }
@@ -205,7 +205,7 @@ struct CheckEntry: Equatable {
                               channel: channel, state: state, at: at ?? 0, session: json["session"] as? String,
                               live: channel != .command || json["beeper"] != nil)
         }
-        let all = (read(state) + read(state.appending(path: "fired"))).compactMap(entry)
+        let all = (read(state.appending(path: "checks")) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
         let entries = all.sorted {
             let (x, y) = (order.firstIndex(of: $0.state)!, order.firstIndex(of: $1.state)!)
