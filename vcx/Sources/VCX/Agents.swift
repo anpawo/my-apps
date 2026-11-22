@@ -126,6 +126,7 @@ final class ClaudeConnection: Connection {
     private var command: [String]?
     private var pendingUsers: [String] = []
     private var resent: [String: String] = [:]
+    private var steered: [String: JSON] = [:]
     private var metadata: JSON?
     private var waiting: [String: CheckedContinuation<JSON, Error>] = [:]
     private var timers: [String: DispatchWorkItem] = [:]
@@ -241,11 +242,12 @@ final class ClaudeConnection: Connection {
             if steering, params["expectedTurnId"] as? String != turn { throw CXError(message: "The Claude turn has changed. Your draft has been kept.") }
             if !steering {
                 turn = UUID().uuidString; stopped = false; lastAnswer = ""; limit = nil; rateLimited = false
-                tools.removeAll(); blocks.removeAll(); pendingUsers.removeAll()
+                tools.removeAll(); blocks.removeAll(); pendingUsers.removeAll(); steered.removeAll()
             }
             let userID = params["clientUserMessageId"] as? String ?? UUID().uuidString
             let prompt: JSON = ["type": "user", "uuid": userID, "message": ["role": "user", "content": content]]
             try write(prompt)
+            if steering { steered[userID] = prompt }
             if !steering { watchFirstEvent(prompt, effort: params["effort"] as? String, retried: false) }
             resumed = true; pendingUsers.append(userID)
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
@@ -346,10 +348,15 @@ final class ClaudeConnection: Connection {
                     let saved = ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: "\(projects)/\($0)/\(session).jsonl") }
                     try launch(resume: saved)
                     if let effort { _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15) }
-                    var prompt = prompt
-                    if let old = prompt["uuid"] as? String { let fresh = UUID().uuidString; prompt["uuid"] = fresh; resent[fresh] = old; pendingUsers = pendingUsers.map { $0 == old ? fresh : $0 } }
-                    try write(prompt)
-                    watchFirstEvent(prompt, effort: effort, retried: true)
+                    // A prompt steered in while the turn hung waited in the killed process's queue (2026-11-22: a Watcher task
+                    // queued behind his first question never reached Claude), so it goes again behind the turn's own.
+                    let first = prompt["uuid"] as? String
+                    var sent: [JSON] = []
+                    for var message in [prompt] + pendingUsers.filter({ $0 != first }).compactMap({ steered[$0] }) {
+                        if let old = message["uuid"] as? String { let fresh = UUID().uuidString; message["uuid"] = fresh; resent[fresh] = old; pendingUsers = pendingUsers.map { $0 == old ? fresh : $0 } }
+                        try write(message); sent.append(message)
+                    }
+                    watchFirstEvent(sent[0], effort: effort, retried: true)
                 } catch { emit("cx/error", ["message": "Claude did not answer and could not be restarted: " + error.localizedDescription]) }
             }
         }

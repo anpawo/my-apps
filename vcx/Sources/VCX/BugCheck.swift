@@ -287,6 +287,16 @@ enum BugCheck {
             let afterNow = connection.sent.count
             _ = try await backend.perform(action: "sendNow", params: [:]); await settle()
             check(connection.sent.count == afterNow && backendSession.busy, "Shift+Return does nothing once the prompt is the running turn's own")
+            connection.event(["method": "cx/userQueue", "params": ["id": raced, "queued": false]])
+            backendSession.editDraft(NSAttributedString(string: ""))
+            await backendSession.send(text: "lost behind a hang", images: [])
+            _ = queueLast()
+            let sentBeforeEnd = connection.sent.count
+            connection.event(["method": "turn/completed", "params": ["turn": ["id": backendSession.turnID ?? "", "status": "completed"]]])
+            for _ in 0..<50 where connection.sent.count == sentBeforeEnd { await settle() }
+            let lostRows = backendSession.rows.filter { ($0.items.first?.data["content"] as? [JSON])?.first?["text"] as? String == "lost behind a hang" }
+            check(connection.sent.count == sentBeforeEnd + 1 && sentTexts().last == "lost behind a hang" && lostRows.count == 1 && lostRows.first?.items.first?.data["queued"] == nil && backendSession.busy,
+                  "a prompt still unread when the turn ends goes out again as the next turn, with one bubble")
         }
         do {
             let ordered = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("unread-order"))

@@ -971,13 +971,16 @@ enum Check {
                     let previous = ClaudeConnection.firstEventTimeout; ClaudeConnection.firstEventTimeout = 0.3
                     // The second start echoes each prompt as a replay, as a resumed claude does for a prompt it will not run.
                     try await stalled.start(command: ["/bin/sh", "-c", "echo x >> '\(launches.path)'; if [ $(wc -l < '\(launches.path)') -gt 1 ]; then while read line; do echo \"$line\" >> '\(seen.path)'; echo '{\"type\":\"user\",\"isReplay\":true}'; id=$(echo \"$line\" | sed -n 's/.*\"uuid\":\"\\([^\"]*\\)\".*/\\1/p'); echo \"{\\\"type\\\":\\\"command_lifecycle\\\",\\\"command_uuid\\\":\\\"$id\\\",\\\"state\\\":\\\"completed\\\"}\"; done; else while read line; do echo \"$line\" >> '\(first.path)'; done; fi"])
-                    _ = try await stalled.request("turn/start", ["input": [["type": "text", "text": "Stalled prompt"]]])
-                    for _ in 0..<300 where !((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") { try await Task.sleep(nanoseconds: 10_000_000) }
+                    let stalledTurn = try await stalled.request("turn/start", ["input": [["type": "text", "text": "Stalled prompt"]], "clientUserMessageId": "stall-turn"])
+                    _ = try await stalled.request("turn/steer", ["input": [["type": "text", "text": "Steered prompt"]], "clientUserMessageId": "stall-steer", "expectedTurnId": (stalledTurn["turn"] as? JSON)?["id"] as? String ?? ""])
+                    for _ in 0..<300 where !((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Steered prompt") { try await Task.sleep(nanoseconds: 10_000_000) }
                     let uuid = { (url: URL) in ((try? String(contentsOf: url, encoding: .utf8))?.split(separator: "\n").last).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSON }?["uuid"] as? String }
                     check(((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Stalled prompt") && !warned, "Claude restarts and sends the prompt again when its first turn never answers")
                     check(uuid(first) != nil && uuid(seen) != nil && uuid(first) != uuid(seen), "the resent prompt takes a new uuid, since a resumed claude skips a saved one")
                     for _ in 0..<100 where queueIDs.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
-                    check(!queueIDs.isEmpty && queueIDs.allSatisfy { $0 == uuid(first) }, "Claude's queue events for the resent prompt name the row's original uuid")
+                    check(((try? String(contentsOf: seen, encoding: .utf8)) ?? "").contains("Steered prompt"), "the restart sends again a prompt steered in while the turn hung")
+                    for _ in 0..<100 where Set(queueIDs).count < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+                    check(Set(queueIDs) == ["stall-turn", "stall-steer"], "Claude's queue events for the resent prompts name the rows' original uuids")
                     for _ in 0..<100 where !warned { try await Task.sleep(nanoseconds: 10_000_000) }
                     check(warned && ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").count == 2, "a second silent start warns even after claude echoes the prompt")
                     ClaudeConnection.firstEventTimeout = previous
