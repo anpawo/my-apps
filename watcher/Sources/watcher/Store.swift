@@ -139,7 +139,7 @@ struct InboxItem: Codable, Equatable {
 /// (`fired/` with a `dropped` stamp: nothing watches it any more).
 struct CheckEntry: Equatable {
     enum State: String { case waiting, dropped, arrived }
-    enum Channel: String { case whatsapp, gmail, command, outlook, page, timer }
+    enum Channel: String { case whatsapp, gmail, command, outlook, page, github, timer }
 
     let id: String
     let name: String
@@ -174,6 +174,7 @@ struct CheckEntry: Equatable {
         case .command: return Self.logos.first { watching.lowercased().contains($0.0) }?.1 ?? "terminal"
         case .outlook: return "outlook"
         case .page: return "globe"
+        case .github: return "arrow.triangle.pull"
         case .timer: return "clock"
         }
     }
@@ -200,14 +201,16 @@ struct CheckEntry: Equatable {
             let outlook = (json["outlook"] as? [String: Any])?["box"] as? String
             let page = ((json["page"] as? [String: Any])?["url"] as? String).flatMap { URL(string: $0)?.host() }
             let mail = json["thread"] != nil || json["query"] != nil
+            let pr = (json["github"] as? [String: Any]).map { "\(($0["repo"] as? String ?? "").split(separator: "/").last ?? "")#\(($0["number"] as? NSNumber)?.intValue ?? 0)" }
             let channel: Channel = json["chat"] != nil ? .whatsapp : json["cmd"] != nil ? .command
-                : outlook != nil ? .outlook : page != nil ? .page : mail ? .gmail : .timer
+                : outlook != nil ? .outlook : page != nil ? .page : pr != nil ? .github : mail ? .gmail : .timer
             let watching: String
             switch channel {
             case .whatsapp: watching = "WhatsApp “\(json["chat"] as? String ?? "")”" + ((json["also"] as? String).map { ", “\($0)”" } ?? "")
             case .command: watching = json["how"] as? String ?? "command"
             case .outlook: watching = "Outlook \(outlook ?? "")"
             case .page: watching = page ?? "a page"
+            case .github: watching = "GitHub \(pr ?? "")"
             case .gmail: watching = "Gmail"
             case .timer: watching = "timeout"
             }
