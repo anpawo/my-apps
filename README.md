@@ -35,7 +35,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [fleet](fleet)
 
-[![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: four sessions as tiles, portfolio green, atlas red, video-code purple, my-hub blue, beside the MEMORY, DISK, MONEY, MAIL and TODO cards; atlas finishes its turn and turns green, video-code asks a question and turns blue, and esc brings the desktop back](fleet/docs/demo.gif)](fleet)
+[![A bare desktop, then Fleet's panel after 45 s idle or ⌘⌥L: ten sessions in project groups (portfolio, atlas, video-code, my-hub, then fleet and siege on a second desktop under a rule), each card coloured by its state, between MEMORY, DISK and MONEY on the left and MAIL, TODO and MESSAGES on the right; atlas finishes its turn and turns green, portfolio asks a question and turns blue, then each side block unfolds in turn: MEMORY's kernel, GPU and top apps, the folders DISK saw grow, MONEY's accounts and spending pie, MAIL with a starred sender first, the TODO list and unread chats, and esc brings the desktop back](fleet/docs/demo.gif)](fleet)
 
 ### [mac-guard](mac-guard)
 
@@ -43,7 +43,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [one-text](one-text)
 
-[![A walk through One Text on made-up chats: Lea Martin's Instagram and WhatsApp messages in one thread with a reel card, a reply typed and sent, Hugo R's menu centred under his name with a Split row per app, the ⌘D search, then Settings with the Play reels here switch and every shortcut](one-text/docs/demo.gif)](one-text)
+[![A walk through One Text on made-up chats: favorites on top (Lea Martin, Chloe Dubois, Mom, the Climbing crew group chat) under the Friends, Family and Work groups, a list where each picture carries its app's logo and unread counts; Lea's Instagram and WhatsApp messages in one thread with a reel card, a photo, a reply quote and reactions, a heart added from the hover bar and a reply sent; Friends unfolded and the Flat 4B group chat dragged into it; tom's Discord thread with a voice message, a code block and a list, and a deleted message kept dimmed; the ⌘D search opening Hugo R and the menu under his name with a Split row per app; then Settings with the Play reels here switch and every shortcut](one-text/docs/demo.gif)](one-text)
 
 ### [opener](opener)
 
