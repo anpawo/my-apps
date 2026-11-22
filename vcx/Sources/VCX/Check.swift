@@ -1785,6 +1785,8 @@ enum Check {
             first.permissions.append(question); await first.command("/decline")
             check(first.permissions.isEmpty, "questions can be cancelled through chat")
             first.close()
+            // A late save (a command's cleanup) after close used to claim secondID's lock for good: /resume below then failed.
+            first.save()
             Settings.shared.value = Preferences(); Settings.shared.value.provider = "codex"; Settings.shared.save()
         }
         let codexCommands = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))

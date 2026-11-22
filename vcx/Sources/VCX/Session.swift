@@ -296,6 +296,8 @@ final class Session: ObservableObject {
     private var testing = false
     private var suppressSave = false
     private var recordLock: (String, Int32)?
+    // A save after close() claimed the record again and kept it, so the conversation read as open in another window.
+    private var closed = false
     private var pendingActivation: (Account, String?, Bool, String)?
     private var pendingRestore: String?
     private var pendingLimit: JSON?
@@ -1379,7 +1381,7 @@ final class Session: ObservableObject {
     }
 
     func save() {
-        guard runtimeClient == nil, !testing, !suppressSave, threadID != nil else { return }
+        guard runtimeClient == nil, !testing, !suppressSave, !closed, threadID != nil else { return }
         do {
             if recordLock?.0 != recordID {
                 let fd = try claimRecord(recordID)
@@ -1833,5 +1835,5 @@ final class Session: ObservableObject {
         }
         Connectivity.unwatch(self)
         startingConnection?.event = { _ in }; startingConnection?.close(); startingConnection = nil
-        flush(); save(); releaseRecord(); flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
+        flush(); save(); releaseRecord(); closed = true; flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }
