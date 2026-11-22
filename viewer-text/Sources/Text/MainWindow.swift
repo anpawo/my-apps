@@ -1,63 +1,84 @@
 import AppKit
 
-/// The one window: open files on the left, the selected one on the right.
-final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
+/// The one window: open files in the sidebar, the selected one on the right.
+final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayoutManagerDelegate, NSToolbarDelegate {
     static let size = NSSize(width: 960, height: 620)
-    static let sidebarWidth: CGFloat = 220
-    static let inset = NSSize(width: 10, height: 10)
+    static let sidebarWidth: CGFloat = 230
+    static let sidebarRange: ClosedRange<CGFloat> = 170...380
+    static let inset = NSSize(width: 6, height: 8)
 
     let window: NSWindow
     let sidebar = Sidebar()
     let textView = CodeView(usingTextLayoutManager: false)
-    private let scroll = NSScrollView()
-    private let empty = NSTextField(labelWithString: "Open or drop a text file")
+    let scroll = NSScrollView()
+    private lazy var gutter = Gutter(scrollView: scroll, textView: textView)
+    let emptyState = EmptyState()
     private let blank = NSTextStorage()
     private(set) var docs: [Document] = []
     private(set) var current: Document?
 
     override init() {
         window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: true)
         super.init()
         window.title = "Viewer Text"
         window.isReleasedWhenClosed = false
         window.delegate = self
+        // The editor is always VS Code's dark theme, so the chrome around it is dark too.
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = Theme.background
+        window.toolbarStyle = .unified
+        window.contentViewController = layOut()
+        let toolbar = NSToolbar(identifier: "main")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.setContentSize(Self.size)
         window.setFrameAutosaveName("main")
-        let drop = DropView(frame: NSRect(origin: .zero, size: Self.size))
-        drop.onDrop = { [weak self] in self?.open($0) }
-        textView.onDrop = drop.onDrop
-        window.contentView = drop
-        layOut(in: drop)
         sidebar.onSelect = { [weak self] in self?.select($0) }
         show(nil)
     }
 
-    private func layOut(in root: NSView) {
-        let split = NSSplitView(frame: root.bounds)
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.autoresizingMask = [.width, .height]
-        let right = Backdrop(frame: NSRect(x: 0, y: 0, width: Self.size.width - Self.sidebarWidth, height: Self.size.height))
+    private func layOut() -> NSSplitViewController {
+        let split = NSSplitViewController()
+        let drop = DropSplitView()
+        drop.onDrop = { [weak self] in self?.open($0) }
+        textView.onDrop = drop.onDrop
+        split.splitView = drop
+        let side = NSSplitViewItem(sidebarWithViewController: sidebar)
+        side.minimumThickness = Self.sidebarRange.lowerBound
+        side.maximumThickness = Self.sidebarRange.upperBound
+        let editor = NSViewController()
+        editor.view = editorView()
+        let main = NSSplitViewItem(viewController: editor)
+        main.titlebarSeparatorStyle = .line
+        split.addSplitViewItem(side)
+        split.addSplitViewItem(main)
+        split.view.frame = NSRect(origin: .zero, size: Self.size)
+        split.splitView.setPosition(Self.sidebarWidth, ofDividerAt: 0)
+        return split
+    }
+
+    private func editorView() -> NSView {
+        let right = Backdrop(frame: NSRect(origin: .zero, size: Self.size))
         scroll.frame = right.bounds
         scroll.autoresizingMask = [.width, .height]
         scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = Theme.background
         scroll.documentView = textView
         setUpTextView()
-        empty.textColor = .secondaryLabelColor
-        empty.font = .systemFont(ofSize: NSFont.systemFontSize + 2)
-        empty.translatesAutoresizingMaskIntoConstraints = false
+        scroll.verticalRulerView = gutter
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
         right.addSubview(scroll)
-        right.addSubview(empty)
-        NSLayoutConstraint.activate([empty.centerXAnchor.constraint(equalTo: right.centerXAnchor),
-                                     empty.centerYAnchor.constraint(equalTo: right.centerYAnchor)])
-        sidebar.view.frame = NSRect(x: 0, y: 0, width: Self.sidebarWidth, height: Self.size.height)
-        split.addArrangedSubview(sidebar.view)
-        split.addArrangedSubview(right)
-        split.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
-        root.addSubview(split)
-        split.adjustSubviews()
-        split.setPosition(Self.sidebarWidth, ofDividerAt: 0)
+        right.addSubview(emptyState)
+        NSLayoutConstraint.activate([emptyState.centerXAnchor.constraint(equalTo: right.centerXAnchor),
+                                     emptyState.centerYAnchor.constraint(equalTo: right.centerYAnchor)])
+        return right
     }
 
     private func setUpTextView() {
@@ -74,7 +95,10 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
         tv.isAutomaticSpellingCorrectionEnabled = false
         tv.isContinuousSpellCheckingEnabled = false
         tv.smartInsertDeleteEnabled = false
-        tv.font = Style.font
+        tv.font = Theme.font
+        tv.backgroundColor = Theme.background
+        tv.insertionPointColor = Theme.foreground
+        tv.selectedTextAttributes = [.backgroundColor: Theme.selection]
         tv.textContainerInset = Self.inset
         tv.isVerticallyResizable = true
         tv.autoresizingMask = [.width]
@@ -82,6 +106,7 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
         tv.textContainer?.widthTracksTextView = true
         tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         tv.layoutManager?.allowsNonContiguousLayout = true
+        tv.layoutManager?.delegate = self
     }
 
     // MARK: Files
@@ -118,20 +143,23 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
             // A log that was followed to its end keeps following it.
             if atEnd { textView.scrollToEndOfDocument(nil) } else { scroll.contentView.scroll(to: origin) }
             keep = nil
+            gutter.textChanged()
         }
     }
 
     func show(_ doc: Document?) {
         current = doc
         textView.layoutManager?.replaceTextStorage(doc?.storage ?? blank)
-        textView.typingAttributes = Style.base
+        textView.typingAttributes = Theme.base
         textView.isEditable = doc != nil
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.scrollToBeginningOfDocument(nil)
         scroll.isHidden = doc == nil
-        empty.isHidden = doc != nil
+        emptyState.isHidden = doc != nil
         window.title = doc?.name ?? "Viewer Text"
+        window.subtitle = doc?.folder ?? ""
         window.representedURL = doc?.url
+        gutter.textChanged()
         refreshSidebar()
         if doc != nil { window.makeFirstResponder(textView) }
     }
@@ -194,4 +222,34 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
     func undoManager(for view: NSTextView) -> UndoManager? { current?.undo }
 
     func textDidChange(_ notification: Notification) { current?.dirty = true }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        textView.setNeedsDisplay(textView.visibleRect)
+        gutter.needsDisplay = true
+    }
+
+    /// VS Code's line height: every line 18 pt, the glyphs centered in it.
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+                       lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
+                       in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
+        let extra = Theme.lineHeight - lineFragmentRect.pointee.height
+        guard extra > 0 else { return false }
+        lineFragmentRect.pointee.size.height = Theme.lineHeight
+        lineFragmentUsedRect.pointee.size.height = Theme.lineHeight
+        baselineOffset.pointee += extra / 2
+        return true
+    }
+
+    // MARK: Toolbar
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar, .sidebarTrackingSeparator]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? { nil }
 }

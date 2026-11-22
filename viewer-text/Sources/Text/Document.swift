@@ -1,24 +1,6 @@
 import AppKit
 import TextCore
 
-enum Style {
-    static let fontSize: CGFloat = 12
-    static let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-    static let bold = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
-    static let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor]
-
-    static func color(_ kind: TokenKind) -> NSColor {
-        switch kind {
-        case .comment: return .systemGray
-        case .string: return .systemRed
-        case .number: return .systemPurple
-        case .keyword: return .systemPink
-        case .key, .tag: return .systemBlue
-        case .heading: return .systemOrange
-        }
-    }
-}
-
 /// One open file: its text (kept while another file is shown), its own undo stack, and a watcher
 /// that reloads it when it changes on disk and has no unsaved edits.
 final class Document: NSObject, NSTextStorageDelegate {
@@ -35,6 +17,7 @@ final class Document: NSObject, NSTextStorageDelegate {
     var onChange: (() -> Void)?
     var willReload: (() -> Void)?
     var didReload: (() -> Void)?
+    private(set) var language = Language.plain
     private var highlighter: Highlighter?
     private var watcher: DispatchSourceFileSystemObject?
     private var reloadPending = false
@@ -57,7 +40,7 @@ final class Document: NSObject, NSTextStorageDelegate {
         let (text, encoding) = file
         self.encoding = encoding
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        let language = Language.detect(fileName: name, firstLine: FileText.firstLine(text))
+        language = Language.detect(fileName: name, firstLine: FileText.firstLine(text))
         highlighter = size <= Self.maxColoredBytes ? Highlighter.shared(language) : nil
         loading = true
         storage.beginEditing()
@@ -73,11 +56,11 @@ final class Document: NSObject, NSTextStorageDelegate {
     }
 
     private func color(_ range: NSRange) {
-        storage.setAttributes(Style.base, range: range)
+        storage.setAttributes(Theme.base, range: range)
         guard let highlighter, highlighter.colors else { return }
         for token in highlighter.tokens(in: storage.string, range: range) {
-            storage.addAttribute(.foregroundColor, value: Style.color(token.kind), range: token.range)
-            if token.kind == .heading { storage.addAttribute(.font, value: Style.bold, range: token.range) }
+            storage.addAttribute(.foregroundColor, value: Theme.color(token), range: token.range)
+            if let font = Theme.font(token) { storage.addAttribute(.font, value: font, range: token.range) }
         }
     }
 

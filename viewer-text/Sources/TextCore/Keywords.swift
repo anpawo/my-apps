@@ -1,58 +1,117 @@
+/// A language's reserved words, split the way VS Code's TextMate grammars scope them, so each
+/// group takes the color the theme gives that scope: `control` is keyword.control, `keyword` is
+/// storage.type and keyword.other, `modifier` is storage.modifier and the word operators,
+/// `literal` is constant.language, `language` is variable.language (self, this).
+struct Words {
+    var control = ""
+    var keyword = ""
+    var modifier = ""
+    var literal = ""
+    var language = ""
+}
+
 enum Keywords {
-    static let swift = """
-    actor any as associatedtype async await break case catch class continue default defer deinit do else \
-    enum extension fallthrough false fileprivate final for func guard if import in indirect init inout \
-    internal is lazy let mutating nil nonisolated nonmutating open operator override private protocol \
-    public repeat rethrows return self Self some static struct subscript super switch throw throws true \
-    try typealias var weak where while
-    """
-    static let python = """
-    and as assert async await break case class continue def del elif else except False finally for from \
-    global if import in is lambda match None nonlocal not or pass raise return self True try while with yield
-    """
-    static let javascript = """
-    abstract as async await break case catch class const constructor continue debugger declare default \
-    delete do else enum export extends false finally for from function get if implements import in \
-    instanceof interface keyof let namespace new null of private protected public readonly return set \
-    static super switch this throw true try type typeof undefined var void while with yield
-    """
-    static let c = """
-    alignas alignof and auto bool break case catch char class const constexpr continue default delete do \
-    double else enum explicit extern false float for friend goto if inline int long mutable namespace new \
-    noexcept nullptr operator or private protected public register return short signed sizeof static \
-    struct switch template this throw true try typedef typename union unsigned using virtual void \
-    volatile while id self super nil YES NO BOOL instancetype
-    """
-    static let rust = """
-    as async await break const continue crate dyn else enum extern false fn for if impl in let loop match \
-    mod move mut pub ref return self Self static struct super trait true type unsafe use where while
-    """
-    static let go = """
-    break case chan const continue default defer else fallthrough false for func go goto if import \
-    interface iota map nil package range return select struct switch true type var
-    """
-    static let java = """
-    abstract as boolean break byte case catch char class companion const continue data def default do \
-    double else enum extends false final finally float for fun if implements import in int interface is \
-    long new null object open override package private protected public return sealed short static super \
-    switch this throw throws true try val var void when while
-    """
-    static let shell = """
-    if then else elif fi case esac for while until do done in function return local export readonly \
-    unset set source alias begin end not and or switch true false
-    """
-    static let ruby = """
-    alias and begin break case class def defined do else elsif end ensure false for if in module next \
-    nil not or redo require rescue retry return self super then true undef unless until when while yield
-    """
+    static let swift = Words(
+        control: """
+        await break case catch continue default defer do else fallthrough for guard if import in \
+        repeat return switch throw try where while yield
+        """,
+        keyword: """
+        actor associatedtype class deinit didSet enum extension fileprivate func get init internal let \
+        open operator package private protocol public set some any struct subscript typealias var willSet
+        """,
+        modifier: """
+        async convenience dynamic final indirect inout lazy mutating nonisolated nonmutating optional \
+        override required rethrows static throws unowned weak
+        """,
+        literal: "true false nil",
+        language: "self Self super")
+
+    static let python = Words(
+        control: """
+        assert async await break case continue del elif else except finally for from if import match \
+        pass raise return try while with yield as
+        """,
+        keyword: "class def lambda",
+        modifier: "global nonlocal",
+        literal: "True False None",
+        language: "self cls")
+
+    static let javascript = Words(
+        control: """
+        as await break case catch continue default do else export finally for from if import return \
+        switch throw try while with yield
+        """,
+        keyword: "class const constructor debugger enum function get interface let module namespace set type var",
+        modifier: """
+        abstract async declare delete extends implements in instanceof keyof new of override private \
+        protected public readonly static typeof void
+        """,
+        literal: "true false null undefined NaN Infinity",
+        language: "this super")
+
+    static let c = Words(
+        control: "break case catch continue default delete do else for goto if new return switch throw try using while",
+        keyword: """
+        auto bool BOOL char class double enum float friend id instancetype int long namespace operator \
+        short signed struct template typedef typename union unsigned void
+        """,
+        modifier: """
+        alignas alignof const constexpr explicit extern inline mutable noexcept private protected public \
+        register sizeof static virtual volatile
+        """,
+        literal: "true false nullptr NULL YES NO nil",
+        language: "this self super")
+
+    static let rust = Words(
+        control: "await break continue else for if in loop match return while yield",
+        keyword: "const crate enum extern fn impl let mod pub static struct trait type use where",
+        modifier: "async dyn move mut ref unsafe",
+        literal: "true false",
+        language: "self Self super")
+
+    static let go = Words(
+        control: "break case continue default defer else fallthrough for go goto if range return select switch",
+        keyword: "chan const func import interface map package struct type var",
+        literal: "true false nil iota")
+
+    static let java = Words(
+        control: "break case catch continue default do else finally for if new return switch throw try when while",
+        keyword: """
+        boolean byte char class double enum float fun import int interface long object package short \
+        typealias val var void
+        """,
+        modifier: """
+        abstract as companion const data extends final implements in inline is lateinit native open \
+        override private protected public sealed static suspend synchronized throws transient volatile
+        """,
+        literal: "true false null",
+        language: "this super")
+
+    static let shell = Words(
+        control: "break case continue do done elif else esac fi for if in return select then until while",
+        keyword: "function",
+        modifier: "declare export local readonly typeset unset")
+
+    static let ruby = Words(
+        control: """
+        alias begin break case class def do else elsif end ensure for if in module next redo rescue \
+        retry return super then undef unless until when while yield
+        """,
+        keyword: "attr_accessor attr_reader attr_writer extend include private protected public require require_relative",
+        literal: "true false nil",
+        language: "self")
+
     static let sql = """
     add all alter and as asc between by case check column constraint create database default delete desc \
     distinct drop else end exists foreign from group having in index inner insert into is join key left \
-    like limit not null offset on or order outer primary references right select set table then union \
+    like limit not offset on or order outer primary references right select set table then union \
     unique update values view when where with
     """
-    static let lua = """
-    and break do else elseif end false for function goto if in local nil not or repeat return then true \
-    until while
-    """
+
+    static let lua = Words(
+        control: "break do else elseif end for function goto if in repeat return then until while",
+        keyword: "local",
+        literal: "nil true false",
+        language: "self")
 }

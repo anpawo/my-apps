@@ -2,7 +2,7 @@ import Foundation
 
 public enum Language: String, CaseIterable, Sendable {
     case swift, python, javascript, c, rust, go, java, shell, ruby, sql, lua
-    case markdown, json, yaml, toml, markup, plain
+    case markdown, json, yaml, toml, markup, csv, tsv, plain
 
     static let byExtension: [String: Language] = [
         "swift": .swift,
@@ -20,7 +20,7 @@ public enum Language: String, CaseIterable, Sendable {
         "json": .json, "jsonl": .json, "geojson": .json,
         "yml": .yaml, "yaml": .yaml,
         "toml": .toml, "lock": .toml, "ini": .toml, "cfg": .toml, "conf": .toml, "env": .toml, "gitignore": .toml,
-        "properties": .toml, "txt": .plain, "text": .plain, "log": .plain, "csv": .plain, "tsv": .plain,
+        "properties": .toml, "txt": .plain, "text": .plain, "log": .plain, "csv": .csv, "tsv": .tsv, "tab": .tsv,
         "html": .markup, "htm": .markup, "xml": .markup, "svg": .markup, "plist": .markup,
         "xhtml": .markup, "svelte": .markup, "vue": .markup,
     ]

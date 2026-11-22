@@ -4,7 +4,7 @@ A minimal viewer and editor for text and code, with syntax coloring, made to be 
 
 ![Viewer Text: the open files in a sidebar, a Swift file colored on the right](docs/screenshot.png)
 
-One window: the files you open line up in the sidebar, the selected one shows on the right, colored by a small regex highlighter (Swift, Python, JavaScript/TypeScript, C/C++/Objective-C, Rust, Go, Java/Kotlin, shell, Ruby, SQL, Lua, Markdown, JSON, YAML, TOML/INI, HTML/XML). A file that changes on disk reloads by itself while it has no unsaved edits, so it works as a live log viewer. Files over 2 MB open uncolored.
+One window: the files you open line up in the sidebar, the selected one shows on the right with line numbers, colored in VS Code's Dark 2026 theme by a small regex highlighter (Swift, Python, JavaScript/TypeScript, C/C++/Objective-C, Rust, Go, Java/Kotlin, shell, Ruby, SQL, Lua, Markdown, JSON, YAML, TOML/INI, HTML/XML, and CSV/TSV columns as Rainbow CSV colors them). A file that changes on disk reloads by itself while it has no unsaved edits, so it works as a live log viewer. Files over 2 MB open uncolored.
 
 | Key | Does |
 |---|---|
