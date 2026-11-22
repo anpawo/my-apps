@@ -358,7 +358,7 @@ enum Check {
             click(NSPoint(x: 400, y: 100))
             check(clicks == 1 && clickWindow.firstResponder === input, "a click beside another text input keeps it focused")
             var defined: [String] = []
-            clickWindow.define = { defined.append($0) }
+            clickWindow.define = { defined.append($0.joined(separator: " | ")) }
             input.string = "the word ephemeral here"; input.setSelectedRange(NSRange(location: 9, length: 9))
             clickWindow.makeFirstResponder(input)
             let onWord = clickWindow.convertPoint(fromScreen: input.firstRect(forCharacterRange: NSRange(location: 11, length: 1), actualRange: nil).origin)
@@ -403,12 +403,21 @@ enum Check {
             let both = [NSRange(location: 0, length: 3), NSRange(location: 9, length: 14)]
             check(input.selectedRanges.map(\.rangeValue) == both, "a word another word apart stays a run of its own")
             clickWindow.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: onHere.x + 2, y: onHere.y + 6), modifierFlags: .option, timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
-            check(defined.last == "the ephemeral here" && input.selectedRanges.map(\.rangeValue) == both, "an option-click on a hovered word asks about every hovered word and keeps them selected")
+            check(defined.last == "the | ephemeral here" && input.selectedRanges.map(\.rangeValue) == both, "an option-click on a hovered word asks about every hovered group of words and keeps them selected")
             flags([])
             check(!clickWindow.acceptsMouseMovedEvents, "releasing Option stops tracking the pointer")
             check(input.selectedRanges.map(\.rangeValue) == both, "releasing Option keeps the hovered words selected")
-            flags(.option); flags([])
-            check(input.selectedRanges.count == 1, "pressing Option again drops the words the last hover gathered")
+            defined.removeAll()
+            clickWindow.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: onThe.x + 2, y: onThe.y + 6), modifierFlags: [], timestamp: 0, windowNumber: clickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+            check(defined == ["the | ephemeral here"] && input.selectedRanges.map(\.rangeValue) == both, "a plain click on a hovered word asks about them all too")
+            flags(.option); move(NSPoint(x: onHere.x + 2, y: onHere.y + 6))
+            check(input.selectedRanges.map(\.rangeValue) == both, "a new Option press resting on a hovered word keeps them, to click them")
+            move(NSPoint(x: onWord.x + 2, y: onWord.y + 6)); move(NSPoint(x: onThe.x + 2, y: onThe.y + 6))
+            check(input.selectedRanges.map(\.rangeValue) == both, "moving between hovered words keeps them")
+            let onTheWord = clickWindow.convertPoint(fromScreen: input.firstRect(forCharacterRange: NSRange(location: 5, length: 1), actualRange: nil).origin)
+            move(NSPoint(x: onTheWord.x + 2, y: onTheWord.y + 6))
+            check(input.selectedRange() == NSRange(location: 4, length: 4) && input.selectedRanges.count == 1, "a new Option press drops them at the first other word")
+            flags([])
             // The drags left an Option event as NSApp.currentEvent, which later Return checks read as Option-Return.
             NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: true)
             _ = NSApp.nextEvent(matching: .applicationDefined, until: nil, inMode: .default, dequeue: true)

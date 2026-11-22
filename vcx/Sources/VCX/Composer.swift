@@ -7,11 +7,11 @@ final class ComposerWindow: NSWindow {
     var chooseOption: (Int) -> Bool = { _ in false }
     var find: TranscriptFind?
     var closeFind: () -> Void = {}
-    var define: (String) -> Void = { _ in }
+    var define: ([String]) -> Void = { _ in }
     private var clickStart: NSPoint?
     private weak var lens: NSTextView?
     private var hovering = false, movedBefore = false
-    private var gathered: [NSTextView] = []
+    private var gathered: [NSTextView] = [], regather = false
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     // Read-only text only: Option still types its characters in the composer.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
@@ -31,6 +31,11 @@ final class ComposerWindow: NSWindow {
     // Held Option keeps every word it passes over, in every text it crosses, until the next press drops them;
     // words only spaces apart join into one run, the spaces selected too.
     private func gather(_ range: NSRange, in field: NSTextView) {
+        // A new press keeps the last words while it rests on one of them, so it can click them; the first other word starts afresh.
+        if regather {
+            if inGathered(range, field) { return }
+            gathered.forEach { $0.setSelectedRange(NSRange(location: 0, length: 0)) }; gathered = []; regather = false
+        }
         guard gathered.contains(where: { $0 === field }) else { gathered.append(field); field.setSelectedRange(range); return }
         let ranges = field.selectedRanges.map(\.rangeValue), text = field.string as NSString
         guard !ranges.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { return }
@@ -42,6 +47,12 @@ final class ComposerWindow: NSWindow {
             } else { runs.append(next) }
         }
         field.selectedRanges = runs.map { NSValue(range: $0) }
+    }
+    private func inGathered(_ range: NSRange, _ field: NSTextView) -> Bool {
+        gathered.contains { $0 === field } && field.selectedRanges.contains { NSLocationInRange(range.location, $0.rangeValue) }
+    }
+    private var gatheredGroups: [String] {
+        gathered.flatMap { field in field.selectedRanges.map { (field.string as NSString).substring(with: $0.rangeValue).trimmingCharacters(in: .whitespacesAndNewlines) } }.filter { !$0.isEmpty }
     }
     // Option-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
     private func optionDrag(from start: (field: NSTextView, range: NSRange)) {
@@ -55,7 +66,7 @@ final class ComposerWindow: NSWindow {
             if let word = word(in: start.field, at: next.locationInWindow) { range = NSUnionRange(start.range, word); start.field.setSelectedRange(range) }
         }
         let words = (start.field.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cancelled, !words.isEmpty { define(words) }
+        if !cancelled, !words.isEmpty { define([words]) }
     }
     override func sendEvent(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
@@ -63,7 +74,7 @@ final class ComposerWindow: NSWindow {
         if event.type == .flagsChanged {
             if modifiers == .option, !hovering {
                 hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true
-                gathered.forEach { $0.setSelectedRange(NSRange(location: 0, length: 0)) }; gathered = []
+                regather = !gathered.isEmpty
             }
             else if modifiers != .option, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
         }
@@ -71,15 +82,13 @@ final class ComposerWindow: NSWindow {
            let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
             gather(hit.range, in: hit.field)
         }
-        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) {
-            // On a word the hover gathered, the click asks about every gathered word, in each text in turn.
-            if gathered.contains(where: { $0 === hit.field }), hit.field.selectedRanges.contains(where: { NSLocationInRange(hit.range.location, $0.rangeValue) }) {
-                define(gathered.flatMap { field in field.selectedRanges.map { (field.string as NSString).substring(with: $0.rangeValue).trimmingCharacters(in: .whitespacesAndNewlines) } }
-                    .filter { !$0.isEmpty }.joined(separator: " "))
-                return
-            }
-            optionDrag(from: hit); return
+        // A click, with Option or without, on a word the hover gathered asks about every gathered group of words, in each text in turn.
+        if event.type == .leftMouseDown, [[], .option].contains(modifiers), event.clickCount == 1, let hit = word(at: event.locationInWindow), inGathered(hit.range, hit.field) {
+            define(gatheredGroups); return
         }
+        // Any other click hands the selection back to the text.
+        if event.type == .leftMouseDown { gathered = []; regather = false }
+        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Up and Down in the find field go to the previous and next match.
@@ -113,7 +122,7 @@ final class ComposerWindow: NSWindow {
            let field = firstResponder as? NSTextView, field.selectedRange().length > 0,
            NSLocationInRange(field.characterIndex(for: convertPoint(toScreen: event.locationInWindow)), field.selectedRange()) {
             let words = (field.string as NSString).substring(with: field.selectedRange()).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !words.isEmpty, words.split(whereSeparator: \.isWhitespace).count <= 6 { define(words); return }
+            if !words.isEmpty, words.split(whereSeparator: \.isWhitespace).count <= 6 { define([words]); return }
         }
         if event.type == .leftMouseDown { clickStart = event.clickCount == 1 ? convertPoint(toScreen: event.locationInWindow) : nil }
         super.sendEvent(event)
