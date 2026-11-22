@@ -1,6 +1,6 @@
 # one-text
 
-One conversation per person, whatever app they wrote from: WhatsApp, Instagram, Discord, Teams, LinkedIn, SMS and Matrix, merged into one timeline.
+One conversation per person, whatever app they wrote from: WhatsApp, Instagram, Discord, Teams, LinkedIn, SMS, Telegram and Matrix, merged into one timeline.
 
 ![A walk through One Text on made-up chats: favorites on top (Lea Martin, Chloe Dubois, Mom, the Climbing crew group chat) under the Friends, Family and Work groups, a list where each picture carries its app's logo and unread counts; Lea's Instagram and WhatsApp messages in one thread with a reel card, a photo, a reply quote and reactions, a heart added from the hover bar and a reply sent; Friends unfolded and the Flat 4B group chat dragged into it; tom's Discord thread with a voice message, a code block and a list, and a deleted message kept dimmed; the ⌘D search opening Hugo R and the menu under his name with a Split row per app; then Settings with the Play reels here switch and every shortcut](docs/demo.gif)
 
@@ -9,7 +9,7 @@ It reads and sends through the local [Beeper](https://www.beeper.com) Server API
 ## Conversations
 
 - A conversation opens on its last messages; scrolling up loads older ones, a page at a time from each app, kept in time order. It opens on the conversation you had open last (Eliot Gourdoux the first time).
-- A person's bar shows the logos of the apps they are on in a row, their picture under them and their name in a pill (click it for the menu, centred under it); hover a logo for what that app knows. The ringed logo is where your reply goes (by default the app they last wrote from): click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm`, `/sc` or `/mx`.
+- A person's bar shows the logos of the apps they are on in a row, their picture under them and their name in a pill (click it for the menu, centred under it); hover a logo for what that app knows. The ringed logo is where your reply goes (by default the app they last wrote from): click another, or type `/ws`, `/ig`, `/dc`, `/te`, `/li`, `/sm`, `/sc`, `/tg` or `/mx`.
 - A click on the picture in the header, or on the open conversation's picture in the list, opens their profile from the right: what each app knows of them (name, username, phone, email); for a group, its description and members, admins first, each opening their own profile. esc closes it.
 - Under your last message: Sent, then Seen and its time once they read it (in a group, Seen by how many).
 - A blue "New" line sits above the first unread message until you answer or press ⌘K; in the side bar the unread count sits right of the time.
