@@ -1,10 +1,9 @@
 import AppKit
 import ViewerCore
 
-/// Notes' unified toolbar: the sidebar toggle, then glass capsule groups over the viewer and the search field.
+/// Notes' unified toolbar: the sidebar toggle, then glass capsule groups over the viewer and the search field;
+/// playback sits on the video itself (Controls).
 @MainActor final class Toolbar: NSObject, NSToolbarDelegate {
-    private static let listSeparator = NSToolbarItem.Identifier("listSeparator")
-    private static let playback = NSToolbarItem.Identifier("playback")
     private static let file = NSToolbarItem.Identifier("file")
     private static let more = NSToolbarItem.Identifier("more")
     private static let search = NSToolbarItem.Identifier("search")
@@ -15,10 +14,7 @@ import ViewerCore
     private let perform: (Action) -> Void
     private let onSearch: (String) -> Void
     private var actions: [NSToolbarItem.Identifier: Action] = [:]
-    private var playbackItems: [NSToolbarItem] = []
     private var fileItems: [NSToolbarItem] = []
-    private let speedItem = NSToolbarItem(itemIdentifier: .init("speed"))
-    private lazy var playItem = button("play", "play.fill", "Play", .playPause)
     private lazy var volumeItem = button("volume", "speaker.wave.3.fill", "Volume", .mute)
     private let searchItem = NSSearchToolbarItem(itemIdentifier: search)
 
@@ -30,23 +26,13 @@ import ViewerCore
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
-        // A titled bordered item, not a label view: only those sit inside the group's glass capsule.
-        speedItem.label = "Speed"
-        speedItem.isBordered = true
-        speedItem.autovalidates = false
-        speedItem.target = self
-        speedItem.action = #selector(clicked(_:))
         searchItem.searchField.sendsSearchStringImmediately = true
         searchItem.searchField.target = self
         searchItem.searchField.action = #selector(searched(_:))
     }
 
-    func update(plays: Bool, playing: Bool, speed label: String, volume: Float, hasFile: Bool) {
-        playbackItems.forEach { $0.isEnabled = plays }
+    func update(volume: Float, hasFile: Bool) {
         fileItems.forEach { $0.isEnabled = hasFile }
-        speedItem.title = plays ? label : Speed.label(1)
-        playItem.image = symbol(playing ? "pause.fill" : "play.fill")
-        playItem.label = playing ? "Pause" : "Play"
         let level = min(Int(volume * Float(Self.volumeSymbols.count)), Self.volumeSymbols.count - 1)
         volumeItem.image = symbol(volume == 0 ? "speaker.slash.fill" : Self.volumeSymbols[level])
     }
@@ -54,8 +40,7 @@ import ViewerCore
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.listSeparator, Self.playback, .flexibleSpace,
-         Self.file, Self.more, Self.search]
+        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -65,11 +50,6 @@ import ViewerCore
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch id {
-        case Self.listSeparator: return NSTrackingSeparatorToolbarItem(identifier: id, splitView: splitView, dividerIndex: 1)
-        case Self.playback:
-            playbackItems = [button("slower", "backward.fill", "Slower", .slower), playItem,
-                             button("faster", "forward.fill", "Faster", .faster), speedItem]
-            return group(id, "Playback", playbackItems)
         case Self.file:
             fileItems = [volumeItem, button("reveal", "folder", "Reveal in Finder", .reveal)]
             return group(id, "File", fileItems)

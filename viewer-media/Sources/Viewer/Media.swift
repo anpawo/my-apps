@@ -9,6 +9,9 @@ import ViewerCore
 protocol Media: AnyObject {
     var view: NSView { get }
     var isPlaying: Bool { get }
+    /// Seconds played and the whole length, for the playback bar.
+    var progress: (current: Double, total: Double)? { get }
+    func seek(to seconds: Double)
     func changeSpeed(by steps: Int) -> String?
     func togglePlay()
     func seek(by seconds: Double)
@@ -21,6 +24,8 @@ protocol Media: AnyObject {
 
 extension Media {
     var isPlaying: Bool { false }
+    var progress: (current: Double, total: Double)? { nil }
+    func seek(to seconds: Double) {}
     func changeSpeed(by steps: Int) -> String? { nil }
     func togglePlay() {}
     func seek(by seconds: Double) {}
@@ -130,7 +135,7 @@ private final class CenteringClipView: NSClipView {
         rateObservation = player.observe(\.rate) { _, _ in DispatchQueue.main.async(execute: onPlayingChange) }
         player.volume = volume
         playerView.player = player
-        playerView.controlsStyle = .floating
+        playerView.controlsStyle = .none
         player.play()
     }
 
@@ -161,7 +166,11 @@ private final class CenteringClipView: NSClipView {
         return seconds
     }
 
-    private func seek(to seconds: Double) {
+    var progress: (current: Double, total: Double)? {
+        duration.map { (player.currentTime().seconds, $0) }
+    }
+
+    func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 }
@@ -216,6 +225,12 @@ private final class CenteringClipView: NSClipView {
 
     func jump(toEnd: Bool) { show(toEnd ? frames.count - 1 : 0) }
     func stop() { timer?.invalidate() }
+
+    var progress: (current: Double, total: Double)? {
+        frames.count > 1 ? (Timeline.start(of: index, durations: durations), durations.reduce(0, +)) : nil
+    }
+
+    func seek(to seconds: Double) { show(Timeline.frame(at: seconds, durations: durations)) }
 
     private func show(_ frame: Int) {
         guard frames.indices.contains(frame) else { return }

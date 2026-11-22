@@ -26,91 +26,9 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
     return scroll
 }
 
-// MARK: Sidebar
-
-/// "All Media" and one row per kind loaded, each with its count.
-@MainActor final class SidebarPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
-    private static let rowHeight: CGFloat = 30
-    private static let iconSide: CGFloat = 18
-    var onSelect: (Kind?) -> Void = { _ in }
-    private let table = NSTableView()
-    private var rows: [(kind: Kind?, count: Int)] = []
-    private var syncing = false
-
-    override func loadView() {
-        table.style = .sourceList
-        table.rowHeight = Self.rowHeight
-        table.dataSource = self
-        table.delegate = self
-        view = scrolling(table)
-    }
-
-    func reload(_ library: Library) {
-        rows = [(nil, library.count(of: nil))] + library.kinds.map { ($0, library.count(of: $0)) }
-        syncing = true
-        table.reloadData()
-        if let index = rows.firstIndex(where: { $0.kind == library.kind }) {
-            table.selectRowIndexes([index + 1], byExtendingSelection: false)
-        }
-        syncing = false
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count + 1 }
-    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { row == 0 }
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { row > 0 }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = NSTableCellView()
-        guard row > 0 else {
-            let title = label("Library", size: 11, weight: .bold, color: .secondaryLabelColor)
-            cell.addSubview(title)
-            title.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4).isActive = true
-            title.centerYAnchor.constraint(equalTo: cell.centerYAnchor).isActive = true
-            return cell
-        }
-        let (kind, count) = rows[row - 1]
-        let icon = NSImageView(image: NSImage(systemSymbolName: kind.symbol, accessibilityDescription: nil)!)
-        icon.symbolConfiguration = .init(pointSize: 14, weight: .regular)
-        icon.contentTintColor = .controlAccentColor
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        let name = label(kind?.title ?? "All Media", size: 13)
-        let number = label(String(count), size: 13, color: .secondaryLabelColor)
-        for view in [icon, name, number] {
-            cell.addSubview(view)
-            view.centerYAnchor.constraint(equalTo: cell.centerYAnchor).isActive = true
-        }
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-            icon.widthAnchor.constraint(equalToConstant: Self.iconSide),
-            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            number.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
-            number.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
-        ])
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !syncing, table.selectedRow > 0 else { return }
-        onSelect(rows[table.selectedRow - 1].kind)
-    }
-}
-
-extension Optional where Wrapped == Kind {
-    var symbol: String {
-        switch self {
-        case nil: "square.grid.2x2"
-        case .video: "film"
-        case .gif: "square.stack.3d.forward.dottedline"
-        case .image: "photo"
-        case .music: "music.note"
-        case .pdf: "doc.richtext"
-        }
-    }
-}
-
 // MARK: List
 
-/// The files of the sidebar's kind under date section titles, newest first, like Notes' list.
+/// Every file opened, under date section titles, newest first, like Notes' list.
 @MainActor final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private enum Row {
         case header(String)
@@ -303,9 +221,13 @@ final class ItemCell: NSTableCellView {
 
 // MARK: Viewer
 
-/// The file shown, under its modified date.
+/// The file shown, under its modified date, with the playback bar over its bottom when it plays.
 @MainActor final class ViewerPane: NSViewController {
+    private static let controlsMargin: CGFloat = 16
     let hud = HUD()
+    let controls = Controls()
+    /// Esc hides the bar for every file until pressed again.
+    var controlsHidden = false { didSet { showControls() } }
     private let date = label(size: 11, weight: .medium, color: .tertiaryLabelColor)
     private let empty = label("Drop images, videos, GIFs, music or PDFs", size: 18, color: .secondaryLabelColor)
     private let stage = NSView()
@@ -313,9 +235,8 @@ final class ItemCell: NSTableCellView {
 
     override func loadView() {
         let root = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
-        stage.translatesAutoresizingMaskIntoConstraints = false
-        hud.translatesAutoresizingMaskIntoConstraints = false
-        for view in [stage, date, empty, hud] { root.addSubview(view) }
+        for view in [stage, hud, controls] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
+        for view in [stage, date, empty, hud, controls] as [NSView] { root.addSubview(view) }
         NSLayoutConstraint.activate([
             date.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: 6),
             date.centerXAnchor.constraint(equalTo: root.centerXAnchor),
@@ -327,11 +248,15 @@ final class ItemCell: NSTableCellView {
             empty.centerYAnchor.constraint(equalTo: root.centerYAnchor),
             hud.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             hud.topAnchor.constraint(equalTo: stage.topAnchor, constant: 16),
+            controls.centerXAnchor.constraint(equalTo: stage.centerXAnchor),
+            controls.bottomAnchor.constraint(equalTo: stage.bottomAnchor, constant: -Self.controlsMargin),
+            controls.leadingAnchor.constraint(greaterThanOrEqualTo: stage.leadingAnchor, constant: Self.controlsMargin),
         ])
+        controls.isHidden = true
         view = root
     }
 
-    func show(_ media: Media?, modified: Date?) {
+    func show(_ media: Media?, plays: Bool, modified: Date?) {
         stage.subviews.forEach { $0.removeFromSuperview() }
         date.stringValue = modified.map {
             let format = DateFormatter()
@@ -341,11 +266,103 @@ final class ItemCell: NSTableCellView {
             return format.string(from: $0)
         } ?? ""
         empty.isHidden = media != nil
+        controls.media = plays ? media : nil
+        showControls()
         guard let media else { return }
         view.layoutSubtreeIfNeeded()
         media.view.frame = stage.bounds
         media.view.autoresizingMask = [.width, .height]
         stage.addSubview(media.view)
         media.fit()
+    }
+
+    private func showControls() { controls.isHidden = controlsHidden || controls.media == nil }
+}
+
+/// Slower, play or pause, faster, the speed, then the time and a slider to seek, in a dark capsule.
+@MainActor final class Controls: NSVisualEffectView {
+    private static let refreshInterval = 0.25
+    private static let width: CGFloat = 520
+    private static let height: CGFloat = 40
+    private static let padding: CGFloat = 14
+    var perform: (Action) -> Void = { _ in }
+    weak var media: Media? { didSet { refresh() } }
+    private lazy var playButton = button("play.fill", .playPause)
+    private let speed = NSTextField(labelWithString: Speed.label(1))
+    private let elapsed = NSTextField(labelWithString: "0:00")
+    private let total = NSTextField(labelWithString: "0:00")
+    private let slider = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
+    private var timer: Timer?
+
+    init() {
+        super.init(frame: .zero)
+        material = .hudWindow
+        blendingMode = .withinWindow
+        state = .active
+        appearance = NSAppearance(named: .darkAqua)
+        wantsLayer = true
+        layer?.cornerRadius = Self.height / 2
+        layer?.masksToBounds = true
+        for field in [speed, elapsed, total] {
+            field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            field.textColor = .white
+        }
+        slider.controlSize = .small
+        slider.target = self
+        slider.action = #selector(seek)
+        let row = NSStackView(views: [button("backward.fill", .slower), playButton, button("forward.fill", .faster),
+                                      speed, elapsed, slider, total])
+        row.spacing = 10
+        row.setCustomSpacing(18, after: speed)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.width).withPriority(.defaultHigh),
+            heightAnchor.constraint(equalToConstant: Self.height),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(playing: Bool, speed label: String) {
+        playButton.image = NSImage(systemSymbolName: playing ? "pause.fill" : "play.fill", accessibilityDescription: nil)
+        speed.stringValue = label
+    }
+
+    private func refresh() {
+        guard !isHidden, let progress = media?.progress else { return }
+        elapsed.stringValue = Details.duration(progress.current)
+        total.stringValue = Details.duration(progress.total)
+        // A drag in progress owns the knob.
+        guard NSEvent.pressedMouseButtons == 0 else { return }
+        slider.maxValue = max(progress.total, 0.01)
+        slider.doubleValue = progress.current
+    }
+
+    private func button(_ symbol: String, _ action: Action) -> NSButton {
+        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!,
+                              target: self, action: #selector(clicked(_:)))
+        button.isBordered = false
+        button.contentTintColor = .white
+        button.tag = actions.count
+        actions.append(action)
+        return button
+    }
+
+    private var actions: [Action] = []
+    @objc private func clicked(_ sender: NSButton) { perform(actions[sender.tag]) }
+    @objc private func seek() { media?.seek(to: slider.doubleValue) }
+}
+
+private extension NSLayoutConstraint {
+    func withPriority(_ priority: NSLayoutConstraint.Priority) -> NSLayoutConstraint {
+        self.priority = priority
+        return self
     }
 }

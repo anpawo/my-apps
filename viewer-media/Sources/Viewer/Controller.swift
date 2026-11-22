@@ -4,7 +4,7 @@ import ViewerCore
 
 enum Action {
     case previous, next, slower, faster, playPause, volumeUp, volumeDown, mute
-    case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut
+    case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut, toggleControls
 }
 
 private let inAppKeys: [(key: Int, modifiers: NSEvent.ModifierFlags, action: Action)] = [
@@ -15,7 +15,7 @@ private let inAppKeys: [(key: Int, modifiers: NSEvent.ModifierFlags, action: Act
     (kVK_LeftArrow, .option, .toStart), (kVK_RightArrow, .option, .toEnd),
     (kVK_LeftArrow, .shift, .back), (kVK_RightArrow, .shift, .forward),
     (kVK_Delete, [], .remove), (kVK_ForwardDelete, [], .remove),
-    (kVK_ANSI_F, [], .fullscreen),
+    (kVK_ANSI_F, [], .fullscreen), (kVK_Escape, [], .toggleControls),
     (kVK_ANSI_Equal, .command, .zoomIn), (kVK_ANSI_Equal, [.command, .shift], .zoomIn),
     (kVK_ANSI_Minus, .command, .zoomOut),
 ]
@@ -36,14 +36,12 @@ let initialWindowSize = NSSize(width: 1180, height: 740)
 @MainActor
 final class Controller: NSObject {
     private static let seekStep = 5.0
-    private static let sidebarWidth: (min: CGFloat, max: CGFloat) = (170, 260)
     private static let listWidth: (min: CGFloat, max: CGFloat) = (260, 420)
     private static let viewerMinWidth: CGFloat = 360
 
     let window: DropWindow
     private var library = Library()
     private let split = NSSplitViewController()
-    private let sidebar = SidebarPane()
     private let list = ListPane()
     private let viewer = ViewerPane()
     private var toolbar: Toolbar!
@@ -67,7 +65,7 @@ final class Controller: NSObject {
         window.toolbar = toolbar.toolbar
         window.toolbarStyle = .unified
         fit = StageFit(window: window, splitView: split.splitView) { [weak self] in self?.viewer.stageSize ?? .zero }
-        sidebar.onSelect = { [weak self] kind in self?.filter(kind: kind) }
+        viewer.controls.perform = { [weak self] in self?.perform($0) }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) ?? false } ? nil : event
@@ -76,15 +74,12 @@ final class Controller: NSObject {
     }
 
     private func buildSplit() {
-        let side = NSSplitViewItem(sidebarWithViewController: sidebar)
-        side.minimumThickness = Self.sidebarWidth.min
-        side.maximumThickness = Self.sidebarWidth.max
-        let middle = NSSplitViewItem(contentListWithViewController: list)
-        middle.minimumThickness = Self.listWidth.min
-        middle.maximumThickness = Self.listWidth.max
+        let side = NSSplitViewItem(sidebarWithViewController: list)
+        side.minimumThickness = Self.listWidth.min
+        side.maximumThickness = Self.listWidth.max
         let content = NSSplitViewItem(viewController: viewer)
         content.minimumThickness = Self.viewerMinWidth
-        for item in [side, middle, content] {
+        for item in [side, content] {
             item.titlebarSeparatorStyle = .none
             split.addSplitViewItem(item)
         }
@@ -110,13 +105,8 @@ final class Controller: NSObject {
         refresh()
     }
 
-    private func filter(kind: Kind?) {
-        library.filter(kind: kind, query: library.query)
-        refresh()
-    }
-
     private func search(_ text: String) {
-        library.filter(kind: library.kind, query: text)
+        library.filter(query: text)
         refresh()
     }
 
@@ -155,6 +145,7 @@ final class Controller: NSObject {
         case .fullscreen: window.toggleFullScreen(nil)
         case .zoomIn: media?.zoom(in: true)
         case .zoomOut: media?.zoom(in: false)
+        case .toggleControls: viewer.controlsHidden.toggle()
         }
         updateToolbar()
     }
@@ -169,17 +160,16 @@ final class Controller: NSObject {
     // MARK: Display
 
     private func refresh() {
-        sidebar.reload(library)
         list.reload(library)
-        window.title = library.kind?.title ?? "All Media"
+        window.title = "All Media"
         window.subtitle = Details.items(library.shown.count)
         showCurrent()
         updateToolbar()
     }
 
     private func updateToolbar() {
-        toolbar.update(plays: library.currentEntry?.kind.plays == true, playing: media?.isPlaying == true,
-                       speed: speedLabel, volume: volume, hasFile: library.current != nil)
+        toolbar.update(volume: volume, hasFile: library.current != nil)
+        viewer.controls.update(playing: media?.isPlaying == true, speed: speedLabel)
     }
 
     private func showCurrent() {
@@ -189,7 +179,7 @@ final class Controller: NSObject {
         media?.stop()
         media = entry.map { makeMedia($0.url, kind: $0.kind, volume: volume) { [weak self] in self?.updateToolbar() } }
         speedLabel = Speed.label(1)
-        viewer.show(media, modified: entry?.modified)
+        viewer.show(media, plays: entry?.kind.plays == true, modified: entry?.modified)
     }
 }
 

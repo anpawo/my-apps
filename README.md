@@ -64,7 +64,7 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 ### [viewer-media](viewer-media)
 
-[![Viewer Media: a sidebar of loaded files beside the GIF being played](viewer-media/docs/screenshot.png)](viewer-media)
+[![Viewer Media: the sidebar of opened files beside a video and its playback bar](viewer-media/docs/screenshot.png)](viewer-media)
 
 ### [viewer-text](viewer-text)
 

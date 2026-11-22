@@ -17,20 +17,17 @@ public struct Section: Equatable {
     public let entries: [Entry]
 }
 
-/// Every file loaded, the sidebar's kind and the search filtering them, and the one shown.
+/// Every file loaded, the search filtering them, and the one shown.
 public struct Library {
     public private(set) var entries: [Entry] = []
     public private(set) var current: URL?
-    /// nil is "All Media".
-    public private(set) var kind: Kind?
     public private(set) var query = ""
 
     public init() {}
 
     /// What the list shows, newest first: the order ↑/↓ walk.
     public var shown: [Entry] {
-        entries.filter { kind == nil || $0.kind == kind }
-            .filter { query.isEmpty || $0.url.lastPathComponent.localizedStandardContains(query) }
+        entries.filter { query.isEmpty || $0.url.lastPathComponent.localizedStandardContains(query) }
             .sorted { $0.modified != $1.modified ? $0.modified > $1.modified
                 : $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending }
     }
@@ -50,25 +47,16 @@ public struct Library {
 
     public var currentEntry: Entry? { entries.first { $0.url == current } }
 
-    public func count(of kind: Kind?) -> Int { entries.filter { kind == nil || $0.kind == kind }.count }
-
-    /// The kinds the sidebar lists: those loaded, in a fixed order.
-    public var kinds: [Kind] { Kind.allCases.filter { count(of: $0) > 0 } }
-
-    /// Appends the files not listed yet and shows the first one passed; when the filters hide it,
-    /// they are cleared so it can be seen.
+    /// Appends the files not listed yet and shows the first one passed; when the search hides it,
+    /// the search is cleared so it can be seen.
     public mutating func add(_ new: [Entry]) {
         for entry in new where !entries.contains(where: { $0.url == entry.url }) { entries.append(entry) }
         guard let first = new.first else { return }
         current = first.url
-        if !shown.contains(where: { $0.url == first.url }) {
-            kind = nil
-            query = ""
-        }
+        if !shown.contains(where: { $0.url == first.url }) { query = "" }
     }
 
-    public mutating func filter(kind: Kind?, query: String) {
-        self.kind = kind
+    public mutating func filter(query: String) {
         self.query = query
         if !shown.contains(where: { $0.url == current }) { current = shown.first?.url }
     }
@@ -84,13 +72,11 @@ public struct Library {
         current = list[min(max(index + delta, 0), list.count - 1)].url
     }
 
-    /// Shows the item that takes the removed one's place in the list, or the one before at the end;
-    /// the last file of a kind goes back to "All Media", as the kind leaves the sidebar.
+    /// Shows the item that takes the removed one's place in the list, or the one before at the end.
     public mutating func removeCurrent() {
         let list = shown
         guard let index = list.firstIndex(where: { $0.url == current }) else { return }
         entries.removeAll { $0.url == current }
-        if let kind, count(of: kind) == 0 { return filter(kind: nil, query: query) }
         let rest = shown
         current = rest.isEmpty ? nil : rest[min(index, rest.count - 1)].url
     }

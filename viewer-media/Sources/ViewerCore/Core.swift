@@ -37,16 +37,6 @@ public enum Kind: CaseIterable, Equatable, Sendable {
         else { return nil }
     }
 
-    public var title: String {
-        switch self {
-        case .video: "Videos"
-        case .gif: "GIFs"
-        case .image: "Images"
-        case .music: "Music"
-        case .pdf: "PDFs"
-        }
-    }
-
     /// Speed, play and volume mean something for these.
     public var plays: Bool { self == .video || self == .gif || self == .music }
 }
