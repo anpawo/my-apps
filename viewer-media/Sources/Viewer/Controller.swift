@@ -47,6 +47,7 @@ final class Controller: NSObject {
     private let list = ListPane()
     private let viewer = ViewerPane()
     private var toolbar: Toolbar!
+    private(set) var fit: StageFit!
     private var media: Media?
     private var shown: URL?
     private var volume: Float = 1
@@ -65,6 +66,7 @@ final class Controller: NSObject {
                           onSearch: { [weak self] in self?.search($0) })
         window.toolbar = toolbar.toolbar
         window.toolbarStyle = .unified
+        fit = StageFit(window: window, splitView: split.splitView) { [weak self] in self?.viewer.stageSize ?? .zero }
         sidebar.onSelect = { [weak self] kind in self?.filter(kind: kind) }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

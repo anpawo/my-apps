@@ -26,8 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         controller.registerGlobalKeys()
-        controller.window.center()
         controller.window.makeKeyAndOrderFront(nil)
+        // After one run-loop turn: before it the columns have no width yet and the viewer reads as empty.
+        DispatchQueue.main.async { [self] in controller.fit.fillScreen() }
         NSApp.activate()
     }
 

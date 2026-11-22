@@ -309,6 +309,7 @@ final class ItemCell: NSTableCellView {
     private let date = label(size: 11, weight: .medium, color: .tertiaryLabelColor)
     private let empty = label("Drop images, videos, GIFs, music or PDFs", size: 18, color: .secondaryLabelColor)
     private let stage = NSView()
+    var stageSize: NSSize { stage.frame.size }
 
     override func loadView() {
         let root = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
