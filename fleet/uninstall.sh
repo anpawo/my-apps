@@ -11,4 +11,5 @@ rm -f "$HOME/Library/LaunchAgents/fleet.reels.plist"
 rm -rf "$APPS/Fleet.app"
 rm -f "$HOME/.local/bin/fleet" "$HOME/.local/bin/agents/Fleet"
 
+sudo -n /usr/bin/pmset -a disablesleep 0 2>/dev/null || true
 echo "Fleet removed."

@@ -188,6 +188,7 @@ final class AppController: ObservableObject {
     private let registry = SessionRegistry()
     private let notifier = Notifier()
     private let awake = AwakeHold()
+    private let sleepGuard = SleepGuard()
     private var overlay: OverlayWindowController?
     private var controlCenter: ControlCenterController?
     private var statusItem: StatusItemController?
@@ -373,7 +374,11 @@ final class AppController: ObservableObject {
         // Ahead of the suspended gate: with the display asleep this is the only thing still
         // ticking, and a hold nobody releases keeps the machine awake all night.
         let running = ProcessScanner.anyClaudeRunning()
-        awake.hold(running)
+        awake.hold(running && sleepGuard.conditionsMet)
+        // The display is off while the lid is shut, so the published sessions are stale then.
+        let working = running && (suspended && pretendFleet == nil ? registry.refresh() : sessions)
+            .contains { SleepGuard.working($0.state) }
+        sleepGuard.update(busy: working || SleepGuard.foreignTask())
         guard !suspended, pretendFleet == nil else { return }
 
         // Ahead of the dormant gate below on purpose: memory fills up whether or not any

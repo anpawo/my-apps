@@ -1,0 +1,2 @@
+# Lets Fleet hold the Mac awake with the lid closed while a task works (SleepGuard.swift).
+mr ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1, /usr/bin/pmset sleepnow

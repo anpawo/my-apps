@@ -42,9 +42,19 @@ enum SelfCheck {
         codexBinding(expect)
         vcx(expect)
         diskGrowth(expect)
+        sleepGuard(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
         return failures
+    }
+
+    private static func sleepGuard(_ expect: (Bool, Bool, String) -> Void) {
+        expect(SleepGuard.allowed(networkUp: true, onAC: false, battery: 11), true, "sleep guard: holds on battery above 10%")
+        expect(SleepGuard.allowed(networkUp: true, onAC: false, battery: 10), false, "sleep guard: lets it sleep at 10%")
+        expect(SleepGuard.allowed(networkUp: true, onAC: true, battery: 5), true, "sleep guard: holds on the charger whatever the battery")
+        expect(SleepGuard.allowed(networkUp: false, onAC: true, battery: 90), false, "sleep guard: lets it sleep without Wi-Fi or Ethernet")
+        expect(SleepGuard.working(.running) && !SleepGuard.working(.ready) && !SleepGuard.working(.awaitingAnswer), true,
+               "sleep guard: a session at its prompt or waiting on you is no task")
     }
 
     /// A child that grew is named, its parent only for what grew beside it, and the free space
