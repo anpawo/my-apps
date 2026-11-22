@@ -820,6 +820,17 @@ enum Check {
                 check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
             } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
             do {
+                let home = directory.appendingPathComponent("claude-home"), saved = UUID().uuidString.lowercased()
+                try FileManager.default.createDirectory(at: home.appendingPathComponent("projects/-p"), withIntermediateDirectories: true)
+                try Data().write(to: home.appendingPathComponent("projects/-p/" + saved + ".jsonl"))
+                let account = Account(id: "saved", name: "Saved", provider: "claude", home: home.path)
+                check(claudeSaved(saved, account: account) && !claudeSaved(UUID().uuidString.lowercased(), account: account),
+                      "a Claude thread is resumed only once Claude saved it; a window restored before its first prompt starts it with its ID instead")
+                Trace.write(directory, "prompt", ["text": String(repeating: "a", count: 5000), "images": 1])
+                let line = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("trace.jsonl"))) as? JSON
+                check(line?["type"] as? String == "prompt" && (line?["text"] as? String)?.count ?? 0 < 1000 && line?["images"] as? Int == 1, "the trace keeps each prompt as one JSON line with long text clipped")
+            } catch { check(false, "saved thread fixture: " + error.localizedDescription) }
+            do {
                 let frontend = AppDelegate(), previous = NSApp.delegate
                 let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("ended-state"))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable], backing: .buffered, defer: true)

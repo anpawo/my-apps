@@ -87,6 +87,13 @@ func configuredClaudeEffort(account: Account, cwd: String, model: String) -> Str
     return modelEffort ?? effort
 }
 
+// Claude writes a conversation to disk only with its first message: a window restored before it (after a live update)
+// resumed an ID Claude never saved, got "No conversation found" and lost the prompt.
+func claudeSaved(_ id: String, account: Account) -> Bool {
+    let projects = (account.home ?? NSHomeDirectory() + "/.claude") + "/projects/"
+    return ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }
+}
+
 @MainActor
 final class ClaudeConnection: Connection {
     var event: (JSON) -> Void = { _ in }
@@ -148,13 +155,14 @@ final class ClaudeConnection: Connection {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         let trim: [String] = FileManager.default.fileExists(atPath: claudeSettingsFile.path) ? ["--settings", claudeSettingsFile.path] : []
         process.arguments = (command ?? (["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode", mode == "bypass" ? "bypassPermissions" : "default", "--allow-dangerously-skip-permissions"] +
-            [resume ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (["", "Claude"].contains(model) ? [] : ["--model", model]) + trim)) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
+            [resume && claudeSaved(String(thread.dropFirst(7)), account: account) ? "--resume" : "--session-id", String(thread.dropFirst(7))] + (["", "Claude"].contains(model) ? [] : ["--model", model]) + trim)) + (developerInstructions.isEmpty ? [] : ["--append-system-prompt", developerInstructions])
         process.currentDirectoryURL = URL(fileURLWithPath: initialDirectory)
         process.environment = agentEnvironment(account, fleet: fleetFile)
         // Claude names a --resume ID it cannot find only on stderr. A file, unlike a pipe, still takes writes after a live swap ends this process.
         let errors = try agentLog(logFile)
         process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = errors.writer
         try process.run()
+        emit("cx/launch", ["arguments": process.arguments ?? [], "pid": process.processIdentifier])
         try? errors.writer.close()
         try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading, log: (errors.path, errors.start))
     }

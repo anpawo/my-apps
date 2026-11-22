@@ -415,6 +415,7 @@ final class Session: ObservableObject {
             catch { ready = false; usageLoading = false; status = error.localizedDescription; notice(error.localizedDescription) }
             return
         }
+        trace("connect", ["resume": resume ?? "", "prompt": prompt])
         await refreshRepository()
         do {
             testing = command != nil
@@ -575,7 +576,13 @@ final class Session: ObservableObject {
         save()
     }
 
+    func trace(_ type: String, _ data: JSON = [:]) {
+        var data = data; data["record"] = recordID; data["thread"] = threadID; data["cwd"] = cwd
+        Trace.write(stateDirectory, type, data)
+    }
+
     func notice(_ text: String, link: String? = nil) {
+        trace("notice", ["text": text])
         var data: JSON = ["text": text]; data["link"] = link
         rows.append(Row("notice", [Item(data)]))
         revision += 1
@@ -637,6 +644,7 @@ final class Session: ObservableObject {
         if loading { bufferedEvents.append(message); return }
         let method = message["method"] as? String ?? ""
         let p = message["params"] as? JSON ?? [:]
+        if !method.lowercased().hasSuffix("delta") { trace("event", ["method": method, "params": p, "request": message["id"] != nil]) }
         if let id = p["threadId"] as? String, id != threadID { return }
         if let id = message["id"], message["method"] != nil {
             if method == "item/tool/call", p["tool"] as? String == "AskUserQuestion" {
@@ -859,6 +867,7 @@ final class Session: ObservableObject {
             await performRuntime("send", ["text": text, "images": images, "draft": draftContent(expectedDraft ?? draft), "generation": expectedGeneration ?? draftGeneration])
             return
         }
+        trace("prompt", ["text": text, "images": images.count, "retry": retry, "ready": ready, "busy": busy])
         let submissionDraft = expectedDraft ?? draft, submissionGeneration = expectedGeneration ?? draftGeneration
         if !testing { Settings.shared.reload() }
         if text.hasPrefix("/"), images.isEmpty || providerSkill(text) != nil, !commandHandled, !retry { await command(text, images: images); return }
@@ -1085,6 +1094,7 @@ final class Session: ObservableObject {
     }
 
     func activate(_ next: Account, resume: String?, keepRows: Bool, reason: String? = nil) async throws {
+        trace("activate", ["provider": next.provider, "resume": resume ?? "", "keepRows": keepRows, "reason": reason ?? ""])
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
         changing = true
         defer { changing = false }
@@ -1389,6 +1399,7 @@ final class Session: ObservableObject {
     }
 
     private func restore(_ id: String, reason: String? = nil) async throws {
+        trace("restore", ["id": id, "reason": reason ?? ""])
         guard UUID(uuidString: id) != nil else { throw CXError(message: "Invalid saved conversation ID.") }
         let claimed = recordLock?.0 == id ? nil : try claimRecord(id)
         var accepted = false
