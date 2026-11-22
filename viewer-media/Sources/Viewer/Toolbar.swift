@@ -1,7 +1,7 @@
 import AppKit
 import ViewerCore
 
-/// Notes' unified toolbar: the sidebar toggle, then glass capsule groups over the viewer and the search field;
+/// Notes' unified toolbar: glass capsule groups over the viewer and the search field;
 /// playback sits on the video itself (Controls).
 @MainActor final class Toolbar: NSObject, NSToolbarDelegate {
     private static let file = NSToolbarItem.Identifier("file")
@@ -40,7 +40,7 @@ import ViewerCore
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
+        [.sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {

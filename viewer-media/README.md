@@ -6,7 +6,7 @@ One window for images, videos, GIFs, music and PDFs: load many, switch with the 
 
 Files opened from Finder, with `open` or dropped on the window join the list of the one window. A folder adds the media files inside it.
 
-Laid out like Notes: the sidebar lists every file opened, grouped by modified date with a thumbnail, the duration, pixel size or page count, and the search field filters them by name. A video, GIF or song gets a bar over its bottom with slower, play, faster, its speed and a seek slider; the toolbar holds the volume and Reveal in Finder buttons.
+Laid out like Notes: the sidebar lists the files open in the window, in the order they were opened, with a thumbnail, the duration, pixel size or page count, and the search field filters them by name. A video, GIF or song gets a bar over its bottom with slower, play, faster, its speed and a seek slider; the toolbar holds the volume and Reveal in Finder buttons.
 
 | In the app | Anywhere | Does |
 |---|---|---|

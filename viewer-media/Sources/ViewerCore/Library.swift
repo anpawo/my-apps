@@ -12,11 +12,6 @@ public struct Entry: Equatable {
     }
 }
 
-public struct Section: Equatable {
-    public let title: String
-    public let entries: [Entry]
-}
-
 /// Every file loaded, the search filtering them, and the one shown.
 public struct Library {
     public private(set) var entries: [Entry] = []
@@ -25,24 +20,9 @@ public struct Library {
 
     public init() {}
 
-    /// What the list shows, newest first: the order ↑/↓ walk.
+    /// What the list shows, in the order the files were opened: the order ↑/↓ walk.
     public var shown: [Entry] {
         entries.filter { query.isEmpty || $0.url.lastPathComponent.localizedStandardContains(query) }
-            .sorted { $0.modified != $1.modified ? $0.modified > $1.modified
-                : $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending }
-    }
-
-    public func sections(now: Date = Date(), calendar: Calendar = .current) -> [Section] {
-        var sections: [Section] = []
-        for entry in shown {
-            let title = DateGroup.title(for: entry.modified, now: now, calendar: calendar)
-            if sections.last?.title == title {
-                sections[sections.count - 1] = Section(title: title, entries: sections[sections.count - 1].entries + [entry])
-            } else {
-                sections.append(Section(title: title, entries: [entry]))
-            }
-        }
-        return sections
     }
 
     public var currentEntry: Entry? { entries.first { $0.url == current } }
@@ -79,50 +59,6 @@ public struct Library {
         entries.removeAll { $0.url == current }
         let rest = shown
         current = rest.isEmpty ? nil : rest[min(index, rest.count - 1)].url
-    }
-}
-
-/// Notes' date sections and row dates.
-public enum DateGroup {
-    static let weekDays = 7
-    static let monthDays = 30
-    private static let english = Locale(identifier: "en_US_POSIX")
-
-    public static func title(for date: Date, now: Date, calendar: Calendar) -> String {
-        let days = daysBetween(date, now, calendar)
-        if days <= 0 { return "Today" }
-        if days == 1 { return "Yesterday" }
-        if days < weekDays { return "Previous 7 Days" }
-        if days < monthDays { return "Previous 30 Days" }
-        let year = calendar.component(.year, from: date)
-        guard year == calendar.component(.year, from: now) else { return String(year) }
-        return DateFormatter().with(english).standaloneMonthSymbols[calendar.component(.month, from: date) - 1]
-    }
-
-    /// The time today, "Yesterday", the weekday within a week, else the short date.
-    public static func rowDate(_ date: Date, now: Date, calendar: Calendar) -> String {
-        let days = daysBetween(date, now, calendar)
-        let format = DateFormatter()
-        format.calendar = calendar
-        format.timeZone = calendar.timeZone
-        if days <= 0 { format.timeStyle = .short; return format.string(from: date) }
-        if days == 1 { return "Yesterday" }
-        if days < weekDays {
-            return format.with(english).weekdaySymbols[calendar.component(.weekday, from: date) - 1]
-        }
-        format.dateStyle = .short
-        return format.string(from: date)
-    }
-
-    private static func daysBetween(_ date: Date, _ now: Date, _ calendar: Calendar) -> Int {
-        calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-    }
-}
-
-private extension DateFormatter {
-    func with(_ locale: Locale) -> DateFormatter {
-        self.locale = locale
-        return self
     }
 }
 

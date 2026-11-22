@@ -77,6 +77,7 @@ final class Controller: NSObject {
         let side = NSSplitViewItem(sidebarWithViewController: list)
         side.minimumThickness = Self.listWidth.min
         side.maximumThickness = Self.listWidth.max
+        side.canCollapse = false
         let content = NSSplitViewItem(viewController: viewer)
         content.minimumThickness = Self.viewerMinWidth
         for item in [side, content] {

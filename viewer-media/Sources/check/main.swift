@@ -19,48 +19,34 @@ expect(Kind(url: URL(fileURLWithPath: "/a.txt")) == nil, "text is not media")
 
 expect(Kind(url: URL(fileURLWithPath: "/a.mp3")) == .music && Kind(url: URL(fileURLWithPath: "/a.m4a")) == .music, "audio is music, not video")
 
-var calendar = Calendar(identifier: .gregorian)
-calendar.timeZone = TimeZone(identifier: "UTC")!
-func day(_ text: String) -> Date { ISO8601DateFormatter().date(from: text + "T12:00:00Z")! }
-let now = day("2026-11-22")
-let titles = ["2026-11-22", "2026-11-21", "2026-11-17", "2026-10-30", "2026-10-20", "2026-02-01", "2025-12-31"]
-    .map { DateGroup.title(for: day($0), now: now, calendar: calendar) }
-expect(titles == ["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days", "October", "February", "2025"],
-       "dates group like Notes: today, yesterday, 7 and 30 days, months of this year, older years")
-expect(DateGroup.rowDate(day("2026-11-21"), now: now, calendar: calendar) == "Yesterday", "yesterday's row says Yesterday")
-expect(DateGroup.rowDate(day("2026-11-18"), now: now, calendar: calendar) == "Wednesday", "a row of this week names its weekday")
 expect(Details.duration(7) == "0:07" && Details.duration(65.4) == "1:05" && Details.duration(3723) == "1:02:03", "durations")
 expect(Details.pages(1) == "1 page" && Details.pages(3) == "3 pages" && Details.items(2) == "2 items", "counts")
 expect(Details.pixels(1920, 1080) == "1920 × 1080", "pixel size")
 
-func entry(_ name: String, _ date: String) -> Entry {
+func entry(_ name: String) -> Entry {
     let url = URL(fileURLWithPath: "/tmp/" + name)
-    return Entry(url: url, kind: Kind(url: url)!, modified: day(date))
+    return Entry(url: url, kind: Kind(url: url)!, modified: Date())
 }
-let old = entry("old.png", "2026-01-05"), clip = entry("clip.mp4", "2026-11-22"), doc = entry("doc.pdf", "2026-11-20")
-let song = entry("song.mp3", "2026-11-21")
+let old = entry("old.png"), clip = entry("clip.mp4"), doc = entry("doc.pdf"), song = entry("song.mp3")
 var library = Library()
 expect(library.current == nil && library.shown.isEmpty, "an empty library shows nothing")
 library.add([old, clip])
-expect(library.shown.map(\.url) == [clip.url, old.url] && library.current == old.url,
-       "the list is newest first and adding shows the first file passed")
-library.add([entry("doc.pdf", "2026-11-20"), song, clip])
-expect(library.entries.count == 4 && library.current == doc.url, "a file already listed is not added again")
-expect(library.sections(now: now, calendar: calendar).map(\.title) == ["Today", "Yesterday", "Previous 7 Days", "January"],
-       "the list is split into date sections")
+expect(library.shown == [old, clip] && library.current == old.url,
+       "the list keeps the opening order and adding shows the first file passed")
+library.add([entry("doc.pdf"), song, clip])
+expect(library.shown.map(\.url) == [old, clip, doc, song].map(\.url) && library.current == doc.url, "a file already listed is not added again")
 library.move(by: -1)
-expect(library.current == song.url, "up walks the list in its displayed order")
+expect(library.current == clip.url, "up walks the list in its displayed order")
 library.move(by: 9)
-expect(library.current == old.url, "down stops at the last item")
+expect(library.current == song.url, "down stops at the last item")
 library.filter(query: "CL")
 expect(library.shown == [clip] && library.current == clip.url, "search keeps names containing the text, any case")
 library.add([old])
 expect(library.query.isEmpty && library.current == old.url, "adding a file the search hides clears the search")
-library.filter(query: "")
-library.select(song.url)
+library.select(clip.url)
 library.removeCurrent()
 expect(library.current == doc.url && library.entries.count == 3, "removing shows the item that took its place")
-library.select(old.url)
+library.select(song.url)
 library.removeCurrent()
 expect(library.current == doc.url, "removing the last item shows the one before")
 library.removeCurrent()

@@ -28,18 +28,12 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 
 // MARK: List
 
-/// Every file opened, under date section titles, newest first, like Notes' list.
+/// The files open in this window, in the order they were opened.
 @MainActor final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
-    private enum Row {
-        case header(String)
-        case item(Entry, lastInSection: Bool)
-    }
-
     private static let itemHeight: CGFloat = 58
-    private static let headerHeight: CGFloat = 36
     var onSelect: (URL) -> Void = { _ in }
     private let table = NSTableView()
-    private var rows: [Row] = []
+    private var rows: [Entry] = []
     private var thumbnails: [URL: NSImage] = [:]
     private var details: [URL: String] = [:]
     private var syncing = false
@@ -48,17 +42,14 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         table.style = .inset
         table.intercellSpacing = .zero
         table.backgroundColor = .clear
+        table.rowHeight = Self.itemHeight
         table.dataSource = self
         table.delegate = self
         view = scrolling(table)
     }
 
     func reload(_ library: Library) {
-        rows = library.sections().flatMap { section in
-            [Row.header(section.title)] + section.entries.enumerated().map {
-                Row.item($0.element, lastInSection: $0.offset == section.entries.count - 1)
-            }
-        }
+        rows = library.shown
         for entry in library.entries where thumbnails[entry.url] == nil { requestThumbnail(entry.url) }
         for entry in library.entries where details[entry.url] == nil {
             details[entry.url] = ""
@@ -75,9 +66,7 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         syncing = false
     }
 
-    private func index(of url: URL?) -> Int? {
-        rows.firstIndex { if case .item(let entry, _) = $0 { entry.url == url } else { false } }
-    }
+    private func index(of url: URL?) -> Int? { rows.firstIndex { $0.url == url } }
 
     private func reloadRow(of url: URL) {
         if let row = index(of: url) { table.reloadData(forRowIndexes: [row], columnIndexes: [0]) }
@@ -93,45 +82,22 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
-    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        if case .header = rows[row] { true } else { false }
-    }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        if case .header = rows[row] { Self.headerHeight } else { Self.itemHeight }
-    }
-
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        if case .header = rows[row] { false } else { true }
-    }
-
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let view = ListRowView()
-        if case .item(_, let last) = rows[row] { view.separatorInset = last ? 0 : ItemCell.textInset }
+        view.separatorInset = row == rows.count - 1 ? 0 : ItemCell.textInset
         return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        switch rows[row] {
-        case .header(let title):
-            let cell = NSTableCellView()
-            let text = label(title, size: 15, weight: .bold)
-            cell.addSubview(text)
-            text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: ItemCell.padding).isActive = true
-            text.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -6).isActive = true
-            return cell
-        case .item(let entry, _):
-            let cell = tableView.makeView(withIdentifier: ItemCell.id, owner: nil) as? ItemCell ?? ItemCell()
-            let date = DateGroup.rowDate(entry.modified, now: Date(), calendar: .current)
-            cell.fill(name: entry.url.lastPathComponent, date: date, details: details[entry.url] ?? "",
-                      thumbnail: thumbnails[entry.url])
-            return cell
-        }
+        let cell = tableView.makeView(withIdentifier: ItemCell.id, owner: nil) as? ItemCell ?? ItemCell()
+        let entry = rows[row]
+        cell.fill(name: entry.url.lastPathComponent, details: details[entry.url] ?? "", thumbnail: thumbnails[entry.url])
+        return cell
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !syncing, table.selectedRow >= 0, case .item(let entry, _) = rows[table.selectedRow] else { return }
-        onSelect(entry.url)
+        guard !syncing, table.selectedRow >= 0 else { return }
+        onSelect(rows[table.selectedRow].url)
     }
 }
 
@@ -168,7 +134,6 @@ final class ItemCell: NSTableCellView {
     private static let selectedDetailAlpha = 0.75
     private let thumbnail = NSImageView()
     private let name = label(size: 13, weight: .bold)
-    private let date = label(size: 12)
     private let detail = label(size: 12, color: .secondaryLabelColor)
 
     init() {
@@ -179,16 +144,13 @@ final class ItemCell: NSTableCellView {
         thumbnail.layer?.cornerRadius = Self.thumbnailRadius
         thumbnail.layer?.masksToBounds = true
         thumbnail.translatesAutoresizingMaskIntoConstraints = false
-        let second = NSStackView(views: [date, detail])
-        second.spacing = 6
-        let lines = NSStackView(views: [name, second])
+        let lines = NSStackView(views: [name, detail])
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = 2
         lines.translatesAutoresizingMaskIntoConstraints = false
         addSubview(thumbnail)
         addSubview(lines)
-        date.setContentCompressionResistancePriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
             thumbnail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
             thumbnail.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -202,9 +164,8 @@ final class ItemCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func fill(name: String, date: String, details: String, thumbnail: NSImage?) {
+    func fill(name: String, details: String, thumbnail: NSImage?) {
         self.name.stringValue = name
-        self.date.stringValue = date
         detail.stringValue = details
         self.thumbnail.image = thumbnail
     }
@@ -213,7 +174,6 @@ final class ItemCell: NSTableCellView {
         didSet {
             let selected = backgroundStyle == .emphasized
             name.textColor = selected ? .white : .labelColor
-            date.textColor = selected ? .white : .labelColor
             detail.textColor = selected ? .white.withAlphaComponent(Self.selectedDetailAlpha) : .secondaryLabelColor
         }
     }
