@@ -48,12 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (try? png.write(to: out)) != nil
     }
 
+    @objc private func showSettings(_ sender: Any?) { Openers.show(commonExtensions) }
+
     private func mainMenu() -> NSMenu {
         let main = NSMenu()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Hide Viewer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Settings\u{2026}", action: #selector(showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Viewer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Hide Viewer Media", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit Viewer Media", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -68,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // `Viewer --render out.png file...`: lays the window out offscreen with the files loaded (the
 // first one selected), draws it into a PNG and exits. Nothing appears on screen.
 let arguments = CommandLine.arguments
+/// What the Settings window checks besides the extensions Info.plist names.
+let commonExtensions = ("png jpg jpeg heic heif gif webp tiff tif bmp ico svg dng cr2 nef psd mp4 mov m4v avi 3gp mpg mpeg "
+    + "mkv webm mp3 m4a wav flac aac aiff pdf").split(separator: " ").map(String.init)
+if arguments.count > 2 && arguments[1] == "--render-settings" {
+    exit(MainActor.assumeIsolated { Openers.render(commonExtensions, to: URL(fileURLWithPath: arguments[2])) } ? 0 : 1)
+}
 let render = arguments.count > 2 && arguments[1] == "--render"
     ? (out: URL(fileURLWithPath: arguments[2]), files: arguments.dropFirst(3).map { URL(fileURLWithPath: $0) })
     : nil

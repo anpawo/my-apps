@@ -5,15 +5,15 @@ set -euo pipefail
 APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 cd "$(dirname "$0")"
 ./build.sh
-DEST="$APPS/Viewer.app"
+DEST="$APPS/Viewer Media.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 running=false
-if pgrep -xq Viewer; then
+if pgrep -xq ViewerMedia; then
   running=true
   osascript -e 'tell application id "com.mr.viewer" to quit' || true
-  while pgrep -xq Viewer; do sleep 0.2; done
+  while pgrep -xq ViewerMedia; do sleep 0.2; done
 fi
-rm -rf "$DEST"; mkdir -p "$APPS"; cp -R dist/Viewer.app "$DEST"
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/Viewer Media.app" "$DEST"
 "$LSREGISTER" -f "$DEST"
 if $running; then open "$DEST"; fi
 echo "==> $DEST"

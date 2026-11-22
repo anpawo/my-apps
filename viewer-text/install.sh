@@ -6,15 +6,15 @@ set -euo pipefail
 APPS="$HOME/apps"; [ -d "$APPS" ] || APPS="$HOME/Applications"
 cd "$(dirname "$0")"
 ./build.sh
-DEST="$APPS/Text.app"
+DEST="$APPS/Viewer Text.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 running=false
-if pgrep -xq Text; then
+if pgrep -xq ViewerText; then
   running=true
   osascript -e 'tell application id "com.mr.text" to quit' || true
-  while pgrep -xq Text; do sleep 0.2; done
+  while pgrep -xq ViewerText; do sleep 0.2; done
 fi
-rm -rf "$DEST"; mkdir -p "$APPS"; cp -R dist/Text.app "$DEST"
+rm -rf "$DEST"; mkdir -p "$APPS"; cp -R "dist/Viewer Text.app" "$DEST"
 "$LSREGISTER" -f "$DEST"
 # Without CLAUDE_PID: an app started from a Claude Code session inherits it, and Fleet reaps it
 # as a leftover once that session ends.

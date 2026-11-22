@@ -58,7 +58,7 @@ final class Controller: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         window = NSWindow(contentRect: NSRect(origin: .zero, size: initialWindowSize),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
-        window.title = "Viewer"
+        window.title = "Viewer Media"
         window.isReleasedWhenClosed = false
         window.contentView = buildContent()
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -187,7 +187,7 @@ final class Controller: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         media?.stop()
         media?.view.removeFromSuperview()
         media = nil
-        window.title = url?.lastPathComponent ?? "Viewer"
+        window.title = url?.lastPathComponent ?? "Viewer Media"
         emptyLabel.isHidden = url != nil
         guard let url, let kind = Kind(url: url) else { return }
         let next = makeMedia(url, kind: kind, volume: volume)

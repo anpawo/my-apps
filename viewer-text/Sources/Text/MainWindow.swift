@@ -20,7 +20,7 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: true)
         super.init()
-        window.title = "Text"
+        window.title = "Viewer Text"
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.setFrameAutosaveName("main")
@@ -130,7 +130,7 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate {
         textView.scrollToBeginningOfDocument(nil)
         scroll.isHidden = doc == nil
         empty.isHidden = doc != nil
-        window.title = doc?.name ?? "Text"
+        window.title = doc?.name ?? "Viewer Text"
         window.representedURL = doc?.url
         refreshSidebar()
         if doc != nil { window.makeFirstResponder(textView) }

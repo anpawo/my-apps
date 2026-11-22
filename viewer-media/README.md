@@ -1,8 +1,8 @@
-# Viewer
+# Viewer Media
 
 One window for images, videos, GIFs and PDFs: load many, switch with the arrows, change the playback speed.
 
-![Viewer: a sidebar of loaded files beside the GIF being played](docs/screenshot.png)
+![Viewer Media: a sidebar of loaded files beside the GIF being played](docs/screenshot.png)
 
 Files opened from Finder, with `open` or dropped on the window join the list of the one window. A folder adds the media files inside it.
 
@@ -17,6 +17,7 @@ Files opened from Finder, with `open` or dropped on the window join the list of 
 | ⌘+ / ⌘- | | Zoom an image or PDF (pinch works too) |
 | ⌫ | | Remove the item from the list |
 | F | | Full screen |
+| ⌘, | | Settings: the file kinds it opens, and which app opens each by default |
 
 Videos play through AVFoundation, so formats macOS cannot decode (WebM, MKV) show a crossed-out play button.
 

@@ -18,9 +18,9 @@ TABLES = {
         "fleet": "Every Claude Code session on the Mac, and which ones need you.",
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",
-        "text": "A minimal viewer and editor for text and code, with coloring.",
         "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
-        "viewer": "Images, videos, GIFs and PDFs in one window, arrows to switch and change speed.",
+        "viewer-media": "Images, videos, GIFs, music and PDFs in one window, arrows to switch and change speed.",
+        "viewer-text": "A minimal viewer and editor for text and code, with coloring.",
         "watcher": "Watches what you are waiting for: mail answers, PR reviews and more...",
     },
 }

@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.runModal() == .OK { main.open(panel.urls) }
     }
 
+    @objc func showSettings(_ sender: Any?) { Openers.show(commonExtensions) }
     @objc func saveDocument(_ sender: Any?) { main.saveCurrent() }
     @objc func closeFile(_ sender: Any?) { main.closeCurrent() }
     @objc func nextFile(_ sender: Any?) { main.cycle(1) }
@@ -46,10 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum Menu {
     static func build(target: AppDelegate) -> NSMenu {
         let bar = NSMenu()
-        add(to: bar, "Text", [
-            item("About Text", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
-            item("Hide Text", #selector(NSApplication.hide(_:)), "h"),
-            item("Quit Text", #selector(NSApplication.terminate(_:)), "q"),
+        add(to: bar, "Viewer Text", [
+            item("About Viewer Text", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
+            item("Settings\u{2026}", #selector(AppDelegate.showSettings(_:)), ",", target), .separator(),
+            item("Hide Viewer Text", #selector(NSApplication.hide(_:)), "h"),
+            item("Quit Viewer Text", #selector(NSApplication.terminate(_:)), "q"),
         ])
         add(to: bar, "File", [
             item("Open\u{2026}", #selector(AppDelegate.openDocument(_:)), "o", target),
@@ -95,8 +97,15 @@ enum Menu {
     }
 }
 
+/// What the Settings window checks besides the extensions Info.plist names.
+let commonExtensions = ("txt md markdown log csv tsv json yaml yml xml plist swift py js mjs ts c h cpp hpp m mm java "
+    + "sh bash zsh rb php pl lua css html tex bib diff patch").split(separator: " ").map(String.init)
+
 let app = NSApplication.shared
 let args = CommandLine.arguments
+if let i = args.firstIndex(of: "--render-settings"), args.count > i + 1 {
+    exit(MainActor.assumeIsolated { Openers.render(commonExtensions, to: URL(fileURLWithPath: args[i + 1])) } ? 0 : 1)
+}
 if let i = args.firstIndex(of: "--render"), args.count > i + 1 {
     Render.run(out: URL(fileURLWithPath: args[i + 1]), files: args[(i + 2)...].map { URL(fileURLWithPath: $0) })
 }
