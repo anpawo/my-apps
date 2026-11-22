@@ -28,12 +28,20 @@ final class ComposerWindow: NSWindow {
         if lens !== field { lens?.setSelectedRange(NSRange(location: 0, length: 0)) }
         lens = field; field.setSelectedRange(range)
     }
-    // Held Option keeps every word it passes over, in every text it crosses, until the next press drops them.
+    // Held Option keeps every word it passes over, in every text it crosses, until the next press drops them;
+    // words only spaces apart join into one run, the spaces selected too.
     private func gather(_ range: NSRange, in field: NSTextView) {
         guard gathered.contains(where: { $0 === field }) else { gathered.append(field); field.setSelectedRange(range); return }
-        let ranges = field.selectedRanges.map(\.rangeValue)
+        let ranges = field.selectedRanges.map(\.rangeValue), text = field.string as NSString
         guard !ranges.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { return }
-        field.selectedRanges = (ranges + [range]).sorted { $0.location < $1.location }.map { NSValue(range: $0) }
+        var runs: [NSRange] = []
+        for next in (ranges + [range]).sorted(by: { $0.location < $1.location }) {
+            if let last = runs.last, next.location >= NSMaxRange(last),
+               text.substring(with: NSRange(location: NSMaxRange(last), length: next.location - NSMaxRange(last))).trimmingCharacters(in: .whitespaces).isEmpty {
+                runs[runs.count - 1] = NSUnionRange(last, next)
+            } else { runs.append(next) }
+        }
+        field.selectedRanges = runs.map { NSValue(range: $0) }
     }
     // Option-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
     private func optionDrag(from start: (field: NSTextView, range: NSRange)) {
@@ -63,7 +71,15 @@ final class ComposerWindow: NSWindow {
            let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
             gather(hit.range, in: hit.field)
         }
-        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
+        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) {
+            // On a word the hover gathered, the click asks about every gathered word, in each text in turn.
+            if gathered.contains(where: { $0 === hit.field }), hit.field.selectedRanges.contains(where: { NSLocationInRange(hit.range.location, $0.rangeValue) }) {
+                define(gathered.flatMap { field in field.selectedRanges.map { (field.string as NSString).substring(with: $0.rangeValue).trimmingCharacters(in: .whitespacesAndNewlines) } }
+                    .filter { !$0.isEmpty }.joined(separator: " "))
+                return
+            }
+            optionDrag(from: hit); return
+        }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Up and Down in the find field go to the previous and next match.
