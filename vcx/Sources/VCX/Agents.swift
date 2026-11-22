@@ -250,7 +250,7 @@ final class ClaudeConnection: Connection {
             resumed = true; pendingUsers.append(userID)
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
-        case "turn/interrupt": stopped = true; sendingNow = false; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); return [:]
+        case "turn/interrupt": stopped = true; sendingNow = false; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); watchStop(); return [:]
         case "cx/sendNow":
             sendingNow = true
             do {
@@ -314,6 +314,22 @@ final class ClaudeConnection: Connection {
     // keep-alives for 40 min, no event, no error). Claude saves the prompt before that request, and a resumed claude
     // replays a saved uuid as done without running it (2026-11-22: "Thinking" for 72 min), so the resend takes a new uuid.
     static var firstEventTimeout: Double = 120
+    // A claude hung on an API request ignores the interrupt too (2026-11-22: Stop and Escape did nothing for 3 h),
+    // so a stop it has not answered by then ends its process; the next prompt resumes the saved conversation.
+    static var stopTimeout: Double = 10
+    private var stopWatch: DispatchWorkItem?
+    private func watchStop() {
+        stopWatch?.cancel()
+        let current = turn
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, !closed, stopped, turn == current, let old = process else { return }
+            stopWatch = nil
+            process = nil; reader?.close(); reader = nil; try? input?.close(); endProcess(old, signal: SIGKILL)
+            pendingUsers.removeAll(); tools.removeAll(); controls.removeAll()
+            emit("turn/completed", ["turn": ["id": turn, "status": "interrupted"]])
+        }
+        stopWatch = item; DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopTimeout, execute: item)
+    }
     private var firstEvent: DispatchWorkItem?
     private func watchFirstEvent(_ prompt: JSON, effort: String?, retried: Bool) {
         firstEvent?.cancel()
@@ -490,6 +506,7 @@ final class ClaudeConnection: Connection {
             let failed = rateLimited || message["is_error"] as? Bool == true
             if queued == 0 || stopped || failed { pendingUsers.removeAll() }
             if !pendingUsers.isEmpty || (queued ?? 0) > 0 { return }
+            stopWatch?.cancel(); stopWatch = nil
             var result: JSON = ["id": turn, "status": stopped ? "interrupted" : "completed"]
             if failed { result["error"] = ["message": message["result"] as? String ?? "Claude did not finish the turn.", "rateLimited": rateLimited] }
             emit("turn/completed", ["turn": result])

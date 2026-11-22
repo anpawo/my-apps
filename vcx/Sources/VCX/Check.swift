@@ -829,6 +829,19 @@ enum Check {
                 check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
             } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
             do {
+                let hung = ClaudeConnection(account: Account(id: "hung", name: "Hung", provider: "claude"), cwd: directory.path)
+                var completed: JSON?
+                hung.event = { if $0["method"] as? String == "turn/completed" { completed = ($0["params"] as? JSON)?["turn"] as? JSON } }
+                let previous = ClaudeConnection.stopTimeout; ClaudeConnection.stopTimeout = 0.2
+                defer { ClaudeConnection.stopTimeout = previous }
+                try await hung.start(command: ["/bin/sh", "-c", "while read line; do :; done"])
+                _ = try await hung.request("turn/start", ["input": [["type": "text", "text": "hang"]]])
+                _ = try await hung.request("turn/interrupt")
+                for _ in 0..<300 where completed == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(completed?["status"] as? String == "interrupted", "Stop ends a turn whose Claude ignores the interrupt")
+                hung.close()
+            } catch { check(false, "hung Claude fixture: " + error.localizedDescription) }
+            do {
                 let home = directory.appendingPathComponent("claude-home"), saved = UUID().uuidString.lowercased()
                 try FileManager.default.createDirectory(at: home.appendingPathComponent("projects/-p"), withIntermediateDirectories: true)
                 try Data().write(to: home.appendingPathComponent("projects/-p/" + saved + ".jsonl"))
