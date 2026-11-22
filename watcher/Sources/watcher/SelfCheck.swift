@@ -177,9 +177,10 @@ enum SelfCheck {
             CheckEntry(id: "l", name: "", who: nil, watching: how, channel: channel, state: .waiting, at: 0).logo
         }
         expect(logo(.whatsapp, "") == "whatsapp" && logo(.gmail, "") == "gmail" && logo(.command, "mo@ inbox: a BofA reply") == "outlook"
-               && logo(.command, "ssh to mo-recon") == "server.rack" && logo(.command, "a quiet Mac") == "terminal", true,
+               && logo(.command, "ssh to mo-recon") == "server.rack" && logo(.command, "a quiet Mac") == "terminal"
+               && logo(.outlook, "") == "outlook" && logo(.page, "") == "globe" && logo(.timer, "") == "clock", true,
                "checks: each shows the logo of what it reads, a command's by a word of its how")
-        let missing = (["whatsapp", "gmail", "terminal"] + CheckEntry.logos.map(\.1)).filter {
+        let missing = (["whatsapp", "gmail", "terminal", "globe"] + CheckEntry.logos.map(\.1)).filter {
             Bundle.main.url(forResource: $0, withExtension: "png", subdirectory: "logos") == nil && NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil
         }
         expect(missing.isEmpty, true, "checks: every logo is in the app or among the SF Symbols \(missing)")

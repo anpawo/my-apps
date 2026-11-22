@@ -139,7 +139,7 @@ struct InboxItem: Codable, Equatable {
 /// (`fired/` with a `dropped` stamp: nothing watches it any more).
 struct CheckEntry: Equatable {
     enum State: String { case waiting, dropped, arrived }
-    enum Channel: String { case whatsapp, gmail, command }
+    enum Channel: String { case whatsapp, gmail, command, outlook, page, timer }
 
     let id: String
     let name: String
@@ -172,6 +172,9 @@ struct CheckEntry: Equatable {
         case .whatsapp: return "whatsapp"
         case .gmail: return "gmail"
         case .command: return Self.logos.first { watching.lowercased().contains($0.0) }?.1 ?? "terminal"
+        case .outlook: return "outlook"
+        case .page: return "globe"
+        case .timer: return "clock"
         }
     }
 
@@ -194,16 +197,27 @@ struct CheckEntry: Equatable {
             guard let id = json["id"] as? String else { return nil }
             let what = json["what"] as? String ?? ""
             let name = json["name"] as? String ?? String(what.prefix(40))
-            let watching = (json["chat"] as? String).map { "WhatsApp “\($0)”" + ((json["also"] as? String).map { ", “\($0)”" } ?? "") }
-                ?? (json["cmd"] != nil ? json["how"] as? String ?? "command" : "Gmail")
-            let channel: Channel = json["chat"] != nil ? .whatsapp : json["cmd"] != nil ? .command : .gmail
+            let outlook = (json["outlook"] as? [String: Any])?["box"] as? String
+            let page = ((json["page"] as? [String: Any])?["url"] as? String).flatMap { URL(string: $0)?.host() }
+            let mail = json["thread"] != nil || json["query"] != nil
+            let channel: Channel = json["chat"] != nil ? .whatsapp : json["cmd"] != nil ? .command
+                : outlook != nil ? .outlook : page != nil ? .page : mail ? .gmail : .timer
+            let watching: String
+            switch channel {
+            case .whatsapp: watching = "WhatsApp “\(json["chat"] as? String ?? "")”" + ((json["also"] as? String).map { ", “\($0)”" } ?? "")
+            case .command: watching = json["how"] as? String ?? "command"
+            case .outlook: watching = "Outlook \(outlook ?? "")"
+            case .page: watching = page ?? "a page"
+            case .gmail: watching = "Gmail"
+            case .timer: watching = "timeout"
+            }
             func stamp(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
             let fired = (json["fired"] as? [String: Any]).flatMap { stamp($0["at"]) }
             let (state, at): (State, Double?) = stamp(json["dropped"]).map { (.dropped, $0) }
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
             return CheckEntry(id: id, name: name, who: json["who"] as? String ?? json["chat"] as? String, watching: watching,
                               channel: channel, state: state, at: at ?? 0, session: json["session"] as? String,
-                              live: channel != .command || json["beeper"] != nil)
+                              live: channel == .whatsapp || channel == .gmail || json["beeper"] != nil)
         }
         let all = (read(state.appending(path: "checks")) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
