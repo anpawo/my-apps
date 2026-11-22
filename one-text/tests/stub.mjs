@@ -1,5 +1,6 @@
 // Made-up chats behind a stand-in Tauri invoke, shared by the checks (ui.mjs) and the README recording (demo.mjs).
-export const stub = () => {
+// `demo` adds the fuller made-up address book the README recording shows (favorites, groups, pictures); the checks run without it.
+export const stub = demo => {
   // A message's own text: the hover reactions and the Sent/Seen line are not part of it.
   window.msgText = m => { const c = m.cloneNode(true); c.querySelectorAll('.quick, .receipt, .reacts, .at').forEach(e => e.remove()); return c.textContent.trim(); };
   const t = m => new Date(Date.now() - m * 60000).toISOString();
@@ -31,6 +32,57 @@ export const stub = () => {
     { id: 'grp-2', name: 'Rust FR', imgs: [], unread: 0, last: t(700), preview: { text: 'new release is out', senderName: 'Bot' }, chats: [{ id: 'grp-2', network: 'Discord', accountID: 'discordgo', unread: 0, last: t(700) }] },
   ];
   let overrides = JSON.parse(sessionStorage.overrides || '{}');
+
+  if (demo) {
+    // Drawn faces, so every picture in the recording is invented.
+    const face = (bg, skin, hair, shirt, long) => 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/>${long ? `<path d="M17 30c0-13 7-18 15-18s15 5 15 18v16H17z" fill="${hair}"/>` : ''}<path d="M10 66c0-15 10-23 22-23s22 8 22 23z" fill="${shirt}"/><circle cx="32" cy="29" r="12.5" fill="${skin}"/><path d="M19.5 28c0-10 6-15.5 12.5-15.5S44.5 18 44.5 28c-3-5-7.5-7-12.5-7s-9.5 2-12.5 7z" fill="${hair}"/></svg>`);
+    const pic = (w, h, sky, ground) => 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="s" x2="0" y2="1"><stop stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#s)"/><circle cx="${w * 0.7}" cy="${h * 0.42}" r="${h * 0.12}" fill="#ffe3a3"/><path d="M0 ${h * 0.7}q${w * 0.25}-${h * 0.18} ${w * 0.5} 0t${w * 0.5} 0V${h}H0z" fill="${ground}"/></svg>`);
+    const faces = {
+      lea: face('#f2b8a0', '#f1c9a5', '#5a3825', '#2f6f8f', true), 'tom-dc': face('#9fc5e8', '#e0ac69', '#2b2b2b', '#c0392b'), 'tom-wa': face('#b6d7a8', '#f3d2b3', '#a0522d', '#34495e'),
+      hugo: face('#d5a6bd', '#c68642', '#1b1b1b', '#16a085'), sarah: face('#ffe599', '#f1c27d', '#8b4513', '#8e44ad', true), chloe: face('#a4c2f4', '#fddbb4', '#e6b450', '#e67e22', true),
+      mom: face('#ead1dc', '#f5d0b0', '#6d4c41', '#d35400', true), dad: face('#cfe2f3', '#e8b48f', '#9e9e9e', '#2c3e50'), alice: face('#d9ead3', '#f7d7c4', '#3e2723', '#c2185b', true),
+      emma: face('#fce5cd', '#ffdfc4', '#b5651d', '#1abc9c', true), anna: face('#d0e0e3', '#f2d6cb', '#f4d03f', '#5d6d7e', true), noah: face('#f4cccc', '#8d5524', '#111', '#f39c12'),
+      jules: face('#fff2cc', '#f0c8a0', '#7b3f00', '#27ae60'), max: face('#c9daf8', '#e6b98f', '#4a2c17', '#7f8c8d'), zoe: face('#e6b8af', '#ffe0bd', '#c0392b', '#2980b9', true), grandma: face('#ddd', '#f3cfb3', '#eee', '#7d3c98', true),
+    };
+    const add = (id, network, person, name, min, unread = 0, extra = {}) => chats.push({ ...chat(id, network, person, name, t(min), unread), pid: 'p-' + id, ...extra });
+    add('sm-chloe', 'Google Messages', 'chloe', 'Chloe Dubois', 12, 1);
+    add('ig-chloe', 'Instagram', 'chloe', 'chloe.dubois', 240);
+    add('wa-mom', 'WhatsApp', 'mom', 'Mom', 75);
+    add('wa-dad', 'WhatsApp', 'dad', 'Dad', 600);
+    add('wa-alice', 'WhatsApp', 'alice', 'Alice', 1300);
+    add('wa-grandma', 'WhatsApp', 'grandma', 'Grandma', 3000);
+    add('te-emma', 'bridgev2', 'emma', 'Emma Laurent', 150, 0, { accountID: 'sh-teams' });
+    add('li-anna', 'LinkedIn', 'anna', 'Anna Schmidt', 2000);
+    add('mx-noah', 'Matrix', 'noah', 'Noah V', 1800);
+    add('sc-jules', 'Snapchat', 'jules', 'Jules P', 35, 2);
+    add('dc-max', 'Discord', 'max', 'maxou', 110);
+    add('ig-zoe', 'Instagram', 'zoe', 'Zoe', 500);
+    for (const c of chats) c.img = faces[c.person];
+    overrides.names ||= { 'dc-max': 'Max from the gym' };
+    const sky = pic(400, 300, ['#ff9a8b', '#ff6a88'], '#3b2a4a');
+    Object.assign(msgs['ig-lea'][2].attachments[0], { srcURL: pic(90, 160, ['#f58529', '#515bd4'], '#dd2a7b') });
+    msgs['ig-lea'][1].reactions = [{ participantID: 'ig-lea', reactionKey: '😂' }];
+    msgs['wa-lea'].splice(2, 0, { ...msg('wa-lea', 'w2p', '', 32), attachments: [{ type: 'img', srcURL: sky, size: { width: 200, height: 150 } }] });
+    msgs['wa-lea'].at(-1).linkedMessageID = 'w2';
+    Object.assign(msgs, {
+      'sm-chloe': [msg('sm-chloe', 'c1', 'landed! 🛬', 12)], 'ig-chloe': [msg('ig-chloe', 'c0', 'cute pic', 240, true)],
+      'wa-mom': [msg('wa-mom', 'm1', 'call me back when you can ❤️', 75)], 'wa-dad': [msg('wa-dad', 'f1', 'the car is fixed', 600)],
+      'wa-alice': [msg('wa-alice', 'a1', 'happy birthday!!', 1300, true)], 'wa-grandma': [msg('wa-grandma', 'gm1', 'thank you my dear', 3000)],
+      'te-emma': [msg('te-emma', 'e1', 'slides look great', 150)], 'li-anna': [msg('li-anna', 'n1', 'thanks for connecting', 2000)],
+      'mx-noah': [msg('mx-noah', 'x1', 'pushed the fix', 1800)], 'sc-jules': [msg('sc-jules', 'j0', 'look at this', 36), msg('sc-jules', 'j1', 'snap me back', 35)],
+      'dc-max': [msg('dc-max', 'mx1', 'leg day tomorrow?', 110)], 'ig-zoe': [msg('ig-zoe', 'z1', 'loved your story', 500)],
+      'grp-3': [{ ...msg('grp-3', 'f3', 'who took my oat milk', 55), senderName: 'Zoe' }], 'grp-4': [{ ...msg('grp-4', 'f4', 'notes from today are up', 900), senderName: 'Noah' }],
+    });
+    msgs['dc-tom'].splice(1, 0, { ...msg('dc-tom', 'd0', '<p>the fix:</p><pre><code>git pull --rebase\ncargo build --release</code></pre><ul><li><strong>then</strong> restart it</li><li>works on <code>main</code></li></ul>', 70) },
+      { ...msg('dc-tom', 'dx', 'wrong chat sorry', 65), isDeleted: true });
+    for (const c of chats) c.preview = { text: msgs[c.id].at(-1).text, isSender: msgs[c.id].at(-1).isSender };
+    groups[0].faces = [faces.zoe, faces.noah, faces.lea, faces.jules];
+    groups[1].faces = [faces['tom-dc'], faces.max];
+    groups[1].chats[0].muted = true;
+    groups.push(
+      { id: 'grp-3', name: 'Flat 4B', imgs: [], faces: [faces.zoe, faces.max, faces.chloe], unread: 0, last: t(55), preview: { text: 'who took my oat milk', senderName: 'Zoe' }, chats: [{ id: 'grp-3', network: 'WhatsApp', accountID: 'whatsapp', unread: 0, last: t(55) }] },
+      { id: 'grp-4', name: 'Study group', imgs: [], faces: [faces.noah, faces.anna, faces.emma], unread: 0, last: t(900), preview: { text: 'notes from today are up', senderName: 'Noah' }, chats: [{ id: 'grp-4', network: 'Matrix', accountID: 'matrix', unread: 0, last: t(900) }] });
+  }
   const log = (window.__log = []);
   function people() {
     const root = {};
@@ -44,7 +96,7 @@ export const stub = () => {
     return Object.values(by).map(cs => {
       cs.sort((a, b) => b.last.localeCompare(a.last));
       const name = cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], alias = cs.map(c => overrides.names?.[c.id]).find(Boolean);
-      return { id: cs.map(c => c.id).sort()[0], name: alias || name, original: alias ? name : null, imgs: [...cs.map(c => overrides.pictures?.[c.id]).filter(Boolean), 'mxc://ig', 'mxc://wa'],
+      return { id: cs.map(c => c.id).sort()[0], name: alias || name, original: alias ? name : null, imgs: [...cs.map(c => overrides.pictures?.[c.id]).filter(Boolean), ...cs.map(c => c.img).filter(Boolean), 'mxc://ig', 'mxc://wa'],
         unread: cs.reduce((s, c) => s + c.unread, 0), last: cs[0].last, preview: cs[0].preview, chats: cs };
     }).sort((a, b) => b.last.localeCompare(a.last));
   }

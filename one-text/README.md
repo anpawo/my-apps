@@ -2,7 +2,7 @@
 
 One conversation per person, whatever app they wrote from: WhatsApp, Instagram, Discord, Teams, LinkedIn, SMS and Matrix, merged into one timeline.
 
-![A walk through One Text on made-up chats: Lea Martin's Instagram and WhatsApp messages in one thread with a reel card, a reply typed and sent, Hugo R's menu centred under his name with a Split row per app, the ⌘D search, then Settings with the Play reels here switch and every shortcut](docs/demo.gif)
+![A walk through One Text on made-up chats: favorites on top (Lea Martin, Chloe Dubois, Mom, the Climbing crew group chat) under the Friends, Family and Work groups, a list where each picture carries its app's logo and unread counts; Lea's Instagram and WhatsApp messages in one thread with a reel card, a photo, a reply quote and reactions, a heart added from the hover bar and a reply sent; Friends unfolded and the Flat 4B group chat dragged into it; tom's Discord thread with a voice message, a code block and a list, and a deleted message kept dimmed; the ⌘D search opening Hugo R and the menu under his name with a Split row per app; then Settings with the Play reels here switch and every shortcut](docs/demo.gif)
 
 It reads and sends through the local [Beeper](https://www.beeper.com) Server API (its address and token come from `~/.beeper/targets/background.json` at launch), and starts Beeper Server when it is not answering. The recording above is `node tests/demo.mjs`: headless WebKit on made-up chats.
 
