@@ -29,14 +29,26 @@ enum Store {
             .sorted { $0.at < $1.at }
     }
 
-    /// Lines of one subject as one, the newest: an hourly alarm (mac-recon) left the same line five times.
+    /// Lines of one kind as one, the newest: an hourly alarm (mac-recon) left the same line five times.
     static func fused(_ lines: [InboxItem]) -> [InboxItem] {
         var newest: [String: InboxItem] = [:]
         for var line in lines {
-            line.older = newest[line.subject].map { ($0.older ?? []) + [$0.id] }
-            newest[line.subject] = line
+            line.older = newest[kind(line)].map { ($0.older ?? []) + [$0.id] }
+            newest[kind(line)] = line
         }
-        return lines.compactMap { newest[$0.subject]?.id == $0.id ? newest[$0.subject] : nil }
+        return lines.compactMap { newest[kind($0)]?.id == $0.id ? newest[kind($0)] : nil }
+    }
+
+    /// What makes lines one kind (22/11: "the same kind… should appear as 1"): a tool's lines by the name their ids
+    /// start with (recon-mac-<hex>, its start and end of day alike; plan-<date>), a follow-up's by its subject without
+    /// the clock time (Task 2 slot 06:02, 06:38…). mac-guard's lines stay apart: each stopped a different process.
+    static func kind(_ line: InboxItem) -> String {
+        if line.kind != "guard", line.entries?.isEmpty ?? true,
+           let tail = line.id.range(of: #"-(\d{4}-\d{2}-\d{2}.*|[0-9a-f]{6,})$"#, options: .regularExpression),
+           tail.lowerBound > line.id.startIndex {
+            return "tool " + line.id[..<tail.lowerBound]
+        }
+        return line.subject.replacingOccurrences(of: #"\s*\b\d{1,2}[:h]\d{2}\b"#, with: "", options: .regularExpression)
     }
 
     /// Sets a line aside as done (`done/`, still on disk). False when no such line waits.

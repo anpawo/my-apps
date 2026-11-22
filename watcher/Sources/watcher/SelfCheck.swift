@@ -156,6 +156,17 @@ enum SelfCheck {
         press(kVK_DownArrow)
         press(kVK_Return)
         expect(inbox.items.map(\.id) == ["a"] && kept("r1") && kept("r2") && kept("r3"), true, "inbox: setting the fused line aside takes them all")
+        func line(_ id: String, _ subject: String, _ entries: [String]? = nil, kind: String = "needs") -> InboxItem {
+            InboxItem(id: id, at: 0, kind: kind, subject: subject, line: "", dir: "/", options: [], prompt: nil, entries: entries)
+        }
+        expect([line("recon-mac-0a1b2c", "Mac recon, start of day"), line("recon-mac-3d4e5f", "Mac recon, end of day"),
+                line("plan-2026-11-21", "Allocation"), line("plan-2026-11-22", "Allocation, again"),
+                line("aaaaaa", "Task 2 slot 06:02", ["e1"]), line("bbbbbb", "Task 2 slot 07:12", ["e2"]),
+                line("check-e3", "Restart worker", ["e3"]), line("check-e4", "BofA notices", ["e4"]),
+                line("guard-0a1b2c", "mac-guard", kind: "guard"), line("guard-3d4e5f", "mac-guard: other", kind: "guard")]
+                .map(Store.kind) ==
+               ["tool recon-mac", "tool recon-mac", "tool plan", "tool plan", "Task 2 slot", "Task 2 slot", "Restart worker", "BofA notices",
+                "mac-guard", "mac-guard: other"], true, "inbox: one kind, one line: a tool's by its id, a follow-up's without its clock time")
         let state = FileManager.default.temporaryDirectory.appending(path: "watcher-checks-\(getpid())")
         try? FileManager.default.createDirectory(at: state.appending(path: "fired"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: state) }
