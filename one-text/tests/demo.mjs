@@ -106,5 +106,6 @@ const total = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'f
 const from = Math.max(0, total - Number(skip)).toFixed(2);
 const out = join(root, 'docs/demo.gif');
 // mpdecimate drops the still frames, which the video's noise otherwise re-encodes whole (3.1 MB without it); 12 fps keeps the GIF under 2.5 MB.
-execFileSync('ffmpeg', ['-y', '-v', 'error', '-ss', from, '-i', video, '-vf', 'fps=12,mpdecimate,scale=880:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', '-fps_mode', 'vfr', out]);
+// The margin keeps the window's top clear of the title bar video players draw over a GIF.
+execFileSync('ffmpeg', ['-y', '-v', 'error', '-ss', from, '-i', video, '-vf', 'fps=12,mpdecimate,scale=880:-1:flags=lanczos,pad=iw+96:ih+96:48:48:color=0x2a2d33,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', '-fps_mode', 'vfr', out]);
 console.log(out, readdirSync(dir).length, 'video(s), from', from, 's of', total.toFixed(2));
