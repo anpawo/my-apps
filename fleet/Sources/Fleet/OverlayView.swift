@@ -448,22 +448,15 @@ struct OverlayView: View {
         )
     }
 
-    /// The sessions gathered by the directory they are working in, in the order the sessions
-    /// themselves already come in — least recently touched first, so the group holding the
-    /// session you have left alone longest leads. Inside a group the cards keep their start
-    /// order: a prompt never moves a card past its neighbours (asked 2026-11-15). VCX windows
-    /// share their app's start time, hence the id after it.
+    /// The sessions gathered by the directory they are working in, cards and groups alike in
+    /// start order: a group stands where its oldest session puts it, so a prompt never moves a
+    /// group or a card past its neighbours (asked 2026-11-15 for cards, 2026-11-22 for groups).
+    /// VCX windows share their app's start time, hence the id after it.
     private func groups(of sessions: [Session]) -> [(name: String, sessions: [Session])] {
-        var order: [String] = []
-        var byDir: [String: [Session]] = [:]
-        for session in sessions {
-            let key = session.groupKey
-            if byDir[key] == nil { order.append(key) }
-            byDir[key, default: []].append(session)
-        }
-        return order.map { key in
-            (key, (byDir[key] ?? []).sorted { ($0.proc.startedAt, $0.id) < ($1.proc.startedAt, $1.id) })
-        }
+        let started = { (s: Session) in (s.proc.startedAt, s.id) }
+        let byDir = Dictionary(grouping: sessions, by: \.groupKey)
+            .mapValues { $0.sorted { started($0) < started($1) } }
+        return byDir.sorted { started($0.value[0]) < started($1.value[0]) }.map { ($0.key, $0.value) }
     }
 
     /// Every directory, its name over its cards even when it holds one (asked 2026-11-07).
@@ -703,6 +696,8 @@ struct FleetLayout: Layout {
     var columns: Int
     /// What each card takes when it is a directory, nil for a session.
     var wide: [CGSize?] = []
+    /// The tallest directory on the left, set only when their own order runs past the room.
+    var tallestFirst = false
 
     private var width: CGFloat { tile.width * CGFloat(columns) + spacing * CGFloat(columns - 1) }
 
@@ -722,10 +717,11 @@ struct FleetLayout: Layout {
         let step = CGSize(width: tile.width + spacing, height: tile.height + spacing)
         let cells = { (height: CGFloat) in max(1, Int(((height + spacing) / step.height - 0.01).rounded(.up))) }
         let unfolded = (0 ..< min(count, wide.count)).filter { wide[$0] != nil }
-        // The one with the most rows on the left (asked 2026-10-22); two of a height keep the
-        // order they come in, or they would trade places once a second.
+        // In the order they come in while the screen has room (asked 2026-11-22: "stop changing
+        // the order of the groups"); short of room, the one with the most rows on the left
+        // (asked 2026-10-22), two of a height in the order they come in.
         let narrow = unfolded.filter { taken(wide[$0]!.width) == 1 }
-            .sorted { (wide[$1]!.height, $0) < (wide[$0]!.height, $1) }
+            .sorted { tallestFirst ? (wide[$1]!.height, $0) < (wide[$0]!.height, $1) : $0 < $1 }
         var placed = Set<Int>()
         // Each column's first free y: a directory rises to the foot of the cards in its own
         // columns, not under a taller one beside them (asked 2026-11-08: vcx under s14's foot,
@@ -797,6 +793,15 @@ struct FleetLayout: Layout {
     /// each card given by its parts (see `GroupTile.parts`). `size` takes the parts and the
     /// cells across.
     func widening(_ sections: [[[Int]]], room: CGFloat, size: ([Int], Int) -> CGSize) -> [FleetLayout] {
+        let kept = fitting(sections, room: room, size: size)
+        if kept.fits { return kept.layouts }
+        var packed = self
+        packed.tallestFirst = true
+        return packed.fitting(sections, room: room, size: size).layouts
+    }
+
+    private func fitting(_ sections: [[[Int]]], room: CGFloat,
+                         size: ([Int], Int) -> CGSize) -> (layouts: [FleetLayout], fits: Bool) {
         let counts = sections.flatMap { $0.map { $0.reduce(0, +) } }
         let starts = sections.indices.map { sections[..<$0].map(\.count).reduce(0, +) }
         let order = counts.indices.filter { counts[$0] > 2 }.sorted { (counts[$1], $0) < (counts[$0], $1) }
@@ -820,13 +825,13 @@ struct FleetLayout: Layout {
             }
             return (all, top)
         }
-        if let k = feet.indices.first(where: { feet[$0].height <= room }) { return tries[k] }
+        if let k = feet.indices.first(where: { feet[$0].height <= room }) { return (tries[k], true) }
         let kept = feet.indices.filter { k in
             feet[0].all.indices.allSatisfy { i in
                 order.prefix(k).contains(i) || feet[0].all[i] > room || feet[k].all[i] <= room
             }
         }
-        return tries[kept.min { feet[$0].height < feet[$1].height }!]
+        return (tries[kept.min { feet[$0].height < feet[$1].height }!], false)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
