@@ -1,11 +1,10 @@
 import AppKit
 import Carbon.HIToolbox
-import QuickLookThumbnailing
 import ViewerCore
 
 enum Action {
-    case previous, next, slower, faster, playPause, volumeUp, volumeDown
-    case toStart, toEnd, back, forward, remove, fullscreen, zoomIn, zoomOut
+    case previous, next, slower, faster, playPause, volumeUp, volumeDown, mute
+    case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut
 }
 
 private let inAppKeys: [(key: Int, modifiers: NSEvent.ModifierFlags, action: Action)] = [
@@ -32,38 +31,63 @@ private let globalKeys: [(key: Int, modifiers: Int, action: Action)] = [
     (kVK_Space, controlKey | optionKey, .playPause),
 ]
 
-let initialWindowSize = NSSize(width: 1100, height: 720)
+let initialWindowSize = NSSize(width: 1180, height: 740)
 
 @MainActor
-final class Controller: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class Controller: NSObject {
     private static let seekStep = 5.0
-    private static let sidebarWidth: CGFloat = 220
-    private static let rowHeight: CGFloat = 44
-    private static let thumbnailSide: CGFloat = 36
-    private static let cellID = NSUserInterfaceItemIdentifier("item")
+    private static let sidebarWidth: (min: CGFloat, max: CGFloat) = (170, 260)
+    private static let listWidth: (min: CGFloat, max: CGFloat) = (260, 420)
+    private static let viewerMinWidth: CGFloat = 360
 
-    let window: NSWindow
-    private var playlist = Playlist()
-    private let table = NSTableView()
-    private let detail = NSView()
-    private let emptyLabel = NSTextField(labelWithString: "Drop images, videos, GIFs or PDFs")
-    private let hud = HUD()
+    let window: DropWindow
+    private var library = Library()
+    private let split = NSSplitViewController()
+    private let sidebar = SidebarPane()
+    private let list = ListPane()
+    private let viewer = ViewerPane()
+    private var toolbar: Toolbar!
     private var media: Media?
     private var shown: URL?
     private var volume: Float = 1
-    private var thumbnails: [URL: NSImage] = [:]
-    private var syncingSelection = false
+    private var unmutedVolume: Float = 1
+    private var speedLabel = Speed.label(1)
 
     override init() {
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: initialWindowSize),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = DropWindow(contentRect: NSRect(origin: .zero, size: initialWindowSize),
+                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                            backing: .buffered, defer: false)
         super.init()
-        window.title = "Viewer Media"
         window.isReleasedWhenClosed = false
-        window.contentView = buildContent()
+        window.onDrop = { [weak self] urls in self?.add(urls) }
+        buildSplit()
+        toolbar = Toolbar(splitView: split.splitView, perform: { [weak self] in self?.perform($0) },
+                          onSearch: { [weak self] in self?.search($0) })
+        window.toolbar = toolbar.toolbar
+        window.toolbarStyle = .unified
+        sidebar.onSelect = { [weak self] kind in self?.filter(kind: kind) }
+        list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) ?? false } ? nil : event
         }
+        refresh()
+    }
+
+    private func buildSplit() {
+        let side = NSSplitViewItem(sidebarWithViewController: sidebar)
+        side.minimumThickness = Self.sidebarWidth.min
+        side.maximumThickness = Self.sidebarWidth.max
+        let middle = NSSplitViewItem(contentListWithViewController: list)
+        middle.minimumThickness = Self.listWidth.min
+        middle.maximumThickness = Self.listWidth.max
+        let content = NSSplitViewItem(viewController: viewer)
+        content.minimumThickness = Self.viewerMinWidth
+        for item in [side, middle, content] {
+            item.titlebarSeparatorStyle = .none
+            split.addSplitViewItem(item)
+        }
+        window.contentViewController = split
+        window.setContentSize(initialWindowSize)
     }
 
     func registerGlobalKeys() {
@@ -73,56 +97,25 @@ final class Controller: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func add(_ urls: [URL]) {
-        let files = mediaFiles(in: urls)
-        guard !files.isEmpty else { return }
-        playlist.add(files)
-        files.forEach(requestThumbnail)
+        let entries = mediaFiles(in: urls).compactMap { url -> Entry? in
+            guard let kind = Kind(url: url) else { return nil }
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return Entry(url: url, kind: kind, modified: modified ?? Date())
+        }
+        guard !entries.isEmpty else { return }
+        library.add(entries)
+        if library.query.isEmpty { toolbar.clearSearch() }
         refresh()
     }
 
-    private func buildContent() -> NSView {
-        let root = DropView { [weak self] urls in self?.add(urls) }
-        let split = NSSplitView(frame: root.bounds)
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.autoresizingMask = [.width, .height]
-        split.addArrangedSubview(buildSidebar())
-        split.addArrangedSubview(buildDetail())
-        split.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
-        split.setPosition(Self.sidebarWidth, ofDividerAt: 0)
-        root.addSubview(split)
-        return root
+    private func filter(kind: Kind?) {
+        library.filter(kind: kind, query: library.query)
+        refresh()
     }
 
-    private func buildSidebar() -> NSView {
-        let column = NSTableColumn(identifier: Self.cellID)
-        table.addTableColumn(column)
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        table.headerView = nil
-        table.style = .sourceList
-        table.rowHeight = Self.rowHeight
-        table.dataSource = self
-        table.delegate = self
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: Self.sidebarWidth, height: initialWindowSize.height))
-        scroll.documentView = table
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        table.sizeLastColumnToFit()
-        return scroll
-    }
-
-    private func buildDetail() -> NSView {
-        detail.frame = NSRect(x: 0, y: 0, width: initialWindowSize.width - Self.sidebarWidth, height: initialWindowSize.height)
-        for view in [emptyLabel, hud] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            detail.addSubview(view)
-            view.centerXAnchor.constraint(equalTo: detail.centerXAnchor).isActive = true
-        }
-        emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.font = .systemFont(ofSize: 18)
-        emptyLabel.centerYAnchor.constraint(equalTo: detail.centerYAnchor).isActive = true
-        hud.topAnchor.constraint(equalTo: detail.topAnchor, constant: 24).isActive = true
-        return detail
+    private func search(_ text: String) {
+        library.filter(kind: library.kind, query: text)
+        refresh()
     }
 
     // MARK: Keys
@@ -133,125 +126,68 @@ final class Controller: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let modifiers = event.modifierFlags.intersection([.command, .option, .shift, .control])
         guard let binding = inAppKeys.first(where: { $0.key == Int(event.keyCode) && $0.modifiers == modifiers })
         else { return false }
+        // Typing in the search field keeps its keys, but ↑/↓ still walk the list.
+        if window.firstResponder is NSText, binding.action != .previous, binding.action != .next { return false }
         perform(binding.action)
         return true
     }
 
     func perform(_ action: Action) {
         switch action {
-        case .previous: move(by: -1)
-        case .next: move(by: 1)
-        case .slower: hud.show(media?.changeSpeed(by: -1))
-        case .faster: hud.show(media?.changeSpeed(by: 1))
+        case .previous: library.move(by: -1); refresh()
+        case .next: library.move(by: 1); refresh()
+        case .slower, .faster:
+            let label = media?.changeSpeed(by: action == .faster ? 1 : -1)
+            if library.currentEntry?.kind.plays == true, let label { speedLabel = label }
+            viewer.hud.show(label)
         case .playPause: media?.togglePlay()
-        case .volumeUp, .volumeDown:
-            volume = Volume.step(volume, by: action == .volumeUp ? 1 : -1)
-            media?.setVolume(volume)
-            hud.show(Volume.label(volume))
+        case .volumeUp, .volumeDown: setVolume(Volume.step(volume, by: action == .volumeUp ? 1 : -1))
+        case .mute: setVolume(volume == 0 ? unmutedVolume : 0)
         case .toStart: media?.jump(toEnd: false)
         case .toEnd: media?.jump(toEnd: true)
         case .back: media?.seek(by: -Self.seekStep)
         case .forward: media?.seek(by: Self.seekStep)
-        case .remove:
-            if let url = playlist.current { thumbnails[url] = nil }
-            playlist.removeSelected()
-            refresh()
+        case .remove: library.removeCurrent(); refresh()
+        case .reveal: if let url = library.current { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        case .settings: Openers.show(commonExtensions)
         case .fullscreen: window.toggleFullScreen(nil)
         case .zoomIn: media?.zoom(in: true)
         case .zoomOut: media?.zoom(in: false)
         }
+        updateToolbar()
     }
 
-    private func move(by delta: Int) {
-        playlist.move(by: delta)
-        refresh()
+    private func setVolume(_ level: Float) {
+        if level > 0 { unmutedVolume = level }
+        volume = level
+        media?.setVolume(volume)
+        viewer.hud.show(Volume.label(volume))
     }
 
-    // MARK: List and display
+    // MARK: Display
 
     private func refresh() {
-        syncingSelection = true
-        table.reloadData()
-        if let selected = playlist.selected {
-            table.selectRowIndexes([selected], byExtendingSelection: false)
-            table.scrollRowToVisible(selected)
-        }
-        syncingSelection = false
+        sidebar.reload(library)
+        list.reload(library)
+        window.title = library.kind?.title ?? "All Media"
+        window.subtitle = Details.items(library.shown.count)
         showCurrent()
+        updateToolbar()
+    }
+
+    private func updateToolbar() {
+        toolbar.update(plays: library.currentEntry?.kind.plays == true, playing: media?.isPlaying == true,
+                       speed: speedLabel, volume: volume, hasFile: library.current != nil)
     }
 
     private func showCurrent() {
-        let url = playlist.current
-        guard url != shown else { return }
-        shown = url
+        let entry = library.currentEntry
+        guard entry?.url != shown else { return }
+        shown = entry?.url
         media?.stop()
-        media?.view.removeFromSuperview()
-        media = nil
-        window.title = url?.lastPathComponent ?? "Viewer Media"
-        emptyLabel.isHidden = url != nil
-        guard let url, let kind = Kind(url: url) else { return }
-        let next = makeMedia(url, kind: kind, volume: volume)
-        next.view.frame = detail.bounds
-        next.view.autoresizingMask = [.width, .height]
-        detail.addSubview(next.view, positioned: .below, relativeTo: hud)
-        detail.layoutSubtreeIfNeeded()
-        next.fit()
-        media = next
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { playlist.items.count }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? NSTableCellView ?? makeCell()
-        let url = playlist.items[row]
-        cell.textField?.stringValue = url.lastPathComponent
-        cell.imageView?.image = thumbnails[url] ?? NSWorkspace.shared.icon(forFile: url.path)
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !syncingSelection, table.selectedRow >= 0 else { return }
-        playlist.select(table.selectedRow)
-        showCurrent()
-    }
-
-    private func makeCell() -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = Self.cellID
-        let image = NSImageView()
-        image.imageScaling = .scaleProportionallyUpOrDown
-        let text = NSTextField(labelWithString: "")
-        text.lineBreakMode = .byTruncatingMiddle
-        for view in [image, text] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(view)
-            view.centerYAnchor.constraint(equalTo: cell.centerYAnchor).isActive = true
-        }
-        NSLayoutConstraint.activate([
-            image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            image.widthAnchor.constraint(equalToConstant: Self.thumbnailSide),
-            image.heightAnchor.constraint(equalToConstant: Self.thumbnailSide),
-            text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 8),
-            text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-        ])
-        cell.imageView = image
-        cell.textField = text
-        return cell
-    }
-
-    private func requestThumbnail(_ url: URL) {
-        guard thumbnails[url.standardizedFileURL] == nil else { return }
-        let side = Self.thumbnailSide
-        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: side),
-                                                   scale: 2, representationTypes: .thumbnail)
-        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] thumbnail, _ in
-            guard let image = thumbnail?.nsImage else { return }
-            DispatchQueue.main.async {
-                guard let self, let row = self.playlist.items.firstIndex(of: url.standardizedFileURL) else { return }
-                self.thumbnails[url.standardizedFileURL] = image
-                self.table.reloadData(forRowIndexes: [row], columnIndexes: [0])
-            }
-        }
+        media = entry.map { makeMedia($0.url, kind: $0.kind, volume: volume) { [weak self] in self?.updateToolbar() } }
+        speedLabel = Speed.label(1)
+        viewer.show(media, modified: entry?.modified)
     }
 }
 
@@ -296,26 +232,17 @@ final class HUD: NSView {
 }
 
 /// Files dropped anywhere on the window are added to the list.
-final class DropView: NSView {
-    private let onDrop: ([URL]) -> Void
+final class DropWindow: NSWindow {
+    var onDrop: ([URL]) -> Void = { _ in }
 
-    init(onDrop: @escaping ([URL]) -> Void) {
-        self.onDrop = onDrop
-        super.init(frame: NSRect(origin: .zero, size: initialWindowSize))
+    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
         registerForDraggedTypes([.fileURL])
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
 
-    // Drawn here, not left to the window: `--render` draws the content view alone.
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
-        dirtyRect.fill()
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
                                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         onDrop(urls)

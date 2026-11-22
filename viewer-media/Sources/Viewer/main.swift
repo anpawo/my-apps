@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let render {
             controller.add(render.files)
             DispatchQueue.main.asyncAfter(deadline: .now() + renderSettleDelay) { [self] in
-                exit(draw(controller.window, to: render.out) ? 0 : 1)
+                exit(Render.draw(controller.window, to: render.out) ? 0 : 1)
             }
             return
         }
@@ -38,15 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-
-    private func draw(_ window: NSWindow, to out: URL) -> Bool {
-        guard let view = window.contentView,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
-        view.layoutSubtreeIfNeeded()
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
-        return (try? png.write(to: out)) != nil
-    }
 
     @objc private func showSettings(_ sender: Any?) { Openers.show(commonExtensions) }
 

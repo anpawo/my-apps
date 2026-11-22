@@ -1,12 +1,14 @@
 import AppKit
 import AVKit
 import PDFKit
+import QuickLookThumbnailing
 import ViewerCore
 
 /// What the right side shows. Each call returns the HUD text, if any.
 @MainActor
 protocol Media: AnyObject {
     var view: NSView { get }
+    var isPlaying: Bool { get }
     func changeSpeed(by steps: Int) -> String?
     func togglePlay()
     func seek(by seconds: Double)
@@ -18,6 +20,7 @@ protocol Media: AnyObject {
 }
 
 extension Media {
+    var isPlaying: Bool { false }
     func changeSpeed(by steps: Int) -> String? { nil }
     func togglePlay() {}
     func seek(by seconds: Double) {}
@@ -29,11 +32,11 @@ extension Media {
 }
 
 @MainActor
-func makeMedia(_ url: URL, kind: Kind, volume: Float) -> Media {
+func makeMedia(_ url: URL, kind: Kind, volume: Float, onPlayingChange: @escaping () -> Void) -> Media {
     switch kind {
     case .image: ImageMedia(url)
     case .gif: GIFMedia(url)
-    case .video: VideoMedia(url, volume: volume)
+    case .video, .music: VideoMedia(url, volume: volume, onPlayingChange: onPlayingChange)
     case .pdf: PDFMedia(url)
     }
 }
@@ -118,10 +121,13 @@ private final class CenteringClipView: NSClipView {
     private let player: AVPlayer
     private let playerView = AVPlayerView()
     private var speed = 1.0
+    private var rateObservation: NSKeyValueObservation?
     var view: NSView { playerView }
+    var isPlaying: Bool { player.rate != 0 }
 
-    init(_ url: URL, volume: Float) {
+    init(_ url: URL, volume: Float, onPlayingChange: @escaping () -> Void) {
         player = AVPlayer(url: url)
+        rateObservation = player.observe(\.rate) { _, _ in DispatchQueue.main.async(execute: onPlayingChange) }
         player.volume = volume
         playerView.player = player
         playerView.controlsStyle = .floating
@@ -171,6 +177,7 @@ private final class CenteringClipView: NSClipView {
     private var playing = true
     private var timer: Timer?
     var view: NSView { imageView }
+    var isPlaying: Bool { playing && frames.count > 1 }
 
     init(_ url: URL) {
         // ponytail: every frame held in memory; decode on the fly if huge GIFs ever matter.
@@ -227,5 +234,60 @@ private final class CenteringClipView: NSClipView {
                 self.show((self.index + 1) % self.frames.count)
             }
         }
+    }
+}
+
+/// The list's square thumbnails and the details on each row's second line, made off the main thread.
+@MainActor enum Thumbnails {
+    /// QuickLook fits the long side: asked bigger, the cropped short side stays sharp.
+    private static let cropRoom: CGFloat = 2
+
+    static func request(_ url: URL, side: CGFloat, done: @escaping @MainActor (NSImage) -> Void) {
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side * cropRoom, height: side * cropRoom),
+                                                   scale: 2, representationTypes: .thumbnail)
+        request.iconMode = false
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { thumbnail, _ in
+            guard let image = thumbnail?.cgImage else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { done(squared(image, side: side)) } }
+        }
+    }
+
+    static func details(of entry: Entry, done: @escaping @MainActor (String) -> Void) {
+        let url = entry.url, kind = entry.kind
+        if kind == .video || kind == .music {
+            Task { @MainActor in
+                guard let duration = try? await AVURLAsset(url: url).load(.duration), duration.seconds.isFinite else { return }
+                done(Details.duration(duration.seconds))
+            }
+            return
+        }
+        DispatchQueue.global(qos: .utility).async {
+            let text = stillDetails(url, kind: kind)
+            DispatchQueue.main.async { MainActor.assumeIsolated { done(text) } }
+        }
+    }
+
+    private nonisolated static func stillDetails(_ url: URL, kind: Kind) -> String {
+        if kind == .pdf { return CGPDFDocument(url as CFURL).map { Details.pages($0.numberOfPages) } ?? "" }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return "" }
+        if kind == .gif {
+            let delays = (0..<CGImageSourceGetCount(source)).map { i -> Double in
+                let gif = (CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [CFString: Any])?[kCGImagePropertyGIFDictionary]
+                    as? [CFString: Any]
+                return Timeline.delay((gif?[kCGImagePropertyGIFUnclampedDelayTime] ?? gif?[kCGImagePropertyGIFDelayTime]) as? Double)
+            }
+            return Details.duration(delays.reduce(0, +))
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        guard let width = properties?[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties?[kCGImagePropertyPixelHeight] as? Int else { return "" }
+        return Details.pixels(width, height)
+    }
+
+    /// Filled to a square as Notes' thumbnails are: the middle of a landscape, the top of a portrait (a page's title).
+    private static func squared(_ image: CGImage, side: CGFloat) -> NSImage {
+        let short = min(image.width, image.height)
+        let crop = CGRect(x: (image.width - short) / 2, y: 0, width: short, height: short)
+        return NSImage(cgImage: image.cropping(to: crop) ?? image, size: NSSize(width: side, height: side))
     }
 }

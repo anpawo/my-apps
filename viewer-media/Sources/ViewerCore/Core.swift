@@ -24,17 +24,31 @@ public enum Volume {
     public static func label(_ volume: Float) -> String { "Volume \(Int((volume * 100).rounded()))%" }
 }
 
-public enum Kind: Equatable {
-    case image, gif, video, pdf
+public enum Kind: CaseIterable, Equatable, Sendable {
+    case video, gif, image, music, pdf
 
     public init?(url: URL) {
         guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
         if type.conforms(to: .gif) { self = .gif }
         else if type.conforms(to: .pdf) { self = .pdf }
         else if type.conforms(to: .image) { self = .image }
+        else if type.conforms(to: .audio) { self = .music }
         else if type.conforms(to: .audiovisualContent) { self = .video }
         else { return nil }
     }
+
+    public var title: String {
+        switch self {
+        case .video: "Videos"
+        case .gif: "GIFs"
+        case .image: "Images"
+        case .music: "Music"
+        case .pdf: "PDFs"
+        }
+    }
+
+    /// Speed, play and volume mean something for these.
+    public var plays: Bool { self == .video || self == .gif || self == .music }
 }
 
 /// The files to load from what was opened: a folder gives the media files directly inside it.
@@ -47,40 +61,6 @@ public func mediaFiles(in urls: [URL]) -> [URL] {
             at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         return inside.filter { Kind(url: $0) != nil }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-    }
-}
-
-public struct Playlist {
-    public private(set) var items: [URL] = []
-    public private(set) var selected: Int?
-
-    public init() {}
-
-    public var current: URL? { selected.map { items[$0] } }
-
-    /// Appends the files not listed yet and selects the first one passed, new or already there.
-    public mutating func add(_ urls: [URL]) {
-        var first: Int?
-        for url in urls.map(\.standardizedFileURL) {
-            if items.firstIndex(of: url) == nil { items.append(url) }
-            first = first ?? items.firstIndex(of: url)
-        }
-        if let first { selected = first }
-    }
-
-    public mutating func select(_ index: Int) {
-        if items.indices.contains(index) { selected = index }
-    }
-
-    public mutating func move(by delta: Int) {
-        guard let selected else { return }
-        self.selected = min(max(selected + delta, 0), items.count - 1)
-    }
-
-    public mutating func removeSelected() {
-        guard let selected else { return }
-        items.remove(at: selected)
-        self.selected = items.isEmpty ? nil : min(selected, items.count - 1)
     }
 }
 
