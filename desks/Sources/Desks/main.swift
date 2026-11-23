@@ -8,6 +8,8 @@ desks send <n|next|prev>     the window in front goes there (past the last: a ne
 desks carry <n|next|prev>    send, then follow it
 desks new                    a new desktop
 desks move <window id> <n>   that window goes to desktop n, nothing comes forward
+desks launch <n> <app> [file...]  a test copy of the app (its own settings) opens on desktop n,
+                             in the background; prints its window id
 """
 
 func run(_ arguments: [String]) -> Int32 {
@@ -28,6 +30,11 @@ func run(_ arguments: [String]) -> Int32 {
         guard arguments.count == 3, let window = CGWindowID(arguments[1]), let n = Int(arguments[2]), n >= 1,
               let space = Spaces.desktops().dropFirst(n - 1).first else { print(usage); return 2 }
         return Spaces.move(window, to: space.id) ? 0 : 1
+    case ("launch", _):
+        guard arguments.count >= 3, let n = Int(arguments[1]), n >= 1,
+              let space = Spaces.desktops().dropFirst(n - 1).first else { print(usage); return 2 }
+        let files = arguments.dropFirst(3).map { URL(fileURLWithPath: $0) }
+        return Launch.test(URL(fileURLWithPath: arguments[2]), files: files, on: space.id) ? 0 : 1
     default: print(usage); return 2
     }
 }

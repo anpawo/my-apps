@@ -11,7 +11,13 @@ desks new                     # a new desktop
 desks focus <n|next|prev>     # go there at once, no slide
 desks send <n|next|prev>      # the window in front goes there, you stay
 desks carry <n|next|prev>     # the window in front goes there, you follow
+desks launch <n> <app> [file…] # a test copy of the app opens on desktop n, prints its window id
 ```
+
+`launch` copies the app to `$TMPDIR/desks/<Name> Test.app` with its bundle id suffixed `.test`, so
+the copy keeps its own settings and history and runs beside his copy, as many times as asked. It
+starts hidden (`open -g -j -n`), so an app that activates at launch must skip that when
+`NSApp.isHidden` (Viewer Media does), or it pulls him to that desktop.
 
 A window on another desktop still renders: `screencapture -x -o -l <window id> shot.png` captures
 it from there.

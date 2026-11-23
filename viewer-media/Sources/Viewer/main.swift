@@ -26,11 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        controller.registerGlobalKeys()
+        // Launched hidden (`open -j`, how `desks launch` starts a test copy on another desktop): no
+        // activation, which would pull him to that desktop, and the global keys stay with his copy.
+        let background = NSApp.isHidden
+        if !background { controller.registerGlobalKeys() }
         controller.window.makeKeyAndOrderFront(nil)
         // After one run-loop turn: before it the columns have no width yet and the viewer reads as empty.
         DispatchQueue.main.async { [self] in controller.fit.fillScreen() }
-        NSApp.activate()
+        if !background { NSApp.activate() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

@@ -59,6 +59,7 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         recentTable.headerView = nil
         recentTable.dataSource = self
         recentTable.delegate = self
+        recentTable.focusRingType = .none
         recentTable.translatesAutoresizingMaskIntoConstraints = false
         let scroll = scrolling(table)
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -86,8 +87,10 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         for entry in recent where thumbnails[entry.url] == nil { requestThumbnail(entry.url) }
         for entry in recent where details[entry.url] == nil { requestDetails(entry) }
         recentTitle.isHidden = recent.isEmpty
-        recentHeight.constant = CGFloat(recent.count) * Self.itemHeight
         recentTable.reloadData()
+        // The inset style puts a margin above the first row: the same below keeps the last one whole.
+        let margin = recent.isEmpty ? 0 : recentTable.rect(ofRow: 0).minY
+        recentHeight.constant = CGFloat(recent.count) * Self.itemHeight + 2 * margin
     }
 
     private func requestDetails(_ entry: Entry) {
