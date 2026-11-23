@@ -550,7 +550,7 @@ struct CXView: View {
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command == "/repo" && !session.repositoryChanges.isEmpty ? session.repositoryChanges.joined(separator: "\n") : command).accessibilityLabel("\(title): \(value). \(command)")
             .popover(isPresented: Binding(get: { overview == title }, set: { if !$0 { overview = nil } }), arrowEdge: .top) {
-                ModelOverview(currentID: session.runtimeClient?.sessionID) { overview = nil; session.statusCommand(session.modelCommand) }
+                QuotaOverview { overview = nil; session.statusCommand(session.modelCommand) }
             }
     }
 

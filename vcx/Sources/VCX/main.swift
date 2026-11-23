@@ -678,6 +678,10 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     Task { let ok = await Check.live(settings: args[index + 1]); exit(ok ? 0 : 1) }
     RunLoop.main.run()
+} else if args.contains("--quota-check") {
+    app.setActivationPolicy(.prohibited)
+    Task { for line in await QuotaOverview.read() { print(line.agent + " | " + line.fiveHour + " | " + line.week) }; exit(0) }
+    RunLoop.main.run()
 } else if args.contains("--agy-check") {
     app.setActivationPolicy(.prohibited)
     Task { let ok = await AgyCheck.run(); exit(ok ? 0 : 1) }

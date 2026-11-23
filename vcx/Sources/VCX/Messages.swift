@@ -11,29 +11,24 @@ enum AgentMessages {
 
     struct Window { let id: String, provider: String, state: String, cwd: String, name: String }
 
-    // Every window of every running VCX process, as its FleetPresence record.
-    static func records() -> [JSON] {
+    static func windows() -> [Window] {
         let home = NSHomeDirectory() + "/.local/state/cx"
         let files = (try? FileManager.default.contentsOfDirectory(atPath: home + "/fleet")) ?? []
-        return files.filter { $0.hasSuffix(".json") }.flatMap { file -> [JSON] in
+        var found: [Window] = []
+        for file in files where file.hasSuffix(".json") {
             guard let data = FileManager.default.contents(atPath: home + "/fleet/" + file),
                   let root = try? JSONSerialization.jsonObject(with: data) as? JSON,
-                  let pid = (root["pid"] as? NSNumber)?.int32Value, alive(pid, startedAt: root["startedAt"]) else { return [] }
-            return root["sessions"] as? [JSON] ?? []
-        }
-    }
-
-    static func windows() -> [Window] {
-        var found: [Window] = []
-        for record in records() {
-            guard let id = record["sessionId"] as? String else { continue }
-            let recovery = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + id + ".window.json")
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON }
-            let thread = (recovery?["state"] as? JSON)?["threadID"] as? String ?? ""
-            let provider = thread.hasPrefix("claude:") ? "claude" : thread.hasPrefix("qwen:") ? "qwen" : thread.hasPrefix("agy:") ? "agy" : "codex"
-            let context = (record["context"] as? String).map { $0.split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ") } ?? ""
-            found.append(Window(id: id, provider: provider, state: record["state"] as? String ?? "?", cwd: record["cwd"] as? String ?? "",
-                                name: context.isEmpty ? title(record["prompt"] as? String ?? "New session") : context))
+                  let pid = (root["pid"] as? NSNumber)?.int32Value, alive(pid, startedAt: root["startedAt"]) else { continue }
+            for record in root["sessions"] as? [JSON] ?? [] {
+                guard let id = record["sessionId"] as? String else { continue }
+                let recovery = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + id + ".window.json")
+                    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON }
+                let thread = (recovery?["state"] as? JSON)?["threadID"] as? String ?? ""
+                let provider = thread.hasPrefix("claude:") ? "claude" : thread.hasPrefix("qwen:") ? "qwen" : thread.hasPrefix("agy:") ? "agy" : "codex"
+                let context = (record["context"] as? String).map { $0.split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ") } ?? ""
+                found.append(Window(id: id, provider: provider, state: record["state"] as? String ?? "?", cwd: record["cwd"] as? String ?? "",
+                                    name: context.isEmpty ? title(record["prompt"] as? String ?? "New session") : context))
+            }
         }
         return found
     }

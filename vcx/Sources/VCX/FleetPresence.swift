@@ -52,9 +52,6 @@ final class FleetPresence {
         record["sessionId"] = identity
         // Fleet reads the sub-agents out of this conversation's own transcript.
         record["threadId"] = session.threadID
-        // Read by every window's model overview (ModelOverview.swift).
-        record["agent"] = session.providerLabel; record["account"] = session.account.name
-        record["model"] = session.modelStatusLabel; record["tokens"] = session.contextLabel; record["usage"] = session.usage
         if let window = (NSApp?.delegate as? AppDelegate)?.windows.first(where: { $0.session === session })?.window {
             record["windowId"] = window.windowNumber
         }
