@@ -348,10 +348,6 @@ struct Composer: NSViewRepresentable {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
                     if session.commandToken != nil { _ = session.completeCommand(); return true }
                     let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
-                    if session.providerCommands.contains(selected) {
-                        session.commandQuery = nil
-                        Task { await session.command(selected.insert) }; return true
-                    }
                     if selected.insert != view.string { _ = session.completeCommand(); return true }
                 }
                 session.commandQuery = nil
