@@ -1986,7 +1986,8 @@ struct LinkText: NSViewRepresentable {
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
             if let command = runURLCommand(url) { runCommand?(command); return true }
-            return LinkText.open(url)
+            let target = url.scheme == nil && url.path.hasPrefix("/") ? URL(fileURLWithPath: url.path) : url
+            return LinkText.open(target)
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator() }

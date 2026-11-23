@@ -236,7 +236,7 @@ enum Check {
             window.close()
         }
         do {
-            let host = NSHostingView(rootView: ProseView(text: "Open [compare.png](file:///tmp/compare.png) now.\n\n⟶ Next: open [it](file:///tmp/it.png).\n\nNo link here.").frame(width: 500))
+            let host = NSHostingView(rootView: ProseView(text: "Open [compare.png](/tmp/compare.png) now.\n\n⟶ Next: open [it](file:///tmp/it.png).\n\nNo link here.").frame(width: 500))
             host.layoutSubtreeIfNeeded()
             func textViews(_ view: NSView) -> [NSTextView] { (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
             var links: Set<String> = []
@@ -252,8 +252,8 @@ enum Check {
             // Borderless and never ordered in: the click goes to the text view directly.
             let linkWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
             linkWindow.isReleasedWhenClosed = false; linkWindow.contentView = host; host.layoutSubtreeIfNeeded()
-            var opened: [String] = []
-            let open = LinkText.open; LinkText.open = { opened.append($0.path); return true }
+            var opened: [URL] = []
+            let open = LinkText.open; LinkText.open = { opened.append($0); return true }
             if let view = textViews(host).first, let manager = view.layoutManager, let container = view.textContainer {
                 let glyphs = manager.glyphRange(forCharacterRange: (view.string as NSString).range(of: "compare.png"), actualCharacterRange: nil)
                 let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
@@ -264,7 +264,7 @@ enum Check {
                 _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
             }
             LinkText.open = open; linkWindow.close()
-            check(opened == ["/tmp/compare.png"], "a click on a reply link opens its file")
+            check(opened == [URL(fileURLWithPath: "/tmp/compare.png")], "a click on an absolute-path reply link opens a file URL")
         }
         func composerLine(_ image: Bool) -> (CGFloat, CGFloat) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
