@@ -10,7 +10,7 @@ func volumeSymbol(_ volume: Float) -> String {
 }
 
 @MainActor final class Toolbar: NSObject, NSToolbarDelegate {
-    private static let file = NSToolbarItem.Identifier("file")
+    private static let sidebar = NSToolbarItem.Identifier("sidebar")
     private static let volume = NSToolbarItem.Identifier("volume")
     private static let more = NSToolbarItem.Identifier("more")
     private static let search = NSToolbarItem.Identifier("search")
@@ -20,7 +20,6 @@ func volumeSymbol(_ volume: Float) -> String {
     private let perform: (Action) -> Void
     private let onSearch: (String) -> Void
     private var actions: [NSToolbarItem.Identifier: Action] = [:]
-    private var fileItems: [NSToolbarItem] = []
     private lazy var volumeItem = button(Self.volume.rawValue, "speaker.wave.3.fill", "Volume", .mute)
     private let searchItem = NSSearchToolbarItem(itemIdentifier: search)
 
@@ -38,7 +37,7 @@ func volumeSymbol(_ volume: Float) -> String {
     }
 
     func update(volume: Float, hasFile: Bool, plays: Bool) {
-        fileItems.forEach { $0.isEnabled = hasFile }
+        volumeItem.isEnabled = hasFile
         volumeItem.isHidden = !plays
         volumeItem.image = symbol(volumeSymbol(volume))
     }
@@ -46,7 +45,7 @@ func volumeSymbol(_ volume: Float) -> String {
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.volume, Self.file, Self.more, Self.search]
+        [Self.sidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.volume, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -56,11 +55,7 @@ func volumeSymbol(_ volume: Float) -> String {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch id {
-        case Self.file:
-            let reveal = button("reveal", "folder", "Reveal in Finder", .reveal)
-            fileItems = [volumeItem, reveal]
-            return group(id, "File", [reveal])
-        // On its own: hiding a subitem of a group left the group drawn without its other button.
+        case Self.sidebar: return sidebarItem(id)
         case Self.volume: return volumeItem
         case Self.more: return moreItem(id)
         case Self.search: return searchItem
@@ -70,12 +65,12 @@ func volumeSymbol(_ volume: Float) -> String {
 
     private func moreItem(_ id: NSToolbarItem.Identifier) -> NSToolbarItem {
         let menu = NSMenu()
-        for (title, action) in [("Remove from List", Action.remove), ("Settings\u{2026}", .settings)] {
+        for (title, action) in [("Reveal in Finder", Action.reveal), ("Remove from List", .remove), ("Settings\u{2026}", .settings)] {
             let item = menu.addItem(withTitle: title, action: #selector(menuChose(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = action
         }
-        menu.insertItem(.separator(), at: 1)
+        menu.insertItem(.separator(), at: 2)
         let more = NSMenuToolbarItem(itemIdentifier: id)
         more.menu = menu
         more.image = symbol("ellipsis")
@@ -84,11 +79,16 @@ func volumeSymbol(_ volume: Float) -> String {
         return more
     }
 
-    private func group(_ id: NSToolbarItem.Identifier, _ label: String, _ items: [NSToolbarItem]) -> NSToolbarItemGroup {
-        let group = NSToolbarItemGroup(itemIdentifier: id)
-        group.subitems = items
-        group.label = label
-        return group
+    /// AppKit's own toggle is drawn bare over the sidebar and in a glass circle beside it, so it changed
+    /// size on each click; unbordered, it stays bare in both places.
+    private func sidebarItem(_ id: NSToolbarItem.Identifier) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.image = symbol("sidebar.left")
+        item.label = "Sidebar"
+        item.toolTip = "Show or hide the sidebar"
+        item.isBordered = false
+        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
+        return item
     }
 
     private func button(_ id: String, _ symbolName: String, _ label: String, _ action: Action) -> NSToolbarItem {
