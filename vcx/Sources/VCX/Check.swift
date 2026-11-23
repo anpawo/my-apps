@@ -520,6 +520,18 @@ enum Check {
         endProcess(child, signal: SIGKILL)
         let killed = await Task.detached { childOutput.fileHandleForReading.readDataToEndOfFile(); child.waitUntilExit(); return child.terminationStatus != 0 }.value
         check(killed, "stop terminates the command and its children")
+        let linked = runLinks(richText("Run `sudo rm /usr/local/bin/code` or `ls -l`."))
+        check(linked.runs.compactMap(\.link).compactMap(runURLCommand) == ["sudo rm /usr/local/bin/code"], "an inline sudo command links to the run panel, other inline code stays text")
+        check(runnable("ls", language: "bash") && runnable("sudo rm x", language: "") && !runnable("Dear Bas,", language: ""), "shell blocks and sudo lines are runnable, a draft to paste is not")
+        check(terminalText("a\r\nb 10%\rb 100%\n\u{1B}[31mred\u{1B}[0m") == "a\nb 100%\nred", "run output keeps a progress line's last drawing, without colour codes")
+        let asking = CommandRun(command: "stty -echo; printf 'Password:'; read secret; stty echo; echo; echo length=${#secret}; exit 3", directory: NSTemporaryDirectory())
+        func settle(_ done: () -> Bool) async { var waited = 0; while !done(), waited < 100 { try? await Task.sleep(nanoseconds: 50_000_000); waited += 1 } }
+        asking.start()
+        await settle { asking.hidden }
+        check(asking.hidden && asking.output.hasSuffix("Password:"), "a prompt read with echo off asks through the secure field")
+        asking.send("hunter2")
+        await settle { asking.state != .running }
+        check(asking.state == .finished(3) && asking.output.contains("length=7") && !asking.output.contains("hunter2"), "the typed password reaches the command, never its output, and the exit status shows")
         let blocks = markdownBlocks("Text\n```swift\nlet x = 1\n```\nDone")
         check(blocks.count == 3 && blocks[1].code && blocks[1].language == "swift", "code fences")
         let nested = markdownBlocks("````\n### Plan\n```python\nx = 1\n```\nafter\n````\n\n## Next")

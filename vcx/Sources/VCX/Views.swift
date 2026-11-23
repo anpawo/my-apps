@@ -465,6 +465,7 @@ struct CXView: View {
         .onChange(of: session.editorHeight) { FreezeTrace.shape(of: session) }
         .environment(session.find)
         .environment(\.openChart) { session.chart = $0 }
+        .environment(\.runCommand) { session.offerRun($0) }
         .environment(session.chartPin)
         .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
         .onExitCommand {
@@ -635,6 +636,10 @@ struct CXView: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
             VStack(spacing: 0) {
+                if let run = session.run {
+                    RunPanel(run: run) { session.run = nil }.id(run.id).padding(.bottom, 14)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
                 if let flow = session.questionFlow, !flow.done {
                     QuestionPanel(session: session, flow: flow).padding(.bottom, 14)
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -1641,6 +1646,7 @@ extension EnvironmentValues { var codeEdits: CodeEdits? { get { self[CodeEditsKe
 struct CodeBlock: View {
     let block: MarkdownBlock
     @Environment(\.codeEdits) private var edits
+    @Environment(\.runCommand) private var runCommand
     @State private var copied = false
     @State private var reset: Task<Void, Never>?
     @State private var edited: String?
@@ -1668,6 +1674,14 @@ struct CodeBlock: View {
                         Image(systemName: editing ? "checkmark.circle" : "pencil").font(.system(size: 13)).frame(width: 24, height: 18).contentShape(Rectangle())
                     }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).padding(.trailing, 40)
                     .help(editing ? "Done editing" : "Edit: copy takes your version, and your next message sends it").accessibilityLabel(editing ? "Done editing" : "Edit code")
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if let runCommand, !block.markdown, runnable(code, language: block.language) {
+                    Button { runCommand(code) } label: {
+                        Image(systemName: "play").font(.system(size: 13)).frame(width: 24, height: 18).contentShape(Rectangle())
+                    }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).padding(.trailing, edits == nil ? 40 : 72)
+                    .help("Run in VCX: the output shows below the composer, a password stays in VCX").accessibilityLabel("Run command")
                 }
             }
             if block.markdown { MarkdownBody(text: block.text).padding(14) }
@@ -1805,7 +1819,7 @@ struct ProseView: View {
     @State private var room: CGFloat = 0
     // Selectable SwiftUI Text becomes an NSTextField on macOS, which ignores clicks on its links.
     @ViewBuilder private func prose(_ text: String, weight: Font.Weight = .regular, lineSpacing: CGFloat = 0) -> some View {
-        let plain = richText(text), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
+        let plain = runLinks(richText(text)), fragment = String(plain.characters), value = find?.highlight(plain, fragment: fragment, item: findItem) ?? plain
         Group {
             if value.runs.contains(where: { $0.link != nil }) { LinkText(text: value, weight: weight, lineSpacing: lineSpacing) }
             else { Text(value).font(.system(size: 12, weight: weight, design: .monospaced)).lineSpacing(lineSpacing).textSelection(.enabled) }
@@ -1956,8 +1970,10 @@ struct LinkText: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         // Measured once per width: layout asks every row again on each pass, a new layout manager each time.
         var sizes: [CGFloat: CGSize] = [:]
+        var runCommand: ((String) -> Void)?
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
+            if let command = runURLCommand(url) { runCommand?(command); return true }
             return LinkText.open(url)
         }
     }
@@ -1971,6 +1987,7 @@ struct LinkText: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSTextView, context: Context) {
+        context.coordinator.runCommand = context.environment.runCommand
         let base: NSFont.Weight = weight == .semibold ? .semibold : weight == .medium ? .medium : .regular
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = lineSpacing
         let string = NSMutableAttributedString()
@@ -1980,7 +1997,7 @@ struct LinkText: NSViewRepresentable {
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
             if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let link = run.link { attributes[.link] = link }
+            if let link = run.link { attributes[.link] = link; if link.scheme == runScheme { attributes[.toolTip] = "Run in VCX" } }
             if let tint = run[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] { attributes[.backgroundColor] = NSColor(tint) }
             string.append(NSAttributedString(string: String(text[run.range].characters), attributes: attributes))
         }

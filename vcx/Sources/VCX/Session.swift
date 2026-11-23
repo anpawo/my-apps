@@ -218,6 +218,7 @@ final class Session: ObservableObject {
     @Published var questionFlow: QuestionFlow?
     @Published var preview: String?
     @Published var chart: ChartZoom?
+    @Published var run: CommandRun?
     let chartPin = ChartPin()
     @Published var editorHeight: CGFloat = 24
     @Published var draftRevision = 0
