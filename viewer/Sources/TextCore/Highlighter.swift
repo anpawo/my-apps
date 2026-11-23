@@ -1,5 +1,8 @@
 import Foundation
 
+// Tokenizing found by OpenEvolve (~/self/optimization/llm-evolve, viewer-highlight): 5.6x on open, 5.4x per
+// edit, the same tokens in the same order on 53 unseen files of 13 types; functions past 50 lines are its
+// byte-checked version, kept whole.
 /// What a span is, named after the TextMate scope VS Code gives it; the app maps each to the
 /// color its theme resolves for that scope.
 public enum TokenKind: Int, CaseIterable, Sendable {
@@ -22,15 +25,25 @@ public struct Token: Equatable, Sendable {
 /// string or comment is never seen on its own. At one position the first group listed wins.
 public final class Highlighter: @unchecked Sendable {
     private let regex: NSRegularExpression?
-    private let kinds: [TokenKind]
+    private let captures: [(group: Int, kind: TokenKind)]
+    private let combinesSwiftIdentifiers: Bool
     private let separator: unichar?
     private let brackets: Bool
 
     public init(_ language: Language) {
         let rules = Grammar.rules(for: language)
-        kinds = rules.map(\.0)
-        let pattern = rules.map { "(\($0.1))" }.joined(separator: "|")
-        regex = rules.isEmpty ? nil : try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        let (pattern, kinds) = Grammar.pattern(for: rules)
+        let commonKinds: [TokenKind] = [.column, .keyword, .call, .type, .function,
+                                        .property, .control, .modifier, .string, .comment]
+        captures = kinds.enumerated().sorted {
+            let left = commonKinds.firstIndex(of: $0.element) ?? commonKinds.count
+            let right = commonKinds.firstIndex(of: $1.element) ?? commonKinds.count
+            return left == right ? $0.offset < $1.offset : left < right
+        }.map { (group: $0.offset + 1, kind: $0.element) }
+        combinesSwiftIdentifiers = rules.contains { $0.1 == Grammar.swiftIdentifier }
+        regex = rules.isEmpty ? nil : try? NSRegularExpression(
+            pattern: pattern, options: [.anchorsMatchLines]
+        )
         separator = Grammar.separator(for: language)
         brackets = Grammar.colorsBrackets(language)
     }
@@ -45,23 +58,60 @@ public final class Highlighter: @unchecked Sendable {
         var out: [Token] = []
         regex.enumerateMatches(in: text, range: whole) { match, _, _ in
             guard let match else { return }
-            for i in kinds.indices where match.range(at: i + 1).location != NSNotFound {
-                let token = Token(range: match.range(at: i + 1), kind: kinds[i])
+            for (group, capturedKind) in captures {
+                let capture = match.range(at: group)
+                guard capture.location != NSNotFound else { continue }
+                let kind: TokenKind
+                switch capturedKind {
+                case .column:
+                    kind = Grammar.swiftWords.kinds[ns.substring(with: capture)]!
+                case .call where combinesSwiftIdentifiers:
+                    let end = NSMaxRange(capture)
+                    if end < NSMaxRange(whole), ns.character(at: end) == 0x28 {
+                        kind = .call
+                    } else {
+                        kind = (0x41...0x5A).contains(ns.character(at: capture.location)) ? .type : .property
+                    }
+                default:
+                    kind = capturedKind
+                }
+                let token = Token(range: capture, kind: kind)
                 out.append(token)
-                out += Inner.tokens(inside: token, of: text)
+                switch kind {
+                case .string:
+                    let start = ns.range(of: "\\", options: .literal, range: capture).location
+                    if start != NSNotFound {
+                        let suffix = NSRange(location: start, length: NSMaxRange(capture) - start)
+                        Inner.escape.enumerateMatches(in: text, range: suffix) { escape, _, _ in
+                            if let escape {
+                                out.append(Token(range: escape.range, kind: .escape))
+                            }
+                        }
+                    }
+                case .docstring, .codeBlock:
+                    out.append(contentsOf: Inner.tokens(inside: token, of: text))
+                default:
+                    break
+                }
                 break
             }
         }
-        return brackets ? out + Brackets.tokens(in: ns, range: whole, skipping: out) : out
+        if brackets {
+            Brackets.appendTokens(in: ns, range: whole, to: &out)
+        }
+        return out
     }
 
-    private static let cache = NSCache<NSString, Highlighter>()
+    private static let sharedHighlighters: [String: Highlighter] = {
+        let languages: [Language] = [
+            .swift, .python, .javascript, .c, .rust, .go, .java, .shell, .ruby, .lua, .sql,
+            .markdown, .json, .yaml, .toml, .markup, .plain, .csv, .tsv
+        ]
+        return Dictionary(uniqueKeysWithValues: languages.map { ($0.rawValue, Highlighter($0)) })
+    }()
 
     public static func shared(_ language: Language) -> Highlighter {
-        if let h = cache.object(forKey: language.rawValue as NSString) { return h }
-        let h = Highlighter(language)
-        cache.setObject(h, forKey: language.rawValue as NSString)
-        return h
+        sharedHighlighters[language.rawValue] ?? Highlighter(language)
     }
 }
 
@@ -150,30 +200,90 @@ enum Columns {
 /// VS Code's bracket pair colorization: one nesting depth across (), [] and {}, brackets inside
 /// a string or comment left out.
 enum Brackets {
-    static let opening: Set<unichar> = [0x28, 0x5B, 0x7B], closing: Set<unichar> = [0x29, 0x5D, 0x7D]
+    static func appendTokens(in text: NSString, range: NSRange, to tokens: inout [Token]) {
+        guard range.length > 0 else { return }
+        let start = range.location
+        let end = NSMaxRange(range)
+        withUnsafeTemporaryAllocation(of: unichar.self, capacity: range.length) { units in
+            text.getCharacters(units.baseAddress!, range: range)
+            var depth = 0
+            var needsPrefix = start > 0
+            var offset = start
 
-    static func tokens(in text: NSString, range: NSRange, skipping tokens: [Token]) -> [Token] {
-        // ponytail: the depth before `range` counts every bracket, strings and comments included,
-        // so a "(" in an earlier string shifts the colors of a recolored line; tokenize the
-        // prefix if that shows.
-        var depth = 0
-        for i in 0..<range.location { depth += delta(text.character(at: i)) }
-        var out: [Token] = []
-        var next = 0
-        var i = range.location
-        while i < NSMaxRange(range) {
-            while next < tokens.count, NSMaxRange(tokens[next].range) <= i { next += 1 }
-            if next < tokens.count, tokens[next].range.location <= i { i = NSMaxRange(tokens[next].range); continue }
-            let c = text.character(at: i)
-            if closing.contains(c) { depth -= 1 }
-            if opening.contains(c) || closing.contains(c) {
-                out.append(Token(range: NSRange(location: i, length: 1), kind: .bracket, index: max(depth, 0)))
+            func scan(until stop: Int) {
+                while offset < stop {
+                    let change = delta(units[offset - start])
+                    if change != 0 {
+                        if needsPrefix {
+                            depth = prefixDepth(in: text, end: start)
+                            needsPrefix = false
+                        }
+                        let index = max(depth + min(change, 0), 0)
+                        tokens.append(Token(range: NSRange(location: offset, length: 1), kind: .bracket, index: index))
+                        depth += change
+                    }
+                    offset += 1
+                }
             }
-            if opening.contains(c) { depth += 1 }
-            i += 1
+
+            // Inner tokens can overlap their parent, so the scan cursor only advances.
+            for next in 0..<tokens.count {
+                let span = tokens[next].range
+                scan(until: min(end, span.location))
+                offset = max(offset, NSMaxRange(span))
+                if offset >= end { break }
+            }
+            scan(until: end)
         }
-        return out
     }
 
-    static func delta(_ c: unichar) -> Int { opening.contains(c) ? 1 : closing.contains(c) ? -1 : 0 }
+    private static func prefixDepth(in text: NSString, end: Int) -> Int {
+        withUnsafeTemporaryAllocation(of: unichar.self, capacity: end) { units in
+            text.getCharacters(units.baseAddress!, range: NSRange(location: 0, length: end))
+            return prefixDepth(units.baseAddress!, end: end)
+        }
+    }
+
+    private static func prefixDepth(_ units: UnsafePointer<unichar>, end: Int) -> Int {
+        typealias Lanes = SIMD8<Int16>
+        let width = Lanes.scalarCount
+        let vectorEnd = end - end % width
+        let maxBatch = Int(Int16.max) / width * width
+        let one = Lanes(repeating: 1)
+        let bytes = UnsafeRawPointer(units)
+        var depth = 0
+        var offset = 0
+
+        // Each code unit contributes at most one to the signed horizontal sum.
+        while offset < vectorEnd {
+            let batchEnd = offset + min(vectorEnd - offset, maxBatch)
+            var balance = Lanes.zero
+            while offset < batchEnd {
+                let chars = bytes.loadUnaligned(
+                    fromByteOffset: offset * MemoryLayout<unichar>.stride, as: Lanes.self
+                )
+                let folded = chars | Lanes(repeating: 0x20)
+                let opens = (chars .== Lanes(repeating: 0x28))
+                    .| (folded .== Lanes(repeating: 0x7B))
+                let closes = (chars .== Lanes(repeating: 0x29))
+                    .| (folded .== Lanes(repeating: 0x7D))
+                balance = balance &+ Lanes.zero.replacing(with: one, where: opens)
+                balance = balance &- Lanes.zero.replacing(with: one, where: closes)
+                offset += width
+            }
+            depth += Int(balance.wrappedSum())
+        }
+        for position in offset..<end {
+            depth += delta(units[position])
+        }
+        return depth
+    }
+
+    static func delta(_ c: unichar) -> Int {
+        switch c {
+        case 0x28, 0x5B, 0x7B: return 1
+        case 0x29, 0x5D, 0x7D: return -1
+        default: return 0
+        }
+    }
 }
