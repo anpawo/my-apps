@@ -28,12 +28,18 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 
 // MARK: List
 
-/// The files open in this window, in the order they were opened.
+/// The files open in this window, in the order they were opened, and under them the last three opened ever.
 @MainActor final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private static let itemHeight: CGFloat = 58
+    private static let recentTitleInset: CGFloat = 18
     var onSelect: (URL) -> Void = { _ in }
+    var onOpenRecent: (URL) -> Void = { _ in }
     private let table = NSTableView()
+    private let recentTable = NSTableView()
+    private let recentTitle = label("Recent", size: 11, weight: .semibold, color: .secondaryLabelColor)
+    private var recentHeight: NSLayoutConstraint!
     private var rows: [Entry] = []
+    private var recent: [Entry] = []
     private var thumbnails: [URL: NSImage] = [:]
     private var details: [URL: String] = [:]
     private var syncing = false
@@ -45,16 +51,54 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         table.rowHeight = Self.itemHeight
         table.dataSource = self
         table.delegate = self
-        view = scrolling(table)
+        recentTable.style = .inset
+        recentTable.intercellSpacing = .zero
+        recentTable.backgroundColor = .clear
+        recentTable.rowHeight = Self.itemHeight
+        recentTable.addTableColumn(NSTableColumn(identifier: .init("column")))
+        recentTable.headerView = nil
+        recentTable.dataSource = self
+        recentTable.delegate = self
+        recentTable.translatesAutoresizingMaskIntoConstraints = false
+        let scroll = scrolling(table)
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        let root = NSView()
+        for view in [scroll, recentTitle, recentTable] as [NSView] { root.addSubview(view) }
+        recentHeight = recentTable.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: root.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: recentTitle.topAnchor, constant: -8),
+            recentTitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Self.recentTitleInset),
+            recentTitle.bottomAnchor.constraint(equalTo: recentTable.topAnchor, constant: -4),
+            recentTable.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            recentTable.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            recentTable.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
+            recentHeight,
+        ])
+        view = root
+    }
+
+    func showRecent(_ urls: [URL]) {
+        loadViewIfNeeded()
+        recent = urls.compactMap { url in Kind(url: url).map { Entry(url: url, kind: $0, modified: Date()) } }
+        for entry in recent where thumbnails[entry.url] == nil { requestThumbnail(entry.url) }
+        for entry in recent where details[entry.url] == nil { requestDetails(entry) }
+        recentTitle.isHidden = recent.isEmpty
+        recentHeight.constant = CGFloat(recent.count) * Self.itemHeight
+        recentTable.reloadData()
+    }
+
+    private func requestDetails(_ entry: Entry) {
+        details[entry.url] = ""
+        Thumbnails.details(of: entry) { [weak self] text in self?.details[entry.url] = text; self?.reloadRow(of: entry.url) }
     }
 
     func reload(_ library: Library) {
         rows = library.shown
         for entry in library.entries where thumbnails[entry.url] == nil { requestThumbnail(entry.url) }
-        for entry in library.entries where details[entry.url] == nil {
-            details[entry.url] = ""
-            Thumbnails.details(of: entry) { [weak self] text in self?.details[entry.url] = text; self?.reloadRow(of: entry.url) }
-        }
+        for entry in library.entries where details[entry.url] == nil { requestDetails(entry) }
         syncing = true
         table.reloadData()
         if let row = index(of: library.current) {
@@ -70,6 +114,9 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 
     private func reloadRow(of url: URL) {
         if let row = index(of: url) { table.reloadData(forRowIndexes: [row], columnIndexes: [0]) }
+        if let row = recent.firstIndex(where: { $0.url == url }) {
+            recentTable.reloadData(forRowIndexes: [row], columnIndexes: [0])
+        }
     }
 
     private func requestThumbnail(_ url: URL) {
@@ -80,22 +127,31 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         }
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+    private func entries(of tableView: NSTableView) -> [Entry] { tableView === recentTable ? recent : rows }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { entries(of: tableView).count }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let view = ListRowView()
-        view.separatorInset = row == rows.count - 1 ? 0 : ItemCell.textInset
+        view.separatorInset = row == entries(of: tableView).count - 1 ? 0 : ItemCell.textInset
         return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: ItemCell.id, owner: nil) as? ItemCell ?? ItemCell()
-        let entry = rows[row]
+        let entry = entries(of: tableView)[row]
         cell.fill(name: entry.url.lastPathComponent, details: details[entry.url] ?? "", thumbnail: thumbnails[entry.url])
         return cell
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        if notification.object as? NSTableView === recentTable {
+            guard recentTable.selectedRow >= 0 else { return }
+            let url = recent[recentTable.selectedRow].url
+            recentTable.deselectAll(nil)
+            onOpenRecent(url)
+            return
+        }
         guard !syncing, table.selectedRow >= 0 else { return }
         onSelect(rows[table.selectedRow].url)
     }

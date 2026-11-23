@@ -68,6 +68,8 @@ final class Controller: NSObject {
         viewer.controls.perform = { [weak self] in self?.perform($0) }
         viewer.controls.setVolume = { [weak self] in self?.setVolume($0); self?.updateToolbar() }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
+        list.onOpenRecent = { [weak self] url in self?.add([url]) }
+        list.showRecent(recentFiles())
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) ?? false } ? nil : event
         }
@@ -103,8 +105,28 @@ final class Controller: NSObject {
         }
         guard !entries.isEmpty else { return }
         library.add(entries)
+        remember(entries.map(\.url))
         if library.query.isEmpty { toolbar.clearSearch() }
         refresh()
+    }
+
+    private static let recentKey = "recentFiles"
+    /// Off for `--render`, whose test files must not land in his Recent.
+    var remembersFiles = true
+
+    /// The first file passed is the one shown, so it goes in last: newest.
+    private func remember(_ urls: [URL]) {
+        guard remembersFiles else { return }
+        var paths = UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? []
+        for url in urls.reversed() { paths = Recent.adding(url.path, to: paths) }
+        UserDefaults.standard.set(paths, forKey: Self.recentKey)
+        list.showRecent(recentFiles())
+    }
+
+    private func recentFiles() -> [URL] {
+        (UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? [])
+            .filter { FileManager.default.fileExists(atPath: $0) }
+            .map { URL(fileURLWithPath: $0) }
     }
 
     private func search(_ text: String) {

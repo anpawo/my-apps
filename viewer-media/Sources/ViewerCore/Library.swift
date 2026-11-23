@@ -62,6 +62,15 @@ public struct Library {
     }
 }
 
+/// The files opened last, newest first, kept across launches: the sidebar's Recent section.
+public enum Recent {
+    public static let limit = 3
+
+    public static func adding(_ path: String, to list: [String]) -> [String] {
+        Array(([path] + list.filter { $0 != path }).prefix(limit))
+    }
+}
+
 /// The dimmed part of a row's second line.
 public enum Details {
     private static let secondsPerMinute = 60

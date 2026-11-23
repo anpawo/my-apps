@@ -23,6 +23,10 @@ expect(Details.duration(7) == "0:07" && Details.duration(65.4) == "1:05" && Deta
 expect(Details.pages(1) == "1 page" && Details.pages(3) == "3 pages" && Details.items(2) == "2 items", "counts")
 expect(Details.pixels(1920, 1080) == "1920 × 1080", "pixel size")
 
+expect(Recent.adding("/c", to: ["/a", "/b"]) == ["/c", "/a", "/b"], "recent puts the newest file first")
+expect(Recent.adding("/d", to: ["/c", "/a", "/b"]) == ["/d", "/c", "/a"], "recent keeps only the last three")
+expect(Recent.adding("/a", to: ["/c", "/a", "/b"]) == ["/a", "/c", "/b"], "reopening a recent file moves it to the top")
+
 func entry(_ name: String) -> Entry {
     let url = URL(fileURLWithPath: "/tmp/" + name)
     return Entry(url: url, kind: Kind(url: url)!, modified: Date())
