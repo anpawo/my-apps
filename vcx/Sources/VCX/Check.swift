@@ -532,7 +532,7 @@ enum Check {
         check(asking.hidden && asking.output.hasSuffix("Password:"), "a prompt read with echo off asks through the secure field")
         asking.send("hunter2")
         await settle { asking.state != .running }
-        check(asking.state == .finished(3) && asking.output.contains("length=7") && !asking.output.contains("hunter2"), "the typed password reaches the command, never its output, and the exit status shows")
+        check(asking.state == .finished(3) && asking.output.contains("length=7") && !asking.output.contains("hunter2") && asking.output.contains("Password:••••••••\n"), "the typed password reaches the command, never its output, and the exit status shows")
         let blocks = markdownBlocks("Text\n```swift\nlet x = 1\n```\nDone")
         check(blocks.count == 3 && blocks[1].code && blocks[1].language == "swift", "code fences")
         let nested = markdownBlocks("````\n### Plan\n```python\nx = 1\n```\nafter\n````\n\n## Next")

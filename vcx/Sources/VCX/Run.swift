@@ -62,6 +62,8 @@ final class CommandRun: ObservableObject, Identifiable {
     private var raw = ""
     private var master: Int32 = -1, pid: pid_t = 0
     static let outputLimit = 200_000
+    // A fixed count, so the dots never tell the password's length.
+    static let maskLength = 8
 
     init(command: String, directory: String) { self.command = command; self.directory = directory }
 
@@ -107,6 +109,7 @@ final class CommandRun: ObservableObject, Identifiable {
     // The typed bytes are zeroed once written; a Swift String cannot be, so the field's own copy is cleared by its caller.
     func send(_ line: String) {
         guard state == .running, master >= 0 else { return }
+        if hidden { raw += String(repeating: "•", count: Self.maskLength) + "\n"; output = terminalText(raw) }
         var bytes = Array(line.utf8) + [10]
         _ = bytes.withUnsafeBytes { write(master, $0.baseAddress, $0.count) }
         bytes.withUnsafeMutableBytes { _ = memset($0.baseAddress, 0, $0.count) }
@@ -128,7 +131,7 @@ struct RunPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "terminal").foregroundStyle(accent)
-                Text(title)
+                Text(title).foregroundStyle(statusColor)
                 Spacer()
                 if run.state == .running { Button("Stop") { run.stop() }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).help("Send a hangup to the command") }
                 else { Button(run.state == .ready ? "Cancel" : "Close") { close() }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5), outset: 4)).keyboardShortcut(.cancelAction) }
@@ -160,6 +163,13 @@ struct RunPanel: View {
         }.transition(.opacity)
         .onChange(of: run.hidden) { _, _ in line = ""; focused = true }
         .onDisappear { line = "" }
+    }
+
+    private var statusColor: Color {
+        switch run.state {
+        case .finished(let code): return code == 0 ? .green : .red
+        default: return .black.opacity(0.6)
+        }
     }
 
     private var title: String {
