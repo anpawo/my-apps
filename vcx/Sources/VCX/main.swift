@@ -77,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             catch { NSLog("VCX pending session close: %@", error.localizedDescription) }
         }
         drainOpenRequests()
+        // The Dock keeps its own icon cache that survives rebuilds (it served the old pink icon for weeks); the running tile reads the bundle instead.
+        if !headless, let icon = Bundle.main.url(forResource: "VCX", withExtension: "icns").flatMap(NSImage.init(contentsOf:)) { NSApp.applicationIconImage = icon }
         if !headless { replaceFrontend(); FreezeTrace.start(); GraphDump.listen { FreezeTrace.folder }; UpdateBuild.shared.watch() }
     }
 
