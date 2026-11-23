@@ -18,9 +18,9 @@ enum ErrorsRecall {
         return found
     }
 
-    static func rules(cwd: String) -> [(text: String, words: [String])] {
+    static func texts(cwd: String) -> [String] {
         files(cwd: cwd).flatMap { path in
-            ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").split(separator: "\n").filter { $0.hasPrefix("- ") }.map { (String($0.dropFirst(2)), words(String($0))) }
+            ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").split(separator: "\n").filter { $0.hasPrefix("- ") }.map { String($0.dropFirst(2)) }
         }
     }
 
@@ -32,21 +32,7 @@ enum ErrorsRecall {
     }
 
     static func recall(_ prompt: String, cwd: String, limit: Int = 4, minimum: Double = 6) -> [String] {
-        let rules = rules(cwd: cwd), query = Set(words(prompt))
-        guard !rules.isEmpty, !query.isEmpty else { return [] }
-        let counts = rules.map { Dictionary($0.words.map { ($0, 1.0) }, uniquingKeysWith: +) }
-        let n = Double(rules.count), average = Double(rules.map(\.words.count).reduce(0, +)) / n
-        var frequency: [String: Double] = [:]
-        for count in counts { for word in count.keys { frequency[word, default: 0] += 1 } }
-        let scored = zip(rules, counts).map { rule, count -> (Double, String) in
-            let length = Double(rule.words.count)
-            let score = query.reduce(0.0) { total, word in
-                guard let f = count[word], let df = frequency[word] else { return total }
-                return total + log(1 + (n - df + 0.5) / (df + 0.5)) * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * length / average))
-            }
-            return (score, rule.text)
-        }
-        return scored.filter { $0.0 >= minimum }.sorted { $0.0 > $1.0 }.prefix(limit).map(\.1)
+        recall(prompt, texts: texts(cwd: cwd), limit: limit, minimum: minimum)
     }
 
     // The heading a line sits under says what it is for ("Shell and quoting"); cached because the sidebar counts on every render.
