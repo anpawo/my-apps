@@ -120,13 +120,12 @@ final class Controller: NSObject {
         var paths = UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? []
         for url in urls.reversed() { paths = Recent.adding(url.path, to: paths) }
         UserDefaults.standard.set(paths, forKey: Self.recentKey)
-        list.showRecent(recentFiles())
     }
 
     private func recentFiles() -> [URL] {
-        (UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? [])
+        let paths = (UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? [])
             .filter { FileManager.default.fileExists(atPath: $0) }
-            .map { URL(fileURLWithPath: $0) }
+        return Recent.shown(paths, open: Set(library.entries.map(\.url.path))).map { URL(fileURLWithPath: $0) }
     }
 
     private func search(_ text: String) {
@@ -185,6 +184,7 @@ final class Controller: NSObject {
 
     private func refresh() {
         list.reload(library)
+        list.showRecent(recentFiles())
         window.title = "All Media"
         window.subtitle = Details.items(library.shown.count)
         showCurrent()

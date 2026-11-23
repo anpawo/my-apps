@@ -32,6 +32,8 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 @MainActor final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private static let itemHeight: CGFloat = 58
     private static let recentTitleInset: CGFloat = 18
+    private static let moveDuration: TimeInterval = 0.3
+    private static let reducedDuration: TimeInterval = 0.15
     var onSelect: (URL) -> Void = { _ in }
     var onOpenRecent: (URL) -> Void = { _ in }
     private let table = NSTableView()
@@ -64,6 +66,7 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         let scroll = scrolling(table)
         scroll.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
+        root.wantsLayer = true
         for view in [scroll, recentTitle, recentTable] as [NSView] { root.addSubview(view) }
         recentHeight = recentTable.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
@@ -83,14 +86,68 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
 
     func showRecent(_ urls: [URL]) {
         loadViewIfNeeded()
+        let old = recent.map(\.url)
         recent = urls.compactMap { url in Kind(url: url).map { Entry(url: url, kind: $0, modified: Date()) } }
         for entry in recent where thumbnails[entry.url] == nil { requestThumbnail(entry.url) }
         for entry in recent where details[entry.url] == nil { requestDetails(entry) }
-        recentTitle.isHidden = recent.isEmpty
-        recentTable.reloadData()
+        let kept = old.filter { urls.contains($0) }
+        if kept == urls && kept.count < old.count {
+            recentTable.removeRows(at: IndexSet(old.indices.filter { !urls.contains(old[$0]) }), withAnimation: .effectFade)
+        } else {
+            recentTable.reloadData()
+        }
         // The inset style puts a margin above the first row: the same below keeps the last one whole.
         let margin = recent.isEmpty ? 0 : recentTable.rect(ofRow: 0).minY
-        recentHeight.constant = CGFloat(recent.count) * Self.itemHeight + 2 * margin
+        let height = CGFloat(recent.count) * Self.itemHeight + 2 * margin
+        animate {
+            self.recentTitle.animator().alphaValue = self.recent.isEmpty ? 0 : 1
+            self.recentHeight.animator().constant = height
+            self.view.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// Instant while the window is not on screen yet (the first fill at launch).
+    private func animate(_ changes: @escaping () -> Void, then done: @escaping () -> Void = {}) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = view.window?.isVisible == true ? (reduceMotion ? Self.reducedDuration : Self.moveDuration) : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            changes()
+        }, completionHandler: done)
+    }
+
+    /// A picture of a recent row, laid over the sidebar where the row is, to fly it into the list.
+    private func flyingCopy(of row: Int) -> NSView? {
+        guard let rowView = recentTable.rowView(atRow: row, makeIfNecessary: false),
+              let bitmap = rowView.bitmapImageRepForCachingDisplay(in: rowView.bounds) else { return nil }
+        rowView.cacheDisplay(in: rowView.bounds, to: bitmap)
+        let image = NSImage(size: rowView.bounds.size)
+        image.addRepresentation(bitmap)
+        let copy = NSImageView(image: image)
+        copy.imageScaling = .scaleNone
+        copy.frame = view.convert(rowView.bounds, from: rowView)
+        view.addSubview(copy)
+        return copy
+    }
+
+    /// The copy glides onto the row the file now has in the list, which shows once it lands.
+    private func land(_ copy: NSView?, on url: URL) {
+        guard let copy else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let row = index(of: url), let target = table.rowView(atRow: row, makeIfNecessary: true) else {
+            copy.removeFromSuperview()
+            return
+        }
+        target.alphaValue = 0
+        let end = view.convert(target.bounds, from: target)
+        animate({
+            if self.reduceMotion { copy.animator().alphaValue = 0; target.animator().alphaValue = 1 } else { copy.animator().frame = end }
+        }, then: {
+            target.alphaValue = 1
+            copy.removeFromSuperview()
+        })
     }
 
     private func requestDetails(_ entry: Entry) {
@@ -151,8 +208,10 @@ private func scrolling(_ table: NSTableView) -> NSScrollView {
         if notification.object as? NSTableView === recentTable {
             guard recentTable.selectedRow >= 0 else { return }
             let url = recent[recentTable.selectedRow].url
+            let copy = flyingCopy(of: recentTable.selectedRow)
             recentTable.deselectAll(nil)
             onOpenRecent(url)
+            land(copy, on: url)
             return
         }
         guard !syncing, table.selectedRow >= 0 else { return }
@@ -415,3 +474,4 @@ private extension NSLayoutConstraint {
         return self
     }
 }
+
