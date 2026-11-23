@@ -13,6 +13,8 @@ final class Gutter: NSRulerView {
     init(scrollView: NSScrollView, textView: NSTextView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
+        // Unclipped (macOS 14's default), draw(_:) gets dirty rects past the gutter and its fill hid the text.
+        clipsToBounds = true
         NotificationCenter.default.addObserver(self, selector: #selector(redraw), name: NSView.boundsDidChangeNotification,
                                                object: scrollView.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(textChanged), name: NSText.didChangeNotification,
