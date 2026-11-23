@@ -104,14 +104,6 @@ func answerLine(_ paragraph: String) -> String {
 
 func richText(_ text: String) -> AttributedString { runLinks((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)) }
 
-func findRanges(of query: String, in text: String) -> [Range<String.Index>] {
-    var ranges: [Range<String.Index>] = [], start = text.startIndex
-    while let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], range: start..<text.endIndex), !range.isEmpty {
-        ranges.append(range); start = range.upperBound
-    }
-    return ranges
-}
-
 let findColor = Color(red: 1, green: 0.9, blue: 0.4), findCurrentColor = Color(red: 1, green: 0.62, blue: 0.2)
 
 // Which item the text below belongs to, and where the table row holding it wants the current match's place.
