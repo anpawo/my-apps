@@ -27,7 +27,7 @@ TABLES = {
 }
 
 # folders kept as code only, shown nowhere on the page
-HIDDEN = {"glance"}
+HIDDEN = {"glance", "evolve"}
 
 
 def table(title, says):

@@ -1,0 +1,36 @@
+max_iterations: 400
+checkpoint_interval: 5
+log_level: INFO
+language: swift
+file_suffix: .swift
+diff_based_evolution: true
+max_code_length: 20000
+enforce_evolve_blocks: true
+llm:
+  api_base: http://127.0.0.1:8765/v1
+  api_key: unused
+  models:
+    - name: gpt-6.2-sol
+      weight: 1.0
+  temperature: 0.7
+  max_tokens: 8000
+  timeout: 320
+  retries: 1
+prompt:
+  system_message: |
+    You optimise a Swift function for speed. Recall.recall is BM25 retrieval of rule lines sharing words with a prompt,
+    called once per user prompt in a macOS app with about 300 rules. It must return exactly the same strings in exactly the
+    same order as the original for any input (same tokenisation: lowercase, split on non-ASCII-alphanumeric, drop words of
+    length 1 and stop words, keep the first 6 characters; same BM25 constants; same floating-point scores, ties keep the
+    original order). The signature recall(_:texts:limit:minimum:) must stay. No global or static mutable state, no caches
+    kept between calls, no threads or concurrency. Score = speedup over the original, measured with swiftc -O.
+    Ideas: avoid String allocations (work on UTF8 bytes), avoid building dictionaries for every rule, only score rules that
+    contain a query word, avoid sorting everything.
+database:
+  population_size: 60
+  num_islands: 2
+  archive_size: 20
+evaluator:
+  timeout: 300
+  cascade_evaluation: false
+  parallel_evaluations: 3
