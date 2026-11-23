@@ -509,6 +509,16 @@ enum Check {
             check(debating.rows.count == 5 && debating.rows.allSatisfy({ $0.kind == "debate" }) && debating.debateModels?.last == "Muse web", "an ask-muse round is a debate row named Muse web")
             debating.show(["id": "d6", "type": "commandExecution", "command": "~/.claude/skills/deep/ask-meta.sh /tmp/x 1", "aggregatedOutput": "<<debate claude>>\nQ\n<<debate meta AI web>>\nA", "status": "completed", "exitCode": 0])
             check(debating.rows.count == 6 && debating.rows.allSatisfy({ $0.kind == "debate" }) && debating.debateModels?.last == "Meta AI web", "an ask-meta round is a debate row named Meta AI web")
+            let inspecting = Session(cwd: "/tmp", stateDirectory: URL(fileURLWithPath: NSTemporaryDirectory() + "vcx-debate-" + UUID().uuidString))
+            let readScript: JSON = ["id": "read-script", "type": "commandExecution", "command": "/bin/zsh -lc '(cat ~/.claude/skills/deep/ask-muse.sh)'", "aggregatedOutput": "syntax ok", "status": "completed", "exitCode": 0]
+            inspecting.show(readScript)
+            check(inspecting.rows.map(\.kind) == ["activity"] && inspecting.debateModels == nil, "reading a debate script stays folded without a model bubble")
+            check(Row("debate", [Item(readScript)]).kind == "activity", "restoring a mislabeled script read removes its debate bubble")
+            let pending = Item(["id": "pending-round", "type": "commandExecution", "command": "~/.claude/skills/deep/ask-meta.sh /tmp/x 1", "status": "inProgress"])
+            let restoredRound = Row("activity", [pending])
+            check(restoredRound.kind == "activity", "a pending round waits for emitted turns before appearing as a debate")
+            pending.data["aggregatedOutput"] = "<<debate claude>>\nQ\n<<debate meta AI web>>\nA"
+            check(restoredRound.kind == "debate", "a restored pending round becomes a debate when its turns arrive")
             let webQuotas = [QuotaOverview.web("gemini", 7), QuotaOverview.web("grok", 2), QuotaOverview.web("muse", 3), QuotaOverview.web("meta", 4)]
             check(webQuotas.map(\.agent) == ["Gemini web", "Grok web", "Muse web", "Meta AI web"] && webQuotas.map(\.week) == ["7/25 today - reset 00h00", "2/25 today - reset 00h00", "3/25 today - reset 00h00", "4/25 today - reset 00h00"], "web quota rows show each site's own daily count")
             check(Item(["type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/a/b/Views.swift", "limit": 40])]).title == "Read Views.swift", "a read names its file")

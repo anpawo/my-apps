@@ -73,9 +73,15 @@ extension Optional where Wrapped == String { var orEmpty: String { self ?? "" } 
 
 final class Row: ObservableObject, Identifiable {
     let id: UUID
-    let kind: String
+    private let storedKind: String
+    var kind: String {
+        guard ["activity", "debate"].contains(storedKind), let item = items.first,
+              item.kind == "commandExecution", isDebate(item.data["command"] as? String ?? "") else { return storedKind }
+        // Reads and edits mention debate scripts too; only emitted turns belong in the chat.
+        return items.count == 1 && !debateTurns(item.output).isEmpty ? "debate" : "activity"
+    }
     @Published var items: [Item]
-    init(_ kind: String, _ items: [Item], id: UUID = UUID()) { self.id = id; self.kind = kind; self.items = items }
+    init(_ kind: String, _ items: [Item], id: UUID = UUID()) { self.id = id; self.storedKind = kind; self.items = items }
 }
 
 struct Recent: Identifiable {
