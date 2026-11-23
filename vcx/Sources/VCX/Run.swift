@@ -37,7 +37,19 @@ extension EnvironmentValues { var runCommand: ((String) -> Void)? { get { self[R
 func terminalText(_ raw: String) -> String {
     let plain = raw.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[ -/]*[@-~]|\u{1B}\\][^\u{07}]*\u{07}", with: "", options: .regularExpression)
     return plain.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
-        .map { $0.components(separatedBy: "\r").last(where: { !$0.isEmpty }) ?? "" }.joined(separator: "\n")
+        .map { expandTabs($0.components(separatedBy: "\r").last(where: { !$0.isEmpty }) ?? "") }.joined(separator: "\n")
+        .trimmingCharacters(in: .newlines)
+}
+
+// A terminal puts a tab's next column on a multiple of 8; SwiftUI Text has no such stops, so ls columns zigzag.
+let tabStop = 8
+func expandTabs(_ line: String) -> String {
+    guard line.contains("\t") else { return line }
+    var result = ""
+    for character in line {
+        if character == "\t" { result += String(repeating: " ", count: tabStop - result.count % tabStop) } else { result.append(character) }
+    }
+    return result
 }
 
 @MainActor

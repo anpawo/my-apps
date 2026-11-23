@@ -520,10 +520,11 @@ enum Check {
         endProcess(child, signal: SIGKILL)
         let killed = await Task.detached { childOutput.fileHandleForReading.readDataToEndOfFile(); child.waitUntilExit(); return child.terminationStatus != 0 }.value
         check(killed, "stop terminates the command and its children")
-        let linked = runLinks(richText("Run `sudo rm /usr/local/bin/code` or `ls -l`."))
+        let linked = richText("Run `sudo rm /usr/local/bin/code` or `ls -l`.")
         check(linked.runs.compactMap(\.link).compactMap(runURLCommand) == ["sudo rm /usr/local/bin/code"], "an inline sudo command links to the run panel, other inline code stays text")
         check(runnable("ls", language: "bash") && runnable("sudo rm x", language: "") && !runnable("Dear Bas,", language: ""), "shell blocks and sudo lines are runnable, a draft to paste is not")
-        check(terminalText("a\r\nb 10%\rb 100%\n\u{1B}[31mred\u{1B}[0m") == "a\nb 100%\nred", "run output keeps a progress line's last drawing, without colour codes")
+        check(terminalText("a\r\nb 10%\rb 100%\n\u{1B}[31mred\u{1B}[0m\r\n") == "a\nb 100%\nred", "run output keeps a progress line's last drawing, without colour codes or a last blank line")
+        check(terminalText("bin\tetc\nprivate\tx") == "bin     etc\nprivate x", "ls columns line up on 8-column tab stops")
         let asking = CommandRun(command: "stty -echo; printf 'Password:'; read secret; stty echo; echo; echo length=${#secret}; exit 3", directory: NSTemporaryDirectory())
         func settle(_ done: () -> Bool) async { var waited = 0; while !done(), waited < 100 { try? await Task.sleep(nanoseconds: 50_000_000); waited += 1 } }
         asking.start()

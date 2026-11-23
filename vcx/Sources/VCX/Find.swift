@@ -102,7 +102,7 @@ func answerLine(_ paragraph: String) -> String {
     paragraph.replacingOccurrences(of: "⟶ Next:", with: "+ Next:").replacingOccurrences(of: "⟶ ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func richText(_ text: String) -> AttributedString { (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text) }
+func richText(_ text: String) -> AttributedString { runLinks((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)) }
 
 func findRanges(of query: String, in text: String) -> [Range<String.Index>] {
     var ranges: [Range<String.Index>] = [], start = text.startIndex
