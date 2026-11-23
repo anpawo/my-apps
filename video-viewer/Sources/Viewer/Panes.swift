@@ -121,7 +121,8 @@ private func label(_ text: String = "", size: CGFloat, weight: NSFont.Weight = .
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: Self.width).withPriority(.defaultHigh),
+            // Under the window's own size: a portrait video's narrow window squeezes the bar, never widens.
+            widthAnchor.constraint(equalToConstant: Self.width).withPriority(.defaultLow),
             heightAnchor.constraint(equalToConstant: Self.height),
             transport.centerXAnchor.constraint(equalTo: centerXAnchor),
             transport.topAnchor.constraint(equalTo: topAnchor, constant: Self.rowInset),

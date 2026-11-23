@@ -43,6 +43,9 @@ final class Controller: NSObject {
     private var library = Library()
     private let split = NSSplitViewController()
     private let list = ListPane()
+    private var sidebar: NSSplitViewItem!
+    /// How many files the window held at the last refresh, to fold the sidebar only when that crosses one.
+    private var lastCount = 0
     private let viewer = ViewerPane()
     private var toolbar: Toolbar!
     private(set) var fit: StageFit!
@@ -65,6 +68,10 @@ final class Controller: NSObject {
         window.toolbar = toolbar.toolbar
         window.toolbarStyle = .unified
         fit = StageFit(window: window, splitView: split.splitView) { [weak self] in self?.viewer.stageSize ?? .zero }
+        fit.didFit = { [weak self] in
+            self?.viewer.view.layoutSubtreeIfNeeded()
+            self?.media?.fit()
+        }
         viewer.controls.perform = { [weak self] in self?.perform($0) }
         viewer.controls.setVolume = { [weak self] in self?.setVolume($0); self?.updateToolbar() }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
@@ -83,7 +90,7 @@ final class Controller: NSObject {
         let side = NSSplitViewItem(sidebarWithViewController: list)
         side.minimumThickness = Self.listWidth.min
         side.maximumThickness = Self.listWidth.max
-        side.canCollapse = false
+        sidebar = side
         let content = NSSplitViewItem(viewController: viewer)
         content.minimumThickness = Self.viewerMinWidth
         for item in [side, content] {
@@ -189,12 +196,34 @@ final class Controller: NSObject {
     private func refresh() {
         list.reload(library.shown.map(\.url), current: library.current)
         list.showRecent(recentFiles())
+        foldSidebar()
         window.title = "All Media"
         // The shown file's date sits in the title bar, not over the picture.
         window.subtitle = ([Details.items(library.shown.count)] + [library.currentEntry.map { longDate($0.modified) }].compactMap { $0 })
             .joined(separator: " · ")
         showCurrent()
+        fitStage()
         updateToolbar()
+    }
+
+    /// A file open alone gives the window its shape; a list keeps 16:9.
+    private func fitStage() {
+        guard library.entries.count == 1, let media else { return fit.setAspect(nil) }
+        media.loadAspect { [weak self, weak media] aspect in
+            guard let self, let media, media === self.media else { return }
+            fit.setAspect(aspect)
+        }
+    }
+
+    /// One file needs no list: the sidebar folds away, and comes back once a second file joins or the
+    /// last one leaves. The toolbar button folds or unfolds it by hand in between.
+    private func foldSidebar() {
+        let count = library.entries.count
+        defer { lastCount = count }
+        guard (count == 1) != (lastCount == 1) else { return }
+        // At once, not animated: the window refits to the file right after, and measured mid-fold the
+        // viewer's width came out 62 pt too wide (black bars beside a portrait video).
+        sidebar.isCollapsed = count == 1
     }
 
     private func updateToolbar() {

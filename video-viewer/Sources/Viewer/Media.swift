@@ -19,6 +19,8 @@ protocol Media: AnyObject {
     func zoom(in: Bool)
     func fit()
     func stop()
+    /// Its width over its height, nil when it has no picture (music, PDF); a video's comes later.
+    func loadAspect(_ done: @escaping (CGFloat?) -> Void)
 }
 
 extension Media {
@@ -33,6 +35,7 @@ extension Media {
     func zoom(in: Bool) {}
     func fit() {}
     func stop() {}
+    func loadAspect(_ done: @escaping (CGFloat?) -> Void) { done(nil) }
 }
 
 @MainActor
@@ -53,6 +56,10 @@ private func centeredLabel(_ text: String, in view: NSView) {
     view.addSubview(label)
     label.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
     label.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
+}
+
+private func aspect(of size: NSSize) -> CGFloat? {
+    size.width > 0 && size.height > 0 ? size.width / size.height : nil
 }
 
 /// Keeps a document smaller than the view in its middle instead of the bottom-left corner.
@@ -99,6 +106,8 @@ private final class CenteringClipView: NSClipView {
     func zoom(in zoomIn: Bool) {
         scroll.magnification *= zoomIn ? Self.zoomStep : 1 / Self.zoomStep
     }
+
+    func loadAspect(_ done: @escaping (CGFloat?) -> Void) { done(aspect(of: imageView.frame.size)) }
 }
 
 @MainActor final class PDFMedia: Media {
@@ -171,6 +180,17 @@ private final class CenteringClipView: NSClipView {
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
+
+    func loadAspect(_ done: @escaping (CGFloat?) -> Void) {
+        guard let asset = player.currentItem?.asset else { return done(nil) }
+        Task { @MainActor in
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let (size, transform) = try? await track.load(.naturalSize, .preferredTransform) else { return done(nil) }
+            // A phone's portrait video is stored landscape and turned by its transform.
+            let shown = size.applying(transform)
+            done(aspect(of: NSSize(width: abs(shown.width), height: abs(shown.height))))
+        }
+    }
 }
 
 /// Frames decoded up front and played on our own timer, so the speed can change (NSImageView's
@@ -222,6 +242,10 @@ private final class CenteringClipView: NSClipView {
     }
 
     func jump(toEnd: Bool) { show(toEnd ? frames.count - 1 : 0) }
+
+    func loadAspect(_ done: @escaping (CGFloat?) -> Void) {
+        done(frames.first.flatMap { aspect(of: NSSize(width: $0.width, height: $0.height)) })
+    }
     func stop() { timer?.invalidate() }
 
     var progress: (current: Double, total: Double)? {

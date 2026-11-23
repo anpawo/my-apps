@@ -44,7 +44,7 @@ func volumeSymbol(_ volume: Float) -> String {
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
+        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
