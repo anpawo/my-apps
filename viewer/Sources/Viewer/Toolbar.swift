@@ -11,6 +11,7 @@ func volumeSymbol(_ volume: Float) -> String {
 
 @MainActor final class Toolbar: NSObject, NSToolbarDelegate {
     private static let file = NSToolbarItem.Identifier("file")
+    private static let volume = NSToolbarItem.Identifier("volume")
     private static let more = NSToolbarItem.Identifier("more")
     private static let search = NSToolbarItem.Identifier("search")
 
@@ -20,7 +21,7 @@ func volumeSymbol(_ volume: Float) -> String {
     private let onSearch: (String) -> Void
     private var actions: [NSToolbarItem.Identifier: Action] = [:]
     private var fileItems: [NSToolbarItem] = []
-    private lazy var volumeItem = button("volume", "speaker.wave.3.fill", "Volume", .mute)
+    private lazy var volumeItem = button(Self.volume.rawValue, "speaker.wave.3.fill", "Volume", .mute)
     private let searchItem = NSSearchToolbarItem(itemIdentifier: search)
 
     init(splitView: NSSplitView, perform: @escaping (Action) -> Void, onSearch: @escaping (String) -> Void) {
@@ -36,15 +37,16 @@ func volumeSymbol(_ volume: Float) -> String {
         searchItem.searchField.action = #selector(searched(_:))
     }
 
-    func update(volume: Float, hasFile: Bool) {
+    func update(volume: Float, hasFile: Bool, plays: Bool) {
         fileItems.forEach { $0.isEnabled = hasFile }
+        volumeItem.isHidden = !plays
         volumeItem.image = symbol(volumeSymbol(volume))
     }
 
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.file, Self.more, Self.search]
+        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.volume, Self.file, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -55,8 +57,11 @@ func volumeSymbol(_ volume: Float) -> String {
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch id {
         case Self.file:
-            fileItems = [volumeItem, button("reveal", "folder", "Reveal in Finder", .reveal)]
-            return group(id, "File", fileItems)
+            let reveal = button("reveal", "folder", "Reveal in Finder", .reveal)
+            fileItems = [volumeItem, reveal]
+            return group(id, "File", [reveal])
+        // On its own: hiding a subitem of a group left the group drawn without its other button.
+        case Self.volume: return volumeItem
         case Self.more: return moreItem(id)
         case Self.search: return searchItem
         default: return nil

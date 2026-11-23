@@ -257,7 +257,7 @@ final class Controller: NSObject {
     }
 
     private func updateToolbar() {
-        toolbar.update(volume: volume, hasFile: library.current != nil)
+        toolbar.update(volume: volume, hasFile: library.current != nil, plays: library.currentEntry?.kind.plays == true)
         viewer.controls.update(playing: media?.isPlaying == true, speed: speedLabel, volume: volume)
     }
 
