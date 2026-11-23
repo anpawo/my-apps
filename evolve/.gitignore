@@ -1,7 +1,0 @@
-rules*.txt
-prompts*.txt
-*.bin
-baseline.json
-proxy.log
-out/
-__pycache__/
