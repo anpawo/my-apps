@@ -501,6 +501,8 @@ enum Check {
             check(debating.rows.map(\.kind) == ["debate"] && debating.debateModels?.count == 2 && debating.debateModels?.last == "Codex gpt-6.1-sol", "an ask-codex round is its own row and the badge counts two models")
             debating.show(["id": "d2", "type": "commandExecution", "command": "~/.claude/skills/deep-research/ask-agy.sh /tmp/x 1", "aggregatedOutput": "<<debate claude>>\nQ\n<<debate agy gemini-3.8-flash-high>>\nA", "status": "completed", "exitCode": 0])
             check(debating.rows.map(\.kind) == ["debate", "debate"] && debating.debateModels?.count == 3 && debating.debateModels?.last == "Agy gemini-3.8-flash-high", "an ask-agy round is a debate row and its model joins the badge")
+            debating.show(["id": "d3", "type": "commandExecution", "command": "~/.claude/skills/deep/ask-gemini.sh /tmp/x 1", "aggregatedOutput": "<<debate claude>>\nQ\n<<debate gemini web>>\nA", "status": "completed", "exitCode": 0])
+            check(debating.rows.map(\.kind) == ["debate", "debate", "debate"] && debating.debateModels?.last == "Gemini web", "an ask-gemini round is a debate row named Gemini web")
             check(Item(["type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/a/b/Views.swift", "limit": 40])]).title == "Read Views.swift", "a read names its file")
             check(Item(["type": "commandExecution", "command": "Edit\n" + pretty(["file_path": "/a/Check.swift", "old_string": "x\ny", "new_string": "z"])]).title == "Edit Check.swift", "an edit names its file")
             check(Item(["type": "commandExecution", "command": "cd /a; swift build -j 2\necho done", "description": "Build VCX in debug"]).title == "Build VCX in debug", "a described command shows its name")
