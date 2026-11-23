@@ -54,7 +54,7 @@ struct QuotaOverview: View {
             let rate = await Task.detached { codexRateLimits(home: account.home ?? NSHomeDirectory() + "/.codex") }.value
             lines.append(rate.map { line(name, $0) } ?? Line(agent: name, fiveHour: "No Codex turn yet", week: ""))
         }
-        return lines + (await agy) + ["gemini", "grok"].map { web($0, webCount($0)) }
+        return lines + (await agy) + ["gemini", "grok", "muse", "meta"].map { web($0, webCount($0)) }
     }
 
     // Local caps count the deep skill's own prompts, separately from the websites' quotas.
@@ -65,7 +65,7 @@ struct QuotaOverview: View {
     }
 
     static func web(_ site: String, _ count: Int) -> Line {
-        Line(agent: site.capitalized + " web", fiveHour: "–", week: "\(count)/\(webDailyCap) today - reset 00h00")
+        Line(agent: (site == "meta" ? "Meta AI" : site.capitalized) + " web", fiveHour: "–", week: "\(count)/\(webDailyCap) today - reset 00h00")
     }
 
     static func accountName(_ agent: String, _ account: Account) -> String { account.name.isEmpty || account.name.hasPrefix("Default ") ? agent : agent + " · " + account.name }
