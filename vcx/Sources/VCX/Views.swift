@@ -37,7 +37,7 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], d
 }
 
 // A round between models run from this session (stat-critic's ask-codex.sh): its output holds each turn after a `<<debate <speaker> [model]>>` line.
-func isDebate(_ command: String) -> Bool { ["ask-codex.sh", "ask-qwen.sh", "ask-agy.sh", "ask-gemini.sh"].contains { command.contains($0) } }
+func isDebate(_ command: String) -> Bool { ["ask-codex.sh", "ask-qwen.sh", "ask-agy.sh", "ask-gemini.sh", "ask-grok.sh"].contains { command.contains($0) } }
 
 struct DebateTurn { let speaker: String, model: String, text: String }
 

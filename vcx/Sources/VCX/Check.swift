@@ -503,6 +503,10 @@ enum Check {
             check(debating.rows.map(\.kind) == ["debate", "debate"] && debating.debateModels?.count == 3 && debating.debateModels?.last == "Agy gemini-3.8-flash-high", "an ask-agy round is a debate row and its model joins the badge")
             debating.show(["id": "d3", "type": "commandExecution", "command": "~/.claude/skills/deep/ask-gemini.sh /tmp/x 1", "aggregatedOutput": "<<debate claude>>\nQ\n<<debate gemini web>>\nA", "status": "completed", "exitCode": 0])
             check(debating.rows.map(\.kind) == ["debate", "debate", "debate"] && debating.debateModels?.last == "Gemini web", "an ask-gemini round is a debate row named Gemini web")
+            debating.show(["id": "d4", "type": "commandExecution", "command": "~/.claude/skills/deep/ask-grok.sh /tmp/x 1", "aggregatedOutput": "<<debate claude>>\nQ\n<<debate grok web>>\nA", "status": "completed", "exitCode": 0])
+            check(debating.rows.map(\.kind) == ["debate", "debate", "debate", "debate"] && debating.debateModels?.last == "Grok web", "an ask-grok round is a debate row named Grok web")
+            let webQuotas = [QuotaOverview.web("gemini", 7), QuotaOverview.web("grok", 2)]
+            check(webQuotas.map(\.agent) == ["Gemini web", "Grok web"] && webQuotas.map(\.week) == ["7/25 today - reset 00h00", "2/25 today - reset 00h00"], "web quota rows show each site's own daily count")
             check(Item(["type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/a/b/Views.swift", "limit": 40])]).title == "Read Views.swift", "a read names its file")
             check(Item(["type": "commandExecution", "command": "Edit\n" + pretty(["file_path": "/a/Check.swift", "old_string": "x\ny", "new_string": "z"])]).title == "Edit Check.swift", "an edit names its file")
             check(Item(["type": "commandExecution", "command": "cd /a; swift build -j 2\necho done", "description": "Build VCX in debug"]).title == "Build VCX in debug", "a described command shows its name")
@@ -2339,7 +2343,7 @@ enum Render {
         let codex = QuotaOverview.line("Codex", ["primary": ["usedPercent": 22.0, "windowDurationMins": 10080, "resetsAt": Date().timeIntervalSince1970 + 86400]])
         let claude = QuotaOverview.line("Claude", ["primary": ["usedPercent": 31.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 7800], "secondary": ["usedPercent": 96.0, "windowDurationMins": 10080, "resetsAt": Date().timeIntervalSince1970 + 200000]])
         print(agy.map { "\($0.agent)|\($0.week)" }, codex.fiveHour, codex.week, claude.fiveHour)
-        write(QuotaOverview(lines: [claude, codex] + agy + [QuotaOverview.geminiWeb(7)]) {}.foregroundStyle(.black).background(Color.white), size: CGSize(width: 700, height: 300), path: directory + "/quota-overview.png")
+        write(QuotaOverview(lines: [claude, codex] + agy + [QuotaOverview.web("gemini", 7), QuotaOverview.web("grok", 2)]) {}.foregroundStyle(.black).background(Color.white), size: CGSize(width: 700, height: 300), path: directory + "/quota-overview.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
         write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
         let edits = CodeEdits(); edits.set(message.text, "hello, my own version of the draft\nwith a second line I typed")
