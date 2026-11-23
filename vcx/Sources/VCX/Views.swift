@@ -37,7 +37,7 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], d
 }
 
 // A round between models run from this session (stat-critic's ask-codex.sh): its output holds each turn after a `<<debate <speaker> [model]>>` line.
-func isDebate(_ command: String) -> Bool { command.contains("ask-codex.sh") || command.contains("ask-qwen.sh") }
+func isDebate(_ command: String) -> Bool { ["ask-codex.sh", "ask-qwen.sh", "ask-agy.sh"].contains { command.contains($0) } }
 
 struct DebateTurn { let speaker: String, model: String, text: String }
 
@@ -59,6 +59,7 @@ func debateColor(_ speaker: String) -> Color {
     case "claude": return Color(red: 0.78, green: 0.38, blue: 0.22)
     case "codex": return Color(red: 0.04, green: 0.48, blue: 0.4)
     case "qwen": return Color(red: 0.2, green: 0.38, blue: 0.82)
+    case "agy": return Color(red: 0.52, green: 0.3, blue: 0.78)
     default: return .black.opacity(0.6)
     }
 }
