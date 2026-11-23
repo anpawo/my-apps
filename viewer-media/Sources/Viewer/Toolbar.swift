@@ -3,11 +3,16 @@ import ViewerCore
 
 /// Notes' unified toolbar: glass capsule groups over the viewer and the search field;
 /// playback sits on the video itself (Controls).
+/// The speaker drawn for a volume: crossed out at zero, then one to three waves.
+func volumeSymbol(_ volume: Float) -> String {
+    let symbols = ["speaker.wave.1.fill", "speaker.wave.2.fill", "speaker.wave.3.fill"]
+    return volume == 0 ? "speaker.slash.fill" : symbols[min(Int(volume * Float(symbols.count)), symbols.count - 1)]
+}
+
 @MainActor final class Toolbar: NSObject, NSToolbarDelegate {
     private static let file = NSToolbarItem.Identifier("file")
     private static let more = NSToolbarItem.Identifier("more")
     private static let search = NSToolbarItem.Identifier("search")
-    private static let volumeSymbols = ["speaker.wave.1.fill", "speaker.wave.2.fill", "speaker.wave.3.fill"]
 
     let toolbar = NSToolbar(identifier: "viewer")
     private let splitView: NSSplitView
@@ -33,8 +38,7 @@ import ViewerCore
 
     func update(volume: Float, hasFile: Bool) {
         fileItems.forEach { $0.isEnabled = hasFile }
-        let level = min(Int(volume * Float(Self.volumeSymbols.count)), Self.volumeSymbols.count - 1)
-        volumeItem.image = symbol(volume == 0 ? "speaker.slash.fill" : Self.volumeSymbols[level])
+        volumeItem.image = symbol(volumeSymbol(volume))
     }
 
     func clearSearch() { searchItem.searchField.stringValue = "" }

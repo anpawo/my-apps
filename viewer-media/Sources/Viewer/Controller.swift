@@ -66,6 +66,7 @@ final class Controller: NSObject {
         window.toolbarStyle = .unified
         fit = StageFit(window: window, splitView: split.splitView) { [weak self] in self?.viewer.stageSize ?? .zero }
         viewer.controls.perform = { [weak self] in self?.perform($0) }
+        viewer.controls.setVolume = { [weak self] in self?.setVolume($0); self?.updateToolbar() }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) ?? false } ? nil : event
@@ -170,7 +171,7 @@ final class Controller: NSObject {
 
     private func updateToolbar() {
         toolbar.update(volume: volume, hasFile: library.current != nil)
-        viewer.controls.update(playing: media?.isPlaying == true, speed: speedLabel)
+        viewer.controls.update(playing: media?.isPlaying == true, speed: speedLabel, volume: volume)
     }
 
     private func showCurrent() {

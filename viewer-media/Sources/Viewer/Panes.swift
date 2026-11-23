@@ -239,7 +239,7 @@ final class ItemCell: NSTableCellView {
     private func showControls() { controls.isHidden = controlsHidden || controls.media == nil }
 }
 
-/// QuickTime's layout: slower, play or pause and faster centred on top with the speed on the right, then the
+/// QuickTime's layout: the volume on the left, slower, play or pause and faster centred, the speed on the right, then the
 /// time on either side of the slider to seek, in a dark rounded box. The speed keeps one width, so a new
 /// speed moves nothing.
 @MainActor final class Controls: NSVisualEffectView {
@@ -251,9 +251,13 @@ final class ItemCell: NSTableCellView {
     private static let rowInset: CGFloat = 12
     /// The widest label `Speed.steps` makes.
     private static let widestSpeed = "0.25×"
+    private static let volumeSliderWidth: CGFloat = 72
     var perform: (Action) -> Void = { _ in }
+    var setVolume: (Float) -> Void = { _ in }
     weak var media: Media? { didSet { refresh() } }
     private lazy var playButton = button("play.fill", .playPause)
+    private lazy var muteButton = button("speaker.wave.3.fill", .mute)
+    private let volume = NSSlider(value: 1, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let speed = NSTextField(labelWithString: Speed.label(1))
     private let elapsed = NSTextField(labelWithString: "0:00")
     private let total = NSTextField(labelWithString: "0:00")
@@ -276,13 +280,18 @@ final class ItemCell: NSTableCellView {
         slider.controlSize = .small
         slider.target = self
         slider.action = #selector(seek)
+        volume.controlSize = .small
+        volume.target = self
+        volume.action = #selector(volumeMoved)
         speed.alignment = .right
         let speedWidth = (Self.widestSpeed as NSString).size(withAttributes: [.font: speed.font!]).width
         let transport = NSStackView(views: [button("backward.fill", .slower), playButton, button("forward.fill", .faster)])
         transport.spacing = 18
         let time = NSStackView(views: [elapsed, slider, total])
         time.spacing = 10
-        for view in [transport, time, speed] as [NSView] {
+        let sound = NSStackView(views: [muteButton, volume])
+        sound.spacing = 6
+        for view in [sound, transport, time, speed] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -291,6 +300,9 @@ final class ItemCell: NSTableCellView {
             heightAnchor.constraint(equalToConstant: Self.height),
             transport.centerXAnchor.constraint(equalTo: centerXAnchor),
             transport.topAnchor.constraint(equalTo: topAnchor, constant: Self.rowInset),
+            sound.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
+            sound.centerYAnchor.constraint(equalTo: transport.centerYAnchor),
+            volume.widthAnchor.constraint(equalToConstant: Self.volumeSliderWidth),
             speed.widthAnchor.constraint(equalToConstant: ceil(speedWidth)),
             speed.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding - 4),
             speed.centerYAnchor.constraint(equalTo: transport.centerYAnchor),
@@ -305,9 +317,11 @@ final class ItemCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(playing: Bool, speed label: String) {
+    func update(playing: Bool, speed label: String, volume level: Float) {
         playButton.image = NSImage(systemSymbolName: playing ? "pause.fill" : "play.fill", accessibilityDescription: nil)
         speed.stringValue = label
+        muteButton.image = NSImage(systemSymbolName: volumeSymbol(level), accessibilityDescription: nil)
+        if NSEvent.pressedMouseButtons == 0 { volume.floatValue = level }
     }
 
     private func refresh() {
@@ -333,6 +347,7 @@ final class ItemCell: NSTableCellView {
     private var actions: [Action] = []
     @objc private func clicked(_ sender: NSButton) { perform(actions[sender.tag]) }
     @objc private func seek() { media?.seek(to: slider.doubleValue) }
+    @objc private func volumeMoved() { setVolume(volume.floatValue) }
 }
 
 private extension NSLayoutConstraint {
