@@ -538,7 +538,7 @@ struct CXView: View {
                     if result == .OK, let url = panel.url { session.statusCommand("/dir " + url.path) }
                 }
             } else if command.hasPrefix("https://"), let url = URL(string: command) { NSWorkspace.shared.open(url) }
-            else if ["Model", "Tokens", "Usage"].contains(title) {
+            else if ["Tokens", "Usage"].contains(title) {
                 overview = title
                 if title == "Usage" { Task { await session.refreshUsage() } }
             } else { session.statusCommand(command) }
