@@ -88,10 +88,10 @@ final class Controller: NSObject {
 
     func showSidebar() { split.splitViewItems[0].isCollapsed = false }
 
-    /// As in Preview: the window grows or shrinks by the sidebar, its height and the file's size stay.
+    /// As in Preview: the sidebar slides in over the content's left side, the window keeps its size.
     func toggleSidebar() {
         let side = split.splitViewItems[0]
-        fit.keepingStage { side.isCollapsed.toggle() }
+        side.animator().isCollapsed = !side.isCollapsed
     }
 
     private func buildSplit() {

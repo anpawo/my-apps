@@ -1,25 +1,21 @@
 import AppKit
 
-/// Keeps the viewer area 16:9 whatever the window's width and whichever columns show, so a 16:9 video
-/// fills it with no black bars: at launch at the usual width, then on every resize or column toggle.
+/// Keeps the viewer area 16:9 at launch and on every window resize, so a 16:9 video fills it with no
+/// black bars. A column shown or hidden takes or gives room inside the window, which keeps its size.
 /// A file open alone sets its own shape instead (`setAspect`), a portrait video a portrait window.
 @MainActor
 final class StageFit: NSObject, NSWindowDelegate {
     private static let standardAspect: CGFloat = 16.0 / 9.0
     /// Smaller than any real difference between two shapes, larger than rounding.
     private static let aspectTolerance: CGFloat = 0.001
-    /// Below this a height difference is rounding, not a change to follow.
-    private static let tolerance: CGFloat = 1
 
     private let window: NSWindow
     private let stage: () -> NSSize
     private var aspect = standardAspect
-    private var lastChromeWidth: CGFloat = 0
     /// After the window took a new size, for a picture to refit it.
     var didFit: () -> Void = {}
     /// The window delegate's close question, for unsaved text.
     var shouldClose: () -> Bool = { true }
-    private var adjusting = false
 
     init(window: NSWindow, splitView: NSSplitView, stage: @escaping () -> NSSize) {
         self.window = window
@@ -27,11 +23,7 @@ final class StageFit: NSObject, NSWindowDelegate {
         super.init()
         window.delegate = self
         NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: splitView,
-                                               queue: .main) { [weak self] _ in
-            // Out of the split view's layout pass: a window resize inside it left the content view at its old
-            // height (867 pt in a 716 pt window once the sidebar folded), the picture pushed down.
-            DispatchQueue.main.async { self?.follow() }
-        }
+                                               queue: .main) { [weak self] _ in self?.didFit() }
     }
 
     /// The viewer area takes this width-to-height ratio, or 16:9 for nil, and the window refits to it.
@@ -50,28 +42,9 @@ final class StageFit: NSObject, NSWindowDelegate {
         let width = min(initialWindowSize.width, area.width) - chrome.width
         let fitted = min(width, (area.height - chrome.height) * aspect)
         let size = NSSize(width: fitted + chrome.width, height: (fitted / aspect).rounded() + chrome.height)
-        lastChromeWidth = chrome.width
-        adjusting = true
         window.setFrame(NSRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
                                width: size.width, height: size.height), display: true)
-        adjusting = false
         didFit()
-    }
-
-    /// Runs a column change and widens or narrows the window by what it took or gave, toward the left,
-    /// so the viewer keeps its size; the screen edge stops it, the viewer giving way then.
-    func keepingStage(_ change: () -> Void) {
-        let before = chromeSize().width
-        adjusting = true
-        defer { adjusting = false; lastChromeWidth = chromeSize().width }
-        change()
-        guard !window.styleMask.contains(.fullScreen), let area = window.screen?.visibleFrame else { return }
-        let delta = chromeSize().width - before
-        var frame = window.frame
-        let right = frame.maxX
-        frame.size.width = min(area.width, frame.width + delta)
-        frame.origin.x = min(max(area.minX, right - frame.width), area.maxX - frame.width)
-        window.setFrame(frame, display: true)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool { shouldClose() }
@@ -79,24 +52,6 @@ final class StageFit: NSObject, NSWindowDelegate {
     func windowWillResize(_ sender: NSWindow, to size: NSSize) -> NSSize {
         let chrome = chromeSize()
         return NSSize(width: size.width, height: ((size.width - chrome.width) / aspect).rounded() + chrome.height)
-    }
-
-    /// A column shown, hidden or dragged changes the viewer's width while the window's stays: the height
-    /// follows, the top edge stays. A window resize leaves the columns' total alone, so it is ignored here
-    /// (following it fed back into the resize and shrank the window).
-    private func follow() {
-        let chrome = chromeSize()
-        guard !adjusting, !window.styleMask.contains(.fullScreen), let area = window.screen?.visibleFrame,
-              abs(chrome.width - lastChromeWidth) > Self.tolerance else { return }
-        lastChromeWidth = chrome.width
-        let height = min(area.height, ((window.frame.width - chrome.width) / aspect).rounded() + chrome.height)
-        guard abs(height - window.frame.height) > Self.tolerance else { return }
-        var frame = window.frame
-        frame.origin.y = max(area.minY, frame.maxY - height)
-        frame.size.height = height
-        adjusting = true
-        window.setFrame(frame, display: true)
-        adjusting = false
     }
 
     private func chromeSize() -> NSSize {
