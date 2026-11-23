@@ -2328,6 +2328,11 @@ enum Render {
         write(MarkdownBody(text: answer).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 420), path: directory + "/answer-boxes.png")
         let round = Item(["type": "commandExecution", "command": "ask-codex.sh /tmp/x 1", "status": "completed", "aggregatedOutput": "<<debate claude>>\nJ.P. Morgan says missing the 10 best days halves the return. Attack the claim.\n<<debate codex gpt-6.1-sol>>\nThe counterfactual is impossible: **6 of the 10 best days** came within two weeks of a worst one, so nobody misses only the best.\n\n- Missing both: 11.71 %/yr against 11.39 %."])
         write(DebateView(item: round, ownModel: "Claude Opus 5.5").padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 760, height: 400), path: directory + "/debate.png")
+        write(ModelOverview(currentID: "a", lines: [
+            .init(id: "a", window: "Agy in VCX", agent: "Claude", model: "Opus 5.5 - high", tokens: "12% token - 1M", usage: "96% wk - reset Wed 18h00", current: true),
+            .init(id: "b", window: "Fix the composer padding in the chat view", agent: "Codex · Work", model: "gpt-6.2-sol - high", tokens: "40% token - 400K", usage: "12% 5h - reset 07h10", current: false),
+            .init(id: "c", window: "Research", agent: "Antigravity", model: "gemini-3.8-flash-high", tokens: "3% token - 1M", usage: "–", current: false),
+            .init(id: "qwen", window: "No window", agent: "Qwen", model: "–", tokens: "–", usage: "–", current: false)]) {}.foregroundStyle(.black).background(Color.white), size: CGSize(width: 900, height: 360), path: directory + "/model-overview.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
         write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
         let edits = CodeEdits(); edits.set(message.text, "hello, my own version of the draft\nwith a second line I typed")

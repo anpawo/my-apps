@@ -352,6 +352,7 @@ struct CXView: View {
     // Not observed here: the table publishes it on every scroll, for the pinned question alone.
     @State private var geometry = TranscriptGeometry()
     @State private var openCapability: String?
+    @State private var overview: String?
     @State private var hoveredCapability: String?
     @State private var hoveringCapabilityPanel = false
     @State private var hoveredRule: String?
@@ -536,7 +537,10 @@ struct CXView: View {
                     if result == .OK, let url = panel.url { session.statusCommand("/dir " + url.path) }
                 }
             } else if command.hasPrefix("https://"), let url = URL(string: command) { NSWorkspace.shared.open(url) }
-            else { session.statusCommand(command) }
+            else if ["Model", "Tokens", "Usage"].contains(title) {
+                overview = title
+                if title == "Usage" { Task { await session.refreshUsage() } }
+            } else { session.statusCommand(command) }
         } label: {
             HStack(spacing: 5) {
                 if loading { ProgressView().controlSize(.mini) }
@@ -545,6 +549,9 @@ struct CXView: View {
                 .padding(.horizontal, 6).padding(.vertical, 5)
                 .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
         }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help(command == "/repo" && !session.repositoryChanges.isEmpty ? session.repositoryChanges.joined(separator: "\n") : command).accessibilityLabel("\(title): \(value). \(command)")
+            .popover(isPresented: Binding(get: { overview == title }, set: { if !$0 { overview = nil } }), arrowEdge: .top) {
+                ModelOverview(currentID: session.runtimeClient?.sessionID) { overview = nil; session.statusCommand(session.modelCommand) }
+            }
     }
 
     private func capability(_ title: String) -> some View {
