@@ -239,12 +239,18 @@ final class ItemCell: NSTableCellView {
     private func showControls() { controls.isHidden = controlsHidden || controls.media == nil }
 }
 
-/// Slower, play or pause, faster, the speed, then the time and a slider to seek, in a dark capsule.
+/// QuickTime's layout: slower, play or pause and faster centred on top with the speed on the right, then the
+/// time on either side of the slider to seek, in a dark rounded box. The speed keeps one width, so a new
+/// speed moves nothing.
 @MainActor final class Controls: NSVisualEffectView {
     private static let refreshInterval = 0.25
     private static let width: CGFloat = 520
-    private static let height: CGFloat = 40
+    private static let height: CGFloat = 72
+    private static let cornerRadius: CGFloat = 18
     private static let padding: CGFloat = 14
+    private static let rowInset: CGFloat = 12
+    /// The widest label `Speed.steps` makes.
+    private static let widestSpeed = "0.25×"
     var perform: (Action) -> Void = { _ in }
     weak var media: Media? { didSet { refresh() } }
     private lazy var playButton = button("play.fill", .playPause)
@@ -261,7 +267,7 @@ final class ItemCell: NSTableCellView {
         state = .active
         appearance = NSAppearance(named: .darkAqua)
         wantsLayer = true
-        layer?.cornerRadius = Self.height / 2
+        layer?.cornerRadius = Self.cornerRadius
         layer?.masksToBounds = true
         for field in [speed, elapsed, total] {
             field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
@@ -270,18 +276,27 @@ final class ItemCell: NSTableCellView {
         slider.controlSize = .small
         slider.target = self
         slider.action = #selector(seek)
-        let row = NSStackView(views: [button("backward.fill", .slower), playButton, button("forward.fill", .faster),
-                                      speed, elapsed, slider, total])
-        row.spacing = 10
-        row.setCustomSpacing(18, after: speed)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
+        speed.alignment = .right
+        let speedWidth = (Self.widestSpeed as NSString).size(withAttributes: [.font: speed.font!]).width
+        let transport = NSStackView(views: [button("backward.fill", .slower), playButton, button("forward.fill", .faster)])
+        transport.spacing = 18
+        let time = NSStackView(views: [elapsed, slider, total])
+        time.spacing = 10
+        for view in [transport, time, speed] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.width).withPriority(.defaultHigh),
             heightAnchor.constraint(equalToConstant: Self.height),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding),
-            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+            transport.centerXAnchor.constraint(equalTo: centerXAnchor),
+            transport.topAnchor.constraint(equalTo: topAnchor, constant: Self.rowInset),
+            speed.widthAnchor.constraint(equalToConstant: ceil(speedWidth)),
+            speed.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding - 4),
+            speed.centerYAnchor.constraint(equalTo: transport.centerYAnchor),
+            time.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.rowInset),
+            time.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
+            time.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding),
         ])
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
