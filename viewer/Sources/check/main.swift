@@ -29,6 +29,15 @@ do {
     try! packets.write(to: stream)
     expect(Kind(url: code) == .text, "a TypeScript .ts is text")
     expect(Kind(url: stream) == .video, "an MPEG transport stream .ts is video")
+    let bare = dir.appendingPathComponent("login-notes"), binary = dir.appendingPathComponent("tool")
+    let unknown = dir.appendingPathComponent("notes.zzqx")
+    try! Data("hello\n".utf8).write(to: bare)
+    try! Data("hello\n".utf8).write(to: unknown)
+    try! Data([0xCF, 0xFA, 0xED, 0xFE, 0, 0]).write(to: binary)
+    expect(Kind(url: bare) == .text, "an extensionless text file is text")
+    expect(Kind(url: unknown) == .text, "a text file with an extension nothing declares is text")
+    expect(Kind(url: binary) == nil, "an extensionless binary opens nowhere here")
+    expect(mediaFiles(in: [bare]) == [bare], "an opened extensionless text file is loaded")
 }
 
 expect(Kind(url: URL(fileURLWithPath: "/a.mp3")) == .music && Kind(url: URL(fileURLWithPath: "/a.m4a")) == .music, "audio is music, not video")

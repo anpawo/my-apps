@@ -33,7 +33,10 @@ public enum Kind: CaseIterable, Equatable, Sendable {
         "vue", "gradle", "properties", "dart"]
 
     public init?(url: URL) {
-        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        guard let type = UTType(filenameExtension: url.pathExtension) else {
+            if Self.looksLikeText(url) { self = .text; return }
+            return nil
+        }
         if Self.isTypeScript(url) { self = .text; return }
         if type.conforms(to: .gif) { self = .gif }
         else if type.conforms(to: .pdf) { self = .pdf }
@@ -42,7 +45,18 @@ public enum Kind: CaseIterable, Equatable, Sendable {
         else if type.conforms(to: .audiovisualContent) { self = .video }
         else if type.conforms(to: .text) || type.conforms(to: .sourceCode)
                     || Self.textExtensions.contains(url.pathExtension.lowercased()) { self = .text }
+        else if type.isDynamic && Self.looksLikeText(url) { self = .text }
         else { return nil }
+    }
+
+    private static let sniffLength = 8192
+
+    /// A file macOS has no type for (no extension, or one nothing declares) is text when its start
+    /// holds no NUL byte, the test git uses to tell text from binary.
+    private static func looksLikeText(_ url: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? file.close() }
+        return !file.readData(ofLength: sniffLength).contains(0)
     }
 
     private static let transportPacket = 188
