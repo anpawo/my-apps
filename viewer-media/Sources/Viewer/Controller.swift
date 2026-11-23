@@ -156,7 +156,7 @@ final class Controller: NSObject {
             let label = media?.changeSpeed(by: action == .faster ? 1 : -1)
             if library.currentEntry?.kind.plays == true, let label { speedLabel = label }
             viewer.hud.show(label)
-        case .playPause: media?.togglePlay()
+        case .playPause: media?.togglePlay(); viewer.controlsHidden = false
         case .volumeUp, .volumeDown: setVolume(Volume.step(volume, by: action == .volumeUp ? 1 : -1))
         case .mute: setVolume(volume == 0 ? unmutedVolume : 0)
         case .toStart: media?.jump(toEnd: false)
