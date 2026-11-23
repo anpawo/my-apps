@@ -11,9 +11,9 @@ final class ComposerWindow: NSWindow {
     private var clickStart: NSPoint?
     private weak var lens: NSTextView?
     private var hovering = false, movedBefore = false
-    private var gathered: [NSTextView] = [], regather = false
+    private var gathered: [NSTextView] = []
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
-    // Read-only text only: Option still types its characters in the composer.
+    // Read-only text only: Control-click in the composer keeps its menu.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
         guard attachedSheet == nil, let field = contentView?.hitTest(point) as? NSTextView, !field.isEditable, let range = word(in: field, at: point),
               !(field.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -28,14 +28,9 @@ final class ComposerWindow: NSWindow {
         if lens !== field { lens?.setSelectedRange(NSRange(location: 0, length: 0)) }
         lens = field; field.setSelectedRange(range)
     }
-    // Held Option keeps every word it passes over, in every text it crosses, until the next press drops them;
+    // Held Control keeps every word it passes over, in every text it crosses, until it is released;
     // words only spaces apart join into one run, the spaces selected too.
     private func gather(_ range: NSRange, in field: NSTextView) {
-        // A new press keeps the last words while it rests on one of them, so it can click them; the first other word starts afresh.
-        if regather {
-            if inGathered(range, field) { return }
-            gathered.forEach { $0.setSelectedRange(NSRange(location: 0, length: 0)) }; gathered = []; regather = false
-        }
         guard gathered.contains(where: { $0 === field }) else { gathered.append(field); field.setSelectedRange(range); return }
         let ranges = field.selectedRanges.map(\.rangeValue), text = field.string as NSString
         guard !ranges.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { return }
@@ -54,8 +49,8 @@ final class ComposerWindow: NSWindow {
     private var gatheredGroups: [String] {
         gathered.flatMap { field in field.selectedRanges.map { (field.string as NSString).substring(with: $0.rangeValue).trimmingCharacters(in: .whitespacesAndNewlines) } }.filter { !$0.isEmpty }
     }
-    // Option-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
-    private func optionDrag(from start: (field: NSTextView, range: NSRange)) {
+    // Control-click asks to define the word; held, the drag widens it word by word, and the release asks about all of it. Escape drops it.
+    private func controlDrag(from start: (field: NSTextView, range: NSRange)) {
         var range = start.range, cancelled = false
         select(range, in: start.field)
         while let next = nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
@@ -70,25 +65,27 @@ final class ComposerWindow: NSWindow {
     }
     override func sendEvent(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        // While Option alone is held, every word under the pointer joins the selection.
+        // While Control alone is held, every word under the pointer joins the selection; its release drops them,
+        // so a later plain click asks nothing (23/11: a stray click after an Option hover sent "Define .").
         if event.type == .flagsChanged {
-            if modifiers == .option, !hovering {
-                hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true
-                regather = !gathered.isEmpty
+            if modifiers == .control, !hovering { hovering = true; movedBefore = acceptsMouseMovedEvents; acceptsMouseMovedEvents = true }
+            else if modifiers != .control, hovering {
+                hovering = false; acceptsMouseMovedEvents = movedBefore
+                (gathered + [lens].compactMap { $0 }).forEach { $0.setSelectedRange(NSRange(location: $0.selectedRange().location, length: 0)) }
+                gathered = []; lens = nil
             }
-            else if modifiers != .option, hovering { hovering = false; acceptsMouseMovedEvents = movedBefore }
         }
-        if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .option, event.type == .mouseMoved || NSEvent.pressedMouseButtons == 0,
+        if [.flagsChanged, .mouseMoved].contains(event.type), modifiers == .control, event.type == .mouseMoved || NSEvent.pressedMouseButtons == 0,
            let hit = word(at: event.type == .mouseMoved ? event.locationInWindow : mouseLocationOutsideOfEventStream) {
             gather(hit.range, in: hit.field)
         }
-        // A click, with Option or without, on a word the hover gathered asks about every gathered group of words, in each text in turn.
-        if event.type == .leftMouseDown, [[], .option].contains(modifiers), event.clickCount == 1, let hit = word(at: event.locationInWindow), inGathered(hit.range, hit.field) {
+        // Control-click is the only click that asks: on a hovered word, about every gathered group of words, in each text in turn.
+        if event.type == .leftMouseDown, modifiers == .control, event.clickCount == 1, let hit = word(at: event.locationInWindow), inGathered(hit.range, hit.field) {
             define(gatheredGroups); return
         }
         // Any other click hands the selection back to the text.
-        if event.type == .leftMouseDown { gathered = []; regather = false }
-        if event.type == .leftMouseDown, modifiers == .option, let hit = word(at: event.locationInWindow) { optionDrag(from: hit); return }
+        if event.type == .leftMouseDown { gathered = [] }
+        if event.type == .leftMouseDown, modifiers == .control, let hit = word(at: event.locationInWindow) { controlDrag(from: hit); return }
         // Escape shuts the find bar before the composer, a command list or a running turn sees it.
         if event.type == .keyDown, event.keyCode == 53, attachedSheet == nil, find?.open == true { closeFind(); return }
         // Up and Down in the find field go to the previous and next match.
@@ -117,8 +114,8 @@ final class ComposerWindow: NSWindow {
                 return
             }
         }
-        // ⌥-click on a few selected words asks what they mean.
-        if event.type == .leftMouseDown, event.modifierFlags.intersection([.command, .control, .option, .shift]) == .option, attachedSheet == nil,
+        // ⌃-click on a few selected words asks what they mean.
+        if event.type == .leftMouseDown, modifiers == .control, attachedSheet == nil,
            let field = firstResponder as? NSTextView, field.selectedRange().length > 0,
            NSLocationInRange(field.characterIndex(for: convertPoint(toScreen: event.locationInWindow)), field.selectedRange()) {
             let words = (field.string as NSString).substring(with: field.selectedRange()).trimmingCharacters(in: .whitespacesAndNewlines)
