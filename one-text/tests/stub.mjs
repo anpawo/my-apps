@@ -92,7 +92,7 @@ export const stub = demo => {
       if (pa && pb) root[find(pa)] = find(pb);
     }
     const by = {};
-    for (const c of chats) (by[find(c.person)] ||= []).push(c);
+    for (const c of chats.filter(c => !c.archived)) (by[find(c.person)] ||= []).push(c);
     return Object.values(by).map(cs => {
       cs.sort((a, b) => b.last.localeCompare(a.last));
       const name = cs.map(c => c.title).sort((a, b) => b.length - a.length)[0], alias = cs.map(c => overrides.names?.[c.id]).find(Boolean);
@@ -111,6 +111,8 @@ export const stub = demo => {
     if (cmd === 'update_build') return window.__update || null;
     if (cmd === 'api') {
       if (args.path === '/v1/assets/upload/base64') return { uploadID: 'up1', duration: 1.5 };
+      const arc = args.path.match(/^\/v1\/chats\/([^/]+)\/archive$/);
+      if (arc) { chats.find(c => c.id === decodeURIComponent(arc[1])).archived = args.body.archived; return null; }
       if (args.method === 'DELETE' && !args.path.includes('/reactions')) { const [, c, id] = args.path.match(/chats\/([^/]+)\/messages\/([^/]+)/); msgs[decodeURIComponent(c)] = msgs[decodeURIComponent(c)].filter(x => x.id !== decodeURIComponent(id)); return {}; }
       if (args.path.includes('/reactions') || ['PATCH', 'PUT'].includes(args.method)) return {};
       if (args.path === '/v1/accounts') return [{ accountID: 'discordgo', network: 'Discord' }, { accountID: 'matrix', network: 'Beeper' }];

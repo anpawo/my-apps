@@ -1825,6 +1825,7 @@ function openMore(anchor) {
     if (person.chats.some(c => state.pictures?.[c.id])) m.append(item('Remove the picture set', { action: () => { closeMenu(); setPicture(person, null); } }));
     const muted = person.chats.every(c => c.muted);
     m.append(sep(), item(muted ? 'Unmute' : 'Mute', { hint: muted ? '' : 'no badge, no count', action: () => { closeMenu(); mute(person, !muted); } }));
+    m.append(item('Archive', { hint: 'as in Beeper', action: () => { closeMenu(); archive(person, true); } }));
     if (person.kind !== 'person') m.append(item(person.hidden ? 'Show in the list' : 'Hide from the list', { hint: person.hidden ? '' : '⌘D still finds it', action: () => { closeMenu(); hide(person, !person.hidden); } }));
     m.append(sep(), item('Merge with…', { action: () => morph(m, mm => mergePicker(mm, person)) }));
     // Each app's chat: its logo, then the handle or number it goes by there (a group's room: its title).
@@ -1967,6 +1968,11 @@ function splitGroup(g, chat) {
 async function mute(item, on) {
   await Promise.all(item.chats.map(c => api('PATCH', `/v1/chats/${enc(c.id)}`, { isMuted: on }).then(() => (c.muted = on)).catch(e => toast(`${NETS[netOf(c)].label}: ${e}`))));
   toast(`${item.name} ${on ? 'muted' : 'unmuted'}`);
+  refreshList();
+}
+async function archive(item, on) {
+  await Promise.all(item.chats.map(c => api('POST', `/v1/chats/${enc(c.id)}/archive`, { archived: on }).catch(e => toast(`${NETS[netOf(c)].label}: ${e}`))));
+  toast(`${item.name} ${on ? 'archived' : 'back in the list'}`, on ? () => archive(item, false) : null);
   refreshList();
 }
 function split(person, chat) {

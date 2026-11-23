@@ -399,6 +399,16 @@ await page.click('.toast button');
 await page.waitForTimeout(600);
 check(await page.$$eval('#people .row:not([data-leaving])', ns => ns.length) === 7, 'Undo brings back 5 people');
 
+// Archive takes the person out of the list as Beeper's Archive does; Undo brings them back.
+const rows = () => page.$$eval('#people .row:not([data-leaving]) .name', ns => ns.map(n => n.textContent));
+await page.click('#people .row:has-text("Hugo R")', { button: 'right' });
+await page.click('.menu .item:has-text("Archive")');
+await page.waitForTimeout(600);
+check(!(await rows()).some(n => n.includes('Hugo R')), 'archiving a person takes them out of the list');
+await page.click('.toast button');
+await page.waitForTimeout(600);
+check((await rows()).some(n => n.includes('Hugo R')), 'Undo unarchives them');
+
 // Favorites: right-click → Add to favorites moves Hugo to the picture strip; ⌘F over Sarah adds her too, and again removes her.
 await page.click('#people .row:has-text("Hugo R")', { button: 'right' });
 await page.click('.menu .item:has-text("Add to favorites")');
@@ -571,7 +581,7 @@ await page.waitForTimeout(250);
 await page.screenshot({ path: join(out, '8-menu.png') });
 const sections = await page.$$eval('.menu > *', es => es.map(e => e.classList.contains('sep') ? '|' : e.textContent.replace(/⌘.|⌘D.*/, '').trim()).join(','));
 await page.keyboard.press('Escape');
-check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Muteno badge, no count,|,Merge with…'), `⌘M gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
+check(JSON.stringify(alias) === '["Sassy","Sassy","Sarah K"]' && sections.endsWith('favorites,Add to a group…,|,Alias…,Change picture…,|,Muteno badge, no count,Archiveas in Beeper,|,Merge with…'), `⌘M gives a person an alias; the menu has one section per kind (${alias} / ${sections})`);
 await page.evaluate(() => invoke('set_overrides', { value: {} }).then(refreshList));
 await page.waitForTimeout(300);
 
