@@ -388,9 +388,8 @@ final class TranscriptStore {
             // With the line the start cuts, whole: dropped from both sides, it once was the
             // notification that had ended an agent, counted out until Fleet restarted (30-09).
             let head = ((try? handle.read(upToCount: Int(start))) ?? Data()) + fragment
-            for raw in head.split(separator: UInt8(ascii: "\n"))
-            where Self.delegationMarks.contains(where: { raw.range(of: $0) != nil }) {
-                if let obj = try? JSONSerialization.jsonObject(with: Data(raw)) as? [String: Any] {
+            for raw in Delegation.lines(in: head) {
+                if let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] {
                     state.ingest(obj)
                 }
             }
@@ -408,13 +407,6 @@ final class TranscriptStore {
                                  state: state, info: info)
         return info
     }
-
-    private static let delegationMarks = ["background with ID", "moved to the background",
-                                          "Workflow launched in background", "<task-notification>",
-                                          "Successfully stopped task",
-                                          #""name":"Agent""#, #""name":"Task""#,
-                                          "Async agent launched", "resumedAgentId",
-                                          #""toolUseResult":{"status":"completed""#].map { Data($0.utf8) }
 
     /// Sessions are long and only recent state matters, so a cold read starts near the end.
     private static func tailStart(size: UInt64) -> UInt64 {
