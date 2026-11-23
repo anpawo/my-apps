@@ -134,10 +134,5 @@ expect(linkKind == .typeSymbolicLink, "saving through a symlink keeps the link")
 expect(try! String(contentsOf: script, encoding: .utf8).contains("bye"), "saving through a symlink writes its target")
 expect(scriptMode == 0o755, "a saved script stays executable")
 
-let recent = (1...25).reduce([String]()) { Recent.adding("/f\($1)", to: $0) }
-expect(recent.first == "/f25" && recent.count == Recent.kept, "the newest file comes first and the list keeps its cap")
-expect(Recent.adding("/f3", to: recent).filter { $0 == "/f3" }.count == 1, "a file opened again moves up, never twice")
-expect(Recent.shown(recent, open: ["/f25"]) == ["/f24", "/f23", "/f22"], "Recent leaves out the open files")
-
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("check: all passed")

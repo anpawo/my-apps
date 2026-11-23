@@ -43,9 +43,6 @@ final class Controller: NSObject {
     private var library = Library()
     private let split = NSSplitViewController()
     private let list = ListPane()
-    private var sidebar: NSSplitViewItem!
-    /// How many files the window held at the last refresh, to fold the sidebar only when that crosses one.
-    private var lastCount = 0
     private let viewer = ViewerPane()
     private var toolbar: Toolbar!
     private(set) var fit: StageFit!
@@ -75,11 +72,9 @@ final class Controller: NSObject {
         viewer.controls.perform = { [weak self] in self?.perform($0) }
         viewer.controls.setVolume = { [weak self] in self?.setVolume($0); self?.updateToolbar() }
         list.onSelect = { [weak self] url in self?.library.select(url); self?.refresh() }
-        list.onOpenRecent = { [weak self] url in self?.add([url]) }
         list.describe = { url, done in
             if let kind = Kind(url: url) { Thumbnails.details(of: Entry(url: url, kind: kind, modified: Date()), done: done) }
         }
-        list.showRecent(recentFiles())
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) ?? false } ? nil : event
         }
@@ -90,7 +85,8 @@ final class Controller: NSObject {
         let side = NSSplitViewItem(sidebarWithViewController: list)
         side.minimumThickness = Self.listWidth.min
         side.maximumThickness = Self.listWidth.max
-        sidebar = side
+        // Hidden until asked for, as in Preview; the toolbar's sidebar button shows it.
+        side.isCollapsed = true
         let content = NSSplitViewItem(viewController: viewer)
         content.minimumThickness = Self.viewerMinWidth
         for item in [side, content] {
@@ -115,28 +111,8 @@ final class Controller: NSObject {
         }
         guard !entries.isEmpty else { return }
         library.add(entries)
-        remember(entries.map(\.url))
         if library.query.isEmpty { toolbar.clearSearch() }
         refresh()
-    }
-
-    private static let recentKey = "recentFiles"
-    /// Off for `--render`, whose test files must not land in his Recent.
-    var remembersFiles = true
-
-    /// The first file passed is the one shown, so it goes in last: newest.
-    private func remember(_ urls: [URL]) {
-        guard remembersFiles else { return }
-        var paths = UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? []
-        for url in urls.reversed() { paths = Recent.adding(url.path, to: paths) }
-        UserDefaults.standard.set(paths, forKey: Self.recentKey)
-    }
-
-    private func recentFiles() -> [URL] {
-        let paths = (UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? [])
-            .filter { FileManager.default.fileExists(atPath: $0) }
-        return Recent.shown(paths, open: Set(library.entries.map(\.url.path)))
-            .map { URL(fileURLWithPath: $0) }.filter { Kind(url: $0) != nil }
     }
 
     private func search(_ text: String) {
@@ -195,8 +171,6 @@ final class Controller: NSObject {
 
     private func refresh() {
         list.reload(library.shown.map(\.url), current: library.current)
-        list.showRecent(recentFiles())
-        foldSidebar()
         window.title = "All Media"
         // The shown file's date sits in the title bar, not over the picture.
         window.subtitle = ([Details.items(library.shown.count)] + [library.currentEntry.map { longDate($0.modified) }].compactMap { $0 })
@@ -213,17 +187,6 @@ final class Controller: NSObject {
             guard let self, let media, media === self.media else { return }
             fit.setAspect(aspect)
         }
-    }
-
-    /// One file needs no list: the sidebar folds away, and comes back once a second file joins or the
-    /// last one leaves. The toolbar button folds or unfolds it by hand in between.
-    private func foldSidebar() {
-        let count = library.entries.count
-        defer { lastCount = count }
-        guard (count == 1) != (lastCount == 1) else { return }
-        // At once, not animated: the window refits to the file right after, and measured mid-fold the
-        // viewer's width came out 62 pt too wide (black bars beside a portrait video).
-        sidebar.isCollapsed = count == 1
     }
 
     private func updateToolbar() {

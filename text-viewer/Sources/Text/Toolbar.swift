@@ -9,7 +9,7 @@ extension NSToolbarItem.Identifier {
 /// Video Viewer's toolbar: the title over the editor, then two glass capsules and the search field.
 extension MainWindow {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sidebarTrackingSeparator, .flexibleSpace, .fileGroup, .finderGroup, .search]
+        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, .fileGroup, .finderGroup, .search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {

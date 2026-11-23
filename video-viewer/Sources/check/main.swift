@@ -23,11 +23,6 @@ expect(Details.duration(7) == "0:07" && Details.duration(65.4) == "1:05" && Deta
 expect(Details.pages(1) == "1 page" && Details.pages(3) == "3 pages" && Details.items(2) == "2 items", "counts")
 expect(Details.pixels(1920, 1080) == "1920 × 1080", "pixel size")
 
-expect(Recent.adding("/c", to: ["/a", "/b"]) == ["/c", "/a", "/b"], "recent puts the newest file first")
-expect(Recent.adding("/n", to: (1...Recent.kept).map { "/\($0)" }).count == Recent.kept, "recent keeps a bounded history")
-expect(Recent.shown(["/d", "/c", "/a", "/b"], open: []) == ["/d", "/c", "/a"], "recent shows only the last three")
-expect(Recent.shown(["/d", "/c", "/a", "/b"], open: ["/c"]) == ["/d", "/a", "/b"], "recent leaves out the files open in the window")
-expect(Recent.adding("/a", to: ["/c", "/a", "/b"]) == ["/a", "/c", "/b"], "reopening a recent file moves it to the top")
 
 func entry(_ name: String) -> Entry {
     let url = URL(fileURLWithPath: "/tmp/" + name)

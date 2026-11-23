@@ -22,7 +22,8 @@ enum Render {
     static func run(out: URL, files: [URL]) -> Never {
         NSApp.setActivationPolicy(.prohibited)
         let main = MainWindow()
-        main.remembersFiles = false
+        // The README's picture shows the list the window hides at first.
+        main.split.splitViewItems[0].isCollapsed = false
         main.window.setContentSize(MainWindow.size)
         main.open(files)
         main.show(main.docs.first)
@@ -56,7 +57,6 @@ enum Render {
         var tables: [NSView] = []
         collect(side, into: &tables) { $0 is NSTableView }
         for table in tables { draw(table, table.visibleRect, over: frame) }
-        for case let title as NSTextField in side.subviews { draw(title, title.bounds, over: frame) }
         let editor = main.scroll.superview!
         Theme.border.setFill()
         NSRect(x: frame.convert(editor.bounds, from: editor).minX - 1, y: 0, width: 1, height: frame.bounds.height).fill()

@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let render {
-            controller.remembersFiles = false
             controller.add(render.files)
             DispatchQueue.main.asyncAfter(deadline: .now() + renderSettleDelay) { [self] in
                 exit(Render.draw(controller.window, to: render.out) ? 0 : 1)

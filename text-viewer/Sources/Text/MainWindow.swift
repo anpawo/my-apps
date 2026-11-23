@@ -1,14 +1,13 @@
 import AppKit
 import TextCore
 
-/// The one window, laid out as Video Viewer: the open files in the order they were opened, with
-/// Recent under them, and the selected file.
+/// The one window, laid out as Video Viewer: the open files in the order they were opened, and the
+/// selected file.
 final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayoutManagerDelegate, NSToolbarDelegate {
     static let size = NSSize(width: 1100, height: 660)
     static let sidebarWidth: CGFloat = 280
     static let sidebarRange: ClosedRange<CGFloat> = 260...420
     static let inset = NSSize(width: 6, height: 8)
-    static let recentKey = "recentFiles"
 
     let window: NSWindow
     let split = NSSplitViewController()
@@ -20,8 +19,6 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
     private let blank = NSTextStorage()
     private(set) var docs: [Document] = []
     private(set) var current: Document?
-    /// Off for `--render`, whose test files must not land in his Recent.
-    var remembersFiles = true
 
     override init() {
         window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
@@ -43,8 +40,10 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
         window.toolbar = toolbar
         window.setContentSize(Self.size)
         window.setFrameAutosaveName("main")
+        // Hidden until asked for, as in Preview; the toolbar's sidebar button shows it. Once the window has
+        // its size: folded inside layOut(), the window came up blank.
+        split.splitViewItems[0].isCollapsed = true
         list.onSelect = { [weak self] url in self?.show(self?.docs.first { $0.url == url }) }
-        list.onOpenRecent = { [weak self] in self?.open([$0]) }
         list.describe = { url, done in done((url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath) }
         list.isEdited = { [weak self] url in self?.docs.first { $0.url == url }?.dirty == true }
         show(nil)
@@ -58,7 +57,6 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
         let side = NSSplitViewItem(sidebarWithViewController: list)
         side.minimumThickness = Self.sidebarRange.lowerBound
         side.maximumThickness = Self.sidebarRange.upperBound
-        side.canCollapse = false
         let editor = NSViewController()
         editor.view = editorView()
         let main = NSSplitViewItem(viewController: editor)
@@ -130,7 +128,7 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
     func open(_ urls: [URL]) {
         var last: Document?
         for url in urls.map(\.standardizedFileURL) {
-            if let doc = docs.first(where: { $0.url == url }) { last = doc; remember(url); continue }
+            if let doc = docs.first(where: { $0.url == url }) { last = doc; continue }
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else { continue }
             do {
@@ -138,7 +136,6 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
                 hook(doc)
                 docs.append(doc)
                 last = doc
-                remember(url)
             } catch {
                 NSAlert(error: error).runModal()
             }
@@ -179,24 +176,8 @@ final class MainWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, NSLayout
         if doc != nil { window.makeFirstResponder(textView) }
     }
 
-    /// The newest goes first, so the file shown, opened last, tops Recent.
-    private func remember(_ url: URL) {
-        guard remembersFiles else { return }
-        let paths = UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? []
-        UserDefaults.standard.set(Recent.adding(url.path, to: paths), forKey: Self.recentKey)
-    }
-
-    private func recentFiles() -> [URL] {
-        // A render shows none of his files.
-        guard remembersFiles else { return [] }
-        let paths = (UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? [])
-            .filter { FileManager.default.fileExists(atPath: $0) }
-        return Recent.shown(paths, open: Set(docs.map(\.url.path))).map { URL(fileURLWithPath: $0) }
-    }
-
     private func refreshList() {
         list.reload(docs.map(\.url), current: current?.url)
-        list.showRecent(recentFiles())
         // The shown file's date sits in the title bar, as in Video Viewer.
         window.subtitle = ([docs.count == 1 ? "1 file" : "\(docs.count) files"] + [current.map { longDate($0.modified) }].compactMap { $0 })
             .joined(separator: " · ")
