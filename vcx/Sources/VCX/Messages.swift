@@ -24,7 +24,7 @@ enum AgentMessages {
                 let recovery = FileManager.default.contents(atPath: RuntimeIdentity.directory.path + "/recovery/" + id + ".window.json")
                     .flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON }
                 let thread = (recovery?["state"] as? JSON)?["threadID"] as? String ?? ""
-                let provider = thread.hasPrefix("claude:") ? "claude" : thread.hasPrefix("qwen:") ? "qwen" : "codex"
+                let provider = thread.hasPrefix("claude:") ? "claude" : thread.hasPrefix("qwen:") ? "qwen" : thread.hasPrefix("agy:") ? "agy" : "codex"
                 let context = (record["context"] as? String).map { $0.split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ") } ?? ""
                 found.append(Window(id: id, provider: provider, state: record["state"] as? String ?? "?", cwd: record["cwd"] as? String ?? "",
                                     name: context.isEmpty ? title(record["prompt"] as? String ?? "New session") : context))
@@ -81,7 +81,7 @@ enum AgentMessages {
 
     static func parse(_ text: String) -> Message? {
         guard text.hasSuffix("\""), let from = text.range(of: " from ["), let close = text.range(of: "]: \"", range: from.upperBound..<text.endIndex),
-              close.upperBound < text.endIndex, ["claude", "codex", "qwen", "agent"].contains(String(text[..<from.lowerBound])) else { return nil }
+              close.upperBound < text.endIndex, ["claude", "codex", "qwen", "agy", "agent"].contains(String(text[..<from.lowerBound])) else { return nil }
         return Message(provider: String(text[..<from.lowerBound]), name: String(text[from.upperBound..<close.lowerBound]), body: String(text[close.upperBound..<text.index(before: text.endIndex)]))
     }
 

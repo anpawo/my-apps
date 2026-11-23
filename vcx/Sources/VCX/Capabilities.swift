@@ -146,6 +146,13 @@ extension Session {
         }
         let names = account.provider == "claude" ? ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"] : ["AGENTS.md", "AGENTS.override.md"]
         instructions = ([URL(fileURLWithPath: base).appendingPathComponent(account.provider == "claude" ? "CLAUDE.md" : "AGENTS.md")] + folders.flatMap { folder in names.map { folder.appendingPathComponent($0) } }).filter { FileManager.default.fileExists(atPath: $0.path) }.map { $0.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
+        if account.provider == "agy" {
+            hooks = ["GateGuard and session-start memory: ~/.gemini/config/hooks.json"]
+            skills = ["~/.gemini/config/skills (Claude's skills)"]
+            mcp = ["lightpanda, agents-council: ~/.gemini/config/mcp_config.json"]
+            instructions = ["~/.gemini/GEMINI.md (CLAUDE.md)", "~/.gemini/AGENTS.md (ERRORS.md)", "Project CLAUDE.md files, by the SessionStart hook"]
+            return
+        }
         if account.provider == "qwen" {
             hooks = ["Not supported by the Qwen adapter"]
             skills = ["No native skill catalog"]

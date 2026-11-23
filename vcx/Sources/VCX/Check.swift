@@ -1407,7 +1407,7 @@ enum Check {
             check(Settings.shared.value.provider == pickerProvider, "opening the model picker preserves the provider preference")
             session.dismissCommands()
             session.showCommands("/model ")
-            check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen"], "model selection lists providers without Auto")
+            check(session.commandOptions.map(\.name) == ["Claude", "Codex", "Qwen", "Antigravity"], "model selection lists providers without Auto")
             check(session.commandOptions[session.commandSelection].name == "Codex", "opening model selection highlights the active provider after fallback")
             session.updateCommands("/model c", caret: 8)
             check(session.commandOptions[session.commandSelection].name == "Codex", "typing the model command highlights the active provider")
@@ -1538,7 +1538,7 @@ enum Check {
         let stripped = ["PATH", "PWD", "OLDPWD", "SHLVL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"]
         check(!login.isEmpty && login.allSatisfy { $0.key.hasPrefix("CLAUDE") || $0.key == "FLEET_CONTEXT_FILE" || stripped.contains($0.key) || plain[$0.key] == $0.value } && !plain.keys.contains { $0.hasPrefix("CLAUDE") || stripped.dropFirst().contains($0) }, "agents get the login shell's environment without CLAUDE variables or API keys")
         check(Set(paths).isSuperset(of: (login["PATH"] ?? "").split(separator: ":").map(String.init) + [NSHomeDirectory() + "/.local/bin", "/opt/homebrew/bin", "/usr/bin", "/sbin"]) && (!FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.local/lib/build-stack/bin") || paths.first == NSHomeDirectory() + "/.local/lib/build-stack/bin"), "agent PATH keeps the login entries and VCX's own, the build queue first")
-        check(Settings.shared.candidates.map(\.provider) == ["claude", "codex", "qwen"], "default provider priority")
+        check(Settings.shared.candidates.map(\.provider) == ["claude", "codex", "qwen", "agy"], "default provider priority")
         do {
             let file = Settings.directory.appendingPathComponent("settings.json"), original = try? Data(contentsOf: file)
             try? FileManager.default.createDirectory(at: Settings.directory, withIntermediateDirectories: true)

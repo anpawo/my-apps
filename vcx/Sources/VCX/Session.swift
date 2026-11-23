@@ -1112,6 +1112,7 @@ final class Session: ObservableObject {
         case "qwen":
             var preferences = Settings.shared.value; preferences.mode = preferredMode
             connection = QwenConnection(preferences: preferences, cwd: cwd)
+        case "agy": connection = AgyConnection(cwd: cwd)
         default:
             let codex = RPC(); codex.account = next; codex.cwd = cwd; connection = codex
         }
@@ -1144,7 +1145,7 @@ final class Session: ObservableObject {
         providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; builtinCommands = []; mcp = []; instructions = []
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
-        account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider.capitalized
+        account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider == "agy" ? "Antigravity" : next.provider.capitalized
         activeMode = preferredMode
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         rpc = connection
@@ -1162,7 +1163,7 @@ final class Session: ObservableObject {
             context = previous.3; usage = previous.4; usageLoading = false; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
             defaultEffort = previous.8
             usagePercent = previousUsagePercent
-            providerLabel = account.provider == "codex" ? "Codex" : account.provider.capitalized
+            providerLabel = account.provider == "codex" ? "Codex" : account.provider == "agy" ? "Antigravity" : account.provider.capitalized
             pendingActivation = (next, resume, keepRows, recordID)
             ready = false
             if !usageLimit(["error": error.localizedDescription]) { lostConnection = true; Connectivity.lost("a failed connection") }

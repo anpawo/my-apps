@@ -81,10 +81,10 @@ final class Settings: ObservableObject {
     }
     var candidates: [Account] { candidates(value.provider) }
     func candidates(_ provider: String) -> [Account] {
-        let providers = ["claude", "codex", "qwen"]
+        let providers = ["claude", "codex", "qwen", "agy"]
         let ordered = provider == "auto" ? providers : [provider] + providers.filter { $0 != provider }
         return ordered.flatMap { provider in
-            provider == "qwen" ? [Account(id: "qwen", name: "Qwen", provider: "qwen")] : value.accounts.filter { $0.provider == provider && $0.enabled }
+            provider == "qwen" ? [Account(id: "qwen", name: "Qwen", provider: "qwen")] : provider == "agy" ? [Account(id: "agy", name: "Antigravity", provider: "agy")] : value.accounts.filter { $0.provider == provider && $0.enabled }
         }
     }
     func addProfile(provider: String, path: String) throws {

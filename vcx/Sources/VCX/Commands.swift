@@ -113,9 +113,9 @@ extension Session {
             switch verb {
             case "/provider", "/model":
                 let args = argument.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-                let providers = ["claude", "codex", "qwen"]
+                let providers = ["claude", "codex", "qwen", "agy"]
                 if args.count == 1 {
-                    return providers.filter { argument.isEmpty || $0.contains(argument) }.map { option($0 + " ", "Choose a " + $0.capitalized + " model", label: $0.capitalized, isCurrent: $0 == account.provider) }
+                    return providers.filter { argument.isEmpty || $0.contains(argument) }.map { option($0 + " ", "Choose " + ($0 == "agy" ? "an Antigravity" : "a " + $0.capitalized) + " model", label: $0 == "agy" ? "Antigravity" : $0.capitalized, isCurrent: $0 == account.provider) }
                 }
                 let provider = args[0]
                 guard provider == account.provider || provider == "auto" else { return [] }
@@ -352,7 +352,7 @@ extension Session {
                     return
                 }
                 let args = argument.split(separator: " ").map(String.init)
-                let providers = ["auto", "claude", "codex", "qwen"]
+                let providers = ["auto", "claude", "codex", "qwen", "agy"]
                 if providers.contains(args[0]) {
                     let provider = args[0], previousProvider = providerChoice
                     providerChoice = provider
@@ -415,7 +415,7 @@ extension Session {
             case "/plan":
                 try idle(); guard ready else { throw CXError(message: "Reconnect first.") }
                 if account.provider == "claude" { await send(text: "/plan" + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true); return }
-                guard account.provider == "codex" else { throw CXError(message: "Qwen has no native plan mode.") }
+                guard account.provider == "codex" else { throw CXError(message: providerLabel + " has no native plan mode in VCX.") }
                 planning = !["off", "execute", "default"].contains(argument)
                 if !argument.isEmpty, !["on", "off", "execute", "default"].contains(argument) {
                     await send(text: argument, images: [], commandHandled: true); return

@@ -6,7 +6,7 @@ enum ModelControl {
     private static var active: Set<String> = []
     private static var retrying = false
 
-    static let providers = ["auto", "claude", "codex", "qwen"]
+    static let providers = ["auto", "claude", "codex", "qwen", "agy"]
 
     static func request(_ args: [String]) -> Int32 {
         let all = AgentMessages.windows()
@@ -15,7 +15,7 @@ enum ModelControl {
         let provider = rest.first.flatMap { providers.contains($0) ? $0 : nil }
         if provider != nil { rest.removeFirst() }
         guard let window, (provider == nil ? 1...2 : 0...2).contains(rest.count) else {
-            fputs("usage: vcx --set-model <window id or name | self> [auto|claude|codex|qwen] [model] [effort]\n", stderr)
+            fputs("usage: vcx --set-model <window id or name | self> [auto|claude|codex|qwen|agy] [model] [effort]\n", stderr)
             return 2
         }
         do {
