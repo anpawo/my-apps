@@ -17,7 +17,7 @@ desks launch <n> <app> [file…] # a test copy of the app opens on desktop n, pr
 `launch` copies the app to `$TMPDIR/desks/<Name> Test.app` with its bundle id suffixed `.test`, so
 the copy keeps its own settings and history and runs beside his copy, as many times as asked. It
 starts hidden (`open -g -j -n`), so an app that activates at launch must skip that when
-`NSApp.isHidden` (Video Viewer does), or it pulls him to that desktop.
+`NSApp.isHidden` (Viewer does), or it pulls him to that desktop.
 
 A window on another desktop still renders: `screencapture -x -o -l <window id> shot.png` captures
 it from there.

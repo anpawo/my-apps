@@ -1,1 +1,0 @@
-../../../video-viewer/Sources/Viewer/Sidebar.swift

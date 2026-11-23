@@ -20,8 +20,7 @@ TABLES = {
         "mac-guard": "Stops the processes that take the Mac down.",
         "one-text": "One conversation per person, across WhatsApp, Instagram, Discord and more.",
         "vcx": "Vibe Code X: a native window for Claude Code, Codex, Qwen and more...",
-        "video-viewer": "Images, videos, GIFs, music and PDFs in one window, arrows to switch and change speed.",
-        "text-viewer": "A minimal viewer and editor for text and code, with coloring.",
+        "viewer": "Images, videos, GIFs, music, PDFs and code in one window: arrows to switch, speed, an editor for text.",
         "watcher": "Watches what you are waiting for: mail answers, PR reviews and more...",
     },
 }
