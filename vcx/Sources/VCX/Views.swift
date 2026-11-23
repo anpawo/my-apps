@@ -405,7 +405,7 @@ struct CXView: View {
                         })
                             .clipShape(RoundedRectangle(cornerRadius: 12)).raised(RoundedRectangle(cornerRadius: 12))
                             .onHover { inside in hoveringCapabilityPanel = inside; if !inside { closeCapabilityLater() } }
-                        if title == "RAG", let rule = hoveredRule {
+                        if CapabilityPopup.detailBeside.contains(title), let rule = hoveredRule {
                             Text(rule).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
                                 .frame(width: 300, alignment: .leading).padding(12)
                                 .background(Color.white, in: RoundedRectangle(cornerRadius: 10)).raised(RoundedRectangle(cornerRadius: 10))
@@ -1079,6 +1079,8 @@ struct CapabilityPopup: View {
     let title: String
     var dismiss: () -> Void = {}
     var hoverRule: (String?, CGFloat) -> Void = { _, _ in }
+    // These lists show names only; the full text shows in a panel beside the hovered card.
+    static let detailBeside: Set<String> = ["RAG", "Skills"]
     @State private var hovered: String?
     @State private var query = ""
     @FocusState private var searching: Bool
@@ -1107,16 +1109,16 @@ struct CapabilityPopup: View {
                                         if parts.contains("disabled") { Text("disabled") }
                                     }.font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).help(detail).accessibilityLabel(detail)
                                 }
-                            } else if title != "RAG", !item.detail.isEmpty {
+                            } else if !CapabilityPopup.detailBeside.contains(title), !item.detail.isEmpty {
                                 Text(item.detail).font(.system(size: 11)).foregroundStyle(.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                             .padding(12).contentShape(Rectangle())
                             // The full line shows beside the card, level with the pointer where it entered.
                             .onContinuousHover(coordinateSpace: .named("capabilityPanel")) { phase in
-                                guard title == "RAG" else { return }
+                                guard CapabilityPopup.detailBeside.contains(title) else { return }
                                 switch phase {
-                                case .active(let point): if hovered != item.id { hovered = item.id; hoverRule(item.id, max(0, point.y - 20)) }
+                                case .active(let point): if hovered != item.id { hovered = item.id; hoverRule(title == "RAG" ? item.id : item.detail, max(0, point.y - 20)) }
                                 case .ended: if hovered == item.id { hovered = nil; hoverRule(nil, 0) }
                                 }
                             }
@@ -1136,6 +1138,8 @@ struct CapabilityPopup: View {
             }
         }.frame(width: 380, height: 440).background(Color(white: 0.98)).preferredColorScheme(.light)
             .onExitCommand(perform: dismiss)
+            // A skill added or removed mid-session shows on the next opening.
+            .task { if title == "Skills" { await session.refreshCapabilities() } }
     }
 }
 

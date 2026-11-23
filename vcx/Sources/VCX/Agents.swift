@@ -225,6 +225,12 @@ final class ClaudeConnection: Connection {
             return ["data": (catalog["models"] as? [JSON] ?? []).compactMap { ($0["value"] as? String).map { ["id": $0] } }]
         case "cx/catalog":
             var result = try await catalog()
+            // initialize lists skills as they were at launch; reload_skills rereads the user's and project's from disk
+            // (and only those: plugin and account skills are missing from it, so they stay as initialize gave them).
+            if let fresh = (try? await controlResult(["subtype": "reload_skills"], timeout: 10))?["skills"] as? [JSON] {
+                result["commands"] = Self.reloadedCommands(result["commands"] as? [JSON] ?? [], fresh: fresh)
+                metadata = result
+            }
             do {
                 let status = try await controlResult(["subtype": "mcp_status"], timeout: 10)
                 result["mcp_servers"] = status["mcpServers"] ?? status["mcp_servers"]
@@ -534,6 +540,13 @@ final class ClaudeConnection: Connection {
         controls.removeValue(forKey: key)
     }
     func reject(_ id: Any, method: String) throws { try respond(id, ["decision": "decline"]) }
+    // A user or project skill is tagged so at the end of its description; only those come from the reload.
+    static func reloadedCommands(_ commands: [JSON], fresh: [JSON]) -> [JSON] {
+        let local: (JSON) -> Bool = { ($0["description"] as? String).map { $0.hasSuffix("(user)") || $0.hasSuffix("(project)") } ?? false }
+        let kept = commands.filter { !local($0) }
+        let names = Set(kept.compactMap { $0["name"] as? String })
+        return kept + fresh.filter { local($0) && !names.contains($0["name"] as? String ?? "") }
+    }
     private func catalog() async throws -> JSON {
         if let metadata { return metadata }
         if process == nil { try launch(resume: resumed) }

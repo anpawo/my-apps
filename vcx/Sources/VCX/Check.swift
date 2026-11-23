@@ -2096,6 +2096,9 @@ enum Check {
             }
             codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
             check(codexCommands.capabilityItems("Skills").first?.detail == "Fixture skill description", "skill popups retain provider descriptions")
+            let launched: [JSON] = [["name": "gone", "description": "Old (user)"], ["name": "plugin:x", "description": "Plugin"], ["name": "compact", "description": "Compact", "builtin": true]]
+            let reloaded = ClaudeConnection.reloadedCommands(launched, fresh: [["name": "added", "description": "New (user)"], ["name": "simplify", "description": "Bundled"]])
+            check(reloaded.compactMap { $0["name"] as? String } == ["plugin:x", "compact", "added"], "a skills reload drops a deleted user skill, adds a new one and keeps plugin and built-in commands")
             codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"], ["name": "compact", "description": "Compact", "builtin": true]]])
             check(codexCommands.skills == ["fixture-skill"] && codexCommands.providerCommands.contains { $0.name == "/compact" }, "Claude's built-in commands stay in the palette but out of the skills list")
             check(codexCommands.capabilityItems("Commands").map(\.name) == ["compact"] && codexCommands.capabilityItems("Commands").first?.detail == "Compact", "Claude's built-in commands get their own list with descriptions")
