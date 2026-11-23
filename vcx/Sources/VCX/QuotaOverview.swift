@@ -9,6 +9,8 @@ struct QuotaOverview: View {
     // Claude's usage endpoint answers HTTP 429 when polled, so a reopened panel within a minute shows the last read.
     private static var cache: (at: Date, lines: [Line])?
     static let cacheLife: TimeInterval = 60
+    // MAX_PROMPTS_PER_DAY in ~/.claude/skills/deep/ask-gemini.mjs.
+    static let geminiWebDailyCap = 25
 
     init(lines: [Line]? = nil, changeModel: @escaping () -> Void) {
         self.changeModel = changeModel; live = lines == nil
@@ -52,7 +54,18 @@ struct QuotaOverview: View {
             let rate = await Task.detached { codexRateLimits(home: account.home ?? NSHomeDirectory() + "/.codex") }.value
             lines.append(rate.map { line(name, $0) } ?? Line(agent: name, fiveHour: "No Codex turn yet", week: ""))
         }
-        return lines + (await agy)
+        return lines + (await agy) + [geminiWeb(geminiWebCount())]
+    }
+
+    // gemini.google.com has no usage readout: the deep skill's Gemini web leg counts its own prompts per local day.
+    nonisolated static func geminiWebCount(day: Date = Date()) -> Int {
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        let path = NSHomeDirectory() + "/.local/state/gemini-web/" + formatter.string(from: day)
+        return Int(((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    static func geminiWeb(_ count: Int) -> Line {
+        Line(agent: "Gemini web", fiveHour: "–", week: "\(count)/\(geminiWebDailyCap) today - reset 00h00")
     }
 
     static func accountName(_ agent: String, _ account: Account) -> String { account.name.isEmpty || account.name.hasPrefix("Default ") ? agent : agent + " · " + account.name }

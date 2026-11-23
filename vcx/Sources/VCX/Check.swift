@@ -2339,7 +2339,7 @@ enum Render {
         let codex = QuotaOverview.line("Codex", ["primary": ["usedPercent": 22.0, "windowDurationMins": 10080, "resetsAt": Date().timeIntervalSince1970 + 86400]])
         let claude = QuotaOverview.line("Claude", ["primary": ["usedPercent": 31.0, "windowDurationMins": 300, "resetsAt": Date().timeIntervalSince1970 + 7800], "secondary": ["usedPercent": 96.0, "windowDurationMins": 10080, "resetsAt": Date().timeIntervalSince1970 + 200000]])
         print(agy.map { "\($0.agent)|\($0.week)" }, codex.fiveHour, codex.week, claude.fiveHour)
-        write(QuotaOverview(lines: [claude, codex] + agy) {}.foregroundStyle(.black).background(Color.white), size: CGSize(width: 700, height: 300), path: directory + "/quota-overview.png")
+        write(QuotaOverview(lines: [claude, codex] + agy + [QuotaOverview.geminiWeb(7)]) {}.foregroundStyle(.black).background(Color.white), size: CGSize(width: 700, height: 300), path: directory + "/quota-overview.png")
         let message = markdownBlocks("```\nhello, a draft to paste whose single line is far longer than the code block is wide, so it has to wrap onto the next lines instead of running off the right edge\n```")[0]
         write(CodeBlock(block: message).padding(24).foregroundStyle(.black).background(Color.white), size: CGSize(width: 520, height: 220), path: directory + "/code-wrap.png")
         let edits = CodeEdits(); edits.set(message.text, "hello, my own version of the draft\nwith a second line I typed")
