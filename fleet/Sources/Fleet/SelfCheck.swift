@@ -332,8 +332,15 @@ enum SelfCheck {
                    near($0.x, 2 * (tileW + 26)) && near($0.y, CGFloat($1) * (cell.height + 26))
                }, true,
                "grid: sessions stand right of every directory before they take the cells under a shorter one")
-        // Four, two and three: every column holds one, the session under the shortest.
+        // Four, two and three: every column holds one, the session under the shortest. With
+        // room, the groups keep the order they come in (asked 2026-11-22).
         grid.wide = [size(4), size(2), size(3), nil]
+        let ordered = grid.rest(4)
+        expect(ordered.frames[0...2].map(\.minX).map { ($0 / (tileW + 26)).rounded() } == [0, 1, 2]
+               && near(ordered.frames[3].minX, tileW + 26), true,
+               "grid: with room, directories keep the order they come in, a session under the shortest")
+        // Short of room, the tallest first.
+        grid.tallestFirst = true
         let under = grid.rest(4)
         expect(near(under.frames[3].minX, 2 * (tileW + 26)) && under.frames[3].minY >= size(2).height + 26, true,
                "grid: with a directory in every column, a session takes the cell under the shortest")
@@ -342,6 +349,7 @@ enum SelfCheck {
         grid.wide = [size(2), size(3), size(3)]
         expect(grid.rest(3).frames.map(\.minX).map { ($0 / (tileW + 26)).rounded() } == [2, 0, 1], true,
                "grid: two of a height keep the order they come in")
+        grid.tallestFirst = false
         // Two across beside a taller one, then two across again: it rises to the first one's foot.
         grid.wide = [size(4, across: 2), size(6), size(4, across: 2), size(2)]
         let risen = grid.rest(4).frames
