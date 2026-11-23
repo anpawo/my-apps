@@ -306,7 +306,6 @@ final class ItemCell: NSTableCellView {
     let controls = Controls()
     /// Esc hides the bar for every file until pressed again.
     var controlsHidden = false { didSet { showControls() } }
-    private let date = label(size: 11, weight: .medium, color: .tertiaryLabelColor)
     private let empty = label("Drop images, videos, GIFs, music or PDFs", size: 18, color: .secondaryLabelColor)
     private let stage = NSView()
     var stageSize: NSSize { stage.frame.size }
@@ -314,11 +313,9 @@ final class ItemCell: NSTableCellView {
     override func loadView() {
         let root = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
         for view in [stage, hud, controls] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
-        for view in [stage, date, empty, hud, controls] as [NSView] { root.addSubview(view) }
+        for view in [stage, empty, hud, controls] as [NSView] { root.addSubview(view) }
         NSLayoutConstraint.activate([
-            date.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: 6),
-            date.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            stage.topAnchor.constraint(equalTo: date.bottomAnchor, constant: 6),
+            stage.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             stage.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             stage.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             stage.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -334,15 +331,8 @@ final class ItemCell: NSTableCellView {
         view = root
     }
 
-    func show(_ media: Media?, plays: Bool, modified: Date?) {
+    func show(_ media: Media?, plays: Bool) {
         stage.subviews.forEach { $0.removeFromSuperview() }
-        date.stringValue = modified.map {
-            let format = DateFormatter()
-            format.locale = englishInRegion
-            format.dateStyle = .long
-            format.timeStyle = .short
-            return format.string(from: $0)
-        } ?? ""
         empty.isHidden = media != nil
         controls.media = plays ? media : nil
         showControls()

@@ -186,7 +186,9 @@ final class Controller: NSObject {
         list.reload(library)
         list.showRecent(recentFiles())
         window.title = "All Media"
-        window.subtitle = Details.items(library.shown.count)
+        // The shown file's date sits in the title bar, not over the picture.
+        window.subtitle = ([Details.items(library.shown.count)] + [library.currentEntry.map { longDate($0.modified) }].compactMap { $0 })
+            .joined(separator: " · ")
         showCurrent()
         updateToolbar()
     }
@@ -203,7 +205,15 @@ final class Controller: NSObject {
         media?.stop()
         media = entry.map { makeMedia($0.url, kind: $0.kind, volume: volume) { [weak self] in self?.updateToolbar() } }
         speedLabel = Speed.label(1)
-        viewer.show(media, plays: entry?.kind.plays == true, modified: entry?.modified)
+        viewer.show(media, plays: entry?.kind.plays == true)
+    }
+
+    private func longDate(_ date: Date) -> String {
+        let format = DateFormatter()
+        format.locale = englishInRegion
+        format.dateStyle = .long
+        format.timeStyle = .short
+        return format.string(from: date)
     }
 }
 

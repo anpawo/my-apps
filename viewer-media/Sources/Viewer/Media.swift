@@ -136,7 +136,6 @@ private final class CenteringClipView: NSClipView {
         player.volume = volume
         playerView.player = player
         playerView.controlsStyle = .none
-        player.play()
     }
 
     func changeSpeed(by steps: Int) -> String? {
