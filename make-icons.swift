@@ -69,8 +69,8 @@ let apps: [(dir: String, draw: () -> Void)] = [
     ("paperclip", { glyph("paperclip", box: 500) }),
     ("one-text", oneBubble),
     ("mac-guard", guardedApple),
-    ("viewer-media", { glyph("play.rectangle.on.rectangle", box: 500) }),
-    ("viewer-text", { glyph("chevron.left.forwardslash.chevron.right", box: 500) }),
+    ("video-viewer", { glyph("play.rectangle.on.rectangle", box: 500) }),
+    ("text-viewer", { glyph("chevron.left.forwardslash.chevron.right", box: 500) }),
     ("desks", { glyph("square.split.2x1", box: 500) }),
 ]
 

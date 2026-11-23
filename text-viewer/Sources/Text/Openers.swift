@@ -1,0 +1,1 @@
+../../../video-viewer/Sources/Viewer/Openers.swift

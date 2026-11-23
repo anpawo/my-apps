@@ -24,8 +24,8 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 | <img src="mac-guard/docs/icon.png" width="40" alt=""> | [mac-guard](mac-guard) | Stops the processes that take the Mac down. |
 | <img src="one-text/docs/icon.png" width="40" alt=""> | [one-text](one-text) | One conversation per person, across WhatsApp, Instagram, Discord and more. |
 | <img src="vcx/docs/icon.png" width="40" alt=""> | [vcx](vcx) | Vibe Code X: a native window for Claude Code, Codex, Qwen and more... |
-| <img src="viewer-media/docs/icon.png" width="40" alt=""> | [viewer-media](viewer-media) | Images, videos, GIFs, music and PDFs in one window, arrows to switch and change speed. |
-| <img src="viewer-text/docs/icon.png" width="40" alt=""> | [viewer-text](viewer-text) | A minimal viewer and editor for text and code, with coloring. |
+| <img src="video-viewer/docs/icon.png" width="40" alt=""> | [video-viewer](video-viewer) | Images, videos, GIFs, music and PDFs in one window, arrows to switch and change speed. |
+| <img src="text-viewer/docs/icon.png" width="40" alt=""> | [text-viewer](text-viewer) | A minimal viewer and editor for text and code, with coloring. |
 | <img src="watcher/docs/icon.png" width="40" alt=""> | [watcher](watcher) | Watches what you are waiting for: mail answers, PR reviews and more... |
 
 ### [alt-tab](alt-tab)
@@ -58,17 +58,17 @@ Every app, built: [latest release](https://github.com/anpawo/my-apps/releases/la
 
 [![⌘⇧5 over a desktop of three windows: the pointer clicks Entire Screen, which frames the whole screen; Selected Window, which washes the window under it in blue; Selected Portion, which brings back the dashed selection; then Capture. The thumbnail comes up in the top-right corner, a click on it pins it there, and the pin takes a click (copied), a double click (opens the file) and a right click (unpinned, it goes)](screenshot/docs/demo.gif)](screenshot)
 
+### [text-viewer](text-viewer)
+
+[![Text Viewer: the sidebar of opened files beside a Swift file colored with line numbers](text-viewer/docs/screenshot.png)](text-viewer)
+
 ### [vcx](vcx)
 
 [![A prompt typed into an empty Vibe Code X window and sent with ↵: it flies into the chat, Claude's actions fold into one block that counts them as they run, a question card asks which button style to use and 1 picks the first option, then the answer comes back with its green summary, the orange Done line and the blue Next line; / opens the command palette, /model lists Claude, Codex and Qwen, and esc closes it](vcx/docs/demo.gif)](vcx)
 
-### [viewer-media](viewer-media)
+### [video-viewer](video-viewer)
 
-[![Viewer Media: the sidebar of opened files beside a video and its playback bar](viewer-media/docs/screenshot.png)](viewer-media)
-
-### [viewer-text](viewer-text)
-
-[![Viewer Text: the open files' folders, their files listed by date, a Swift file colored on the right](viewer-text/docs/screenshot.png)](viewer-text)
+[![Video Viewer: the sidebar of opened files beside a video and its playback bar](video-viewer/docs/screenshot.png)](video-viewer)
 
 ### [watcher](watcher)
 
