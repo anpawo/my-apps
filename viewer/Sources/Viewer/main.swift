@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showSettings(_ sender: Any?) { Openers.show(commonExtensions) }
     @objc private func saveDocument(_ sender: Any?) { controller.saveCurrent() }
     @objc private func closeFile(_ sender: Any?) { controller.closeCurrent() }
+    @objc private func toggleSidebar(_ sender: Any?) { controller.toggleSidebar() }
 
     @objc private func openDocument(_ sender: Any?) {
         let panel = NSOpenPanel()
@@ -82,8 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             find("Find Next", .nextMatch, "g"), find("Find Previous", .previousMatch, "G"),
             find("Use Selection for Find", .setSearchString, "e"),
         ])
+        let viewMenu = menu("View", [item("Toggle Sidebar", #selector(toggleSidebar(_:)), "s", [.command, .control])])
         let windowMenu = menu("Window", [item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")])
-        for menu in [appMenu, fileMenu, editMenu, windowMenu] {
+        for menu in [appMenu, fileMenu, editMenu, viewMenu, windowMenu] {
             main.addItem(withTitle: menu.title, action: nil, keyEquivalent: "").submenu = menu
         }
         NSApp.windowsMenu = windowMenu

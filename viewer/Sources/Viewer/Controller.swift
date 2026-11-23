@@ -4,7 +4,7 @@ import ViewerCore
 
 enum Action {
     case previous, next, slower, faster, playPause, volumeUp, volumeDown, mute
-    case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut, toggleControls
+    case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut, toggleControls, sidebar
 }
 
 private let inAppKeys: [(key: Int, modifiers: NSEvent.ModifierFlags, action: Action)] = [
@@ -87,6 +87,12 @@ final class Controller: NSObject {
     }
 
     func showSidebar() { split.splitViewItems[0].isCollapsed = false }
+
+    /// As in Preview: the window grows or shrinks by the sidebar, its height and the file's size stay.
+    func toggleSidebar() {
+        let side = split.splitViewItems[0]
+        fit.keepingStage { side.isCollapsed.toggle() }
+    }
 
     private func buildSplit() {
         let side = NSSplitViewItem(sidebarWithViewController: list)
@@ -219,6 +225,7 @@ final class Controller: NSObject {
         case .reveal: if let url = library.current { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         case .settings: Openers.show(commonExtensions)
         case .fullscreen: window.toggleFullScreen(nil)
+        case .sidebar: toggleSidebar()
         case .zoomIn: media?.zoom(in: true)
         case .zoomOut: media?.zoom(in: false)
         case .toggleControls: viewer.controlsHidden.toggle()

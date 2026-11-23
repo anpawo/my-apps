@@ -58,6 +58,22 @@ final class StageFit: NSObject, NSWindowDelegate {
         didFit()
     }
 
+    /// Runs a column change and widens or narrows the window by what it took or gave, toward the left,
+    /// so the viewer keeps its size; the screen edge stops it, the viewer giving way then.
+    func keepingStage(_ change: () -> Void) {
+        let before = chromeSize().width
+        adjusting = true
+        defer { adjusting = false; lastChromeWidth = chromeSize().width }
+        change()
+        guard !window.styleMask.contains(.fullScreen), let area = window.screen?.visibleFrame else { return }
+        let delta = chromeSize().width - before
+        var frame = window.frame
+        let right = frame.maxX
+        frame.size.width = min(area.width, frame.width + delta)
+        frame.origin.x = min(max(area.minX, right - frame.width), area.maxX - frame.width)
+        window.setFrame(frame, display: true)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool { shouldClose() }
 
     func windowWillResize(_ sender: NSWindow, to size: NSSize) -> NSSize {

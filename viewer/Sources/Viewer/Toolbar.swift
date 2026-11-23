@@ -87,7 +87,9 @@ func volumeSymbol(_ volume: Float) -> String {
         item.label = "Sidebar"
         item.toolTip = "Show or hide the sidebar"
         item.isBordered = false
-        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
+        item.target = self
+        item.action = #selector(clicked(_:))
+        actions[id] = .sidebar
         return item
     }
 
