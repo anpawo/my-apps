@@ -472,11 +472,15 @@ struct OverlayView: View {
                       : max(0, Self.blockHeight - Self.gridPadding - 132)
     }
 
+    /// Where each card stood the last time the grid was laid out, for the tile size it had then.
+    private static var spots: (tile: CGSize, at: [String: CGPoint]) = (.zero, [:])
+
     /// Every card, in rows of three, laid out by hand rather than by stacks — see `FleetLayout`.
     private var grid: some View {
         // One grid a desktop, the front one's first, a line between two (asked 2026-10-31).
         let place = { (session: Session) in controller.desktops[session.id] ?? 0 }
-        var sections = Set(controller.sessions.map(place)).sorted().map { desk in
+        let desks = Set(controller.sessions.map(place)).sorted()
+        var sections = desks.map { desk in
             cells(controller.sessions.filter { place($0) == desk })
         }
         // Jarvis's panel opens on whichever desktop he is on: the first grid, the front one's.
@@ -488,11 +492,18 @@ struct OverlayView: View {
         // Every directory stands unfolded in the grid itself, its sessions in view with nothing
         // to click (asked 2026-10-12; never folded since 2026-10-18), in one column (asked
         // 2026-10-22), or two where that alone keeps the grid on the screen (asked 2026-10-28).
-        let layouts = FleetLayout(tile: tile, spacing: tileSpacing, columns: Self.tilesPerRow)
-            .widening(sections.map { $0.map(\.parts) },
-                      room: room - CGFloat(max(0, sections.count - 1)) * (2 * tileSpacing + 1)) {
+        let shared = room - CGFloat(max(0, sections.count - 1)) * (2 * tileSpacing + 1)
+        let fresh = FleetLayout(tile: tile, spacing: tileSpacing, columns: Self.tilesPerRow)
+            .widening(sections.map { $0.map(\.parts) }, room: shared) {
                 GroupTile.size(holding: $0, across: $1, in: centerWidth, spacing: tileSpacing)
             }
+        let ids = sections.enumerated().map { s, cells in
+            cells.map { "\(s < desks.count ? desks[s] : 0)/" + $0.id }
+        }
+        let held = FleetLayout.holding(fresh, ids: ids, room: shared,
+                                       before: Self.spots.tile == tile ? Self.spots.at : [:])
+        Self.spots = (tile, held.spots)
+        let layouts = held.layouts
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(sections.enumerated()), id: \.offset) { s, cells in
                 if s > 0 {
@@ -698,8 +709,60 @@ struct FleetLayout: Layout {
     var wide: [CGSize?] = []
     /// The tallest directory on the left, set only when their own order runs past the room.
     var tallestFirst = false
+    /// Every card's frame, set by `holding`: where the cards stood last time.
+    var fixed: [CGRect]?
 
     private var width: CGFloat { tile.width * CGFloat(columns) + spacing * CGFloat(columns - 1) }
+
+    /// Closer than a gap to another card.
+    private func clash(_ a: CGRect, _ b: CGRect) -> Bool {
+        a.insetBy(dx: 1 - spacing, dy: 1 - spacing).intersects(b)
+    }
+
+    /// The highest free spot a card this size fits in, the leftmost of a tie.
+    private func gap(for size: CGSize, around taken: [CGRect]) -> CGRect {
+        let ys = Set([0] + taken.map { $0.maxY + spacing }).sorted()
+        for y in ys {
+            for c in 0 ..< columns {
+                let spot = CGRect(origin: CGPoint(x: CGFloat(c) * (tile.width + spacing), y: y), size: size)
+                if spot.maxX <= width + 1, !taken.contains(where: { clash(spot, $0) }) { return spot }
+            }
+        }
+        return CGRect(origin: CGPoint(x: 0, y: ys.last!), size: size)
+    }
+
+    /// Each card where it stood last time, at its new size (asked 2026-11-23: closing windows
+    /// moved the groups under them back up); a new card, or one its grown neighbour now covers,
+    /// in the highest gap it fits. Past `room`, the fresh layout: only then do groups move to fit.
+    /// `ids` name each card for good across layouts, `before` is where they stood.
+    static func holding(_ fresh: [FleetLayout], ids: [[String]], room: CGFloat,
+                        before: [String: CGPoint]) -> (layouts: [FleetLayout], spots: [String: CGPoint]) {
+        var held = fresh
+        for (s, layout) in fresh.enumerated() {
+            let sizes = layout.rest(ids[s].count).frames.map(\.size)
+            var placed: [Int: CGRect] = [:]
+            for (i, id) in ids[s].enumerated() {
+                guard let origin = before[id] else { continue }
+                let frame = CGRect(origin: origin, size: sizes[i])
+                if frame.maxX <= layout.width + 1, !placed.values.contains(where: { layout.clash(frame, $0) }) {
+                    placed[i] = frame
+                }
+            }
+            for i in ids[s].indices where placed[i] == nil {
+                placed[i] = layout.gap(for: sizes[i], around: Array(placed.values))
+            }
+            held[s].fixed = ids[s].indices.map { placed[$0]! }
+        }
+        let height = { (layouts: [FleetLayout]) in
+            zip(layouts, ids).map { $0.rest($1.count).height }.reduce(0, +)
+        }
+        let chosen = height(held) <= room || height(held) <= height(fresh) ? held : fresh
+        var spots: [String: CGPoint] = [:]
+        for (layout, ids) in zip(chosen, ids) {
+            for (id, frame) in zip(ids, layout.rest(ids.count).frames) { spots[id] = frame.origin }
+        }
+        return (chosen, spots)
+    }
 
     private func rows(_ count: Int) -> CGFloat {
         let rows = (count + columns - 1) / columns
@@ -712,6 +775,7 @@ struct FleetLayout: Layout {
     /// directory one column wide stands in such a column first, and the sessions take the
     /// cells left round it, under the shorter one included (asked 2026-10-15).
     func rest(_ count: Int) -> (frames: [CGRect], height: CGFloat) {
+        if let fixed, fixed.count == count { return (fixed, fixed.map(\.maxY).max() ?? 0) }
         var frames = Array(repeating: CGRect.zero, count: count)
         var queue = (0 ..< count).filter { $0 >= wide.count || wide[$0] == nil }[...]
         let step = CGSize(width: tile.width + spacing, height: tile.height + spacing)

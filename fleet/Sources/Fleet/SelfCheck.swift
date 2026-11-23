@@ -393,6 +393,26 @@ enum SelfCheck {
         expect(near(2 * pair.width + 3 * GroupTile.inset, size(5, across: 2).width)
                && pair.height >= 0.5 * SessionTile.height, true,
                "grid: two across, its cards keep half a session's height")
+
+        // Four in one column, two under them: closing two of the four leaves the two in place.
+        var column = FleetLayout(tile: grid.tile, spacing: 26, columns: 1)
+        column.wide = [size(4), size(2)]
+        let was = column.rest(2).frames
+        column.wide = [size(2), size(2)]
+        let kept = FleetLayout.holding([column], ids: [["a", "b"]], room: 10_000,
+                                       before: ["a": was[0].origin, "b": was[1].origin])
+        expect(near(kept.layouts[0].rest(2).frames[1].minY, was[1].minY), true,
+               "grid: a group stays where it stood when the one above it shrinks and there is room")
+        let refit = FleetLayout.holding([column], ids: [["a", "b"]], room: was[1].minY,
+                                        before: ["a": was[0].origin, "b": was[1].origin])
+        expect(near(refit.layouts[0].rest(2).frames[1].minY, size(2).height + 26), true,
+               "grid: short of room, it rises to fit")
+        column.wide = [size(4), size(2), size(1)]
+        let added = FleetLayout.holding([column], ids: [["a", "b", "c"]], room: 10_000,
+                                        before: ["a": was[0].origin, "b": was[1].origin])
+        expect(near(added.layouts[0].rest(3).frames[1].minY, was[1].minY)
+               && added.layouts[0].rest(3).frames[2].minY > was[1].maxY, true,
+               "grid: a new group takes a free spot, the others stay")
     }
 
     // MARK: - Projects
