@@ -74,7 +74,7 @@ struct QuotaOverview: View {
         guard reset > now else { return "0%" }
         let countdown: String
         if weekly {
-            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Europe/Paris"); formatter.dateFormat = "EEE H'h'mm"
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Europe/Paris"); formatter.dateFormat = "EEE HH'h'mm"
             countdown = formatter.string(from: Date(timeIntervalSince1970: reset))
         } else {
             let minutes = Int((reset - now) / 60)

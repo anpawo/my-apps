@@ -2016,7 +2016,7 @@ enum Check {
                 let rate = result["rateLimits"] as? JSON ?? [:]
                 usageDisplay.updateUsage(rate)
                 check(usageDisplay.usagePercent == 100, "footer color follows the exhausted weekly quota")
-                check(usageDisplay.usage == "100% wk - reset Wed 1h59", "weekly reset shows Paris time without a leading hour zero")
+                check(usageDisplay.usage == "100% wk - reset Wed 01h59", "weekly reset shows Paris time on two-digit 24-hour hours")
                 check((rate["secondary"] as? JSON)?["resetsAt"] as? Double != nil, "Claude fractional reset timestamps are parsed")
                 usageDisplay.updateUsage(["primary": ["usedPercent": 10.0, "windowDurationMins": 10080, "resetsAt": ISO8601DateFormatter().date(from: "2099-07-04T16:59:59Z")!.timeIntervalSince1970] as JSON])
                 check(usageDisplay.usage == "10% wk - reset Sat 18h59", "weekly reset follows Paris daylight saving time")
