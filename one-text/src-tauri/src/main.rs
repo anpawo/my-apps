@@ -500,6 +500,15 @@ fn main() {
                     w.set_size(tauri::PhysicalSize::new(w.outer_size()?.width, area.size.height))?;
                     w.set_position(tauri::PhysicalPosition::new(area.position.x, area.position.y))?;
                 }
+                // Close, minimize and zoom: the window never closes (it hides), and the buttons sat astride the
+                // floating sidebar's corner.
+                let ns = w.ns_window()? as *mut objc2::runtime::AnyObject;
+                for kind in 0usize..3 {
+                    unsafe {
+                        let button: *mut objc2::runtime::AnyObject = objc2::msg_send![ns, standardWindowButton: kind];
+                        let _: () = objc2::msg_send![button, setHidden: true];
+                    }
+                }
                 // wry turns on element fullscreen; off, videos lose their fullscreen button. The setting
                 // reaches a page only on its next load, hence the reload.
                 w.with_webview(|wv| unsafe {

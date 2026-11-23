@@ -66,7 +66,7 @@ Settings is the gear above the list, or ⌘,. It holds the Play reels here switc
 | esc | Close what is open: menu, search, profile, picture, reply |
 | ⌘, | Settings |
 
-It opens at login, and ⌘Q or the close button only hide it, unless Allow Quitting is ticked in the One Text menu.
+It opens at login, has no close, minimize or zoom buttons, and ⌘Q only hides it, unless Allow Quitting is ticked in the One Text menu.
 
 ## Privacy and encryption
 
