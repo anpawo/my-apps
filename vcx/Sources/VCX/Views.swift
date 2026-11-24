@@ -16,26 +16,66 @@ struct ConversationSection: Identifiable {
 }
 
 // A message from another session starts a turn like a prompt does, so it heads its own section.
-func headsSection(_ row: Row) -> Bool { row.kind == "user" || (row.kind == "peer" && row.items.first?.data["direction"] as? String == "received") }
+func headsSection(_ row: Row) -> Bool {
+    switch row.sectionRole {
+    case .user: return true
+    case .peer: return row.items.first?.data["direction"] as? String == "received"
+    default: return false
+    }
+}
 
 func conversationSections(_ rows: [Row]) -> [ConversationSection] {
+    guard let first = rows.first else { return [] }
+
     var sections: [ConversationSection] = []
-    for row in rows {
-        if headsSection(row) {
-            sections.append(ConversationSection(id: row.id, question: row))
-        } else {
-            if sections.isEmpty { sections.append(ConversationSection(id: row.id)) }
-            sections[sections.count - 1].rows.append(row)
+    var id = first.id
+    var question: Row?
+    var bodyStart = rows.startIndex
+    for index in rows.indices {
+        let row = rows[index]
+        guard headsSection(row) else { continue }
+        if index != rows.startIndex {
+            sections.append(ConversationSection(id: id, question: question, rows: Array(rows[bodyStart..<index])))
         }
+        id = row.id
+        question = row
+        bodyStart = index + 1
     }
+    let body = bodyStart == rows.startIndex ? rows : Array(rows[bodyStart...])
+    sections.append(ConversationSection(id: id, question: question, rows: body))
     return sections
 }
 
 // The last message (the latest thought while working, the answer once done) stays visible; the rest folds into one block.
 func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], debates: [Row]) {
-    var work = rows.filter { !["notice", "peer", "debate"].contains($0.kind) }
-    let last = work.lastIndex(where: { $0.kind == "assistant" }).map { work.remove(at: $0) }
-    return (work, last, rows.filter { ["notice", "peer"].contains($0.kind) }, rows.filter { $0.kind == "debate" })
+    var trail: [Row] = []
+    var notices: [Row] = []
+    var debates: [Row] = []
+    var trailStart = rows.startIndex
+    let lastAssistantIndex = rows.lastIndex { $0.sectionRole == .assistant } ?? rows.endIndex
+    for index in rows.indices {
+        let row = rows[index]
+        switch row.sectionRole {
+        case .assistant where index == lastAssistantIndex:
+            break
+        case .notice, .peer:
+            notices.append(row)
+        case .tool where row.kind == "debate":
+            debates.append(row)
+        default:
+            continue
+        }
+        if trailStart < index {
+            trail.append(contentsOf: rows[trailStart..<index])
+        }
+        trailStart = index + 1
+    }
+    let last = lastAssistantIndex == rows.endIndex ? nil : rows[lastAssistantIndex]
+    if trailStart == rows.startIndex { return (rows, last, notices, debates) }
+    if trailStart < rows.endIndex {
+        trail.append(contentsOf: rows[trailStart...])
+    }
+    return (trail, last, notices, debates)
 }
 
 // A round between models run from this session (stat-critic's ask-codex.sh): its output holds each turn after a `<<debate <speaker> [model]>>` line.

@@ -519,6 +519,19 @@ enum Check {
             check(restoredRound.kind == "activity", "a pending round waits for emitted turns before appearing as a debate")
             pending.data["aggregatedOutput"] = "<<debate claude>>\nQ\n<<debate meta AI web>>\nA"
             check(restoredRound.kind == "debate", "a restored pending round becomes a debate when its turns arrive")
+            pending.data["command"] = "ordinary command"
+            check(restoredRound.kind == "activity", "a changed command invalidates cached debate classification synchronously")
+            pending.data["command"] = "ask-meta.sh"
+            check(restoredRound.kind == "debate", "restoring a debate command restores its classification synchronously")
+            pending.data["aggregatedOutput"] = "plain output"
+            check(restoredRound.kind == "activity", "a changed output invalidates cached debate classification synchronously")
+            pending.data["aggregatedOutput"] = "<<debate meta>>\nanswer"
+            restoredRound.items = [pending, Item(["type": "reasoning"])]
+            check(restoredRound.kind == "activity", "multiple items keep a cached debate in folded work")
+            restoredRound.items = []
+            check(restoredRound.kind == "activity", "clearing items clears the visible debate synchronously")
+            restoredRound.items = [pending]
+            check(restoredRound.kind == "debate", "replacing items restores the visible debate synchronously")
             let webQuotas = [QuotaOverview.web("gemini", 7), QuotaOverview.web("grok", 2), QuotaOverview.web("muse", 3), QuotaOverview.web("meta", 4)]
             check(webQuotas.map(\.agent) == ["Gemini web", "Grok web", "Muse web", "Meta AI web"] && webQuotas.map(\.week) == ["7/25 today - reset 00h00", "2/25 today - reset 00h00", "3/25 today - reset 00h00", "4/25 today - reset 00h00"], "web quota rows show each site's own daily count")
             check(Item(["type": "commandExecution", "command": "Read\n" + pretty(["file_path": "/a/b/Views.swift", "limit": 40])]).title == "Read Views.swift", "a read names its file")

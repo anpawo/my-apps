@@ -74,14 +74,72 @@ extension Optional where Wrapped == String { var orEmpty: String { self ?? "" } 
 final class Row: ObservableObject, Identifiable {
     let id: UUID
     private let storedKind: String
+    enum SectionRole {
+        case user, peer, assistant, notice, tool, other
+
+        init(_ kind: String) {
+            switch kind {
+            case "user": self = .user
+            case "peer": self = .peer
+            case "assistant": self = .assistant
+            case "notice": self = .notice
+            case "activity", "debate": self = .tool
+            default: self = .other
+            }
+        }
+    }
+
+    let sectionRole: SectionRole
+    private var checkedCommand: (text: String, isDebate: Bool)?
+    private var parsedOutput: (text: String, kind: String)?
+
     var kind: String {
-        guard ["activity", "debate"].contains(storedKind), let item = items.first,
-              item.kind == "commandExecution", isDebate(item.data["command"] as? String ?? "") else { return storedKind }
+        guard sectionRole == .tool else { return storedKind }
+        let currentItems = items
+        let isSingleItem = currentItems.count == 1
+        guard isSingleItem || storedKind == "debate",
+              let item = currentItems.first, item.kind == "commandExecution" else { return storedKind }
+
+        let command = item.data["command"] as? String ?? ""
+        if let checkedCommand, Self.sameOutput(checkedCommand.text, command) {
+            guard checkedCommand.isDebate else { return storedKind }
+        } else {
+            let matches = isDebate(command)
+            checkedCommand = (command, matches)
+            guard matches else { return storedKind }
+        }
         // Reads and edits mention debate scripts too; only emitted turns belong in the chat.
-        return items.count == 1 && !debateTurns(item.output).isEmpty ? "debate" : "activity"
+        guard isSingleItem else { return "activity" }
+
+        let output = item.output
+        if let parsedOutput, Self.sameOutput(parsedOutput.text, output) {
+            return parsedOutput.kind
+        }
+
+        let kind = debateTurns(output).isEmpty ? "activity" : "debate"
+        parsedOutput = (output, kind)
+        return kind
+    }
+
+    private static func sameOutput(_ lhs: String, _ rhs: String) -> Bool {
+        // Canonically equivalent strings can produce different parser results.
+        let left = lhs.utf8
+        let right = rhs.utf8
+        return left.withContiguousStorageIfAvailable { a in
+            right.withContiguousStorageIfAvailable { b in
+                guard a.count == b.count else { return false }
+                return a.isEmpty || a.baseAddress == b.baseAddress
+                    || memcmp(a.baseAddress!, b.baseAddress!, a.count) == 0
+            } ?? left.elementsEqual(right)
+        } ?? left.elementsEqual(right)
     }
     @Published var items: [Item]
-    init(_ kind: String, _ items: [Item], id: UUID = UUID()) { self.id = id; self.storedKind = kind; self.items = items }
+    init(_ kind: String, _ items: [Item], id: UUID = UUID()) {
+        self.id = id
+        self.storedKind = kind
+        self.sectionRole = SectionRole(kind)
+        self.items = items
+    }
 }
 
 struct Recent: Identifiable {
