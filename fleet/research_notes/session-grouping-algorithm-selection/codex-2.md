@@ -1,0 +1,21 @@
+1: RETAIN lexical-first as an initial engineering choice, not an accuracy winner. No supplied Fleet evaluation establishes embeddings’ added value. Rechecked [Sentence Transformers documentation](https://www.sbert.net/examples/sentence_transformer/applications/semantic-search/README.html) supports exact search, not a Fleet improvement. Hybrid retrieval remains a challenger; reviewer agreement is not independent verification.
+
+2: RETAIN Fleet ownership, strengthened by newly supplied SessionRegistry and ProcessScanner facts: terminal Claude/Codex sessions also need coverage. VCX-only authority would leave those adapters uncovered. This architectural conclusion is inference from supplied code observations, not my independent code inspection.
+
+3: DISPUTED numerical claims. Sub-millisecond execution, zero memory, embedding size/latency, 200 labels and a 5% cutoff lack applicable evidence. My own resource advantages were expectations, not measurements. Provenance’s superior precision is likewise unproven; a timeout ceiling is not measured latency.
+
+4: RETAIN offline policy optimization. Rechecked [GEPA documentation](https://github.com/gepa-ai/gepa) explicitly supports code and configurations, refuting a prompts-only restriction. An evaluator need not require an initially correct policy. The supplied equality-only judge preserves behavior; grouping accuracy requires independent labels. No evidence selects OpenEvolve, ShinkaEvolve or GEPA as Fleet’s winner.
+
+5: REVISE my preference for starting with OpenEvolve. Newly read [Bergstra and Bengio](https://www.jmlr.org/papers/v13/bergstra12a.html) supports random search as a baseline on its studied tasks. For numeric weights and thresholds, start with bounded random search before considering evolutionary code changes. This is an evidence-informed recommendation, not Fleet verification.
+
+6: RETAIN conditional provenance and unresolved assignments. Inherited directories, temporary commands and edits can mislead. Explicit dependency work must remain eligible; incidental reads stay weak. Pins require explicit replacement or scoped release. Neither ranking scores nor margins are probabilities. Abstention has a coverage cost, so it is not universally superior.
+
+7: RETAIN multiple decision-time prefixes and later human adjudication. Future actions must be excluded from features, not forbidden as adjudication evidence. Current grouping and later edit destinations are weak labels. Keep related sessions and duplicates together across chronological development, selection and locked final splits; separately report novel projects.
+
+8: RETAIN matched-coverage comparison and REVISE the resource framing explicitly. Measure false assignments, abstention, cold/warm end-to-end tail latency, memory, churn and correction persistence. Maintenance and privacy remain separate constraints. Falsifier: a challenger reliably achieves fewer false assignments at matched useful coverage within agreed resource/privacy limits, or my approach breaches those limits.
+
+9: REVISE my runtime fallback suggestion using newly supplied connectivity and input facts. The router receives no image bytes and Claude is unavailable. Initial production must not depend on vision, OCR or live classification. Image-only sessions retain justified assignments or abstain; no billed substitution.
+
+10: REVISE my deepest-boundary wording using the supplied display-policy facts. Specific `dirName` and outermost `groupKey` are separate, with `.fleet` splits preserved. Normalize successful provider events, retain stable identities and catalogue versions, and reconsider meaningful events rather than UI refreshes. Ranking cannot recover missing inputs.
+
+Final architecture: Fleet-owned assignment separate from execution `cwd`, intent-sensitive provenance, lexical fallback and explicit unresolved state. Offline: freeze adjudicated prefixes, compare rules and lexical baselines, then numeric tuning; evaluate embeddings, supervised classifiers and available LLM routes as challengers. Evolution comes later for structural changes. Thresholds, dataset sufficiency and the winning ranker remain unknown.
