@@ -1005,7 +1005,7 @@ final class Session: ObservableObject {
         follow.attached = true; revision += 1
         if !retry, draftGeneration == submissionGeneration, NSArray(array: draftContent(draft)).isEqual(to: draftContent(submissionDraft)) { draft = NSAttributedString(string: ""); draftRevision += 1; commandQuery = nil }
         if !wasBusy { activeActions.removeAll(); turnPrompt = retry ? nil : id }
-        busy = true; stopRequested = false; stopSource = nil; needsAttention = false; status = wasBusy ? "Sending guidance…" : "Working…"
+        busy = true; stopRequested = false; stopSource = nil; needsAttention = false; status = wasBusy && status == "Reconnecting…" ? status : wasBusy ? "Sending guidance…" : "Working…"
         do {
             if let nextAccount {
                 try await activate(nextAccount, resume: nil, keepRows: true, reason: "switched to " + nextAccount.name)

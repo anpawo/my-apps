@@ -42,6 +42,7 @@ enum RetryCheck {
             throw CXError(message: "FAIL: a terminal error is hidden by retry cleanup")
         }
         try await clearsRetryStatusWhenTurnEnds(session)
+        try await clearsRetryAfterSteering(session, connection: connection)
         print("Retry checks passed: one transient notice, cleared on recovery, with no replay or lost draft")
     }
 
@@ -66,6 +67,24 @@ enum RetryCheck {
         session.event(["method": "turn/completed", "params": ["turn": ["status": "completed"]]])
         guard session.activityLabel == "Ready", !session.rows.contains(where: { $0.items.first?.data["retry"] as? Bool == true }) else {
             throw CXError(message: "FAIL: completing a retry leaves a reconnect status behind")
+        }
+    }
+
+    private static func clearsRetryAfterSteering(_ session: Session, connection: FixtureConnection) async throws {
+        await session.send(text: "Next task", images: [])
+        session.event(["method": "error", "params": ["willRetry": true, "error": ["message": "Reconnecting... 1/5"]]])
+        let sent = connection.sent.count
+        let event = connection.event
+        // A steer need not emit the fixture's synthetic turn/start echo.
+        connection.event = { message in if message["method"] as? String != "turn/started" { event(message) } }
+        defer { connection.event = event }
+        await session.send(text: "Additional guidance", images: [])
+        guard session.activityLabel == "Reconnecting…" else {
+            throw CXError(message: "FAIL: steering a retry falsely displays Thinking")
+        }
+        session.event(["method": "item/agentMessage/delta", "params": ["itemId": "steered-answer", "delta": "Recovered"]])
+        guard !session.rows.contains(where: { $0.items.first?.data["retry"] as? Bool == true }), connection.sent.count == sent + 1 else {
+            throw CXError(message: "FAIL: steering leaves a stale retry notice or replays the prompt")
         }
     }
 }
