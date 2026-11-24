@@ -28,14 +28,16 @@ enum CloseControl {
             defer { try? FileManager.default.removeItem(at: ticket); try? FileManager.default.removeItem(at: result) }
             DistributedNotificationCenter.default().postNotificationName(RuntimeUpdate.openNotification, object: nil, userInfo: nil, deliverImmediately: true)
             let deadline = Date().addingTimeInterval(timeout)
+            var acknowledged = false
             while Date() < deadline {
-                if let data = try? Data(contentsOf: result), let message = String(data: data, encoding: .utf8), message != "requested" {
-                    fputs("SKIP: " + message + "\n", stderr); return 1
+                if let data = try? Data(contentsOf: result), let message = String(data: data, encoding: .utf8) {
+                    guard message == "requested" else { fputs("SKIP: " + message + "\n", stderr); return 1 }
+                    acknowledged = true
                 }
-                if !AgentMessages.windows().contains(where: { $0.id == target.id }) { print("closed"); return 0 }
+                if acknowledged && !AgentMessages.windows().contains(where: { $0.id == target.id }) { print("closed"); return 0 }
                 Thread.sleep(forTimeInterval: pollInterval)
             }
-            fputs("Window close was not confirmed; the session was preserved.\n", stderr); return 1
+            fputs("Window close was not confirmed.\n", stderr); return 1
         } catch { fputs(error.localizedDescription + "\n", stderr); return 1 }
     }
 
