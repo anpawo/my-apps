@@ -1,4 +1,5 @@
 mod group;
+mod single_instance;
 
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
@@ -451,6 +452,8 @@ fn open_at_login() -> bool {
 }
 
 fn main() {
+    let lock = home().join("Library/Application Support/com.mr.one-text/instance.lock");
+    let Some(_instance) = single_instance::claim(&lock).expect("cannot lock One Text instance") else { return };
     tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
