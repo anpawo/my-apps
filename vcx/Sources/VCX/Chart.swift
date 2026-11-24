@@ -166,12 +166,12 @@ private struct ChartWeb: NSViewRepresentable {
         reset() { if (vcx.onreset?.()) return; s = 1; apply() },
       };
       addEventListener('wheel', e => setTimeout(() => {
-        if (e.defaultPrevented || interactive(e.target)) return;
+        if (e.defaultPrevented) return;
         const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX), room = document.documentElement.scrollHeight - innerHeight;
         if (e.timeStamp - last > 200) mode = null; last = e.timeStamp;
         mode ??= vertical && s === 1 && e.deltaY && (e.deltaY > 0 ? scrollY < room - 0.5 : scrollY > 0.5) ? 'scroll' : 'zoom';
         if (mode === 'scroll') { if (vertical) scrollBy(0, e.deltaY) }
-        else if (vertical) vcx.zoom(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); else vcx.pan(-e.deltaX, 0);
+        else if (!interactive(e.target)) { if (vertical) vcx.zoom(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); else vcx.pan(-e.deltaX, 0) }
       }), { passive: true });
       addEventListener('mousedown', e => { if (s > 1 && e.button === 0 && !interactive(e.target)) { drag = [e.clientX, e.clientY]; e.preventDefault() } }, true);
       addEventListener('mousemove', e => { if (drag) { vcx.pan(e.clientX - drag[0], e.clientY - drag[1]); drag = [e.clientX, e.clientY] } });

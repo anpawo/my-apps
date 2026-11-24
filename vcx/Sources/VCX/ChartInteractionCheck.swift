@@ -52,7 +52,7 @@ enum ChartInteractionCheck {
         snapshot(zoomed, path: directory + "/chart-controls.png")
         windowClick(enlarged, at: NSPoint(x: 2, y: 2))
         guard composerFocusRequests == 1 else { return fail("clicking outside web content still focuses the composer") }
-        let tall = "<body><div style='height:2500px;background:linear-gradient(white,silver)'>Forecast</div></body>"
+        let tall = "<body><input type='number' value='2000'><div style='height:2500px;background:linear-gradient(white,silver)'>Forecast</div></body>"
         guard enlargedWheelStaysInPage(html: tall, directory: directory) else { return false }
         if let pagePath {
             guard let html = try? String(contentsOfFile: pagePath, encoding: .utf8),
@@ -113,7 +113,25 @@ enum ChartInteractionCheck {
             guard delta < 0 ? after > before : after < before else { return fail("enlarged page scrolls in the wheel direction") }
         }
         guard js(view, "wheelCount") as? Int == 2 else { return fail("native wheel events reach the page") }
-        return true
+        return scrollsOverFormControls(view)
+    }
+
+    private static func scrollsOverFormControls(_ view: WKWebView) -> Bool {
+        guard js(view, "!!document.querySelector('input')") as? Bool == true else { return true }
+        let value = js(view, "window.wheelInput=document.querySelector('input'); wheelInput.scrollIntoView({block:'center'}); wheelInput.value") as? String
+        for delta in [80, -40] {
+            let before = js(view, "scrollY") as! Double
+            _ = js(view, "wheelInput.dispatchEvent(new WheelEvent('wheel',{deltaY:\(delta),bubbles:true,cancelable:true})); 0")
+            RunLoop.main.run(until: Date() + focusHoldSeconds)
+            let after = js(view, "scrollY") as! Double
+            print("Form wheel: delta=\(delta), page=\(before)->\(after)")
+            guard delta > 0 ? after > before : after < before else { return fail("wheel over form fields scrolls the enlarged page") }
+            guard js(view, "wheelInput.value") as? String == value else { return fail("scrolling over a field preserves its value") }
+        }
+        let before = js(view, "scrollY") as! Double
+        _ = js(view, "wheelInput.addEventListener('wheel',e=>e.preventDefault(),{once:true,passive:false}); wheelInput.dispatchEvent(new WheelEvent('wheel',{deltaY:80,bubbles:true,cancelable:true})); 0")
+        RunLoop.main.run(until: Date() + focusHoldSeconds)
+        return js(view, "scrollY") as? Double == before || fail("a field that handles its own wheel keeps it")
     }
 
     private static func web(_ view: NSView) -> WKWebView? {
