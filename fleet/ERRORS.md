@@ -11,3 +11,4 @@ One line per mistake of mine: date, what I did wrong, what to do instead.
 - 2026-11-17: Asked why a session sat on its own card, I changed Fleet's project rule to follow a worktree in /tmp back to its repo; the cause was the worktree's place (outside s14), another session was already moving it, and my rule then put it on a separate "scientcapital" card. A wrong card is first traced to where the session's folder is, and fixed there.
 - 2026-11-24: SwiftUI's accessibilityReduceMotion environment value is read-only; a windowless test uses a local preview override instead of trying to set it with .environment.
 - 2026-11-24: Real roadmap loading took 0.627 seconds but the renderer waited 0.5; await source completion and inspect a real-source frame, since synchronous fixtures hid the race.
+- 2026-11-24: Tinted every roadmap column with the same color and left labels faint; use distinct project colors and check text contrast and step boundaries together.
