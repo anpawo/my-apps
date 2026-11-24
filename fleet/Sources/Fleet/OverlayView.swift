@@ -155,9 +155,13 @@ struct OverlayView: View {
             Veil()
                 .ignoresSafeArea()
 
-            board(scrolling: !eagerLayout)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .padding(.top, 100)
+            FleetPages(controller: controller) {
+                board(scrolling: !eagerLayout)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 100)
+                    .contentShape(Rectangle())
+                    .onTapGesture { controller.hidePanel() }
+            }
         }
         // Anything not claimed by a tile dismisses, matching Esc. Tiles are Buttons and
         // consume their own taps, so this only fires on the surrounding space.
@@ -166,7 +170,6 @@ struct OverlayView: View {
         // alert you will lose without noticing, and the click that loses it is the one you were
         // already making when it appeared.
         .contentShape(Rectangle())
-        .onTapGesture { controller.hidePanel() }
     }
 
     /// One of the four gaps across, screen edge to side frame and side frame to the fleet's:

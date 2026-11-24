@@ -202,8 +202,14 @@ final class OverlayWindowController {
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.onCancel = { [weak self] in self?.controller.escape() }
         window.onModifiers = { [weak self] flags in self?.controller.modifiersChanged(flags) }
-        window.onReturn = { [weak self] in self?.controller.submitPrompt() ?? false }
-        window.onCommandDelete = { [weak self] in self?.controller.plugins.removeHovered() ?? false }
+        window.onReturn = { [weak self] in
+            guard let self, !self.controller.roadmapVisible else { return false }
+            return self.controller.submitPrompt()
+        }
+        window.onCommandDelete = { [weak self] in
+            guard let self, !self.controller.roadmapVisible else { return false }
+            return self.controller.plugins.removeHovered()
+        }
 
         let root = OverlayView(controller: controller)
         let hosting = FrameCountingHost(rootView: root)

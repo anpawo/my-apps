@@ -160,6 +160,7 @@ final class AppController: ObservableObject {
     }
 
     @Published private(set) var isPanelVisible = false
+    @Published var roadmapVisible = false
     /// Whether ⌘ is down right now. The todo column grows a ✕ on every row while it is, so a
     /// list you can only read becomes a list you can clear without ever leaving the panel.
     @Published private(set) var commandHeld = false
@@ -488,6 +489,7 @@ final class AppController: ObservableObject {
     // MARK: - Panel
 
     private func showPanel() {
+        roadmapVisible = false
         isPanelVisible = true
         hub.advanceSpotlight()
         // Three GETs, and only if the last batch is over ten minutes old. The columns draw whatever

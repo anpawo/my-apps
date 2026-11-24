@@ -522,6 +522,10 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-settings"),
     }
 }
 
+if CommandLine.arguments.contains("--check-roadmaps") {
+    MainActor.assumeIsolated { exit(RoadmapCheck.run()) }
+}
+
 if CommandLine.arguments.contains("--selftest") {
     MainActor.assumeIsolated { exit(SelfCheck.run() == 0 ? 0 : 1) }
 }
@@ -835,6 +839,10 @@ if let i = CommandLine.arguments.firstIndex(of: "--render") ?? CommandLine.argum
         if CommandLine.arguments.contains("--cmd") {
             controller.modifiersChanged(.command)
         }
+        if CommandLine.arguments.contains("--roadmaps") {
+            controller.roadmapVisible = true
+            if CommandLine.arguments.contains("--fake") { controller.injectSessions(RoadmapCheck.demoSessions()) }
+        }
         // `--strain` draws the memory block in its amber state, which otherwise needs the
         // machine to actually be on its knees.
         if CommandLine.arguments.contains("--strain") {
@@ -1048,7 +1056,7 @@ let knownFlags: Set<String> = [
     "--deferred", "--disk-open", "--empty-terminals", "--epitech", "--fake", "--fix", "--fixing", "--focus", "--hung", "--idle", "--install-hooks",
     "--launch", "--mail", "--memory", "--memory-open", "--new-desktop", "--no-mail", "--parse", "--reap", "--reel", "--reel-digest", "--reels",
     "--live", "--mail-open", "--money-open", "--reels-run", "--render", "--render-demo", "--render-settings", "--route", "--scan", "--screen",
-    "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",
+    "--check-roadmaps", "--roadmaps", "--selftest", "--send-window", "--settings", "--strain", "--shadows", "--show", "--size", "--spaces-bar", "--start",
     "--todo-open", "--todos", "--uninstall-hooks", "--windows",
 ]
 if let unknown = CommandLine.arguments.dropFirst().first(where: {
