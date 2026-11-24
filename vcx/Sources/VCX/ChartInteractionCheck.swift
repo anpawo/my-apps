@@ -13,7 +13,7 @@ enum ChartInteractionCheck {
     private static var composerFocusRequests = 0
     private static var optionSelections = 0
 
-    static func run(directory: String) -> Bool {
+    static func run(directory: String, pagePath: String? = nil) -> Bool {
         composerFocusRequests = 0; optionSelections = 0
         try! FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         var opened: ChartZoom?
@@ -52,6 +52,12 @@ enum ChartInteractionCheck {
         snapshot(zoomed, path: directory + "/chart-controls.png")
         windowClick(enlarged, at: NSPoint(x: 2, y: 2))
         guard composerFocusRequests == 1 else { return fail("clicking outside web content still focuses the composer") }
+        let tall = "<body><div style='height:2500px;background:linear-gradient(white,silver)'>Forecast</div></body>"
+        guard enlargedWheelStaysInPage(html: tall, directory: directory) else { return false }
+        if let pagePath {
+            guard let html = try? String(contentsOfFile: pagePath, encoding: .utf8),
+                  enlargedWheelStaysInPage(html: html, directory: directory) else { return fail("supplied dashboard scrolls inside its preview") }
+        }
         print("PASS: inline and enlarged fields retain window focus and accept typing; numbered options stay untouched; outside clicks still focus the composer")
         return true
     }
@@ -69,6 +75,45 @@ enum ChartInteractionCheck {
         window.chooseOption = { _ in optionSelections += 1; return true }
         RunLoop.main.run(until: Date() + loadSeconds)
         return window
+    }
+
+    private static func enlargedWheelStaysInPage(html: String, directory: String) -> Bool {
+        let session = Session(cwd: directory, stateDirectory: URL(fileURLWithPath: directory).appendingPathComponent(UUID().uuidString))
+        session.ready = true; session.status = "Ready"; session.follow.attached = false
+        session.show(["id": "scroll-question", "type": "userMessage", "content": [["type": "text", "text": "Show forecast"]]])
+        session.show(["id": "scroll-answer", "type": "agentMessage", "text": String(repeating: "Forecast details\n\n", count: 100)])
+        session.chart = ChartZoom(html: html, size: CGSize(width: 640, height: 400))
+        let host = CXView.host(session)
+        let window = mount(host, size: CGSize(width: 1176, height: 803))
+        defer { window.close() }
+        guard let view = web(host), let transcript = RuntimeUpdate.scrollView(in: host) else { return fail("preview and transcript exist") }
+        transcript.contentView.scroll(to: NSPoint(x: 0, y: 200))
+        transcript.reflectScrolledClipView(transcript.contentView)
+        RunLoop.main.run(until: Date() + focusHoldSeconds)
+        let origin = transcript.contentView.bounds.origin
+        RunLoop.main.run(until: Date() + focusHoldSeconds)
+        guard transcript.contentView.bounds.origin == origin else { return fail("background transcript is stationary before the wheel") }
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        guard transcript.convert(transcript.bounds, to: nil).contains(point) else { return fail("preview covers the transcript") }
+        let hit = host.hitTest(host.superview?.convert(point, from: nil) ?? point)
+        guard hit === view || hit?.isDescendant(of: view) == true else { return fail("pointer hits the enlarged web page") }
+        _ = js(view, "window.wheelCount=0; addEventListener('wheel',()=>wheelCount++); scrollTo(0,0); 0")
+        for delta: Int32 in [-120, 60] {
+            let before = js(view, "scrollY") as? Double ?? -1
+            let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)!
+            cg.location = point
+            let event = NSEvent(cgEvent: cg)!
+            let passed = TranscriptWheel.route(event, in: window, at: point)
+            if let passed { view.scrollWheel(with: passed) }
+            RunLoop.main.run(until: Date() + focusHoldSeconds)
+            let after = js(view, "scrollY") as? Double ?? -1
+            let chatMoved = transcript.contentView.bounds.origin != origin
+            print("Preview wheel: delta=\(delta), passed=\(passed != nil), page=\(before)->\(after), chat=\(origin.y)->\(transcript.contentView.bounds.origin.y)")
+            guard passed != nil, !chatMoved else { return fail("wheel over enlarged page never reaches the chat behind it") }
+            guard delta < 0 ? after > before : after < before else { return fail("enlarged page scrolls in the wheel direction") }
+        }
+        guard js(view, "wheelCount") as? Int == 2 else { return fail("native wheel events reach the page") }
+        return true
     }
 
     private static func web(_ view: NSView) -> WKWebView? {

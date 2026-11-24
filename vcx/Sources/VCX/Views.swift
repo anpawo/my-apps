@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 private let composerShade = 0.065
 let accent = Color(red: 0.43, green: 0.23, blue: 0.75)
@@ -843,13 +844,13 @@ extension CXView {
 // A wheel over the transcript's area that no scroll view takes goes to the transcript.
 @MainActor enum TranscriptWheel {
     static func stray(in window: NSWindow, at point: NSPoint) -> NSScrollView? {
-        guard let content = window.contentView, scrollView(at: point, in: content) == nil else { return nil }
+        guard let content = window.contentView, scrollTarget(at: point, in: content) == nil else { return nil }
         return transcript(under: point, in: content)
     }
-    private static func scrollView(at point: NSPoint, in content: NSView) -> NSScrollView? {
+    private static func scrollTarget(at point: NSPoint, in content: NSView) -> NSView? {
         var hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
-        while let view = hit, !(view is NSScrollView) { hit = view.superview }
-        return hit as? NSScrollView
+        while let view = hit, !(view is NSScrollView), !(view is WKWebView) { hit = view.superview }
+        return hit
     }
     // Walks the whole window: only for a wheel no scroll view takes, never for every event.
     private static func transcript(under point: NSPoint, in content: NSView) -> NSScrollView? {
@@ -876,7 +877,14 @@ extension CXView {
     }
     static func route(_ event: NSEvent, in window: NSWindow?, at point: NSPoint) -> NSEvent? {
             guard let window, let content = window.contentView else { return event }
-            var hit = scrollView(at: point, in: content)
+            let wheelTarget = scrollTarget(at: point, in: content)
+            // WebKit handles its own wheel without an NSScrollView; falling back here scrolls the chat behind its preview.
+            if let web = wheelTarget as? WKWebView {
+                let replay = held; held = []; chained = nil; travel = .zero
+                replay.forEach(web.scrollWheel)
+                return event
+            }
+            var hit = wheelTarget as? NSScrollView
             var outer = hit?.superview
             while let view = outer, !(view is TranscriptScrollView) { outer = view.superview }
             // A swipe begun off any table stays with the transcript when a table slides under the pointer.

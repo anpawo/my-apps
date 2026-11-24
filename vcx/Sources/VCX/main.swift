@@ -622,7 +622,7 @@ if let index = args.firstIndex(of: "--interaction-check"), index + 1 < args.coun
 }
 if let index = args.firstIndex(of: "--chart-check"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
-    exit(ChartInteractionCheck.run(directory: args[index + 1]) ? 0 : 1)
+    exit(ChartInteractionCheck.run(directory: args[index + 1], pagePath: args.dropFirst(index + 2).first) ? 0 : 1)
 }
 if let index = args.firstIndex(of: "--scroll-bench"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
