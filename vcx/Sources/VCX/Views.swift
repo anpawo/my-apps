@@ -1095,6 +1095,7 @@ struct CapabilityPopup: View {
             }.padding(14)
             TextField("Search " + title.lowercased(), text: $query).textFieldStyle(.plain).focused($searching)
                 .padding(10).background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)).padding(.horizontal, 14).padding(.bottom, 12)
+                .onAppear { DispatchQueue.main.async { searching = true } }
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
