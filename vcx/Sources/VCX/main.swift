@@ -526,6 +526,7 @@ if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\
 if args.contains(where: { ["--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
+    setenv("VCX_STATE_HOME", isolated + "/state", 1)
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
     setenv("VCX_ERRORS_HOME", isolated + "/errors", 1)
 }

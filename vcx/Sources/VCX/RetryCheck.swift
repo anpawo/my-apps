@@ -12,6 +12,11 @@ enum RetryCheck {
         connection.hold = true
         session.providerChoice = "codex"
         session.connectionFactory = { _, _ in connection }
+        let frontend = Session(cwd: folder.path)
+        defer { frontend.close() }
+        guard frontend.stateDirectory.path != NSHomeDirectory() + "/.local/state/cx" else {
+            throw CXError(message: "FAIL: verification sessions use the real conversation history")
+        }
         try await session.activate(account, resume: nil, keepRows: false)
         await session.send(text: "Continue the task", images: [])
         session.draft = NSAttributedString(string: "Unsent draft")
