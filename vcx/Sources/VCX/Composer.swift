@@ -410,10 +410,12 @@ final class ComposerText: NSTextView {
     }
     // Words naming a command light up only when typed with "/"; display only, never stored.
     func highlightCommands() {
-        guard let manager = layoutManager, let words = session?.commandWords else { return }
+        guard let manager = layoutManager else { return }
         let text = string as NSString, all = NSRange(location: 0, length: text.length)
         manager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: all)
-        for match in commandWordPattern.matches(in: string, range: all) where words.contains(text.substring(with: match.range(at: 1))) {
+        let matches = commandWordPattern.matches(in: string, range: all)
+        guard !matches.isEmpty, let words = session?.commandWords else { return }
+        for match in matches where words.contains(text.substring(with: match.range(at: 1))) {
             manager.addTemporaryAttribute(.backgroundColor, value: commandTint, forCharacterRange: match.range)
         }
     }

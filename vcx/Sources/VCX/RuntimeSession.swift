@@ -50,6 +50,7 @@ final class SessionBackend: RuntimeBackend {
             consumedGeneration = max(consumedGeneration, generation)
         }
         subscriptions.append(session.objectWillChange.sink { [weak self] _ in self?.schedule() })
+        subscriptions.append(session.transcriptUpdates.changed.sink { [weak self] _ in self?.schedule() })
         subscriptions.append(session.$rows.sink { [weak self] rows in self?.observe(rows) })
     }
 

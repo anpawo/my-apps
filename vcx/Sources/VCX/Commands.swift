@@ -1,6 +1,6 @@
 import AppKit
 
-struct ChatCommand: Identifiable, Equatable {
+struct ChatCommand: Identifiable, Equatable, Hashable {
     var name: String
     var detail: String
     var source = "vcx"

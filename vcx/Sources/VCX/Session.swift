@@ -196,7 +196,11 @@ final class Session: ObservableObject {
     @Published var context = ""
     @Published var usage = ""
     @Published var usageLoading = true
-    @Published var revision = 0
+    let transcriptUpdates = TranscriptUpdates()
+    var revision: Int {
+        get { transcriptUpdates.revision }
+        set { transcriptUpdates.revision = newValue }
+    }
     let find = TranscriptFind()
     @Published var follow = FollowState()
     // Scrolling calls this every frame; assigning follow republishes the session and rebuilds the window even when nothing changed.
@@ -254,6 +258,7 @@ final class Session: ObservableObject {
     @Published var instructions: [String] = []
     @Published var activeMode = Settings.shared.value.mode
     @Published var providerCommands: [ChatCommand] = []
+    var capabilityCommandsCache: (provider: String, label: String, commands: [ChatCommand], builtins: [String], items: [ChatCommand])?
     var skillPaths: [String: String] = [:]
     var legacyCommandPaths: [String: String] = [:]
     var planning = false

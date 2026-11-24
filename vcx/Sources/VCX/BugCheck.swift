@@ -264,7 +264,7 @@ enum BugCheck {
             let mirrored = frontend.rows.flatMap(\.items).first { $0.id == first }
             check(mirrored?.data["queued"] as? Bool == true, "the window shows a prompt the agent has not read yet")
             if let mirrored {
-                let bubble = NSHostingView(rootView: UserBubble(item: mirrored, session: frontend).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).background(Color.white))
+                let bubble = NSHostingView(rootView: UserBubble(item: mirrored, session: frontend).environment(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).background(Color.white))
                 bubble.frame = NSRect(origin: .zero, size: bubble.fittingSize); bubble.layoutSubtreeIfNeeded()
                 if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = bubble.bitmapImageRepForCachingDisplay(in: bubble.bounds) {
                     bubble.cacheDisplay(in: bubble.bounds, to: bitmap)
@@ -366,11 +366,11 @@ enum BugCheck {
             asking.show(["id": "pinned-question", "type": "userMessage", "content": [["type": "text", "text": lines], ["type": "localImage", "path": "/fixture-one.png"], ["type": "localImage", "path": "/fixture-two.png"]]])
             asking.show(["id": "pinned-answer", "type": "agentMessage", "provider": "Claude", "text": (1...60).map { "- Answer line \($0), long enough to reach the left edge beside the pinned question." }.joined(separator: "\n")])
             if let item = asking.rows.first?.items.first {
-                func height(_ collapsible: Bool) -> CGFloat { NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900)).fittingSize.height }
+                func height(_ collapsible: Bool) -> CGFloat { NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: collapsible).environment(SendAnimation()).frame(width: 900)).fittingSize.height }
                 let pinned = height(true), full = height(false)
                 print("Question with twenty lines and two pictures:\(Int(pinned)) pt pinned, \(Int(full)) pt hovered")
                 check(pinned < 160 && full > pinned + 40, "a pinned question keeps one line and one row of pictures until hovered")
-                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environment(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 1200)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host
@@ -419,7 +419,7 @@ enum BugCheck {
                 short.show(["id": "short-question-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
                 if let item = short.rows.first?.items.first {
                     func left(_ collapsible: Bool) -> (x: CGFloat, height: Int) {
-                        let host = NSHostingView(rootView: UserBubble(item: item, session: short, collapsible: collapsible).environmentObject(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                        let host = NSHostingView(rootView: UserBubble(item: item, session: short, collapsible: collapsible).environment(SendAnimation()).frame(width: 900).padding(30).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                         host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 960, height: 400)
                         host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                         if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
@@ -665,7 +665,7 @@ enum BugCheck {
                 asking.ready = true; asking.status = "Ready"
                 asking.show(["id": "collapsed-" + name, "type": "userMessage", "content": [["type": "text", "text": text]]])
                 guard let item = asking.rows.first?.items.first else { check(false, "collapsed \(name) fixture shows its question"); continue }
-                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environment(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 400)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host
@@ -714,7 +714,7 @@ enum BugCheck {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("collapsed-agent"))
             asking.show(["id": "collapsed-agent", "type": "userMessage", "content": [["type": "text", "text": "claude from [Fix pinned scroll]: \"Heads-up from another window: its body runs well past one line, so the pinned bubble shuts it to its first line and shows an edge to open it. Fifteen lines would stay whole, so this one goes on." + (1...16).map { "\nMore line \($0)." }.joined() + "\""]]])
             if let item = asking.rows.first?.items.first {
-                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
+                let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environment(SendAnimation()).environment(\.colorScheme, .light).frame(width: 560).padding(12).frame(maxHeight: .infinity, alignment: .top).background(Color.white))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 584, height: 200)
                 host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.3)); host.layoutSubtreeIfNeeded()
                 let left = tintStart(host, y: 30)
@@ -1002,10 +1002,10 @@ enum BugCheck {
                 asking.show(["id": "newly-pinned-" + name, "type": "userMessage", "content": [["type": "text", "text": (1...lines).map { "Line \($0) of a question just pinned" }.joined(separator: "\n")]]])
                 guard let item = asking.rows.first?.items.first else { check(false, "a newly pinned question: no item"); continue }
                 // Its row in the transcript is drawn first, as it is before it scrolls under the top edge.
-                let row = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environmentObject(SendAnimation()).frame(width: 1060))
+                let row = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true).environment(SendAnimation()).frame(width: 1060))
                 row.frame = NSRect(x: 0, y: 0, width: 1060, height: 300); row.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.1))
                 let host = NSHostingView(rootView: UserBubble(item: item, session: asking, collapsible: true, pinnedIn: CGSize(width: 1060, height: 800), lifted: true)
-                    .environmentObject(SendAnimation()).padding(40).frame(maxHeight: .infinity, alignment: .top).background(Color.white).environment(\.colorScheme, .light))
+                    .environment(SendAnimation()).padding(40).frame(maxHeight: .infinity, alignment: .top).background(Color.white).environment(\.colorScheme, .light))
                 host.sizingOptions = []; host.frame = NSRect(x: 0, y: 0, width: 1140, height: 420)
                 let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = host

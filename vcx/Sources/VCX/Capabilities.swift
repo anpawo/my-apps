@@ -72,14 +72,34 @@ func claudeHooks(home: String, folders: [URL], flags: [URL] = []) -> [String] {
 
 @MainActor
 extension Session {
+    private var capabilityCommands: [ChatCommand] {
+        if let cached = capabilityCommandsCache, cached.provider == account.provider, cached.label == providerLabel,
+           cached.commands == providerCommands, cached.builtins == builtinCommands { return cached.items }
+        var names: Set<String> = []
+        let provider = Set(providerCommands), builtins = Set(builtinCommands)
+        let items = commandCatalog.filter { command in
+            !command.source.hasSuffix(" terminal") &&
+            (!provider.contains(command) || builtins.contains(String(command.name.dropFirst()))) &&
+            names.insert(command.name).inserted
+        }
+        capabilityCommandsCache = (account.provider, providerLabel, providerCommands, builtinCommands, items)
+        return items
+    }
+
+    func capabilityCount(_ title: String) -> Int {
+        switch title {
+        case "Commands": return capabilityCommands.count
+        case "Skills": return skills.count
+        case "MCP": return mcp.count
+        case "Instructions": return instructions.count
+        case "RAG": return recalledRules.count
+        default: return capabilityItems(title).count
+        }
+    }
+
     func capabilityItems(_ title: String) -> [CapabilityItem] {
         if title == "Commands" {
-            var names: Set<String> = []
-            return commandCatalog.filter { command in
-                !command.source.hasSuffix(" terminal") &&
-                (!providerCommands.contains(command) || builtinCommands.contains(String(command.name.dropFirst()))) &&
-                names.insert(command.name).inserted
-            }.map { CapabilityItem(name: String($0.name.dropFirst()), detail: $0.detail) }
+            return capabilityCommands.map { CapabilityItem(name: String($0.name.dropFirst()), detail: $0.detail) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         }
         if title == "RAG" {

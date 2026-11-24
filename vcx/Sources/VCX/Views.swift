@@ -212,8 +212,8 @@ struct MessageFrames: PreferenceKey {
 }
 
 @MainActor
-final class SendAnimation: ObservableObject {
-    struct Flight {
+@Observable final class SendAnimation {
+    @Observable final class Flight {
         let item: Item
         let origin: CGRect
         var destination: CGRect
@@ -221,16 +221,22 @@ final class SendAnimation: ObservableObject {
         var tall = false
         var collapsed = false
         var started = Date()
+        init(item: Item, origin: CGRect, destination: CGRect, snapshot: ComposerSnapshot?, tall: Bool, collapsed: Bool) {
+            self.item = item; self.origin = origin; self.destination = destination; self.snapshot = snapshot
+            self.tall = tall; self.collapsed = collapsed
+        }
     }
-    @Published var flight: Flight?
-    @Published var frame = CGRect.zero
-    @Published var blend: CGFloat = 0
-    @Published private var pending: Pending?
+    var flight: Flight?
+    var frame = CGRect.zero
+    var blend: CGFloat = 0
+    private var pending: Pending?
     private var composer = CGRect.zero
     private var editor = CGRect.zero
     private(set) var transcript = CGRect.zero
     private var generation = 0
     private var moving = false
+    private let flightDuration = 0.42
+    private let landingDelay = 0.6
     private struct Pending {
         let content: [JSON]
         let previous: Set<String>
@@ -304,18 +310,34 @@ final class SendAnimation: ObservableObject {
     func launch() {
         guard let flight, !moving else { return }
         moving = true
+        self.flight?.started = Date()
         withAnimation(.easeOut(duration: 0.18)) { blend = 1 }
         move(to: flight.destination)
+        // Scrolling can retarget the spring continuously, so landing cannot depend on its last completion.
+        DispatchQueue.main.asyncAfter(deadline: .now() + landingDelay) { [weak self] in
+            guard let self, self.flight === flight else { return }
+            self.flight = nil; self.generation += 1; self.moving = false
+        }
     }
 
     private func move(to destination: CGRect) {
         generation += 1
         let current = generation
-        withAnimation(.spring(duration: 0.42, bounce: 0.08), completionCriteria: .removed) {
+        withAnimation(.spring(duration: flightDuration, bounce: 0.08), completionCriteria: .removed) {
             frame = destination
         } completion: {
             guard self.generation == current else { return }
             self.flight = nil; self.moving = false
+        }
+    }
+}
+
+private struct SendOverlay: View {
+    let sending: SendAnimation
+    var body: some View {
+        if let flight = sending.flight {
+            FlyingMessage(flight: flight, frame: sending.frame, blend: sending.blend)
+                .id(flight.item.id).onAppear { sending.launch() }.allowsHitTesting(false).accessibilityHidden(true)
         }
     }
 }
@@ -360,7 +382,7 @@ struct CXView: View {
     @State private var hoveredRuleTop: CGFloat = 0
     @State private var hoveringUpdate = false
     @State private var copiedID = false
-    @StateObject var sending = SendAnimation()
+    @State var sending = SendAnimation()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 0) {
@@ -428,17 +450,14 @@ struct CXView: View {
         .foregroundStyle(.black.opacity(0.92))
         .background(Color.white)
         .coordinateSpace(name: "conversation")
-        .environmentObject(sending)
+        .environment(sending)
         .onPreferenceChange(MessageFrames.self) { frames in
             FreezeTrace.note("MessageFrames")
             if let transcript = frames["transcript"], transcript.height != session.viewportHeight { session.viewportHeight = transcript.height; FreezeTrace.shape(of: session) }
             sending.receive(frames, rows: { session.rows }, reduceMotion: reduceMotion)
         }
         .overlay(alignment: .topLeading) {
-            if let flight = sending.flight {
-                FlyingMessage(flight: flight, frame: sending.frame, blend: sending.blend)
-                    .id(flight.item.id).onAppear { sending.launch() }.allowsHitTesting(false).accessibilityHidden(true)
-            }
+            SendOverlay(sending: sending)
         }
         .preferredColorScheme(.light)
         .sheet(isPresented: $session.showingSettings) {
@@ -469,7 +488,6 @@ struct CXView: View {
         .environment(\.openChart) { session.chart = $0 }
         .environment(\.runCommand) { session.offerRun($0) }
         .environment(session.chartPin)
-        .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
         .onExitCommand {
             guard !session.frontendReplacing else { return }
             if session.find.open { closeFind() }
@@ -562,7 +580,7 @@ struct CXView: View {
                         .font(.system(size: 11, weight: .bold)).frame(width: 12)
                     Text(title == "Instructions" ? "MD Files" : title.uppercased()).font(.system(size: 11, weight: .bold)).tracking(1.2).lineLimit(1).fixedSize()
                     Spacer(minLength: 4)
-                    Text("\(session.capabilityItems(title).count)").font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1).fixedSize()
+                    Text("\(session.capabilityCount(title))").font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1).fixedSize()
                 }.foregroundStyle(.black.opacity(0.75)).padding(12)
                     .frame(maxWidth: .infinity)
                     .background(.black.opacity(0.045), in: RoundedRectangle(cornerRadius: 8)).raised(RoundedRectangle(cornerRadius: 8))
@@ -610,8 +628,7 @@ struct CXView: View {
 
     private var transcriptTable: some View {
         ZStack(alignment: .bottom) {
-            TranscriptTable(session: session, rows: session.rows, revision: session.revision, details: session.details, replacing: session.frontendReplacing,
-                            sending: sending, geometry: geometry, reduceMotion: reduceMotion)
+            LiveTranscript(session: session, sending: sending, geometry: geometry, reduceMotion: reduceMotion)
                 // Clipped to the transcript: pushed up by the next question, it would slide over a pinned chart.
                 .overlay(alignment: .top) { PinnedQuestion(session: session, geometry: geometry).clipped() }
             if !session.follow.attached {
@@ -1369,7 +1386,7 @@ struct UserBubble: View {
     @State private var showsRecall = false
     @State private var closing: Timer?
     @State private var size = CGSize.zero
-    @EnvironmentObject private var sending: SendAnimation
+    @Environment(SendAnimation.self) private var sending
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static func opening(reduceMotion: Bool) -> Animation { .smooth(duration: reduceMotion ? 0.1 : 0.3) }
     var body: some View {

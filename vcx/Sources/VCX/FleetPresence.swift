@@ -21,6 +21,7 @@ final class FleetPresence {
         startedAt = info.pbi_start_tvsec
         publish(session)
         changes = session.objectWillChange
+            .merge(with: session.transcriptUpdates.changed)
             .receive(on: RunLoop.main)
             .throttle(for: .milliseconds(250), scheduler: RunLoop.main, latest: true)
             .sink { [weak self, weak session] in

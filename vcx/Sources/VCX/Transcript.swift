@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 // The transcript is a stack of AppKit rows: one row per question, per exchange and per spacer, each an NSHostingView of the
 // SwiftUI row. SwiftUI's LazyVStack spun the main thread in its own prefetch (11-10: 17,000 layout
@@ -33,6 +34,23 @@ private struct LiveDetails<Content: View>: View {
 }
 
 enum TranscriptKey: Hashable { case top, empty, question(UUID), exchange(UUID), bottom }
+
+@Observable final class TranscriptUpdates {
+    let changed = PassthroughSubject<Void, Never>()
+    var revision = 0 { didSet { changed.send() } }
+}
+
+struct LiveTranscript: View {
+    let session: Session
+    let sending: SendAnimation
+    let geometry: TranscriptGeometry
+    let reduceMotion: Bool
+    var body: some View {
+        TranscriptTable(session: session, rows: session.rows, revision: session.revision, details: session.details,
+                        replacing: session.frontendReplacing, sending: sending, geometry: geometry, reduceMotion: reduceMotion)
+            .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
+    }
+}
 
 struct TranscriptTable: NSViewRepresentable {
     let session: Session
@@ -289,7 +307,7 @@ final class TranscriptController: NSObject {
             .onPreferenceChange(MessageFrames.self) { [weak self] in self?.framesChanged(key, $0) }
             // Row-local frames also reach the window's own preference, where the flight read them as conversation frames.
             .transformPreference(MessageFrames.self) { $0 = [:] }
-            .environmentObject(parent.sending)
+            .environment(parent.sending)
             .environment(parent.session.find)
             .environment(parent.session.chartPin)
             .environment(\.openChart) { [weak session = parent.session] in session?.chart = $0 }

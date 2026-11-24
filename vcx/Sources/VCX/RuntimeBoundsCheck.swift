@@ -276,7 +276,7 @@ enum RuntimeBoundsCheck {
         defer { presence.close() }
         session.rows.last!.items[0].data["text"] = "localized streaming fixture update"
         try await wait { frontend.rows.last?.items[0].text == "localized streaming fixture update" }
-        try check(sessionRefreshes > 0, "streamed item did not notify the frontend session")
+        try check(sessionRefreshes == 0, "streamed item refreshed the whole frontend session")
         let presenceFile = frontend.stateDirectory.appendingPathComponent("fleet/\(getpid()).json")
         try await wait {
             guard let data = try? Data(contentsOf: presenceFile), let value = try? JSONSerialization.jsonObject(with: data) as? JSON,
