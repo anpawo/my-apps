@@ -24,7 +24,7 @@ struct RoadmapDashboard: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            Text("Dots show live work matched to a step. Source status is separate from agent activity.")
+            Text("Dots show live work. Ticks show source-confirmed completion. Expand a group to see its individual steps.")
                 .font(.system(size: 12)).foregroundStyle(.white.opacity(0.85))
         }
         .foregroundStyle(.white)
@@ -39,6 +39,7 @@ struct RoadmapColumn: View {
     private var working: [Session] { snapshot.project.working(sessions) }
     private var active: Set<String> { working.reduce(into: Set<String>()) { $0.formUnion(RoadmapActivity.steps(for: $1, in: snapshot.steps)) } }
     private var unmatched: Int { working.filter { RoadmapActivity.steps(for: $0, in: snapshot.steps).isEmpty }.count }
+    private var groups: [RoadmapGroup] { RoadmapGrouping.groups(snapshot) }
     private var accent: Color {
         switch snapshot.project.name {
         case "Recon": return Color(red: 0.45, green: 0.90, blue: 0.85)
@@ -57,8 +58,12 @@ struct RoadmapColumn: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     evidence
-                    ForEach(snapshot.steps) { step in
-                        RoadmapStepCard(step: step, active: active.contains(step.id), accent: accent)
+                    ForEach(groups) { group in
+                        if group.steps.count == 1, let step = group.steps.first {
+                            RoadmapStepCard(step: step, active: active.contains(step.id), accent: accent)
+                        } else {
+                            RoadmapGroupCard(group: group, active: active, accent: accent)
+                        }
                     }
                     if snapshot.loaded && snapshot.steps.isEmpty {
                         Text("No roadmap steps available")
@@ -103,7 +108,7 @@ struct RoadmapColumn: View {
                     .foregroundStyle(.white.opacity(0.85))
                 if snapshot.stale { Text("Older than 14 days; status may be stale").foregroundStyle(Color(red: 1, green: 0.85, blue: 0.55)) }
             }
-            Text(snapshot.loaded ? "\(snapshot.steps.count) steps" : "Loading local sources…")
+            Text(snapshot.loaded ? "\(groups.count) groups · \(snapshot.steps.count) items · \(snapshot.steps.filter(\.isDone).count) done" : "Loading local sources…")
                 .foregroundStyle(.white.opacity(0.85))
         }
         .font(.system(size: 12))
@@ -128,6 +133,9 @@ struct RoadmapStepCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 7) {
+                    if step.isDone {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(accent).accessibilityLabel("Done (source)")
+                    }
                     if active { Circle().fill(accent).frame(width: 7, height: 7).accessibilityLabel("Live work") }
                     Text(step.id.hasPrefix("S") && !step.id.contains("/") ? step.id : "STEP")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -152,7 +160,7 @@ struct RoadmapStepCard: View {
             .clipped()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(step.title + ", " + step.status + (active ? ", live work" : ""))
+        .accessibilityLabel(step.title + ", " + step.status + (step.isDone ? ", done" : "") + (active ? ", live work" : ""))
         .accessibilityHint(expanded ? "Collapse step details" : "Expand step details")
     }
 }

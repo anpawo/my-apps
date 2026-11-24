@@ -6,6 +6,13 @@ struct RoadmapStep: Identifiable, Equatable {
     var detail = ""
     var status = "Status unverified"
     var source: URL
+    var group = ""
+    var isDone: Bool {
+        let value = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["✓", "✔", "✅", "☑", "[x]"].contains(value) { return true }
+        return value.range(of: #"^(?:[✓✔✅☑]\s*)?(?:done|complete|completed|accepted|published|posted|finished|fait|terminé|publié)(?:\s*\(source\))?$"#,
+                           options: .regularExpression) != nil
+    }
 }
 
 struct RoadmapProject: Identifiable {
@@ -107,8 +114,26 @@ enum RoadmapParser {
             let status = statusIndex.flatMap { cells.indices.contains($0) ? cells[$0] : nil } ?? "Status unverified"
             let partialPattern = #"\bpartial\s+"# + NSRegularExpression.escapedPattern(for: code) + #"\b"#
             let partial = text.range(of: partialPattern, options: [.regularExpression, .caseInsensitive]) != nil
+            let track = columns.firstIndex { $0.lowercased() == "track" }
+            let group = track.flatMap { cells.indices.contains($0) ? cells[$0] : nil } ?? ""
             result.append(RoadmapStep(id: code, title: cells[1], detail: section(code, lines: lines),
-                                      status: partial ? "Partial; acceptance unverified" : status, source: source))
+                                      status: partial ? "Partial; acceptance unverified" : status, source: source,
+                                      group: code.hasPrefix("G") ? "External gates" : group))
+        }
+        return milestones(result, lines: lines)
+    }
+
+    private static func milestones(_ steps: [RoadmapStep], lines: [String]) -> [RoadmapStep] {
+        guard let start = lines.firstIndex(where: { cells($0).first?.lowercased() == "milestone" }) else { return steps }
+        var result = steps
+        for line in lines.dropFirst(start + 1) {
+            let row = cells(line)
+            if row.isEmpty { break }
+            guard row.count > 1 else { continue }
+            let codes = RoadmapGrouping.codes(in: row[1], among: steps.map(\.id))
+            for index in result.indices where result[index].group.isEmpty && codes.contains(result[index].id) {
+                result[index].group = row[0]
+            }
         }
         return result
     }
@@ -134,7 +159,7 @@ enum RoadmapParser {
             let body = clean(String(line[line.index(after: split)...]))
             guard !body.isEmpty else { return nil }
             return RoadmapStep(id: "log-\(index)", title: String(body.prefix(titleLimit)),
-                               detail: body, status: status, source: source)
+                               detail: body, status: status, source: source, group: RoadmapGrouping.progressGroup(body))
         }
     }
 
@@ -143,7 +168,12 @@ enum RoadmapParser {
     private static func publication(_ text: String, source: URL) -> [RoadmapStep] {
         var header: [String] = []
         var result: [RoadmapStep] = []
+        var heading = ""
         for (index, line) in text.components(separatedBy: .newlines).enumerated() {
+            if line.hasPrefix("#") {
+                heading = clean(line.drop(while: { $0 == "#" || $0 == " " }).description)
+                header = []; continue
+            }
             let row = cells(line)
             if row.isEmpty { header = []; continue }
             if row.contains(where: { ["task", "output", "status", "state", "video"].contains($0.lowercased()) }) {
@@ -159,7 +189,7 @@ enum RoadmapParser {
             guard !title.isEmpty else { continue }
             result.append(RoadmapStep(id: source.path + "#\(index)", title: String(title.prefix(titleLimit)),
                                       detail: row.joined(separator: " · "),
-                                      status: statusIndex.map { row[$0] } ?? "Plan; status unverified", source: source))
+                                      status: statusIndex.map { row[$0] } ?? "Plan; status unverified", source: source, group: heading))
         }
         return result
     }

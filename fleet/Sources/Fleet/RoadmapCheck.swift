@@ -9,6 +9,9 @@ enum RoadmapCheck {
         Firestore.reads = false
         _ = NSApplication.shared
         parsing()
+        completion()
+        grouping()
+        publicationGroups()
         activity()
         ancestorAssignments()
         gestures()
@@ -25,6 +28,65 @@ enum RoadmapCheck {
     }
 
     private static let source = URL(fileURLWithPath: "/fixture/roadmap.md")
+
+    private static func completion() {
+        var step = RoadmapStep(id: "S0", title: "Establish scope", source: source)
+        for status in ["Done (source)", "Completed", "Accepted", "Published", "✓ Done", "[x]"] {
+            step.status = status
+            expect(step.isDone, "ticks explicit completion: \(status)")
+        }
+        for status in ["Not done", "Unpublished", "Partial; acceptance unverified", "Done; approval pending", "Rendered", "Scheduled", "●", "Status unverified"] {
+            step.status = status
+            expect(!step.isDone, "does not tick incomplete or ambiguous evidence: \(status)")
+        }
+    }
+
+    private static func grouping() {
+        let text = """
+        | Step | Implementation | Track | Status |
+        |---|---|---|---|
+        | S0 | Define scope | Foundation | Done |
+        | S1 | Store records | Foundation | Partial |
+        | S2 | Import records | Delivery | Not done |
+        """
+        let steps = RoadmapParser.steps(text, source: source, kind: .roadmap)
+        let snapshot = RoadmapSnapshot(project: RoadmapProject.projects()[1], steps: steps)
+        let groups = RoadmapGrouping.groups(snapshot)
+        expect(groups.map(\.title) == ["Foundation", "Delivery"] && groups[0].steps.map(\.id) == ["S0", "S1"],
+               "combines related source tracks while preserving child order and identifiers")
+        expect(groups[0].doneCount == 1 && !groups[0].isDone, "keeps a partially complete group unticked")
+        let milestone = text.replacingOccurrences(of: "Track", with: "Other") + """
+
+
+        | Milestone | Required steps |
+        |---|---|
+        | Establish foundations | S0\u{2013}S1 |
+        | Deliver the import | S2 |
+        """
+        let grouped = RoadmapParser.steps(milestone, source: source, kind: .roadmap)
+        expect(grouped.map(\.group) == ["Establish foundations", "Establish foundations", "Deliver the import"],
+               "uses source milestone ranges instead of inventing phase boundaries")
+        let log = "- Done: Import source files\n- Done: Import broker files\n- Next: Import another file\n- Done: Repair dashboard filters"
+        let progress = RoadmapParser.steps(log, source: source, kind: .progress)
+        let progressGroups = RoadmapGrouping.groups(RoadmapSnapshot(project: RoadmapProject.projects()[0], steps: progress))
+        expect(progressGroups.count == 2 && progressGroups[0].steps.count == 3 && progressGroups[0].doneCount == 2,
+               "combines related progress entries without marking pending work done")
+        expect(progressGroups[1].isDone, "ticks a group only when every recorded item is done")
+        let session = demoSessions()[0]
+        expect(RoadmapActivity.steps(for: session, in: groups[0].steps) == ["S1"],
+               "retains live work matching inside grouped steps")
+    }
+
+    private static func publicationGroups() {
+        let text = "# Publication plan\n## Batch one\n| Task | State |\n|---|---|\n| First clip | Published |\n| Second clip | Rendered |\n\n## Batch two\n| Task | State |\n|---|---|\n| Third clip | Planned |"
+        let first = URL(fileURLWithPath: "/fixture/channel-one/PLAN.md")
+        let second = URL(fileURLWithPath: "/fixture/channel-two/PLAN.md")
+        let steps = RoadmapParser.steps(text, source: first, kind: .publication) + RoadmapParser.steps(text, source: second, kind: .publication)
+        let groups = RoadmapGrouping.groups(RoadmapSnapshot(project: RoadmapProject.projects()[3], steps: steps))
+        expect(groups.count == 4 && groups[0].steps.count == 2 && groups[0].doneCount == 1,
+               "groups publication batches without counting rendered clips as published")
+        expect(groups[0].id != groups[2].id, "keeps identically named batches from different source plans separate")
+    }
 
     private static func parsing() {
         let text = """
@@ -79,7 +141,7 @@ enum RoadmapCheck {
         let store = RoadmapStore()
         expect(store.loadForPreview(), "waits for actual local source refresh before drawing")
         for snapshot in store.snapshots {
-            print("Local source: \(snapshot.project.name), \(snapshot.steps.count) steps, \(snapshot.notices.count) notices")
+            print("Local source: \(snapshot.project.name), \(RoadmapGrouping.groups(snapshot).count) groups, \(snapshot.steps.count) items, \(snapshot.steps.filter(\.isDone).count) done")
         }
     }
 
@@ -179,7 +241,8 @@ enum RoadmapCheck {
             let demoStepCount = 22
             let steps = (0..<demoStepCount).map { index in
                 RoadmapStep(id: "S\(index)", title: titles[index % titles.count], detail: "Synthetic roadmap evidence for the windowless layout check.",
-                            status: index == 1 ? "Partial; acceptance unverified" : "Status unverified", source: source)
+                            status: index == 0 ? "Done (source)" : index == 1 ? "Partial; acceptance unverified" : "Status unverified",
+                            source: source, group: index < 4 ? "Foundation" : "")
             }
             return RoadmapSnapshot(project: project, steps: steps, updated: Date(), notices: ["Synthetic preview"], loaded: true)
         }
