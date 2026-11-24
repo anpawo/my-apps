@@ -15,6 +15,7 @@ enum InteractionCheck {
     private static var typingCPU: [Double] = []
 
     static func run(directory: String) -> Bool {
+        guard ChartInteractionCheck.run(directory: directory) else { return false }
         let folder = URL(fileURLWithPath: directory)
         try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let session = fixture(folder)

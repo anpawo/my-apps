@@ -122,8 +122,14 @@ private final class ChartWebView: WKWebView {
     override func mouseDown(with event: NSEvent) { down = event.locationInWindow; super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
-        if let down, hypot(event.locationInWindow.x - down.x, event.locationInWindow.y - down.y) < 4 { click?(bounds.size) }
+        let start = down
         down = nil
+        guard let start, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) < 4, click != nil else { return }
+        let point = convert(event.locationInWindow, from: nil), y = isFlipped ? point.y : bounds.height - point.y
+        evaluateJavaScript("vcx.isInteractive(\(point.x / pageZoom), \(y / pageZoom))") { [weak self] value, error in
+            guard error == nil, value as? Bool == false, let self else { return }
+            self.click?(self.bounds.size)
+        }
     }
 }
 
@@ -144,12 +150,14 @@ private struct ChartWeb: NSViewRepresentable {
     static let script = #"""
     window.vcx = (() => {
       const subs = {}; let n = 0, s = 1, x = 0, y = 0, drag = null, mode = null, last = 0;
+      const interactive = target => target instanceof Element && (target.isContentEditable || !!target.closest('input,textarea,select,button,a,label,summary,[role="button"],[role="slider"],[role="spinbutton"],[role="textbox"]'));
       const apply = () => {
         x = Math.min(0, Math.max(innerWidth * (1 - s), x)); y = Math.min(scrollY * (1 - s), Math.max((scrollY + innerHeight) * (1 - s), y));
         document.body.style.transformOrigin = '0 0'; document.body.style.transform = s > 1 ? `translate(${x}px,${y}px) scale(${s})` : '';
       };
       const vcx = {
         get scale() { return s },
+        isInteractive(px, py) { return interactive(document.elementFromPoint(px, py)) },
         live(url, seconds, callback) { const id = ++n; subs[id] = callback; webkit.messageHandlers.live.postMessage({ id, url: String(url), seconds: Number(seconds) || 30 }) },
         _push(id, data) { subs[id] && subs[id](data) },
         // A page that draws with vcx.chart zooms its time axis instead (onzoom/onpan/onreset), so the price scale stays in view.
@@ -158,17 +166,17 @@ private struct ChartWeb: NSViewRepresentable {
         reset() { if (vcx.onreset?.()) return; s = 1; apply() },
       };
       addEventListener('wheel', e => setTimeout(() => {
-        if (e.defaultPrevented) return;
+        if (e.defaultPrevented || interactive(e.target)) return;
         const vertical = Math.abs(e.deltaY) >= Math.abs(e.deltaX), room = document.documentElement.scrollHeight - innerHeight;
         if (e.timeStamp - last > 200) mode = null; last = e.timeStamp;
         mode ??= vertical && s === 1 && e.deltaY && (e.deltaY > 0 ? scrollY < room - 0.5 : scrollY > 0.5) ? 'scroll' : 'zoom';
         if (mode === 'scroll') { if (vertical) scrollBy(0, e.deltaY) }
         else if (vertical) vcx.zoom(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); else vcx.pan(-e.deltaX, 0);
       }), { passive: true });
-      addEventListener('mousedown', e => { if (s > 1 && e.button === 0) { drag = [e.clientX, e.clientY]; e.preventDefault() } }, true);
+      addEventListener('mousedown', e => { if (s > 1 && e.button === 0 && !interactive(e.target)) { drag = [e.clientX, e.clientY]; e.preventDefault() } }, true);
       addEventListener('mousemove', e => { if (drag) { vcx.pan(e.clientX - drag[0], e.clientY - drag[1]); drag = [e.clientX, e.clientY] } });
       addEventListener('mouseup', () => { drag = null });
-      addEventListener('dblclick', () => vcx.reset());
+      addEventListener('dblclick', e => { if (!interactive(e.target)) vcx.reset() });
       return vcx;
     })();
     """#
@@ -379,7 +387,7 @@ private struct ChartWeb: NSViewRepresentable {
     func makeNSView(context: Context) -> ChartWebView {
         let configuration = WKWebViewConfiguration()
         // Wrapped so they declare no global: a page's own `let s` would otherwise throw and never draw.
-        let style = "(() => { const s = document.createElement('style'); s.textContent = 'html,body{margin:0;overflow:hidden;background:transparent}" + (inline ? " *{cursor:crosshair !important}" : "") + "'; document.documentElement.appendChild(s) })();"
+        let style = "(() => { const s = document.createElement('style'); s.textContent = 'html,body{margin:0;overflow:hidden;background:transparent}" + (inline ? " body{cursor:crosshair}" : "") + "'; document.documentElement.appendChild(s) })();"
         let report = "new ResizeObserver(() => webkit.messageHandlers.size.postMessage(\(Self.measure))).observe(document.body);"
         configuration.userContentController.addUserScript(WKUserScript(source: style, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
