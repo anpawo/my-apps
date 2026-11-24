@@ -502,7 +502,7 @@ struct CXView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     capability("Hooks")
                     capability("Skills")
-                    if session.account.provider == "claude" { capability("Commands") }
+                    capability("Commands")
                     capability("MCP")
                     capability("Instructions")
                     capability("RAG")

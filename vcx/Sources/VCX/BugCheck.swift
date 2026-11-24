@@ -13,6 +13,22 @@ enum BugCheck {
             if !condition { failures.append(message) }
         }
         func settle() async { try? await Task.sleep(nanoseconds: 700_000_000) }
+        do {
+            let sidebar = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("sidebar-commands"))
+            defer { sidebar.close() }
+            for provider in ["claude", "codex", "qwen", "agy"] {
+                sidebar.applyRuntimeMetadata(["account": ["id": "fixture", "name": "Fixture", "provider": provider, "enabled": true]])
+                sidebar.skills = ["fixture-skill"]
+                sidebar.providerCommands = [ChatCommand(name: "/fixture-skill", detail: "Fixture skill", source: provider, insert: "/fixture-skill ")]
+                let commands = sidebar.capabilityItems("Commands")
+                check(commands.contains { $0.name == "model" && $0.detail.contains("Choose provider") }, "the Commands sidebar lists VCX commands for " + provider)
+                check(!commands.contains { $0.name == "fixture-skill" } && Set(commands.map(\.name)).count == commands.count, "the Commands sidebar excludes skills and duplicate names for " + provider)
+                if provider == "codex" {
+                    check(commands.contains { $0.name == "compact" } && !commands.contains { $0.name == "theme" }, "the Commands sidebar includes supported Codex commands and excludes terminal actions")
+                }
+            }
+            guard failures.isEmpty else { throw CXError(message: failures.joined(separator: "; ")) }
+        }
         func editor(_ session: Session) -> (ComposerText, Composer.Coordinator) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
             storage.addLayoutManager(manager); manager.addTextContainer(container)

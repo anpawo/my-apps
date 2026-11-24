@@ -73,6 +73,15 @@ func claudeHooks(home: String, folders: [URL], flags: [URL] = []) -> [String] {
 @MainActor
 extension Session {
     func capabilityItems(_ title: String) -> [CapabilityItem] {
+        if title == "Commands" {
+            var names: Set<String> = []
+            return commandCatalog.filter { command in
+                !command.source.hasSuffix(" terminal") &&
+                (!providerCommands.contains(command) || builtinCommands.contains(String(command.name.dropFirst()))) &&
+                names.insert(command.name).inserted
+            }.map { CapabilityItem(name: String($0.name.dropFirst()), detail: $0.detail) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }
         if title == "RAG" {
             return recalledRules.map { rule in
                 let name = ErrorsRecall.section(of: rule, cwd: cwd) ?? "ERRORS line"
@@ -80,13 +89,13 @@ extension Session {
                 return CapabilityItem(name: name, detail: String(rule[date.upperBound...]), id: rule)
             }
         }
-        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "Commands" ? builtinCommands : title == "MCP" ? mcp : instructions
+        let values = title == "Hooks" ? hooks : title == "Skills" ? skills : title == "MCP" ? mcp : instructions
         let items = values.enumerated().map { index, value in
             let parts = value.components(separatedBy: " · ")
             let name = parts[0]
             let summary = parts.dropFirst().filter { title != "Hooks" || $0 != "trusted" }.joined(separator: " · ")
             let detail: String
-            if title == "Skills" || title == "Commands" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
+            if title == "Skills" { detail = providerCommands.first { $0.name == "/" + name }?.detail ?? "Provider skill" }
             else if title == "Hooks" { detail = summary.isEmpty ? "Provider hook" : summary }
             else if title == "Instructions" { return CapabilityItem(name: URL(fileURLWithPath: value).lastPathComponent, detail: value, id: String(index)) }
             else { detail = summary.isEmpty ? "Configured MCP server" : summary }
