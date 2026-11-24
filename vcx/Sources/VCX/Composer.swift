@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ImageIO
+import WebKit
 
 let composerMinimumHeight: CGFloat = 24
 
@@ -14,6 +15,14 @@ final class ComposerWindow: NSWindow {
     private weak var lens: NSTextView?
     private var hovering = false, movedBefore = false
     private var gathered: [NSTextView] = []
+    private func isWebContent(_ responder: NSResponder?) -> Bool {
+        var view = responder as? NSView
+        while let current = view {
+            if current is WKWebView { return true }
+            view = current.superview
+        }
+        return false
+    }
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
     // Read-only text only: Control-click in the composer keeps its menu.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
@@ -96,11 +105,11 @@ final class ComposerWindow: NSWindow {
             find.move(event.keyCode == 126 ? -1 : 1); return
         }
         // Key codes, not characters: the number row types symbols without Shift on AZERTY.
-        if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil,
+        if event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty, attachedSheet == nil, !isWebContent(firstResponder),
            let index = [18, 19, 20, 21, 23, 22, 26, 28, 25].firstIndex(of: event.keyCode) ?? [83, 84, 85, 86, 87, 88, 89, 91, 92].firstIndex(of: event.keyCode),
            (firstResponder as? NSText).map({ $0 is ComposerText ? $0.string.isEmpty : !$0.isEditable }) ?? true,
            chooseOption(index + 1) { return }
-        if event.type == .keyDown, !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true, attachedSheet == nil {
+        if event.type == .keyDown, !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true, attachedSheet == nil, !isWebContent(firstResponder) {
             if [36, 49, 76].contains(event.keyCode), event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
                 focusComposer(); return
             }
@@ -130,8 +139,9 @@ final class ComposerWindow: NSWindow {
         if event.type == .leftMouseUp, let start = clickStart {
             clickStart = nil
             let end = convertPoint(toScreen: event.locationInWindow)
+            let point = contentView?.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
             if hypot(end.x - start.x, end.y - start.y) < 4, !(firstResponder is ComposerText), (firstResponder as? NSText)?.isEditable != true,
-               attachedSheet == nil { focusComposer() }
+               attachedSheet == nil, !isWebContent(contentView?.hitTest(point)) { focusComposer() }
         }
     }
 }
