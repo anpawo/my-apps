@@ -40,6 +40,7 @@ struct RoadmapColumn: View {
     private var active: Set<String> { working.reduce(into: Set<String>()) { $0.formUnion(RoadmapActivity.steps(for: $1, in: snapshot.steps)) } }
     private var unmatched: Int { working.filter { RoadmapActivity.steps(for: $0, in: snapshot.steps).isEmpty }.count }
     private let accent = Color(red: 0.70, green: 0.60, blue: 1)
+    private static let backgroundDarkening = 0.48
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -64,7 +65,7 @@ struct RoadmapColumn: View {
             .accessibilityLabel(snapshot.project.name + " roadmap steps")
         }
         .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18).fill(.white.opacity(0.045)))
+        .background(RoundedRectangle(cornerRadius: 18).fill(accent.darkened(Self.backgroundDarkening).opacity(Glass.wash)))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.12)))
     }
 
