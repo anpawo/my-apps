@@ -784,9 +784,22 @@ find.input.addEventListener('keydown', e => {
 
 /* ---------- Conversation ---------- */
 
+const RECENT_CHAT_LIMIT = 20, RECENT_MESSAGE_LIMIT = 10;
+const recentChats = new Map();
+let displayedChatKey = null;
+const chatCacheKey = item => JSON.stringify(item.chats.map(c => c.id).sort());
+function rememberChat() {
+  if (!state.cur || displayedChatKey !== chatCacheKey(state.cur)) return;
+  const key = chatCacheKey(state.cur);
+  recentChats.delete(key);
+  recentChats.set(key, state.msgs.slice(-RECENT_MESSAGE_LIMIT));
+  if (recentChats.size > RECENT_CHAT_LIMIT) recentChats.delete(recentChats.keys().next().value);
+}
 async function select(id) {
   const item = state.byId.get(id);
   if (!item || item === state.cur) return;
+  rememberChat();
+  const cached = recentChats.get(chatCacheKey(item));
   state.cur = item;
   localStorage.lastChat = item.chats[0].id;
   state.target = null;
@@ -804,18 +817,20 @@ async function select(id) {
   const seq = ++state.seq;
   const thread = $('#thread');
   // exit-fade template: the old conversation fades where it stands while the new one loads.
-  const fade = thread.childElementCount ? anim(thread, { opacity: [1, 0] }, 100, 'ease-out') : null;
+  const fade = !cached && thread.childElementCount ? anim(thread, { opacity: [1, 0] }, 100, 'ease-out') : null;
   if (fade) fade.effect.updateTiming({ fill: 'forwards' });
-  const [msgs] = await Promise.all([loadMessages(item), fade?.finished]);
+  const [msgs] = cached ? [keepMine(cached)] : await Promise.all([loadMessages(item), fade?.finished]);
   if (seq !== state.seq) return;
   state.msgs = msgs;
+  displayedChatKey = chatCacheKey(item);
   state.older = {};
   state.pool = [];
-  drawThread(true);
+  drawThread(!cached);
   fillUp();
   fade?.cancel();
   pickTarget();
   $('#input').focus();
+  if (cached) pollThread();
 }
 
 // Bridges post "X was invited", "X joined the chat" as messages with no type: the app they come from shows none.
@@ -825,7 +840,7 @@ async function loadMessages(item) {
   const pages = await Promise.all(item.chats.map(c => Promise.race([
     api('GET', `/v1/chats/${enc(c.id)}/messages`).then(r => (r.items || []).map(m => ({ ...m, net: netOf(c) }))).catch(() => []),
     new Promise(r => setTimeout(r, 2500, []))])));
-  return keepMine(pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-10));
+  return keepMine(pages.flat().filter(shownMsg).sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.sortKey.localeCompare(b.sortKey)).slice(-RECENT_MESSAGE_LIMIT));
 }
 // Beeper lists a reaction sent from here only seconds later: until it does (30 s at most), the poll's copy keeps mine.
 const myReacts = [];

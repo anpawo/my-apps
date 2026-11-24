@@ -227,7 +227,7 @@ check(quote === 'dinner tonight still on?', `a reply shows what it answers above
 check(!bar[0] && bar[1].includes('dinner tonight') && bar[2] === 'input' && replied[0] === 'wa-lea' && !!replied[1] && (await page.$eval('#reply', r => r.hidden)), `⌘R replies to the hovered message on its app (${JSON.stringify([bar, replied])})`);
 
 // Older messages come a page at a time as the thread is scrolled up, or until it fills the window; both apps stay in time order.
-await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() => select('ig-lea')); });
+await page.evaluate(() => { window.__page = 1; return select('grp-1').then(() => (recentChats.clear(), select('ig-lea'))); });
 await page.waitForTimeout(1500);
 const older = await page.evaluate(() => [[...document.querySelectorAll('#thread .msg')].map(b => msgText(b)), state.msgs.map(m => m.id).join(), __log.filter(([c, a]) => c === 'api' && a.method === 'GET' && a.path.includes('cursor=')).length]);
 await page.evaluate(() => { window.__page = 0; });
@@ -543,12 +543,14 @@ const wa = await page.$$eval('#results .row:not([data-leaving]) .name', ns => ns
 check(JSON.stringify(wa) === '["Tom B"]', `/wh tom keeps WhatsApp people named tom (${wa})`);
 // Someone is found by their own conversation; a group, by its name or a member's, only when no one is.
 const searchNames = async q => { await page.fill('#search', q); await page.waitForTimeout(400); return page.$$eval('#results .row:not([data-leaving]) .name', ns => ns.map(n => n.firstChild.textContent)); };
-await page.evaluate(() => { state.all.find(i => i.kind === 'group' && /climb/i.test(i.name)).who = 'Nina\nLea M'; });
+// Keep synthetic member names stable across the periodic list refresh.
+await page.waitForFunction(() => !loading);
+await page.evaluate(() => { loading = true; state.all.find(i => i.kind === 'group' && /climb/i.test(i.name)).who = 'Nina\nLea M'; });
 const [byPerson, byMember] = [await searchNames("/discord t"), await searchNames("nina")];
 check(JSON.stringify(byPerson) === '["tom"]' && JSON.stringify(byMember) === '["Climbing crew"]', `a search shows people, and the groups someone is in only when no one matches (${byPerson} / ${byMember})`);
 await page.evaluate(() => state.all.push({ id: 'alfred', kind: 'person', name: 'Alfred', imgs: [], unread: 0, last: '', chats: [{ id: 'alfred', network: 'WhatsApp', accountID: 'whatsapp' }] }));
 const byWord = await searchNames('fr');
-await page.evaluate(() => state.all.pop());
+await page.evaluate(() => (state.all.pop(), loading = false));
 check(JSON.stringify(byWord) === '["Alfred","Rust FR"]', `a group whose name has a word starting with the search shows after the people matching it (${byWord})`);
 await page.keyboard.press('Escape');
 // ⌘M on a group in the search renames it in the header; the search then finds it by either name and shows both.
@@ -837,7 +839,8 @@ await page.waitForTimeout(600);
 const unplayed = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [v.querySelector('.time').textContent, getComputedStyle(v.querySelector('.dot')).opacity]; });
 check(JSON.stringify(unplayed) === '["0:01","1"]', `a voice message shows its length and a dot before it is played (${unplayed})`);
 await page.click('#thread .bubble.voice .toggle');
-await page.waitForTimeout(1600);
+const VOICE_PLAYBACK_TIMEOUT_MS = 5000;
+await page.waitForFunction(() => (() => [document.querySelector('#thread .bubble.voice').classList.contains('heard'), JSON.parse(localStorage.heard || '[]').length])()[0], { timeout: VOICE_PLAYBACK_TIMEOUT_MS });
 const heardNow = await page.evaluate(() => [document.querySelector('#thread .bubble.voice').classList.contains('heard'), JSON.parse(localStorage.heard || '[]').length]);
 check(heardNow[0] && heardNow[1] === 1, `played to the end, it is kept as heard (${heardNow})`);
 const voice = await page.evaluate(() => { const v = document.querySelector('#thread .bubble.voice'); return [!!v._audio, v.classList.contains('failed'), v.querySelector('.time').textContent, v._audio?.readyState, v._audio?.duration, v._audio?.error?.code, v._audio?.paused]; });
