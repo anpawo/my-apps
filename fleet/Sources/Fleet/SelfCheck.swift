@@ -36,6 +36,7 @@ enum SelfCheck {
         plugins(expect)
         grid(expect)
         projects(expect)
+        ProjectGroupingCheck.run(expect)
         reads(expect)
         fused(expect)
         codexRollout(expect)

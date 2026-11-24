@@ -325,7 +325,7 @@ final class Session: ObservableObject {
     static var testConnectionFactory: ((Account, String) -> any Connection)?
     static var router: ([String], Account?) async -> String? = { await routeProject($0, account: $1) }
     var nativeDirectory: URL { stateDirectory.appendingPathComponent("native").appendingPathComponent(pointer.deletingPathExtension().lastPathComponent) }
-    private var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
+    var snapshotURL: URL { nativeDirectory.appendingPathComponent(recordID + ".json") }
     private var nativePointer: URL { pointer.deletingPathExtension().appendingPathExtension("native.json") }
 
     private var itemMap: [String: Item] = [:]

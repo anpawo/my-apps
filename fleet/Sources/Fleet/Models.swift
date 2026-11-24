@@ -301,6 +301,8 @@ struct WorkflowProgress {
 /// Everything parsed out of a session's transcript file.
 struct TranscriptInfo {
     var path: String
+    var projectEvidence = ProjectEvidence()
+    var projectIdentity: String? = nil
     var title: String?        // Claude Code's own "ai-title"
     var lastPrompt: String?
     var lastPromptAt: Date?
@@ -384,6 +386,7 @@ struct Session: Identifiable {
     /// The session's own line about itself — see `Hooks.context`. Read once per scan: `topic`
     /// is asked for by every card at every frame of a fold, and it was a file read each time.
     var context: String? = nil
+    var projectAssignment: ProjectAssignment? = nil
 
     /// Where the session is working *now*. The process cwd is only where it was launched:
     /// `cd` inside a session moves the session but never the process, so a tile keyed on the
@@ -394,7 +397,10 @@ struct Session: Identifiable {
     /// Last path component of the working directory, e.g. "portfolio" — except under ~/self,
     /// where the project is what identifies a session: one working in ~/self/finance/backend
     /// is still "finance", not "backend".
-    var dirName: String { Session.project(for: cwd) }
+    var dirName: String {
+        if unassigned { return "Unassigned" }
+        return Session.project(for: projectAssignment?.path ?? cwd)
+    }
 
     /// The same rule, applied to a bare path: the registry needs a session's project name
     /// before it has a session to ask — it is what the pinned tile numbers are keyed on.
@@ -452,7 +458,12 @@ struct Session: Identifiable {
     /// Whether the session is working on one of the projects under `~/self`, where the
     /// directory is the name of the work. Everywhere else it is not: a session in `~` is
     /// called "mr", and so is every other one.
-    var isSelf: Bool { cwd.hasPrefix(NSHomeDirectory() + "/self/") }
+    private var isSelfDirectory: Bool { cwd.hasPrefix(NSHomeDirectory() + "/self/") }
+    private var unassigned: Bool {
+        projectAssignment != nil && projectAssignment?.path == nil &&
+            (cwd == "/" || cwd == NSHomeDirectory() || cwd == Config.projectRoot || isSelfDirectory)
+    }
+    var isSelf: Bool { !unassigned && (projectAssignment?.path ?? cwd).hasPrefix(NSHomeDirectory() + "/self/") }
 
     /// One or two words for what a session outside `~/self` is doing, asked of Claude once per
     /// transcript and kept here rather than on the struct: a `Session` is rebuilt from scratch
@@ -462,7 +473,10 @@ struct Session: Identifiable {
 
     /// What puts two sessions on the same card, and the name over it: the directory, outside
     /// `~/self` too (asked 2026-11-07).
-    var groupKey: String { isSelf ? Session.project(for: cwd, outermost: true) : dirName }
+    var groupKey: String {
+        if unassigned { return "Unassigned" }
+        return isSelf ? Session.project(for: projectAssignment?.path ?? cwd, outermost: true) : dirName
+    }
 
     /// Qwen's title for the chat of each session fused with it, by session id, "" until it has
     /// given one: see `AppController.nameFused`.

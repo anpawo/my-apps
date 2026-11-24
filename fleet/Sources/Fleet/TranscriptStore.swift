@@ -428,6 +428,7 @@ final class TranscriptStore {
 /// Everything the parse carries from one line to the next. Kept as a value so a refresh can
 /// resume mid-file instead of re-reading what it already folded in.
 private struct ParseState {
+    var projectEvidence = ProjectEvidence()
     /// One tool call still waiting on its result.
     struct PendingTool {
         var name: String        // "Bash"
@@ -553,6 +554,7 @@ private struct ParseState {
     }
 
     mutating func ingest(_ obj: [String: Any]) {
+        projectEvidence.ingest(obj)
         if codex { return ingestCodex(obj) }
         guard let type = obj["type"] as? String else { return }
 
@@ -789,6 +791,7 @@ private struct ParseState {
         let inFlight = pending.values.sorted { $0.seq > $1.seq }
         return TranscriptInfo(
             path: path,
+            projectEvidence: projectEvidence,
             title: title,
             lastPrompt: lastPrompt,
             lastPromptAt: lastPromptAt,

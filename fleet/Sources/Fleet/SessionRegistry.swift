@@ -5,6 +5,7 @@ import Foundation
 final class SessionRegistry {
 
     private let store = TranscriptStore()
+    private let grouping = ProjectGrouping()
     /// Previous CPU sample per pid, for computing CPU% between refreshes.
     private var cpuSamples: [pid_t: (nanos: UInt64, at: Date)] = [:]
     /// Sticky pid -> transcript bindings, so a session keeps its file once identified.
@@ -108,7 +109,7 @@ final class SessionRegistry {
         // The one you have left alone longest first, top left, and so on across the grid: the
         // panel is for picking a session back up, so the most neglected is the nearest to hand.
         // A tile moves only when you prompt it, which is the one moment you know where it is.
-        return (sessions + VCX.sessions()).sorted { $0.lastTouched < $1.lastTouched }
+        return grouping.apply(to: sessions + VCX.sessions()).sorted { $0.lastTouched < $1.lastTouched }
     }
 
     // MARK: - Process to transcript binding

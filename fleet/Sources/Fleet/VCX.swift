@@ -6,11 +6,17 @@ import NaturalLanguage
 enum VCX {
     static let root = NSHomeDirectory() + "/.local/state/cx"
     private static let transcripts = TranscriptStore()
+    private static let projectEvidence = NativeProjectEvidence()
     private static var read: Set<String> = []
+    private static var snapshots: Set<String> = []
 
     static func sessions() -> [Session] {
         read = []
-        defer { transcripts.retain(paths: read) }
+        snapshots = []
+        defer {
+            transcripts.retain(paths: read)
+            projectEvidence.retain(paths: snapshots)
+        }
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
         let found = apps.flatMap { app -> [Session] in
             let pid = app.processIdentifier
@@ -102,11 +108,20 @@ enum VCX {
                                   lastPromptAt: (record["lastPromptAt"] as? Double).map(Date.init(timeIntervalSince1970:)),
                                   hasPendingTool: false, pendingToolNames: [], pendingToolLabels: [], pendingTaskIDs: [],
                                   cwd: cwd, turnOpen: state == .running, lastActivity: activity, preview: preview)
+        info.projectIdentity = (record["threadId"] as? String).flatMap { $0.isEmpty ? nil : "vcx-thread:" + $0 }
+        if let snapshot = record["snapshotPath"] as? String {
+            snapshots.insert(URL(fileURLWithPath: snapshot).resolvingSymlinksInPath().path)
+            info.projectEvidence = projectEvidence.read(snapshot, root: root, refreshing: state != .running) ?? ProjectEvidence()
+        }
+        if state == .running || info.projectEvidence.prompt.isEmpty {
+            if let prompt { info.projectEvidence.userPrompt(prompt) }
+        }
         // VCX's record says how many tasks are out, not which are agents: the transcript does.
         if let thread = record["threadId"] as? String, thread.hasPrefix("claude:"),
            let transcript = Hooks.record(sessionID: String(thread.dropFirst(7)))?.transcriptPath {
             read.insert(transcript)
             let live = transcripts.info(for: transcript)
+            if record["snapshotPath"] == nil, let live { info.projectEvidence = live.projectEvidence }
             info.subagents = live?.subagents ?? []
             info.backgroundShellsStartedAt = live?.backgroundShellsStartedAt ?? []
             // VCX's cwd, not the transcript's: it is the folder the window's bar shows, moved by a
