@@ -22,6 +22,8 @@ import Foundation
     @Published private(set) var lastScan: Date?
 
     nonisolated static let threshold: Int64 = 500_000_000
+    nonisolated private static let scanInterval: TimeInterval = 3600
+    nonisolated private static let minimumScanInterval: TimeInterval = 60
     private static let file = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/fleet/disk-sizes.json")
     nonisolated private static let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -40,7 +42,10 @@ import Foundation
 
     /// Called on the reaper's slow tick; a scan is about a minute of `du` at the lowest priority.
     func tick() {
-        guard !pretending, !scanning, Date().timeIntervalSince(snapshots.last?.at ?? .distantPast) >= 3600 else { return }
+        guard !pretending, !scanning else { return }
+        let elapsed = Date().timeIntervalSince(snapshots.last?.at ?? .distantPast)
+        let freeChange = Int64(MemoryPressure.disk().free) - (snapshots.last?.free ?? 0)
+        guard Self.scanDue(elapsed: elapsed, freeChange: freeChange) else { return }
         scanning = true
         DispatchQueue.global(qos: .utility).async {
             let snap = Self.scan()
@@ -54,6 +59,10 @@ import Foundation
                 }
             }
         }
+    }
+
+    nonisolated static func scanDue(elapsed: TimeInterval, freeChange: Int64) -> Bool {
+        elapsed >= scanInterval || (elapsed >= minimumScanInterval && abs(freeChange) >= threshold)
     }
 
     private nonisolated static func scan() -> Snapshot? {

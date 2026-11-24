@@ -43,6 +43,7 @@ enum SelfCheck {
         codexBinding(expect)
         vcx(expect)
         diskGrowth(expect)
+        diskRefresh(expect)
         sleepGuard(expect)
 
         print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED")
@@ -67,6 +68,21 @@ enum SelfCheck {
         let rows = DiskGrowth.growth(from: old, to: new, freeDrop: 7 * gb * 1024)
             .map { "\($0.path) \(($0.bytes + 50_000_000) / 100_000_000)" }.joined(separator: ", ")
         expect(rows, "/Library 30, /Library/C 20, /Library/A 10, System, snapshots, other 10", "disk growth: deepest first, parent's rest, unexplained")
+    }
+
+    private static func diskRefresh(_ expect: (Bool, Bool, String) -> Void) {
+        let minute: TimeInterval = 60
+        let reclaimed: Int64 = 2_000_000_000
+        expect(DiskGrowth.scanDue(elapsed: 5 * minute, freeChange: reclaimed), true,
+               "disk growth refreshes after space is reclaimed")
+        expect(DiskGrowth.scanDue(elapsed: 5 * minute, freeChange: -reclaimed), true,
+               "disk growth refreshes after space is consumed")
+        expect(DiskGrowth.scanDue(elapsed: minute / 2, freeChange: reclaimed), false,
+               "disk growth limits scans during large writes")
+        expect(DiskGrowth.scanDue(elapsed: 59 * minute, freeChange: 0), false,
+               "disk growth retains hourly scans without a large change")
+        expect(DiskGrowth.scanDue(elapsed: 60 * minute, freeChange: 0), true,
+               "disk growth scans hourly without a large change")
     }
 
     private static func vcx(_ expect: (Bool, Bool, String) -> Void) {
