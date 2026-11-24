@@ -42,6 +42,7 @@ enum InteractionCheck {
         let typing = type(into: field, host: host)
         let send = send(field: field, session: session, sending: sending, host: host)
         let finished = sending.flight == nil
+        precondition(field.showsPlaceholder, "The empty composer restores its placeholder after landing")
         stream.invalidate()
         sidebarCountsFollowCatalogChanges(folder: folder, field: field)
         let report: JSON = ["typing": summary(typing), "typing_cpu": summary(typingCPU), "send": summary(send.times), "flight_observed": send.observed, "send_finished": finished,
@@ -127,6 +128,7 @@ enum InteractionCheck {
             let after = CACurrentMediaTime()
             times.append((after - previous) * 1000); previous = after
             observed = observed || sending.flight != nil
+            if sending.flight != nil { precondition(!field.showsPlaceholder, "The empty placeholder stays out of the outgoing snapshot") }
         }
         return (times, observed)
     }

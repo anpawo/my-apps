@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+private let composerShade = 0.065
 let accent = Color(red: 0.43, green: 0.23, blue: 0.75)
 let readyColor = Color(red: 0.1, green: 0.45, blue: 0.18)
 let pendingColor = Color(red: 0.87, green: 0.42, blue: 0)
@@ -233,7 +234,6 @@ struct MessageFrames: PreferenceKey {
     private var composer = CGRect.zero
     private var editor = CGRect.zero
     private(set) var transcript = CGRect.zero
-    private var generation = 0
     private var moving = false
     private let flightDuration = 0.42
     private let landingDelay = 0.6
@@ -285,7 +285,7 @@ struct MessageFrames: PreferenceKey {
             // Retargeted on every frame, a flight never completes and republishes forever; both frontend freezes (11-05 16:03,
             // 11-06 12:17) began at a send, and the per-turn cap above did not stop the second. Past 1.5 s it lands where it is.
             if reduceMotion || Date().timeIntervalSince(flight.started) > 1.5 || !rows.contains(where: { $0.items.contains(where: { $0.id == flight.item.id }) }) {
-                self.flight = nil; generation += 1; moving = false
+                self.flight = nil; moving = false
             // Sub-point remeasures are ignored, so a frame that jitters between layout passes cannot keep republishing the flight.
             } else if let measured = frames[flight.item.id], case let destination = target(measured),
                       [destination.minX - flight.destination.minX, destination.minY - flight.destination.minY,
@@ -302,7 +302,7 @@ struct MessageFrames: PreferenceKey {
         let destination = target(measured)
         self.pending = nil
         guard !destination.isEmpty else { return }
-        generation += 1; moving = false
+        moving = false
         frame = pending.origin; blend = 0
         flight = Flight(item: item, origin: pending.origin, destination: destination, snapshot: pending.snapshot, tall: destination.height < measured.height, collapsed: frames["collapsed:" + item.id] != nil)
     }
@@ -316,18 +316,15 @@ struct MessageFrames: PreferenceKey {
         // Scrolling can retarget the spring continuously, so landing cannot depend on its last completion.
         DispatchQueue.main.asyncAfter(deadline: .now() + landingDelay) { [weak self] in
             guard let self, self.flight === flight else { return }
-            self.flight = nil; self.generation += 1; self.moving = false
+            self.flight = nil; self.moving = false
         }
     }
 
     private func move(to destination: CGRect) {
-        generation += 1
-        let current = generation
-        withAnimation(.spring(duration: flightDuration, bounce: 0.08), completionCriteria: .removed) {
+        let remaining = flightDuration - Date().timeIntervalSince(flight?.started ?? Date())
+        guard remaining > 0 else { withAnimation(nil) { frame = destination }; return }
+        withAnimation(.spring(duration: remaining, bounce: 0.08)) {
             frame = destination
-        } completion: {
-            guard self.generation == current else { return }
-            self.flight = nil; self.moving = false
         }
     }
 }
@@ -363,6 +360,7 @@ struct FlyingMessage: View {
                 .animation(.linear(duration: 0.06)) { $0.opacity(flight.snapshot == nil ? 1 : blend) }.offset(x: 16, y: inset)
         }.frame(width: frame.width, height: frame.height, alignment: flight.tall ? .bottomLeading : .topLeading)
             .background(accent.opacity(0.08 * blend), in: RoundedRectangle(cornerRadius: 17))
+            .background(Color(white: 1 - composerShade * (1 - Double(blend))), in: RoundedRectangle(cornerRadius: 17))
             .clipShape(RoundedRectangle(cornerRadius: 17))
             .offset(x: frame.minX, y: frame.minY)
     }
@@ -670,14 +668,14 @@ struct CXView: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
                 HStack(alignment: .bottom, spacing: 12) {
-                Composer(session: session) { text, images, snapshot in
+                Composer(session: session, showsPlaceholder: !sending.hasPending && sending.flight == nil) { text, images, snapshot in
                     sending.prepare(text: text, images: images, rows: session.rows, snapshot: snapshot)
                 }.frame(height: session.editorHeight)
                     .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["editor": geometry.frame(in: .named("conversation"))]) })
                 if session.busy { RoundButton(icon: "stop.fill", label: "Stop generation (Escape)") { Task { await session.stop(source: "Stop button") } } }
                 Button { session.submitDraft() } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .medium)).frame(width: 34, height: 34).foregroundStyle(.white).background(userGradient, in: Circle()).raised(Circle()) }.buttonStyle(.reactive(Circle())).disabled(!session.draft.string.hasPrefix("/") && (!session.ready || session.changing)).help(session.busy ? "Send guidance" : "Send message (Return)")
                 }
-            }.padding(14).background(.black.opacity(0.065), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
+            }.padding(14).background(.black.opacity(composerShade), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.09), lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .background(GeometryReader { geometry in Color.clear.preference(key: MessageFrames.self, value: ["composer": geometry.frame(in: .named("conversation"))]) })
             statusBar

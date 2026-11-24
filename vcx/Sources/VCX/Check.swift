@@ -2954,6 +2954,7 @@ enum Render {
         guard let field = editor(host), let snapshot = field.sendSnapshot() else { fatalError("Composer snapshot is missing") }
         field.willSubmit(text, [], snapshot)
         session.draft = NSAttributedString(string: ""); session.draftRevision += 1
+        precondition(session.editorHeight == composerMinimumHeight, "The empty composer shrinks before positioning the sent bubble")
         session.show(["id": "motion-message", "type": "userMessage", "content": [["type": "text", "text": text]]])
         session.revision += 1
         let start = Date()
@@ -2965,7 +2966,8 @@ enum Render {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             let file = String(format: "/send-%@-%03d.png", name, index)
             try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory + file))
-            samples.append(["time": Date().timeIntervalSince(start), "flying": animation.flight != nil, "frame": [animation.frame.minX, animation.frame.minY, animation.frame.width, animation.frame.height], "blend": animation.blend])
+            samples.append(["time": Date().timeIntervalSince(start), "flying": animation.flight != nil, "frame": [animation.frame.minX, animation.frame.minY, animation.frame.width, animation.frame.height], "blend": animation.blend,
+                            "editorHeight": session.editorHeight, "viewportHeight": session.viewportHeight, "textLength": field.string.count, "draftRevision": session.draftRevision])
         }
         try! JSONSerialization.data(withJSONObject: samples).write(to: URL(fileURLWithPath: directory + "/send-" + name + ".json"))
         precondition(samples.contains { $0["flying"] as? Bool == true }, "Send animation never started")

@@ -230,7 +230,7 @@ final class Session: ObservableObject {
     @Published var chart: ChartZoom?
     @Published var run: CommandRun?
     let chartPin = ChartPin()
-    @Published var editorHeight: CGFloat = 24
+    @Published var editorHeight: CGFloat = composerMinimumHeight
     @Published var draftRevision = 0
     // The /resume list was built when the worker connected; it refreshes each time it opens, or it shows titles from an older build.
     @Published var commandQuery: String? {
@@ -276,6 +276,8 @@ final class Session: ObservableObject {
     var draft = NSAttributedString(string: "") {
         didSet {
             if oldValue.length > 0, draft.length == 0 { onDraftConsumed?(draftGeneration) }; guessProject()
+            // The flight needs the resized viewport before AppKit's deferred text measurement arrives.
+            if draft.length == 0, editorHeight != composerMinimumHeight { editorHeight = composerMinimumHeight }
             let images = imagePaths(in: draft)
             if images != draftImages { draftImages = images }
         }

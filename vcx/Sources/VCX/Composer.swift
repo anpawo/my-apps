@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import ImageIO
 
+let composerMinimumHeight: CGFloat = 24
+
 final class ComposerWindow: NSWindow {
     var focusComposer: () -> Void = {}
     var chooseOption: (Int) -> Bool = { _ in false }
@@ -258,12 +260,14 @@ func pastedPieces(_ source: String) -> [InputPiece] {
 
 struct Composer: NSViewRepresentable {
     @ObservedObject var session: Session
+    var showsPlaceholder = true
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     func makeCoordinator() -> Coordinator { Coordinator(session) }
     func makeNSView(context: Context) -> NSScrollView {
         let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         storage.addLayoutManager(manager); manager.addTextContainer(container)
         let field = ComposerText(frame: .zero, textContainer: container)
+        field.showsPlaceholder = showsPlaceholder
         field.heldStorage = storage; field.session = session; field.delegate = context.coordinator
         field.willSubmit = willSubmit
         field.isEditable = !session.frontendReplacing
@@ -282,6 +286,7 @@ struct Composer: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let field = scroll.documentView as? ComposerText else { return }
+        if field.showsPlaceholder != showsPlaceholder { field.showsPlaceholder = showsPlaceholder; field.needsDisplay = true }
         let asking = session.questionFlow?.done == false
         if field.asking != asking { field.asking = asking; field.needsDisplay = true }
         field.willSubmit = willSubmit
@@ -328,7 +333,7 @@ struct Composer: NSViewRepresentable {
             DispatchQueue.main.async { [weak field, session] in
                 guard let field, let manager = field.layoutManager, let container = field.textContainer else { return }
                 manager.ensureLayout(for: container)
-                let height = min(max(manager.usedRect(for: container).height, 24), 150).rounded(.up)
+                let height = session.draft.length == 0 ? composerMinimumHeight : min(max(manager.usedRect(for: container).height, composerMinimumHeight), 150).rounded(.up)
                 if height != session.editorHeight { session.editorHeight = height }
             }
         }
@@ -367,6 +372,7 @@ final class ComposerText: NSTextView {
     weak var session: Session?
     private var submittingGenerations: Set<Int> = []
     var asking = false
+    var showsPlaceholder = true
     var willSubmit: (String, [String], ComposerSnapshot?) -> Void = { _, _, _ in }
     var heldStorage: NSTextStorage?
     var resized: () -> Void = {}
@@ -423,7 +429,7 @@ final class ComposerText: NSTextView {
     override func didChangeText() { highlightCommands(); renumberImages(); super.didChangeText(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
+        if showsPlaceholder && string.isEmpty { NSAttributedString(string: asking ? "Press a number, or type your own answer…" : "Ask anything · / commands…", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.black.withAlphaComponent(0.6)]).draw(at: NSPoint(x: 5, y: 0)) }
     }
     override func paste(_ sender: Any?) { paste(from: .general) }
     @discardableResult func paste(from board: NSPasteboard) -> Bool {
