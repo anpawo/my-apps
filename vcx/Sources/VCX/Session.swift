@@ -403,7 +403,7 @@ final class Session: ObservableObject {
     var performingAction: Bool { busy && !activeActions.isEmpty }
     var modelLabel: String { model.isEmpty || (!ready && model == "Codex") ? "Not connected" : modelName(modelAliases[model] ?? model) }
     var activityLabel: String {
-        busy ? "Thinking" : !ready ? "Not connected" : needsAttention || status == "Stopped" ? status : backgroundTasks > 0 ? "Pending action" : "Ready"
+        busy ? (status == "Reconnecting…" ? status : "Thinking") : !ready ? "Not connected" : needsAttention || status == "Stopped" ? status : backgroundTasks > 0 ? "Pending action" : "Ready"
     }
     func modelName(_ id: String) -> String {
         id.replacingOccurrences(of: "^(claude[- ]|codex[- ])", with: "", options: [.regularExpression, .caseInsensitive])
@@ -605,6 +605,23 @@ final class Session: ObservableObject {
         revision += 1
     }
 
+    private func retryNotice(_ text: String) {
+        trace("notice", ["text": text])
+        if let item = rows.last(where: { $0.items.first?.data["retry"] as? Bool == true })?.items.first {
+            item.data["text"] = text
+        } else {
+            rows.append(Row("notice", [Item(["text": text, "retry": true])]))
+        }
+        status = "Reconnecting…"
+        revision += 1
+    }
+
+    private func clearRetryNotice() {
+        guard status == "Reconnecting…" else { return }
+        rows.removeAll { $0.items.first?.data["retry"] as? Bool == true }
+        status = "Working…"
+    }
+
     func show(_ source: JSON) {
         var data = source
         if data["type"] as? String == "agentMessage", data["provider"] == nil { data["provider"] = providerLabel }
@@ -663,6 +680,9 @@ final class Session: ObservableObject {
         let p = message["params"] as? JSON ?? [:]
         if !method.lowercased().hasSuffix("delta") { trace("event", ["method": method, "params": p, "request": message["id"] != nil]) }
         if let id = p["threadId"] as? String, id != threadID { return }
+        if ["item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta", "turn/started", "turn/completed"].contains(method) {
+            clearRetryNotice()
+        }
         if let id = message["id"], message["method"] != nil {
             if method == "item/tool/call", p["tool"] as? String == "AskUserQuestion" {
                 if let params = ClaudeCompatibility.questions(p) { permissions.append(Permission(rpcID: id, method: "item/tool/requestUserInput", params: params)) }
@@ -790,14 +810,21 @@ final class Session: ObservableObject {
                 Task { self.showCommands(command); await self.command(command) }
             }
         case "error", "cx/error", "cx/disconnected":
-            if usageLimit(p), busy, !stopRequested { queueLimit(p); return }
+            if usageLimit(p), busy, !stopRequested { clearRetryNotice(); queueLimit(p); return }
+            if method == "error", p["willRetry"] as? Bool == true {
+                retryNotice((p["error"] as? JSON)?["message"] as? String ?? "Reconnecting…")
+                break
+            }
+            clearRetryNotice()
             // A fixture-command session has no agent of its own to restart.
             let crashed = method == "cx/disconnected" && p["reason"] != nil && !testing
             if !crashed { notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.") }
             if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); lostConnection = !ended && !testing; save() }
             if crashed { Task { await restartAfterCrash(p) } }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
-            notice(p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning.")
+            let text = p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning."
+            if method == "warning", text.hasPrefix("Falling back from WebSockets to HTTPS transport") { retryNotice(text) }
+            else { notice(text) }
         case "thread/compacted": notice("Conversation compacted. Earlier messages remain in history.")
         case "thread/tokenUsage/updated":
             let usage = p["tokenUsage"] as? JSON ?? [:]
@@ -990,6 +1017,7 @@ final class Session: ObservableObject {
         guard !frontendReplacing else { return }
         if runtimeClient != nil { await performRuntime("stop", ["source": source]); return }
         guard busy else { return }
+        clearRetryNotice()
         if !stopRequested {
             stopSource = source
             save()

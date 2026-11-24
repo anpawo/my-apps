@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 enum ProviderCheck {
     static func run() async throws {
+        try await RetryCheck.run()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-provider-check-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let settings = Settings.shared, previous = settings.value
