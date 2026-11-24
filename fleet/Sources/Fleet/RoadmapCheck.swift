@@ -10,6 +10,7 @@ enum RoadmapCheck {
         _ = NSApplication.shared
         parsing()
         activity()
+        ancestorAssignments()
         gestures()
         scrolling()
         RoadmapVisualCheck.run(expect)
@@ -75,9 +76,24 @@ enum RoadmapCheck {
     }
 
     private static func sourceCoverage() {
-        for snapshot in RoadmapProject.projects().map(RoadmapSnapshot.read) {
+        let store = RoadmapStore()
+        expect(store.loadForPreview(), "waits for actual local source refresh before drawing")
+        for snapshot in store.snapshots {
             print("Local source: \(snapshot.project.name), \(snapshot.steps.count) steps, \(snapshot.notices.count) notices")
         }
+    }
+
+    private static func ancestorAssignments() {
+        let project = RoadmapProject.projects()[0]
+        var session = demoSessions()[0]
+        session.projectAssignment?.path = project.root.deletingLastPathComponent().path
+        session.transcript?.cwd = project.root.path
+        expect(project.working([session]).count == 1, "counts concrete work below an accepted parent project assignment")
+        session.transcript?.cwd = session.projectAssignment?.path
+        session.transcript?.projectEvidence.actions = [.init(path: project.root.path + "/feature.py", kind: "edit")]
+        expect(project.working([session]).count == 1, "counts completed project edits when the launch folder is the parent")
+        session.transcript?.projectEvidence.actions = []
+        expect(project.working([session]).isEmpty, "does not treat every parent project session as work on its child")
     }
 
     private static func activity() {
@@ -165,7 +181,7 @@ enum RoadmapCheck {
                 RoadmapStep(id: "S\(index)", title: titles[index % titles.count], detail: "Synthetic roadmap evidence for the windowless layout check.",
                             status: index == 1 ? "Partial; acceptance unverified" : "Status unverified", source: source)
             }
-            return RoadmapSnapshot(project: project, steps: steps, updated: Date(), notices: ["Synthetic preview"])
+            return RoadmapSnapshot(project: project, steps: steps, updated: Date(), notices: ["Synthetic preview"], loaded: true)
         }
     }
 

@@ -841,7 +841,12 @@ if let i = CommandLine.arguments.firstIndex(of: "--render") ?? CommandLine.argum
         }
         if CommandLine.arguments.contains("--roadmaps") {
             controller.roadmapVisible = true
-            if CommandLine.arguments.contains("--fake") { controller.injectSessions(RoadmapCheck.demoSessions()) }
+            if CommandLine.arguments.contains("--fake") {
+                controller.injectSessions(RoadmapCheck.demoSessions())
+                controller.roadmaps.snapshots = RoadmapCheck.demo()
+            } else if !controller.roadmaps.loadForPreview() {
+                print("roadmap source load timed out"); exit(1)
+            }
         }
         // `--strain` draws the memory block in its amber state, which otherwise needs the
         // machine to actually be on its knees.

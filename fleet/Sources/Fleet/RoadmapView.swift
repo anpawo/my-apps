@@ -51,7 +51,7 @@ struct RoadmapColumn: View {
                     ForEach(snapshot.steps) { step in
                         RoadmapStepCard(step: step, active: active.contains(step.id), accent: accent)
                     }
-                    if snapshot.steps.isEmpty {
+                    if snapshot.loaded && snapshot.steps.isEmpty {
                         Text("No roadmap steps available")
                             .font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
                             .frame(maxWidth: .infinity, minHeight: 100)
@@ -94,7 +94,8 @@ struct RoadmapColumn: View {
                     .foregroundStyle(.white.opacity(0.4))
                 if snapshot.stale { Text("Older than 14 days; status may be stale").foregroundStyle(.orange) }
             }
-            Text("\(snapshot.steps.count) steps").foregroundStyle(.white.opacity(0.4))
+            Text(snapshot.loaded ? "\(snapshot.steps.count) steps" : "Loading local sources…")
+                .foregroundStyle(.white.opacity(0.4))
         }
         .font(.system(size: 11))
         .frame(maxWidth: .infinity, alignment: .leading)

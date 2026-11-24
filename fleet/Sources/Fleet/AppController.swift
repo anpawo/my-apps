@@ -178,6 +178,7 @@ final class AppController: ObservableObject {
     let money = MoneyStore()
     /// The blocks other programs write — see `PluginBlock`.
     let plugins = PluginStore()
+    let roadmaps = RoadmapStore()
 
     /// The headless Claudes out on a line of ALERT — see `Fixer`.
     let fixer = Fixer()

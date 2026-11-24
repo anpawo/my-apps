@@ -35,7 +35,13 @@ struct RoadmapProject: Identifiable {
             guard session.state == .running || session.state == .delegated else { return false }
             if let assignment = session.projectAssignment {
                 guard let path = assignment.path else { return false }
-                return path == root.path || path.hasPrefix(root.path + "/")
+                if path == root.path || path.hasPrefix(root.path + "/") { return true }
+                guard root.path.hasPrefix(path + "/") else { return false }
+                // Non-repository projects can belong to a parent card, with concrete work below it.
+                return session.cwd == root.path || session.cwd.hasPrefix(root.path + "/") ||
+                    (session.transcript?.projectEvidence.actions.contains {
+                        $0.path == root.path || $0.path.hasPrefix(root.path + "/")
+                    } ?? false)
             }
             return session.cwd == root.path || session.cwd.hasPrefix(root.path + "/")
         }
@@ -47,11 +53,12 @@ struct RoadmapSnapshot {
     var steps: [RoadmapStep] = []
     var updated: Date?
     var notices: [String] = []
+    var loaded = false
     static let staleAfter: TimeInterval = 14 * 24 * 60 * 60
     var stale: Bool { updated.map { Date().timeIntervalSince($0) > Self.staleAfter } ?? false }
 
     static func read(_ project: RoadmapProject) -> Self {
-        var result = Self(project: project)
+        var result = Self(project: project, loaded: true)
         let maximumSourceBytes = 2 * 1024 * 1024
         var dates: [Date] = []
         for url in project.sources {
@@ -204,9 +211,27 @@ enum RoadmapActivity {
 final class RoadmapStore: ObservableObject {
     @Published var snapshots = RoadmapProject.projects().map { RoadmapSnapshot(project: $0) }
     static let refreshInterval: TimeInterval = 15
+    private static let previewTimeout: TimeInterval = 8
+    private static let previewPoll: TimeInterval = 0.05
+    private var refreshedAt = Date.distantPast
+    private var refreshing = false
+    var loaded: Bool { snapshots.allSatisfy(\.loaded) }
 
     func refresh() async {
+        guard !refreshing, !loaded || Date().timeIntervalSince(refreshedAt) >= Self.refreshInterval else { return }
+        refreshing = true
         let projects = snapshots.map(\.project)
         snapshots = await Task.detached(priority: .utility) { projects.map(RoadmapSnapshot.read) }.value
+        refreshedAt = Date()
+        refreshing = false
+    }
+
+    func loadForPreview() -> Bool {
+        Task { await refresh() }
+        let deadline = Date().addingTimeInterval(Self.previewTimeout)
+        while !loaded, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(Self.previewPoll))
+        }
+        return loaded
     }
 }

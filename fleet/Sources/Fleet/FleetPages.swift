@@ -4,7 +4,7 @@ import SwiftUI
 struct FleetPages<Main: View>: View {
     @ObservedObject var controller: AppController
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @StateObject private var roadmaps = RoadmapStore()
+    private var roadmaps: RoadmapStore { controller.roadmaps }
     var previewReduceMotion: Bool? = nil
     @ViewBuilder var main: () -> Main
     static var slideDuration: TimeInterval { 0.3 }
