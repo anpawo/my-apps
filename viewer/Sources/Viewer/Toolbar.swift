@@ -14,6 +14,7 @@ func volumeSymbol(_ volume: Float) -> String {
     private static let volume = NSToolbarItem.Identifier("volume")
     private static let more = NSToolbarItem.Identifier("more")
     private static let search = NSToolbarItem.Identifier("search")
+    private static let markdown = NSToolbarItem.Identifier("markdown")
 
     let toolbar = NSToolbar(identifier: "viewer")
     private let splitView: NSSplitView
@@ -22,6 +23,15 @@ func volumeSymbol(_ volume: Float) -> String {
     private var actions: [NSToolbarItem.Identifier: Action] = [:]
     private lazy var volumeItem = button(Self.volume.rawValue, "speaker.wave.3.fill", "Volume", .mute)
     private let searchItem = NSSearchToolbarItem(itemIdentifier: search)
+    private lazy var markdownControl = NSSegmentedControl(labels: ["Preview", "Text"], trackingMode: .selectOne,
+                                                          target: self, action: #selector(markdownChanged(_:)))
+    private lazy var markdownItem: NSToolbarItem = {
+        let item = NSToolbarItem(itemIdentifier: Self.markdown)
+        item.label = "Markdown view"
+        item.view = markdownControl
+        markdownControl.setAccessibilityLabel("Markdown view")
+        return item
+    }()
 
     init(splitView: NSSplitView, perform: @escaping (Action) -> Void, onSearch: @escaping (String) -> Void) {
         self.splitView = splitView
@@ -36,16 +46,18 @@ func volumeSymbol(_ volume: Float) -> String {
         searchItem.searchField.action = #selector(searched(_:))
     }
 
-    func update(volume: Float, hasFile: Bool, plays: Bool) {
+    func update(volume: Float, hasFile: Bool, plays: Bool, markdownPreview: Bool?) {
         volumeItem.isEnabled = hasFile
         volumeItem.isHidden = !plays
         volumeItem.image = symbol(volumeSymbol(volume))
+        markdownItem.isHidden = markdownPreview == nil
+        markdownControl.selectedSegment = markdownPreview == true ? 0 : 1
     }
 
     func clearSearch() { searchItem.searchField.stringValue = "" }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.volume, Self.more, Self.search]
+        [Self.sidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.markdown, Self.volume, Self.more, Self.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -59,6 +71,7 @@ func volumeSymbol(_ volume: Float) -> String {
         case Self.volume: return volumeItem
         case Self.more: return moreItem(id)
         case Self.search: return searchItem
+        case Self.markdown: return markdownItem
         default: return nil
         }
     }
@@ -117,4 +130,8 @@ func volumeSymbol(_ volume: Float) -> String {
     }
 
     @objc private func searched(_ sender: NSSearchField) { onSearch(sender.stringValue) }
+
+    @objc private func markdownChanged(_ sender: NSSegmentedControl) {
+        perform(sender.selectedSegment == 0 ? .markdownPreview : .markdownText)
+    }
 }

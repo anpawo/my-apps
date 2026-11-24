@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The README picture shows the list.
             controller.showSidebar()
             controller.add(render.files)
+            if CommandLine.arguments[1] == "--render-preview" { controller.perform(.markdownPreview) }
             DispatchQueue.main.asyncAfter(deadline: .now() + renderSettleDelay) { [self] in
                 exit(Render.draw(controller.window, to: render.out) ? 0 : 1)
             }
@@ -125,11 +126,15 @@ let commonExtensions = ("png jpg jpeg heic heif gif webp tiff tif bmp ico svg dn
 if arguments.count > 2 && arguments[1] == "--render-settings" {
     exit(MainActor.assumeIsolated { Openers.render(commonExtensions, to: URL(fileURLWithPath: arguments[2])) } ? 0 : 1)
 }
-let render = arguments.count > 2 && arguments[1] == "--render"
+let render = arguments.count > 2 && ["--render", "--render-preview"].contains(arguments[1])
     ? (out: URL(fileURLWithPath: arguments[2]), files: arguments.dropFirst(3).map { URL(fileURLWithPath: $0) })
     : nil
 MainActor.assumeIsolated {
     let app = NSApplication.shared
+    if arguments.contains("--check-markdown") {
+        app.setActivationPolicy(.prohibited)
+        exit(Render.checkMarkdown() ? 0 : 1)
+    }
     app.setActivationPolicy(render == nil ? .regular : .prohibited)
     let delegate = AppDelegate(render: render)
     app.delegate = delegate

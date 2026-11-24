@@ -5,6 +5,7 @@ import ViewerCore
 enum Action {
     case previous, next, slower, faster, playPause, volumeUp, volumeDown, mute
     case toStart, toEnd, back, forward, remove, reveal, settings, fullscreen, zoomIn, zoomOut, toggleControls, sidebar
+    case markdownPreview, markdownText
 }
 
 private let inAppKeys: [(key: Int, modifiers: NSEvent.ModifierFlags, action: Action)] = [
@@ -229,6 +230,8 @@ final class Controller: NSObject {
         case .zoomIn: media?.zoom(in: true)
         case .zoomOut: media?.zoom(in: false)
         case .toggleControls: viewer.controlsHidden.toggle()
+        case .markdownPreview, .markdownText:
+            (media as? TextMedia)?.showMarkdownPreview(action == .markdownPreview)
         }
         updateToolbar()
     }
@@ -264,7 +267,9 @@ final class Controller: NSObject {
     }
 
     private func updateToolbar() {
-        toolbar.update(volume: volume, hasFile: library.current != nil, plays: library.currentEntry?.kind.plays == true)
+        let text = media as? TextMedia
+        toolbar.update(volume: volume, hasFile: library.current != nil, plays: library.currentEntry?.kind.plays == true,
+                       markdownPreview: text?.doc.language == .markdown ? text?.previewsMarkdown : nil)
         viewer.controls.update(playing: media?.isPlaying == true, speed: speedLabel, volume: volume)
     }
 

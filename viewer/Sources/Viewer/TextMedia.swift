@@ -10,11 +10,16 @@ import TextCore
     private let textView = CodeView(usingTextLayoutManager: false)
     private lazy var gutter = Gutter(scrollView: scroll, textView: textView)
     private var kept: (selection: NSRange, origin: NSPoint, atEnd: Bool)?
-    var view: NSView { scroll }
+    private let container = NSView()
+    private lazy var preview = MarkdownPreview()
+    private(set) var previewsMarkdown = false
+    var view: NSView { container }
 
     init(_ doc: Document, onDrop: @escaping ([URL]) -> Void, onReload: @escaping () -> Void) {
         self.doc = doc
         super.init()
+        scroll.autoresizingMask = [.width, .height]
+        container.addSubview(scroll)
         scroll.automaticallyAdjustsContentInsets = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -31,7 +36,12 @@ import TextCore
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         gutter.textChanged()
         doc.willReload = { [weak self] in self?.keepPlace() }
-        doc.didReload = { [weak self] in self?.restorePlace(); onReload() }
+        doc.didReload = { [weak self] in
+            guard let self else { return }
+            restorePlace()
+            if previewsMarkdown { preview.show(self.doc.storage.string) }
+            onReload()
+        }
     }
 
     private func setUpTextView() {
@@ -63,7 +73,23 @@ import TextCore
     }
 
     /// Typing goes to the text once it is on screen.
-    func focus() { scroll.window?.makeFirstResponder(textView) }
+    func focus() { container.window?.makeFirstResponder(previewsMarkdown ? preview.textView : textView) }
+
+    func showMarkdownPreview(_ show: Bool) {
+        guard doc.language == .markdown else { return }
+        if show {
+            if preview.superview == nil {
+                preview.frame = container.bounds
+                preview.autoresizingMask = [.width, .height]
+                container.addSubview(preview)
+            }
+            preview.show(doc.storage.string)
+        }
+        previewsMarkdown = show
+        scroll.isHidden = show
+        preview.isHidden = !show
+        focus()
+    }
 
     private func keepPlace() {
         let atEnd = textView.visibleRect.maxY >= textView.bounds.maxY - 1
