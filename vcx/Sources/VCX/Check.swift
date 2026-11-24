@@ -2958,9 +2958,10 @@ enum Render {
         session.show(["id": "motion-message", "type": "userMessage", "content": [["type": "text", "text": text]]])
         session.revision += 1
         let start = Date()
+        let captureInterval: TimeInterval = 1.0 / 60
         var samples: [JSON] = []
         for index in 0..<75 {
-            RunLoop.main.run(until: start.addingTimeInterval(Double(index) / 60))
+            RunLoop.main.run(until: Date().addingTimeInterval(captureInterval))
             host.layoutSubtreeIfNeeded()
             guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("Motion capture failed") }
             host.cacheDisplay(in: host.bounds, to: bitmap)
