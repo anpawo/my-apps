@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-// A ```chart block holds an HTML page the agent wrote; it is drawn live in the answer, and a click opens it larger at the same ratio.
+// A ```chart block holds a live HTML page; double-click opens it larger, and right-click toggles its pin.
 struct ChartZoom: Equatable {
     let html: String
     let size: CGSize
@@ -29,7 +29,7 @@ struct ChartBlock: View {
     @State private var size = CGSize.zero
     init(html: String, pin: Bool = false) { self.html = html; self.pin = pin; _height = State(initialValue: chartHeights[html] ?? 240) }
     var body: some View {
-        ChartWeb(html: html, zoom: 1, inline: true, height: { h in chartHeights[html] = h; if abs(height - h) > 0.5 { height = h } }, click: { size in openChart?(ChartZoom(html: html, size: size)) })
+        ChartWeb(html: html, zoom: 1, inline: true, height: { h in chartHeights[html] = h; if abs(height - h) > 0.5 { height = h } }, pin: pins.map { pins in { pins.toggle(html) } }, click: { size in openChart?(ChartZoom(html: html, size: size)) })
             .frame(maxWidth: .infinity).frame(height: height)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
             .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
@@ -63,17 +63,18 @@ private struct ChartButtons: View {
 struct PinnedChart: View {
     let html: String
     let pins: ChartPin
+    @Environment(\.openChart) private var openChart
     @State private var height: CGFloat
     @State private var size = CGSize.zero
     init(html: String, pins: ChartPin) { self.html = html; self.pins = pins; _height = State(initialValue: chartHeights[html] ?? 240) }
     var body: some View {
         // Not inline: the wheel and pinch zoom it, as nothing scrolls under it.
-        ChartWeb(html: html, zoom: 1, inline: false, height: { h in if abs(height - h) > 0.5 { height = h } })
+        ChartWeb(html: html, zoom: 1, inline: false, height: { h in if abs(height - h) > 0.5 { height = h } }, pin: { pins.toggle(html) }, click: { bounds in openChart?(ChartZoom(html: html, size: CGSize(width: bounds.width, height: max(height, bounds.height)))) })
             .frame(maxWidth: 760).frame(height: min(height, 280))
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
             .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.1)))
-            .overlay(alignment: .topTrailing) { ChartButtons(html: html, size: size, pins: pins) }
+            .overlay(alignment: .topTrailing) { ChartButtons(html: html, size: CGSize(width: size.width, height: max(height, size.height)), pins: pins) }
             .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
             .padding(.horizontal, 24).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,10 +85,12 @@ struct ChartPreview: View {
     let chart: ChartZoom
     let size: CGSize
     var dismiss: () -> Void
+    @Environment(ChartPin.self) private var pins: ChartPin?
     var body: some View {
-        let scale = max(1, min(size.width * 0.9 / (chart.size.width + 24), size.height * 0.85 / (chart.size.height + 24)))
-        ChartWeb(html: chart.html, zoom: scale, inline: false)
-            .frame(width: chart.size.width * scale, height: chart.size.height * scale)
+        let available = CGSize(width: size.width * 0.9, height: size.height * 0.85)
+        let scale = max(1, available.width / (chart.size.width + 24))
+        ChartWeb(html: chart.html, zoom: scale, inline: false, pin: pins.map { pins in { pins.toggle(chart.html) } })
+            .frame(width: available.width - 24 * scale, height: min(chart.size.height * scale, available.height - 24 * scale))
             .padding(12 * scale)
             .background(.white, in: RoundedRectangle(cornerRadius: 18))
             .overlay(alignment: .topTrailing) { RoundButton(icon: "xmark", label: "Close chart", action: dismiss).padding(10) }
@@ -100,6 +103,7 @@ struct ChartPreview: View {
 private final class ChartWebView: WKWebView {
     var inline = true
     var click: ((CGSize) -> Void)?
+    var pin: (() -> Void)?
     var pageHeight: CGFloat = 0
     var offset: CGFloat = 0
     private var down: NSPoint?
@@ -124,13 +128,23 @@ private final class ChartWebView: WKWebView {
         super.mouseUp(with: event)
         let start = down
         down = nil
-        guard let start, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) < 4, click != nil else { return }
+        guard let start, event.clickCount == 2, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) < 4, click != nil else { return }
         let point = convert(event.locationInWindow, from: nil), y = isFlipped ? point.y : bounds.height - point.y
         evaluateJavaScript("vcx.isInteractive(\(point.x / pageZoom), \(y / pageZoom))") { [weak self] value, error in
             guard error == nil, value as? Bool == false, let self else { return }
             self.click?(self.bounds.size)
         }
     }
+    override func rightMouseDown(with event: NSEvent) {
+        guard let pin else { return super.rightMouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil), y = isFlipped ? point.y : bounds.height - point.y
+        evaluateJavaScript("vcx.isInteractive(\(point.x / pageZoom), \(y / pageZoom))") { [weak self] value, error in
+            guard let self else { return }
+            if error == nil, value as? Bool == false { pin() }
+            else { self.showContextMenu(event) }
+        }
+    }
+    private func showContextMenu(_ event: NSEvent) { super.rightMouseDown(with: event) }
 }
 
 private struct ChartWeb: NSViewRepresentable {
@@ -138,7 +152,8 @@ private struct ChartWeb: NSViewRepresentable {
     let zoom: CGFloat
     let inline: Bool
     var height: (CGFloat) -> Void = { _ in }
-    var click: (CGSize) -> Void = { _ in }
+    var pin: (() -> Void)?
+    var click: ((CGSize) -> Void)?
 
     // The page's own height is where its last element ends: the document's scrollHeight never drops below the view's.
     // Zoomed, the children's rects are scaled: 0 keeps the measured height.
@@ -403,7 +418,8 @@ private struct ChartWeb: NSViewRepresentable {
     func updateNSView(_ view: ChartWebView, context: Context) {
         context.coordinator.height = height
         view.inline = inline
-        view.click = inline ? click : nil
+        view.click = click
+        view.pin = pin
         view.pageZoom = zoom
         if context.coordinator.html != html { context.coordinator.html = html; context.coordinator.stop(); view.offset = 0; view.loadHTMLString(html.lowercased().contains("<!doctype") ? html : "<!doctype html>" + html, baseURL: nil) }
     }

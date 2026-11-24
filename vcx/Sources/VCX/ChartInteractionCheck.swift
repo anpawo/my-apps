@@ -17,7 +17,8 @@ enum ChartInteractionCheck {
         composerFocusRequests = 0; optionSelections = 0
         try! FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         var opened: ChartZoom?
-        let host = NSHostingView(rootView: ChartBlock(html: page).environment(\.openChart) { opened = $0 })
+        let pins = ChartPin()
+        let host = NSHostingView(rootView: ChartBlock(html: page).environment(pins).environment(\.openChart) { opened = $0 })
         let window = mount(host, size: CGSize(width: 640, height: 320))
         defer { window.close() }
         guard let view = web(host) else { return fail("inline chart exists") }
@@ -32,7 +33,15 @@ enum ChartInteractionCheck {
         click(view, selector: "#preset")
         guard opened == nil, js(view, "pay.value") as? String == "3300" else { return fail("inline buttons update without enlarging") }
         click(view, selector: "#plot")
-        guard let chart = opened else { return fail("clicking chart background still enlarges") }
+        guard opened == nil else { return fail("a single chart click does not enlarge") }
+        click(view, selector: "#plot", right: true)
+        guard pins.html == page, opened == nil else { return fail("right-click pins without enlarging") }
+        click(view, selector: "#plot", right: true)
+        guard pins.html == nil else { return fail("right-click toggles the pin off") }
+        click(view, selector: "#pay", count: 2)
+        guard opened == nil else { return fail("double-clicking a field keeps editing") }
+        click(view, selector: "#plot", count: 2)
+        guard let chart = opened else { return fail("double-clicking chart background enlarges") }
 
         let preview = NSHostingView(rootView: ChartPreview(chart: chart, size: CGSize(width: 1000, height: 700)) {})
         let enlarged = mount(preview, size: CGSize(width: 1000, height: 700))
@@ -54,9 +63,11 @@ enum ChartInteractionCheck {
         guard composerFocusRequests == 1 else { return fail("clicking outside web content still focuses the composer") }
         let tall = "<body><input type='number' value='2000'><div style='height:2500px;background:linear-gradient(white,silver)'>Forecast</div></body>"
         guard enlargedWheelStaysInPage(html: tall, directory: directory) else { return false }
+        guard pinnedChartEnlargesContent(directory: directory) else { return false }
         if let pagePath {
             guard let html = try? String(contentsOfFile: pagePath, encoding: .utf8),
-                  enlargedWheelStaysInPage(html: html, directory: directory) else { return fail("supplied dashboard scrolls inside its preview") }
+                  enlargedWheelStaysInPage(html: html, directory: directory),
+                  expandedPreviewFitsContent(html: html, directory: directory) else { return fail("supplied dashboard fits and scrolls inside its preview") }
         }
         print("PASS: inline and enlarged fields retain window focus and accept typing; numbered options stay untouched; outside clicks still focus the composer")
         return true
@@ -146,17 +157,55 @@ enum ChartInteractionCheck {
         return result
     }
 
-    private static func click(_ view: WKWebView, selector: String) {
+    private static func click(_ view: WKWebView, selector: String, count: Int = 1, right: Bool = false) {
         let rect = js(view, "(() => { const r = document.querySelector('\(selector)').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2] })()") as? [Double] ?? []
         precondition(rect.count == 2, "Fixture target exists")
         let point = NSPoint(x: rect[0] * view.pageZoom, y: view.isFlipped ? rect[1] * view.pageZoom : view.bounds.height - rect[1] * view.pageZoom)
         let location = view.convert(point, to: nil)
-        for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
-            let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: view.window!.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-            if type == .leftMouseDown { view.mouseDown(with: event) } else { view.mouseUp(with: event) }
+        for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
+            let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: view.window!.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)!
+            switch type {
+            case .leftMouseDown: view.mouseDown(with: event)
+            case .leftMouseUp: view.mouseUp(with: event)
+            case .rightMouseDown: view.rightMouseDown(with: event)
+            default: view.rightMouseUp(with: event)
+            }
             RunLoop.main.run(until: Date() + eventSeconds)
         }
         RunLoop.main.run(until: Date() + focusHoldSeconds)
+    }
+
+    private static func pinnedChartEnlargesContent(directory: String) -> Bool {
+        let html = "<body><div id='plot' style='height:200px;background:#eee'>Forecast</div><div style='height:1800px'>Monthly details</div></body>"
+        let pins = ChartPin(); pins.toggle(html)
+        var opened: ChartZoom?
+        let host = NSHostingView(rootView: PinnedChart(html: html, pins: pins).environment(\.openChart) { opened = $0 })
+        let window = mount(host, size: CGSize(width: 1000, height: 700))
+        defer { window.close() }
+        guard let view = web(host) else { return fail("pinned chart exists") }
+        click(view, selector: "#plot", count: 2)
+        guard let chart = opened, chart.size.height > view.bounds.height else { return fail("pinned double-click opens the full content height") }
+        click(view, selector: "#plot", right: true)
+        guard pins.html == nil else { return fail("right-click unpins a pinned chart") }
+        return expandedPreviewFitsContent(html: html, directory: directory)
+    }
+
+    private static func expandedPreviewFitsContent(html: String, directory: String) -> Bool {
+        let available = CGSize(width: 1000, height: 700)
+        let chart = ChartZoom(html: html, size: CGSize(width: 640, height: 1800))
+        let host = NSHostingView(rootView: ZStack { ChartPreview(chart: chart, size: available) {} }.frame(maxWidth: .infinity, maxHeight: .infinity))
+        host.sizingOptions = []
+        let window = mount(host, size: available)
+        defer { window.close() }
+        guard let view = web(host) else { return fail("expanded dashboard exists") }
+        let frame = view.convert(view.bounds, to: nil)
+        let minimumWidth = available.width * 0.8, maximumHeight = available.height * 0.85
+        let centeringTolerance = 1.0
+        print("Expanded content: \(Int(frame.width)) x \(Int(frame.height)) in \(Int(available.width)) x \(Int(available.height))")
+        guard frame.width >= minimumWidth, frame.height <= maximumHeight,
+              abs(frame.midX - available.width / 2) <= centeringTolerance else { return fail("expanded tall content uses the window width and stays centered inside it") }
+        snapshot(view, path: directory + "/chart-expanded.png")
+        return true
     }
 
     private static func snapshot(_ view: WKWebView, path: String) {
