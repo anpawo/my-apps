@@ -903,9 +903,12 @@ const PAUSE = '<svg class="play" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.
 const once = s => { const k = s?.match(/^This (\w+) can only be (?:re)?played once/)?.[1]; return k && (/video/i.test(k) ? 'Video' : 'Photo'); };
 const ONCE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3.2 2.4"/><path d="M10.5 9.5 12 8v8"/></svg>';
 
-function bubbleHTML(m) {
-  // Beeper keeps a deleted message's text and media: shown as sent, marked deleted (msgNodes); the placeholder only when nothing was kept.
-  if (m.isDeleted && !m.text?.trim() && !m.attachments?.length) return `<div class="bubble note">Message deleted</div>`;
+const deletedShown = new Set();
+const DELETED_REVEAL_MS = 240;
+function bubbleHTML(m, revealed = false) {
+  if (m.isDeleted && !revealed) return m.text?.trim() || m.attachments?.length
+    ? '<button class="bubble note reveal-deleted" type="button">Message deleted · Click to show</button>'
+    : '<div class="bubble note">Message deleted</div>';
   const parts = [];
   const text = plain(m.text)?.trim();
   if (once(text)) return `<div class="bubble once">${ONCE}${once(text)}</div>`;
@@ -938,7 +941,7 @@ function quoteHTML(m) {
   if (!m.linkedMessageID || m.type === 'REACTION') return '';
   const q = state.msgs.find(x => x.id === m.linkedMessageID) || state.pool.find(x => x.id === m.linkedMessageID);
   const who = q && state.cur.kind === 'group' ? `<b>${esc(q.isSender ? 'You' : q.senderName)}</b>` : '';
-  return `<div class="quote" data-to="${esc(m.linkedMessageID)}">${who}<span>${q ? esc(once(plain(q.text)?.trim()) || plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
+  return `<div class="quote" data-to="${esc(m.linkedMessageID)}">${who}<span>${q?.isDeleted && !deletedShown.has(`${q.chatID}/${q.id}`) ? 'Message deleted' : q ? esc(once(plain(q.text)?.trim()) || plain(q.text)?.trim() || 'Attachment') : 'An earlier message'}</span></div>`;
 }
 
 function msgNodes(m, prev) {
@@ -956,7 +959,19 @@ function msgNodes(m, prev) {
   row.dataset.id = m.id;
   row.dataset.net = m.net;
   const showFrom = state.cur.kind === 'group' && !m.isSender && (!prev || prev.senderID !== m.senderID || prev.isSender);
-  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${quoteHTML(m)}${bubbleHTML(m)}${m.isDeleted && (m.text?.trim() || m.attachments?.length) ? '<div class="gone">Deleted</div>' : ''}</div>`;
+  const revealed = deletedShown.has(`${m.chatID}/${m.id}`), concealed = m.isDeleted && !revealed;
+  row.innerHTML = `<div class="col">${showFrom ? `<div class="from">${esc(m.senderName)}</div>` : ''}${concealed ? '' : quoteHTML(m)}${bubbleHTML(m, revealed)}${m.isDeleted && !concealed ? '<div class="gone">Deleted</div>' : ''}</div>`;
+  row.querySelector('.reveal-deleted')?.addEventListener('click', () => {
+    const height = row.offsetHeight, box = $('#msgs');
+    const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 2;
+    deletedShown.add(`${m.chatID}/${m.id}`);
+    const next = msgNodes(m, prev).at(-1);
+    row.replaceWith(next);
+    next.style.overflow = 'hidden';
+    const a = (next._anim = anim(next, { height: [`${height}px`, `${next.offsetHeight}px`], opacity: [.4, 1] }, DELETED_REVEAL_MS));
+    a.finished.then(() => { next._anim = null; next.style.overflow = ''; });
+    if (atEnd) followEnd(next);
+  });
   row.querySelectorAll('.bubble.voice').forEach(v => voiceIO.observe(v));
   row.querySelectorAll('.bubble.video video').forEach(v => videoIO.observe(v));
   if (!String(m.id).startsWith('pending') && m.type !== 'REACTION') {

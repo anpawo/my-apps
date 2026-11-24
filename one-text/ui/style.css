@@ -172,6 +172,8 @@ header .who input { font: 600 15px inherit; color: #f5f5f5; background: none; bo
 .bubble.reel .play { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; fill: #fff; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .5)); }
 .bubble.note { background: none; border: 1px dashed #363636; color: var(--muted); font-style: italic; }
 .msg.me .bubble.note { background: none; color: var(--muted); }
+.bubble.reveal-deleted { cursor: pointer; text-align: left; }
+.bubble.reveal-deleted:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 .msg .bubble.once { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid #363636; color: var(--muted); font-weight: 500; }
 .bubble.once svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .msg.pending .bubble { opacity: .55; }

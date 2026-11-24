@@ -987,12 +987,64 @@ const u3 = await upd();
 check(grow.every((h, i) => !i || h >= grow[i - 1]) && grow[0] < u1[3] && u1[0] && u1[1] === 'Building update · Snapchat chats get their logo and /sc' && u1[2] > 0 && u2[2] > u1[2] && !u3[0] && u3[3] === 0,
   `an update being built grows in under the list, its line moves forward, and it goes once done (${grow} / ${u1} / ${u2} / ${u3})`);
 
-// A deleted message Beeper still has the text of shows it, dimmed and marked Deleted; with nothing kept, the placeholder.
-const gone = await page.evaluate(() => {
-  const row = msgNodes({ id: 'gone-1', isDeleted: true, text: 'see you at 8', timestamp: new Date().toISOString(), net: 'discord' }).at(-1);
-  return [row.classList.contains('deleted'), row.querySelector('.bubble').textContent, row.querySelector('.gone')?.textContent, bubbleHTML({ isDeleted: true, text: '' }).includes('Message deleted')];
+await page.evaluate(() => {
+  const base = { isDeleted: true, timestamp: new Date().toISOString(), net: 'discord', chatID: 'deleted-test', sortKey: '1' };
+  const text = { ...base, id: 'gone-1', text: 'see you at 8\nbring your climbing shoes', linkedMessageID: state.msgs[0].id, isSender: true };
+  const media = { ...base, id: 'gone-2', text: '', attachments: [{ type: 'img', srcURL: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="160" height="100"%3E%3Crect width="160" height="100" fill="steelblue"/%3E%3C/svg%3E' }] };
+  state.msgs.push(text, media);
+  document.querySelector('#thread').append(...msgNodes(text), ...msgNodes(media, text));
 });
-check(JSON.stringify(gone) === '[true,"see you at 8","Deleted",true]', `a deleted message keeps its text, marked Deleted (${JSON.stringify(gone)})`);
+const concealed = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#thread .msg[data-id^="gone-"]')];
+  return rows.every(r => r.querySelector('.reveal-deleted') && !r.querySelector('img, video, .voice, .quote, .gone') && !r.textContent.includes('climbing shoes'))
+    && quoteHTML({ linkedMessageID: 'gone-1' }).includes('Message deleted')
+    && bubbleHTML({ isDeleted: true, text: '' }) === '<div class="bubble note">Message deleted</div>';
+});
+check(concealed, 'deleted text, media and quotes stay hidden until clicked; empty deletions have a plain placeholder');
+await page.locator('[data-id="gone-1"]').scrollIntoViewIfNeeded();
+await page.screenshot({ path: join(out, 'deleted-hidden.png') });
+await page.evaluate(() => {
+  window.__deletedFrames = [];
+  const sample = () => {
+    const row = document.querySelector('[data-id="gone-1"]');
+    __deletedFrames.push([row.offsetHeight, getComputedStyle(row).overflow]);
+    if (!row.querySelector('.reveal-deleted') && !row._anim) return;
+    requestAnimationFrame(sample);
+  };
+  requestAnimationFrame(sample);
+});
+await page.click('[data-id="gone-1"] .reveal-deleted');
+await page.waitForTimeout(60);
+await page.screenshot({ path: join(out, 'deleted-revealing.png') });
+await page.waitForTimeout(300);
+const revealed = await page.evaluate(() => {
+  const row = document.querySelector('[data-id="gone-1"]');
+  const frames = __deletedFrames.map(f => f[0]), first = frames[0], last = frames.at(-1);
+  return row.querySelector('.bubble').textContent === 'see you at 8\nbring your climbing shoes'
+    && row.querySelector('.gone').textContent === 'Deleted' && !!row.querySelector('.quote')
+    && frames.some(h => h > first && h < last) && frames.every((h, i) => !i || h >= frames[i - 1])
+    && __deletedFrames.some(f => f[1] === 'hidden')
+    && !msgNodes(state.msgs.find(m => m.id === 'gone-1')).at(-1).querySelector('.reveal-deleted');
+});
+check(revealed, 'clicking reveals deleted text and its quote with clipped, smooth growth, retained on redraw');
+await page.locator('[data-id="gone-2"] .reveal-deleted').focus();
+await page.keyboard.press('Enter');
+await page.waitForTimeout(300);
+check(!!await page.$('[data-id="gone-2"] img'), 'keyboard activation reveals deleted media');
+await page.screenshot({ path: join(out, 'deleted-revealed.png') });
+await page.emulateMedia({ reducedMotion: 'reduce' });
+await page.evaluate(() => {
+  deletedShown.delete('deleted-test/gone-2');
+  document.querySelector('[data-id="gone-2"]').replaceWith(msgNodes(state.msgs.find(m => m.id === 'gone-2')).at(-1));
+});
+await page.click('[data-id="gone-2"] .reveal-deleted');
+check(await page.evaluate(() => document.querySelector('[data-id="gone-2"]').getAnimations().every(a => a.effect.getTiming().duration <= 120 && !a.effect.getKeyframes().some(f => f.height))), 'reduced motion reveals deleted content with a short fade');
+await page.waitForTimeout(150);
+await page.emulateMedia({ reducedMotion: 'no-preference' });
+await page.evaluate(() => {
+  state.msgs = state.msgs.filter(m => m.chatID !== 'deleted-test');
+  document.querySelectorAll('[data-id^="gone-"]').forEach(r => r.remove());
+});
 
 // A network whose read never answers leaves the others drawn within 3 s; its messages come with a later poll.
 await page.evaluate(() => select('grp-2'));
