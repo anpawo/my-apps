@@ -287,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         AgentMessages.drain(windows)
         ModelControl.drain(windows)
+        CloseControl.drain(windows)
     }
 
     func replaceFrontend() {
@@ -513,6 +514,8 @@ if args.first == "--recall" { print(ErrorsRecall.note(ErrorsRecall.recall(args.d
 if args.first == "--send" { exit(AgentMessages.send(Array(args.dropFirst()))) }
 if args.first == "--set-model" { exit(ModelControl.request(Array(args.dropFirst()))) }
 if args.first == "--set-dir" { exit(ModelControl.requestDirectory(Array(args.dropFirst()))) }
+if args.first == "--close" { exit(CloseControl.request(Array(args.dropFirst()))) }
+if args.contains("--help") { print("vcx --close <unique window id or name> closes an idle window after saving its conversation; drafts and background work are preserved.") }
 if args.contains("--version") { print("vcx 0.2.0 (Vibe Code X)"); exit(0) }
 if args.first == "--route-project" {
     let prompt = args.dropFirst().joined(separator: " ")

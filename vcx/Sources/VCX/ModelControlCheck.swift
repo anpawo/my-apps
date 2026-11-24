@@ -10,6 +10,7 @@ enum ModelControlCheck {
         session.connectionFactory = { _, _ in connection }
         try await session.activate(connection.account, resume: nil, keepRows: false)
         defer { session.close() }
+        try refusesUnsafeClosures(session)
         session.models = ["fixture-model", "other-model"]
         session.modelEfforts["other-model"] = ["low", "high"]
         session.effort = "high"
@@ -50,5 +51,18 @@ enum ModelControlCheck {
             throw CXError(message: "FAIL: the next turn must use the selected model and effort")
         }
         print("Model control checks passed: model and effort change without a prompt or draft change")
+    }
+
+    static func refusesUnsafeClosures(_ session: Session) throws {
+        let window = NSWindow(contentRect: .zero, styleMask: [.closable], backing: .buffered, defer: false)
+        guard CloseControl.reason(session, window: window) == nil else { throw CXError(message: "FAIL: an idle empty session must be closable") }
+        session.busy = true
+        guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve active work") }
+        session.busy = false; session.backgroundTasks = 1
+        guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve background work") }
+        session.backgroundTasks = 0; session.draft = NSAttributedString(string: "unsent draft")
+        guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve an unsent draft") }
+        session.draft = NSAttributedString()
+        print("Close control checks passed: active work, background work and drafts are preserved")
     }
 }
