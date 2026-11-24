@@ -1097,7 +1097,7 @@ struct CapabilityPopup: View {
                 .padding(10).background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)).padding(.horizontal, 14).padding(.bottom, 12)
             Divider()
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(matches) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.name).font(.system(size: 12, weight: .medium))
