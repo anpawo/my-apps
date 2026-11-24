@@ -852,7 +852,7 @@ enum BugCheck {
         backendSession.event(["method": "turn/completed", "params": ["turn": ["id": connection.pendingTurn, "status": "interrupted"]]])
         await settle(); await settle()
         check(frontend.rows.contains { $0.kind == "notice" && $0.items.contains { $0.text.localizedCaseInsensitiveContains("interrupted") } }, "interruption stays visible in the transcript")
-        check(try state() == "waiting", "Fleet marks an interrupted session as needing attention")
+        check(try state() == "failed", "Fleet marks an interrupted session as an error without a pending question")
         let savedID = backendSession.currentConversationID
         let savedFile = backendSession.nativeDirectory.appendingPathComponent(String(savedID.dropFirst(7)) + ".json")
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: savedFile)) as? JSON

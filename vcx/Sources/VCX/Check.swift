@@ -777,7 +777,14 @@ enum Check {
         check(fleetRecord()["state"] as? String == "failed", "Fleet shows a failed turn as an API error, not a question")
         fleetSession.event(["method": "turn/completed", "params": ["turn": ["status": "interrupted"]]])
         presence.publish(fleetSession)
-        check(fleetRecord()["state"] as? String == "waiting", "Fleet still asks for attention after an interrupted turn")
+        check(fleetRecord()["state"] as? String == "failed", "Fleet shows an interrupted turn as an error without asking a question")
+        fleetSession.status = "Needs attention"
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "failed", "Fleet keeps restored interrupted conversations out of the question state")
+        fleetSession.permissions = [Permission(rpcID: 2, method: "item/tool/requestUserInput", params: [:])]
+        presence.publish(fleetSession)
+        check(fleetRecord()["state"] as? String == "waiting", "Fleet shows a pending question even after an earlier interruption")
+        fleetSession.permissions = []
         fleetSession.event(["method": "turn/started", "params": [:]])
         presence.publish(fleetSession)
         check(fleetRecord()["state"] as? String == "working", "Fleet shows a turn started without a typed prompt as working, not waiting")
