@@ -12,6 +12,7 @@ let package = Package(
         .target(name: "TextCore", path: "Sources/TextCore",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "viewer", dependencies: ["ViewerCore", "TextCore"], path: "Sources/Viewer",
+                          resources: [.copy("Markdown")],
                           swiftSettings: [.swiftLanguageMode(.v5)]),
         // `swift test` runs nothing without Xcode (no XCTest runner in the CLT): `swift run check`.
         .executableTarget(name: "check", dependencies: ["ViewerCore", "TextCore"], path: "Sources/check",

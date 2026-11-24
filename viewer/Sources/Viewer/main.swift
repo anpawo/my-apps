@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.add(render.files)
             if CommandLine.arguments[1] == "--render-preview" { controller.perform(.markdownPreview) }
             DispatchQueue.main.asyncAfter(deadline: .now() + renderSettleDelay) { [self] in
-                exit(Render.draw(controller.window, to: render.out) ? 0 : 1)
+                Task { exit(await Render.draw(controller.window, to: render.out) ? 0 : 1) }
             }
             return
         }
@@ -133,7 +133,10 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     if arguments.contains("--check-markdown") {
         app.setActivationPolicy(.prohibited)
-        exit(Render.checkMarkdown() ? 0 : 1)
+        let document = arguments.count > 2 ? URL(fileURLWithPath: arguments[2]) : nil
+        Task { exit(await MarkdownCheck.run(document: document) ? 0 : 1) }
+        app.run()
+        return
     }
     app.setActivationPolicy(render == nil ? .regular : .prohibited)
     let delegate = AppDelegate(render: render)

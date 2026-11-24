@@ -11,7 +11,7 @@ import TextCore
     private lazy var gutter = Gutter(scrollView: scroll, textView: textView)
     private var kept: (selection: NSRange, origin: NSPoint, atEnd: Bool)?
     private let container = NSView()
-    private lazy var preview = MarkdownPreview()
+    private lazy var preview = MarkdownPreview(directory: doc.url.deletingLastPathComponent())
     private(set) var previewsMarkdown = false
     var view: NSView { container }
 
@@ -73,7 +73,7 @@ import TextCore
     }
 
     /// Typing goes to the text once it is on screen.
-    func focus() { container.window?.makeFirstResponder(previewsMarkdown ? preview.textView : textView) }
+    func focus() { container.window?.makeFirstResponder(previewsMarkdown ? preview : textView) }
 
     func showMarkdownPreview(_ show: Bool) {
         guard doc.language == .markdown else { return }
