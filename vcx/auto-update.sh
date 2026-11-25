@@ -7,7 +7,8 @@ export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 repo="$HOME/self/my-apps"
 state="$HOME/.local/share/vcx-update"
 tree="$state/tree"
-paths=(vcx ':(exclude,glob)vcx/**/*.md' ':(exclude)vcx/docs' ':(exclude)vcx/auto-update.sh' ':(exclude)vcx/mac.vcx-update.plist')
+# The Rust rebuild is a second app: its pushes must not rebuild and swap the Swift one.
+paths=(vcx ':(exclude,glob)vcx/**/*.md' ':(exclude)vcx/docs' ':(exclude)vcx/auto-update.sh' ':(exclude)vcx/mac.vcx-update.plist' ':(exclude)vcx/rust' ':(exclude)vcx/build-rust.sh')
 log() { echo "$(date '+%F %T') $*"; }
 
 # Anonymous HTTPS: launchd has no SSH key loaded. A private ref, so the sessions' origin/main never moves under them.
