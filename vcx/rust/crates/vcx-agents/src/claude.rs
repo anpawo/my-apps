@@ -39,6 +39,8 @@ pub struct ClaudeOptions {
     /// VCX's own Claude settings (`claude-settings.json`), passed when the file exists.
     pub settings: Option<PathBuf>,
     pub paths: ClaudePaths,
+    /// The profile's `CLAUDE_CONFIG_DIR` when it is not `~/.claude`: its keychain item and transcripts differ.
+    pub profile: Option<PathBuf>,
 }
 
 pub struct ClaudeConnection {
@@ -130,7 +132,7 @@ impl ClaudeConnection {
             .map(str::to_owned).into();
         arguments.push(if stream.mode == "bypass" { "bypassPermissions" } else { "default" }.into());
         arguments.push("--allow-dangerously-skip-permissions".into());
-        arguments.push(if resume && saved(&id, &self.options.paths.config) { "--resume" } else { "--session-id" }.into());
+        arguments.push(if resume && saved(&id, &self.options.paths.config, self.options.profile.is_none() && self.options.command.is_none()) { "--resume" } else { "--session-id" }.into());
         arguments.push(id);
         if !["", "Claude"].contains(&stream.model.as_str()) {
             arguments.extend(["--model".to_owned(), stream.model.clone()]);
@@ -330,7 +332,10 @@ impl ClaudeConnection {
                 result.insert("mcp_servers".into(), servers);
                 Ok(Value::Object(result))
             }
-            "account/rateLimits/read" => Err(failure("Claude usage is not read by the Rust worker yet.")),
+            "account/rateLimits/read" => {
+                let usage = crate::claude_usage::read_usage(self.options.profile.as_deref(), &self.options.paths.config).await.map_err(failure)?;
+                Ok(json!({"rateLimits": crate::claude_usage::rate_limits(&usage).map_err(failure)?}))
+            }
             "turn/start" | "turn/steer" => self.turn(method == "turn/steer", &params).await,
             "turn/interrupt" => {
                 {
@@ -530,8 +535,15 @@ pub fn model_list(catalog: &Object) -> Vec<Value> {
     }).collect()
 }
 
-/// Whether Claude keeps a transcript of this conversation, so the process can `--resume` it.
-pub fn saved(id: &str, config: &Path) -> bool {
+/// Whether Claude keeps a transcript of this conversation, so the process can `--resume` it. A closed session's
+/// transcript of the default profile is deleted once his chats archive (my-setup's `macos/dream/chats.py`) holds it
+/// exact, so it is written back first.
+pub fn saved(id: &str, config: &Path, restore: bool) -> bool {
+    if restore {
+        let archive = Path::new(&std::env::var("HOME").unwrap_or_default()).join("self/my-setup/macos/dream/chats.py");
+        let _ = std::process::Command::new("/usr/bin/python3").arg("-I").arg(archive).args(["restore", id])
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
     std::fs::read_dir(config.join("projects")).into_iter().flatten().flatten().any(|project| project.path().join(format!("{id}.jsonl")).exists())
 }
 

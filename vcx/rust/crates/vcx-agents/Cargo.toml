@@ -7,7 +7,9 @@ publish.workspace = true
 
 [dependencies]
 base64 = "0.22"
+jiff = "0.2"
 libc.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 uuid.workspace = true
 tokio = { version = "1", features = ["rt", "process", "io-util", "net", "sync", "time", "macros"] }

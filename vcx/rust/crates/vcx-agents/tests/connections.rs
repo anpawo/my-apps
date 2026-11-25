@@ -66,7 +66,7 @@ fn runs_the_recorded_codex_turn_through_the_codex_adapter() {
 fn runs_the_recorded_claude_turn_through_the_claude_adapter() {
     run(async {
         let user = recording("claude-turn.jsonl").into_iter().find(|(dir, message)| dir == "send" && message["type"] == "user").unwrap().1;
-        let options = ClaudeOptions { command: Some(replay("claude-turn.jsonl")), cwd: "/tmp".into(), mode: "ask".into(), environment: None, log: None, settings: None, paths: claude_paths() };
+        let options = ClaudeOptions { command: Some(replay("claude-turn.jsonl")), cwd: "/tmp".into(), mode: "ask".into(), environment: None, log: None, settings: None, paths: claude_paths(), profile: None };
         let (claude, mut incoming) = ClaudeConnection::start(options).await.unwrap();
         let connection = Connection::Claude(claude);
 

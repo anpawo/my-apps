@@ -6,6 +6,7 @@ pub mod agy_stream;
 pub mod capabilities;
 pub mod claude;
 pub mod claude_stream;
+pub mod claude_usage;
 pub mod codex;
 pub mod connection;
 pub mod directory;
