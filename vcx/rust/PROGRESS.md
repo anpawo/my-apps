@@ -51,7 +51,7 @@ A session edits and commits only the paths it owns. To write to one, read its id
 - Rust app. Done: nothing yet. Next: `vcx-app` with several windows in one process.
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
 - Rust charts. Done: nothing yet. Next: a chart block drawn in a sandboxed frame.
-- Rust chrome. Done: nothing yet. Next: status bar, task bar, model controls.
+- Rust chrome. Done: `chrome.js`/`chrome.css` (45aedec): status line (dot, Thinking/Ready/Not connected/Pending action, what runs, elapsed, "Your answer is needed"), status bar (progress and update chips, Directory, Model and effort, Mode, debate models badge, Tokens, Usage, Repo, PR) with the model, mode, models and quota popovers, the permission prompt answering through `answer`, the task bar, notices, the title; `tests/chrome.rs` 18 windowless tests pass. Next: the session panel and Settings sheet, the sign-in panel; waits on the view sending usage, repo state, models and efforts, and on Rust app forwarding answer/command/title/focus/quota and sending progress and tasks.
   What `Views.swift` draws outside the rows and the composer, and who builds it. Rust chrome: the session panel
   (Settings button, Hooks/Skills/Commands/MCP/MD Files/RAG counts and their search panels, Session ID copy), the
   Settings sheet (Session, Accounts, Qwen, Background, Keys), the status line (dot, Thinking/Ready/Not connected/
