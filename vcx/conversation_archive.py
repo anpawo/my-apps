@@ -371,7 +371,10 @@ def archive(connection, request):
     roots, files, owners, codex_ids = {"state": request["state"]}, [record_path], {}, {}
     for source in value["nativeSources"]:
         roots[root_name(source, request.get("homes", {}))] = source["home"]
-        discovered = native_files(source)
+        # A thread whose agent never wrote history (the window moved to another provider first) has nothing to lose;
+        # one an earlier generation captured must still be there.
+        captured = connection.execute("SELECT 1 FROM artifacts WHERE conversation_id=? AND source_key=? LIMIT 1", (key, source_key(source))).fetchone()
+        discovered = native_files(source, allow_missing=captured is None)
         files.extend(discovered)
         owners.update((path.resolve(), source_key(source)) for path in discovered)
         if source["provider"] == "codex":

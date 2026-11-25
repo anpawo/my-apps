@@ -350,6 +350,18 @@ class ArchiveTests(unittest.TestCase):
 
         self.assertTrue(self.snapshot.exists())
 
+    def test_source_that_never_wrote_history_does_not_block_archive(self):
+        main = self.fixture("codex")
+        value = json.loads(self.snapshot.read_text())
+        value["nativeSources"].insert(0, {"provider": "claude", "home": self.homes["claude"],
+                                          "threadId": "claude:" + str(uuid.uuid4()), "pendingCreation": False})
+        self.snapshot.write_text(json.dumps(value))
+
+        self.call("archive")
+        self.call("restore")
+
+        self.assertEqual(main.read_bytes(), self.codex_payload(self.native))
+
     def test_atomic_publish_failure_leaves_no_partial_destination(self):
         target = self.root / "destination"
 
