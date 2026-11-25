@@ -56,6 +56,7 @@ enum ModelControlCheck {
     static func refusesUnsafeClosures(_ session: Session) throws {
         let window = NSWindow(contentRect: .zero, styleMask: [.closable], backing: .buffered, defer: false)
         guard CloseControl.reason(session, window: window) == nil else { throw CXError(message: "FAIL: an idle empty session must be closable") }
+        guard CloseControl.closableStates.contains("fresh"), !CloseControl.closableStates.contains("working") else { throw CXError(message: "FAIL: vcx --close must accept a never-prompted window and refuse a working one") }
         session.busy = true
         guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve active work") }
         session.busy = false; session.backgroundTasks = 1

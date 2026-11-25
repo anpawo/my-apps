@@ -5,6 +5,8 @@ enum CloseControl {
     static let suffix = ".close.json"
     static let timeout: TimeInterval = 10
     static let pollInterval: TimeInterval = 0.1
+    // A fresh window has never been prompted; the window itself still refuses a draft or pending work.
+    static let closableStates: Set<String> = ["ready", "fresh"]
 
     static func reason(_ session: Session, window: NSWindow) -> String? {
         if session.disabled || session.frontendReplacing { return "session is working or reconnecting" }
@@ -19,7 +21,7 @@ enum CloseControl {
         guard args.count == 1, let target = AgentMessages.match(args[0], windows) else {
             fputs("usage: vcx --close <unique window id or name>\n", stderr); return 2
         }
-        guard target.state == "ready", AgentMessages.caller(windows)?.id != target.id else {
+        guard closableStates.contains(target.state), AgentMessages.caller(windows)?.id != target.id else {
             fputs("SKIP: the session is active or is the calling session.\n", stderr); return 1
         }
         do {
