@@ -2409,6 +2409,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcx-worker"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "vcx-agents",
+ "vcx-conformance",
+ "vcx-model",
+ "vcx-proto",
+ "vcx-testkit",
+]
+
+[[package]]
 name = "version-compare"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
