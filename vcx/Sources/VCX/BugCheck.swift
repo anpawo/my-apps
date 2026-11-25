@@ -385,7 +385,7 @@ enum BugCheck {
             window.close(); progress.close()
         }
         do {
-            // Three windows on one project and one elsewhere: the bar lists the three, each in its state's color.
+            // Three windows on one project and one elsewhere: the bar lists all four by project, each in its state's color.
             func tasked(_ name: String, cwd: String, task: String, _ setup: (Session) -> Void) -> (window: NSWindow, session: Session) {
                 let session = Session(cwd: cwd, stateDirectory: directory.appendingPathComponent("task-" + name))
                 session.ready = true; setup(session)
@@ -411,6 +411,9 @@ enum BugCheck {
             let mine = TaskBoard.shared.entries.filter { $0.group == TaskBoard.group(open[0].session) }
             check(mine.map(\.task) == ["Add a task bar to VCX", "Fix the login retry", "Pick the chart colors for the dashboard"] && mine.map(\.state) == [.working, .done, .question],
                   "the task bar lists each tasked session of the project in order, orange working, green done, blue question")
+            let groups = TaskBar.groups(TaskBoard.shared.entries)
+            check(groups.map(\.group) == [TaskBoard.group(open[0].session), TaskBoard.group(open[3].session)] && groups.last?.entries.map(\.task) == ["Unrelated project task"],
+                  "the task bar lists the tasks of every session, grouped by project in the order they opened")
             let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
             let longest = ("Pick the chart colors for the dashboard" as NSString).size(withAttributes: [.font: font]).width
             check(TaskBar.width(for: mine.map(\.task)) >= longest + TaskBar.rowChrome && TaskBar.width(for: ["Fix it"]) == taskBarWidth, "the task bar widens to hold its longest task on one line, never below its base width")
@@ -423,7 +426,7 @@ enum BugCheck {
                     try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("task-bar.png"))
                 }
                 let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
-                let bar = Int((content.bounds.width - TaskBar.width(for: mine.map(\.task))) * scale)..<bitmap.pixelsWide
+                let bar = Int((content.bounds.width - TaskBar.width(for: TaskBoard.shared.entries.map(\.task))) * scale)..<bitmap.pixelsWide
                 // By the dominant channel: the bitmap's color space shifts exact components.
                 func hue(_ matches: (CGFloat, CGFloat, CGFloat) -> Bool) -> Bool {
                     stride(from: 0, to: bitmap.pixelsHigh, by: 2).contains { y in stride(from: bar.lowerBound, to: bar.upperBound, by: 2).contains { x in

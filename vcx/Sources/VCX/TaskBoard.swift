@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The right bar: the task of each VCX window on the same project, as its agent wrote it to $VCX_TASK_FILE
+/// The right bar: the task of every VCX window, grouped by project, as its agent wrote it to $VCX_TASK_FILE
 /// (asked 2026-11-25: orange working, blue a question for him, green done; a click brings that window up).
 struct TaskEntry: Identifiable, Equatable {
     enum State: Equatable { case working, question, done }
@@ -85,8 +85,8 @@ struct TaskBar: View {
     private var window: NSWindow? { (NSApp?.delegate as? AppDelegate)?.windows.first { $0.session === session }?.window }
 
     var body: some View {
-        let group = TaskBoard.group(session)
-        let entries = board.entries.filter { $0.group == group }
+        let entries = board.entries
+        let groups = TaskBar.groups(entries)
         let width = Self.width(for: entries.map(\.task))
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
@@ -99,14 +99,27 @@ struct TaskBar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     if entries.isEmpty {
-                        Text("No task yet on this project.").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.horizontal, 4).padding(.top, 4)
+                        Text("No task yet.").font(.system(size: 11)).foregroundStyle(.black.opacity(0.45)).padding(.horizontal, 4).padding(.top, 4)
                     }
-                    ForEach(entries) { entry in row(entry, current: window.map { ObjectIdentifier($0) == entry.id } ?? false) }
+                    ForEach(groups, id: \.group) { group in
+                        if groups.count > 1 {
+                            Text(URL(fileURLWithPath: group.group).lastPathComponent).font(.system(size: 10, weight: .semibold)).lineLimit(1).truncationMode(.middle).foregroundStyle(.black.opacity(0.45))
+                                .padding(.horizontal, 4).padding(.top, group.group == groups.first?.group ? 0 : 6)
+                        }
+                        ForEach(group.entries) { entry in row(entry, current: window.map { ObjectIdentifier($0) == entry.id } ?? false) }
+                    }
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.frame(width: width).background(Color.black.opacity(0.025))
             .animation(.easeOut(duration: 0.2), value: width)
             .onAppear { board.start() }
+    }
+
+    /// Projects in the order their first window opened, each keeping its windows' order.
+    static func groups(_ entries: [TaskEntry]) -> [(group: String, entries: [TaskEntry])] {
+        var order: [String] = []
+        for entry in entries where !order.contains(entry.group) { order.append(entry.group) }
+        return order.map { group in (group, entries.filter { $0.group == group }) }
     }
 
     // Each row on one line: the bar grows to the longest task (capped by longestTask), never below taskBarWidth.
