@@ -467,8 +467,12 @@
   function submit() {
     const { text, images } = message();
     if (!text && images.length === 0) return;
-    post({ type: 'send', text, images, draft: pieces(), generation });
-    prepareFlight(text, images);
+    // An open question card (questions.js) takes the typed text as its answer instead of a new message.
+    const answered = Boolean(window.vcxQuestions?.open && text && images.length === 0 && window.vcxQuestions.reply(text));
+    if (!answered) {
+      post({ type: 'send', text, images, draft: pieces(), generation });
+      prepareFlight(text, images);
+    }
     clearTimeout(saveTimer);
     saveTimer = 0;
     chips.clear();

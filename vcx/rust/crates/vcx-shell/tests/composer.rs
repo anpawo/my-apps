@@ -289,6 +289,17 @@ fn sends_with_a_real_click_and_keeps_the_caret_in_the_composer(page: &Page) -> R
     check(state["focused"] == true, "the click left the caret in the composer")
 }
 
+fn answers_an_open_question_card_instead_of_sending(page: &Page) -> Result<(), String> {
+    page.eval("window.vcxQuestions = { open: true, reply: text => (window.answered = text, true) }")?;
+    page.keys("option two")?;
+
+    page.press(Key::Return, NONE)?;
+
+    page.value("")?;
+    check(page.eval("window.answered")? == "option two", "the card did not get the typed text")?;
+    check(page.quiet("send"), "the answer was also sent as a message")
+}
+
 fn sends_nothing_for_an_empty_composer(page: &Page) -> Result<(), String> {
     page.keys("   ")?;
     page.value("   ")?;
@@ -587,9 +598,10 @@ fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), St
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 23] = [
+const TESTS: [(&str, Test); 24] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
+    ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
     ("sends nothing for an empty composer", sends_nothing_for_an_empty_composer),
     ("Shift-Return on an empty composer sends the waiting prompt now", shift_return_on_an_empty_composer_sends_the_waiting_prompt_now),
     ("shows the stop button while a turn runs", shows_the_stop_button_while_a_turn_runs),
