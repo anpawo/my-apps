@@ -1,0 +1,13 @@
+1. **AGREE.** Use one system WKWebView per session window in a thin native host.
+2. **AGREE.** Keep AppKit through the Rust port and move to wry + tao last if the shell change is worthwhile.
+3. **DISAGREE.** A shared data store alone leaves renderers separate in A’s test, but “only related views” is too broad. WebKit also has a separate single-process reuse path. [WebKit process-selection code](https://raw.githubusercontent.com/WebKit/WebKit/WebKit-7624.5.1.11.3/Source/WebKit/UIProcess/WebProcessPool.cpp)
+4. **DISAGREE.** Keep separate renderers by default. Use the saving measured on real threads as the cutoff. A’s roughly 125 MB saving was synthetic, and its hang test showed that a shared renderer can freeze every window before a watchdog recovers it. [Leg A’s system-WebKit measurements in the brief]
+5. **DISAGREE.** The ranges are usable estimates, but the 253 MB figure covers seven windows and the frontend PID alone. The direction of the RAM change needs a matched eight-window total that includes helpers on both builds. [Apple footprint guidance](https://developer.apple.com/videos/play/wwdc2022/10106/)
+6. **DISAGREE.** Start with the Swift transcript spike, then ship reload and chart compatibility. The Rust port can proceed while the rest of the window stays native because WKWebView supports embedding alongside AppKit views. [Apple WKWebView documentation](https://developer.apple.com/documentation/webkit/wkwebview)
+7. **AGREE.** Keep the native composer until the web composer passes those input and accessibility checks.
+8. **AGREE.** Parse and sanitize in the core, escape raw HTML, and validate link targets.
+9. **AGREE.** Automatically promote validated edits after an isolated offscreen check, with a native timeout and both fallbacks.
+10. **AGREE.** Keep chart frames isolated, broker live feeds through the core, and vendor Lightweight Charts with attribution.
+11. **DISAGREE.** Treat 600 MB as an outer ceiling and retain the 10% RAM gate against a matched baseline. Synthetic helper footprint alone cannot justify a larger regression on real threads. [Apple footprint guidance](https://developer.apple.com/videos/play/wwdc2022/10106/)
+12. **AGREE.** Tauri’s embedded macOS route works, and its windowless operation remains unverified. Use direct WKWebView checks for VCX.
+13. **AGREE.** Use 10–16 developer-weeks overall and 3–5 weeks for the transcript milestone as planning estimates.
