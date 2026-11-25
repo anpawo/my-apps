@@ -15,7 +15,7 @@ A session edits and commits only the paths it owns. To write to one, read its id
 | Rust charts | 2: charts | `template/chart.js`, `template/chart.css`, `template/chart/`, `crates/vcx-shell/src/chart.rs`, `crates/vcx-shell/tests/charts.rs` |
 | Rust chrome | 2: everything in the window around the transcript and the composer | `template/chrome.js`, `template/chrome.css`, `crates/vcx-shell/tests/chrome.rs` |
 | Rust composer | 3: composer | `template/composer.js`, `template/composer.css`, `crates/vcx-shell/src/{input,menu}.rs`, `crates/vcx-shell/tests/composer.rs` |
-| Rust app | 4: the app | `crates/vcx-app/` (new), `crates/vcx-shell/src/{main,app,check,link,session}.rs`, `crates/vcx-shell/tests/windowless.rs`, `build-rust.sh` (new) |
+| Rust app | 4: the app | `crates/vcx-app/` (new), `crates/vcx-shell/src/{main,lib,app,check,link,session,pane,summary}.rs`, `crates/vcx-shell/tests/windowless.rs`, `../build-rust.sh` (new) |
 | Rust config | 4: settings, state folders, the command line | `crates/vcx-config/` (new), `crates/vcx-cli/` (new) |
 | Rust worker | 5: the worker | `crates/vcx-worker/` (new), `crates/vcx-proto/`, `crates/vcx-testkit/`, `fixtures/fake_agent.py` |
 | Rust agents | 5: provider adapters | `crates/vcx-agents/` (new), `fixtures/streams/` (new) |
@@ -63,4 +63,4 @@ A session edits and commits only the paths it owns. To write to one, read its id
   panel. Rust charts: the pinned chart and the chart preview.
 - Rust config. Done: nothing yet. Next: `vcx-config` reading today's settings and state folders.
 - Rust agents. Done: nothing yet. Next: the Codex adapter on a recorded stream.
-- Rust report. Done: slice 1, the report, `vcx-conformance` (21 cases green against the Swift worker). Next: cases for stop, answer, a frontend leaving mid-turn and worker retirement once the fixture can hold a turn open; the suite against the Rust worker.
+- Rust report. Done: slice 1, the report, `vcx-conformance` (21 cases green against the Swift worker), the Swift recovery-list fix (`fb40939`), Rust pushes no longer reinstall the Swift app (`7181bf0`). Next: cases for stop, answer, a frontend leaving mid-turn and worker retirement once the fixture can hold a turn open; the workspace run once every crate is committed.
