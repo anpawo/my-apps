@@ -47,7 +47,7 @@ A session edits and commits only the paths it owns. To write to one, read its id
 ## State (each session keeps its own two lines)
 
 - Rust transcript. Done: nothing yet. Next: images, question cards, thought bubbles, debate rows.
-- Rust composer. Done: nothing yet. Next: chips, long paste, `/` palette, Edit menu, undo.
+- Rust composer. Done: the page composer (chips, folded pastes, `/` palette, `@` files, history, drafts, stop, Edit menu, undo), 22 windowless cases in `tests/composer.rs`; the stop rule passed, no native `NSTextView`. Next: the send flight and the run panel; core wiring asked of Rust app and Rust transcript.
 - Rust app. Done: nothing yet. Next: `vcx-app` with several windows in one process.
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
 - Rust charts. Done: chart frames (`7abeb34`): sandboxed `vcx://chart/<id>` documents with their own CSP, the Swift page API (`vcx.chart` series, table, cards; `vcx.live` fetched by the core; pin above the chat, enlarge on double click, pinch, wheel and drag), lightweight-charts 5.3.0 vendored; `tests/charts.rs` 10 windowless tests pass, C3 refuted.
