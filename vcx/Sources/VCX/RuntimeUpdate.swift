@@ -38,7 +38,8 @@ enum RuntimeUpdate {
     static func readTicket(_ path: String, suffix: String, maximumBytes: Int = 1_048_576) throws -> JSON {
         let file = URL(fileURLWithPath: path).standardizedFileURL
         var info = stat()
-        guard file.deletingLastPathComponent() == RuntimeIdentity.directory.standardizedFileURL,
+        // Listing a folder reached through a link (~/.local/state/cx -> vcx since 2026-11-25) returns the link's target.
+        guard file.deletingLastPathComponent().resolvingSymlinksInPath() == RuntimeIdentity.directory.resolvingSymlinksInPath(),
               file.lastPathComponent.hasSuffix(suffix), lstat(file.path, &info) == 0,
               info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
               info.st_mode & 0o077 == 0, info.st_size <= maximumBytes else { throw CXError(message: "Unsafe frontend handoff file.") }

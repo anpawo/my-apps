@@ -128,6 +128,13 @@ enum RuntimeCheck {
         try Data("{}".utf8).write(to: outside)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outside.path)
         try reject("handoff accepted a file outside its private folder") { _ = try RuntimeUpdate.readTicket(outside.path, suffix: ".restore.json") }
+        let linkedRoot = directory.appendingPathComponent("linked-root")
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: ticket.deletingLastPathComponent().deletingLastPathComponent())
+        let linkedHome = linkedRoot.appendingPathComponent(ticket.deletingLastPathComponent().lastPathComponent, isDirectory: true)
+        setenv("VCX_RUNTIME_HOME", linkedHome.path, 1)
+        let listed = try FileManager.default.contentsOfDirectory(at: linkedHome, includingPropertiesForKeys: nil).first { $0.lastPathComponent == ticket.lastPathComponent }
+        try check(listed.map { (try? RuntimeUpdate.readTicket($0.path, suffix: ".restore.json"))?["fixture"] as? Bool == true } == true, "a ticket listed through a linked runtime folder was rejected")
+        setenv("VCX_RUNTIME_HOME", ticket.deletingLastPathComponent().path, 1)
         try Data("{".utf8).write(to: ticket)
         try reject("handoff accepted corrupt JSON") { _ = try RuntimeUpdate.readTicket(ticket.path, suffix: ".restore.json") }
         try Data(repeating: 32, count: 1_048_577).write(to: ticket)
