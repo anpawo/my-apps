@@ -14,14 +14,18 @@ name = "charts"
 harness = false
 
 [[test]]
+name = "composer"
+harness = false
+
+[[test]]
 name = "chrome"
 harness = false
 
 [dependencies]
 block2.workspace = true
 objc2.workspace = true
-objc2-app-kit.workspace = true
-objc2-foundation.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSMenu", "NSMenuItem", "NSPasteboard"] }
+objc2-foundation = { workspace = true, features = ["NSRunLoop"] }
 objc2-web-kit.workspace = true
 notify.workspace = true
 serde_json.workspace = true
