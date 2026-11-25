@@ -152,7 +152,7 @@ enum RecoveryCheck {
         let completion = try value(directory.appendingPathComponent("turn-completed.json"))
         try check(completion["turns"] as? Int == 1 && completion["approvals"] as? Int == 1, "frontend recovery repeated a submission or approval")
         let saved = try RuntimeRecovery.pending()[0]
-        try check(RuntimeRecovery.hasSavedRecord(saved), "normal session persistence did not produce recoverable native history")
+        try check(await RuntimeRecovery.hasSavedRecord(saved), "normal session persistence did not produce recoverable native history")
         let turnFile = directory.appendingPathComponent("turns.json")
         let turnDate = try turnFile.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         kill(worker.processIdentifier, SIGKILL)
@@ -187,7 +187,10 @@ enum RecoveryCheck {
         kill(closingFrontend.processIdentifier, SIGKILL)
         await Task.detached { closingFrontend.waitUntilExit() }.value
         try check(try RuntimeRecovery.pending().isEmpty, "a frontend that crashed after requesting close was reopened")
-        try check(try await RuntimeRecovery.finishRequestedCloses() == 1, "startup did not finish the interrupted close request")
+        var closeFailure: Error?
+        let finishedCloses = try await RuntimeRecovery.finishRequestedCloses { closeFailure = $0 }
+        if finishedCloses != 1, let closeFailure { print("interrupted close: " + ArchiveLifecycleCheck.failureDescription(closeFailure)) }
+        try check(finishedCloses == 1, "startup did not finish the interrupted close request")
         try check(coldWorker.isRunning && client.isAttached, "finishing one close interrupted another session in its project runtime")
         try check(try turnFile.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate == turnDate, "finishing a close replayed a model turn")
         _ = try await client.perform("close")

@@ -126,6 +126,10 @@ final class RuntimeSwap {
         var kept = [manifest["listener"], manifest["lock"]].compactMap { $0 as? Int }
         for session in manifest["sessions"] as? [JSON] ?? [] {
             if let agent = (((session["backend"] as? JSON)?["connection"] as? JSON)?["agent"] as? JSON) { kept += [agent["input"], agent["output"]].compactMap { $0 as? Int } }
+            if let extras = (session["backend"] as? JSON)?["session"] as? JSON {
+                kept += (extras["nativeLeases"] as? [JSON] ?? []).compactMap { $0["descriptor"] as? Int }
+                if let fd = (extras["recordLock"] as? JSON)?["descriptor"] as? Int { kept.append(fd) }
+            }
         }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd")) ?? []
         for fd in names.compactMap({ Int32($0) }) where fd > 2 { _ = fcntl(fd, F_SETFD, kept.contains(Int(fd)) ? 0 : FD_CLOEXEC) }

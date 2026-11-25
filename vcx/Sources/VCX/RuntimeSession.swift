@@ -59,8 +59,10 @@ final class SessionBackend: RuntimeBackend {
     }
 
     func start(params: JSON, command: [String]? = nil) async {
+        guard !closed, !Task.isCancelled else { return }
         configure(params)
         await session.connect(resume: params["resume"] as? String, prompt: params["prompt"] as? String ?? "", command: command)
+        guard !closed, !Task.isCancelled else { return }
         if var recovery = recoveryState {
             if let checkpointDraft {
                 recovery["draft"] = draftContent(checkpointDraft); recovery["draftGeneration"] = checkpointGeneration
@@ -190,6 +192,7 @@ final class SessionBackend: RuntimeBackend {
     }
 
     func perform(action: String, params: JSON) async throws -> JSON {
+        if !["answer", "stop", "checkpoint"].contains(action), let startupTask { await startupTask.value }
         guard !closed else { throw CXError(message: "This runtime session is closed.") }
         if recoveryState != nil, startupTask == nil, session.ready { recoveryState = nil }
         if let pieces = params["draft"] as? [JSON], let generation = params["generation"] as? Int, generation >= session.draftGeneration, generation > consumedGeneration {
@@ -265,7 +268,10 @@ final class SessionBackend: RuntimeBackend {
             publish()
             return ["success": success]
         case "close":
+            try session.prepareForClose()
             if session.busy { await session.stop(source: "Close Session") }
+            try await session.archiveForClose()
+            try await Trace.drain(session.stateDirectory)
             if let runtimeID { try RuntimeRecovery.removeCheckpoint(sessionID: runtimeID) }
             close()
         default: throw CXError(message: "Unknown runtime action.")
@@ -299,7 +305,8 @@ final class SessionBackend: RuntimeBackend {
         checkpointGeneration = state["checkpointGeneration"] as? Int ?? 0
         checkpointDraft = (state["checkpointDraft"] as? [JSON]).map(runtimeDraft)
         runtimeID = state["runtimeID"] as? String; recoveryState = state["recoveryState"] as? JSON
-        session.adoptSwap(extras, snapshot: value, connection: rpc)
+        do { try session.adoptSwap(extras, snapshot: value, connection: rpc) }
+        catch { session.abandonSwap(); throw error }
     }
 
     func close() {

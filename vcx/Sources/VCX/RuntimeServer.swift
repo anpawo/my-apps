@@ -244,8 +244,8 @@ final class RuntimeServer {
         }
         guard sequence == entry.lastSequence + 1 else { throw RuntimeFault(code: "sequenceGap", message: "Runtime actions must use the next sequence number.") }
         guard !entry.ended, let backend = entry.backend else { throw RuntimeFault(code: "closed", message: "This runtime session has ended.") }
-        let interrupts = ["answer", "stop", "close", "checkpoint"].contains(action)
-        let smallControl = interrupts && payload.count <= 65_536
+        let interrupts = ["answer", "stop", "checkpoint"].contains(action)
+        let smallControl = (interrupts || action == "close") && payload.count <= 65_536
         guard entry.receipts.values.filter({ !$0.completed && $0.control == smallControl }).count < (smallControl ? 8 : 64) else { throw RuntimeFault(code: "busy", message: "Too many pending session actions.") }
         let receipt = Receipt(fingerprint, control: smallControl)
         let previous = interrupts ? nil : entry.orderedAction

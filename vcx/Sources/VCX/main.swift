@@ -524,7 +524,7 @@ if args.first == "--route-project" {
     dispatchMain()
 }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included.\nvcx --set-model <window id or name | self> [auto|claude|codex|qwen] [model] [effort] switches a window's model or provider; a busy window switches when its turn ends.\nvcx --set-dir <window id or name | self> <folder> files a window under another folder and keeps its conversation."); exit(0) }
-if args.contains(where: { ["--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
+if args.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_STATE_HOME", isolated + "/state", 1)
@@ -694,6 +694,14 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
 } else if args.contains("--quota-check") {
     app.setActivationPolicy(.prohibited)
     Task { for line in await QuotaOverview.read() { print(line.agent + " | " + line.fiveHour + " | " + line.week) }; exit(0) }
+    RunLoop.main.run()
+} else if args.contains("--archive-safety-check") {
+    app.setActivationPolicy(.prohibited)
+    Task { let ok = await ArchiveSafetyCheck.run(); exit(ok ? 0 : 1) }
+    RunLoop.main.run()
+} else if let index = args.firstIndex(of: "--archive-live-check"), index + 1 < args.count {
+    app.setActivationPolicy(.prohibited)
+    Task { let ok = await ArchiveResumeCheck.run(provider: args[index + 1], pruneFixture: args.contains("--archive-fixture-prune")); exit(ok ? 0 : 1) }
     RunLoop.main.run()
 } else if args.contains("--agy-check") {
     app.setActivationPolicy(.prohibited)

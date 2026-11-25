@@ -106,9 +106,9 @@ enum ClaudeParityCheck {
         check(session.conversationName == "Parity fixture" && session.nativeRecent().first?.title == "Parity fixture" && connection.renamed?["name"] as? String == "Parity fixture", "conversation rename persists in both Codex and the vcx catalog")
         let originalRecord = session.currentConversationID
         session.planning = true
-        connection.forkID = "parity-fork"
+        connection.forkID = "a742839e-29e8-4d59-82b4-6d66fe2aae17"
         await session.command("/claude:fork")
-        check(session.currentConversationID != originalRecord && connection.opened.last?["threadId"] as? String == "parity-fork", "fork switches to a separate conversation on the active account")
+        check(session.currentConversationID != originalRecord && connection.opened.last?["threadId"] as? String == connection.forkID, "fork switches to a separate conversation on the active account")
         check(session.planning && session.conversationName == "Parity fixture", "fork retains plan mode and the source conversation name")
         await session.send(text: "Continue planning", images: [])
         check((connection.sent.last?["collaborationMode"] as? JSON)?["mode"] as? String == "plan", "the first forked turn remains in plan mode")

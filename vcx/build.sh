@@ -17,6 +17,8 @@ cp tests/native_peer.py "$app/Contents/Resources/native_peer.py"
 cp tests/runtime_peer.py tests/runtime_probe.py tests/swap_peer.py "$app/Contents/Resources/"
 cp background.py "$app/Contents/Resources/background.py"
 cp cleanup.py "$app/Contents/Resources/cleanup.py"
+cp conversation_archive.py "$app/Contents/Resources/conversation_archive.py"
+cp trace_archive.py "$app/Contents/Resources/trace_archive.py"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 # Icon Services keys its cache on the bundle's date, which cp and ditto leave at the day it was made.
 touch "$app"

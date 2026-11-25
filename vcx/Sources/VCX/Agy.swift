@@ -5,6 +5,8 @@ import Foundation
 // are agy's own user configuration (~/.gemini), set up to match Claude Code's.
 @MainActor
 final class AgyConnection: Connection {
+    var archiveProcess: Process? { process }
+    private(set) var archiveClientVersion: String?
     var event: (JSON) -> Void = { _ in }
     var fleetFile: String?
     var logFile: String?
@@ -31,6 +33,7 @@ final class AgyConnection: Connection {
     init(cwd: String) { self.cwd = cwd }
 
     func start(command: [String]? = nil) async throws {
+        if command == nil { archiveClientVersion = await nativeClientVersion("agy", environment: agentEnvironment(fleet: fleetFile)) }
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = command ?? ["agy", "acp"]

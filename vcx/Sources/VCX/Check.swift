@@ -913,7 +913,8 @@ enum Check {
                 check(claudeSaved(saved, account: account) && !claudeSaved(UUID().uuidString.lowercased(), account: account),
                       "a Claude thread is resumed only once Claude saved it; a window restored before its first prompt starts it with its ID instead")
                 Trace.write(directory, "prompt", ["text": String(repeating: "a", count: 5000), "images": 1])
-                let line = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("trace.jsonl"))) as? JSON
+                let line = Trace.latest(directory)
+                await TraceSafetyCheck.run(directory: directory.appendingPathComponent("trace-safety")) { value, label in check(value, label) }
                 check(line?["type"] as? String == "prompt" && (line?["text"] as? String)?.count ?? 0 < 1000 && line?["images"] as? Int == 1, "the trace keeps each prompt as one JSON line with long text clipped")
             } catch { check(false, "saved thread fixture: " + error.localizedDescription) }
             do {
@@ -3100,7 +3101,10 @@ final class FixtureConnection: Connection {
                 if failResume { throw CXError(message: "Expected resume failure") }
                 if let contextDuringResume { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringResume]]]) }
             }
-            opened.append(params); return ["thread": ["id": account.provider + ":fixture"], "model": (method == "thread/resume" ? resumeModel : nil) ?? params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
+            let id: String
+            if method == "thread/resume", let requested = params["threadId"] as? String { id = requested }
+            else { id = account.provider + ":fixture" }
+            opened.append(params); return ["thread": ["id": id], "model": (method == "thread/resume" ? resumeModel : nil) ?? params["model"] as? String ?? "fixture-model", "approvalPolicy": params["approvalPolicy"] ?? "on-request", "sandbox": ["type": params["sandbox"] as? String == "danger-full-access" ? "dangerFullAccess" : "workspaceWrite"]]
         case "thread/list":
             catalogRequests += 1
             if catalogDelay > 0 { try await Task.sleep(nanoseconds: catalogDelay) }
