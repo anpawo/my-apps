@@ -4,6 +4,7 @@
 
 pub mod actions;
 pub mod handshake;
+pub mod held;
 pub mod peer;
 pub mod sessions;
 pub mod turns;
@@ -52,6 +53,11 @@ macro_rules! suite {
             actions::close_ends_the_session_for_good,
             turns::a_turn_streams_one_revision_at_a_time_to_its_answer,
             turns::only_the_lease_holder_receives_updates,
+            held::stop_ends_a_turn_the_agent_holds_open,
+            held::an_accepted_approval_lets_the_held_turn_finish,
+            held::a_declined_approval_ends_the_turn_without_running_it,
+            held::a_turn_stays_open_when_its_frontend_leaves,
+            held::the_worker_leaves_once_its_last_session_is_closed,
         );
     };
     (@each $start:path, $target:path; $($module:ident :: $case:ident),* $(,)?) => {
