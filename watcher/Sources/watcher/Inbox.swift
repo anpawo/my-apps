@@ -250,8 +250,16 @@ final class Inbox: NSObject, ObservableObject {
     static func launchProcess(_ item: InboxItem) throws -> Process {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
-        task.currentDirectoryURL = URL(fileURLWithPath: item.dir, isDirectory: true)
-        var args = ["--cwd", item.dir, "--focus"]
+        var folder = URL(fileURLWithPath: item.dir, isDirectory: true).standardizedFileURL
+        var directory: ObjCBool = false
+        // A completed task's worktree may be removed before its notification is opened.
+        while !FileManager.default.fileExists(atPath: folder.path, isDirectory: &directory) || !directory.boolValue {
+            let parent = folder.deletingLastPathComponent()
+            guard parent != folder else { throw CocoaError(.fileNoSuchFile) }
+            folder = parent
+        }
+        task.currentDirectoryURL = folder
+        var args = ["--cwd", folder.path, "--focus"]
         if let session = item.session {
             let id = session.hasPrefix("native:") || session.hasPrefix("claude:") || item.options.contains("--codex") ? session : "claude:" + session
             args += ["--resume", id]

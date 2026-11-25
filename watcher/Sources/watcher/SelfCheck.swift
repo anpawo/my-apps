@@ -49,8 +49,36 @@ enum SelfCheck {
                 }
             }
             print("PASS: 5 notification paths open the VCX app with their conversation and task intact")
-            return 0
+            return missingFolder()
         } catch { print("FAIL: launcher check: \(error)"); return 1 }
+    }
+
+    private static func missingFolder() -> Int {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "watcher-missing-\(UUID())").resolvingSymlinksInPath()
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let item = InboxItem(id: "fixture", at: 0, kind: "done", subject: "Check", line: "line",
+                                 dir: folder.appending(path: "deleted/worktree").path,
+                                 options: ["--resume", "native:saved"], prompt: nil)
+            let task = try Inbox.launchProcess(item)
+            let output = Pipe()
+            task.executableURL = URL(fileURLWithPath: "/bin/pwd")
+            task.standardOutput = output
+            task.arguments = []
+            try task.run()
+            task.waitUntilExit()
+            let actual = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let args = try Inbox.launchProcess(item).arguments
+            guard task.terminationStatus == 0, URL(fileURLWithPath: actual).resolvingSymlinksInPath() == folder.resolvingSymlinksInPath(),
+                  args == ["--cwd", folder.path, "--focus", "--resume", "native:saved"] else {
+                print("FAIL: a notification from a deleted worktree cannot open its saved conversation")
+                return 1
+            }
+            print("PASS: a notification from a deleted worktree opens from its existing parent")
+            return 0
+        } catch { print("FAIL: a notification from a deleted worktree could not start its launcher"); return 1 }
     }
 
     static func run(headless: Bool = false) -> Int {
