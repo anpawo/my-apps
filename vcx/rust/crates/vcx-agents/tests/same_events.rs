@@ -1,76 +1,14 @@
 //! Each provider's turn, recorded (Codex, Claude) or written from the Swift adapters (agy, Qwen), read into the
 //! typed events of `codex app-server`: the session sees the same turn whichever agent ran it.
 
-use serde_json::{Value, json};
-use std::path::Path;
+mod common;
+
+use common::*;
+use serde_json::json;
 use vcx_agents::agy_stream::AgyStream;
-use vcx_agents::claude_stream::{ClaudePaths, ClaudeStream};
+use vcx_agents::claude_stream::ClaudeStream;
 use vcx_agents::shape::Effect;
-use vcx_agents::{Event, Inbound, Kind, Object, Stream, TurnStatus, codex};
-
-const PROJECT: &str = "/tmp/vcx-fixture/project";
-
-fn recording(name: &str) -> Vec<(String, Object)> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/streams").join(name);
-    std::fs::read_to_string(path).unwrap().lines().map(|line| {
-        let record: Value = serde_json::from_str(line).unwrap();
-        (record["dir"].as_str().unwrap().to_owned(), record["message"].as_object().unwrap().clone())
-    }).collect()
-}
-
-fn received(name: &str) -> Vec<Object> {
-    recording(name).into_iter().filter(|(dir, _)| dir == "recv").map(|(_, message)| message).collect()
-}
-
-fn events(effects: Vec<Effect>) -> Vec<Inbound> {
-    effects.into_iter().filter_map(|effect| match effect {
-        Effect::Event(message) => Some(codex::parse(message)),
-        _ => None,
-    }).collect()
-}
-
-/// What a person sees of a turn: its start, each finished message and command, and how it ended. Message deltas
-/// are checked to add up to the message they stream.
-fn steps(inbound: &[Inbound]) -> Vec<String> {
-    let mut streamed: std::collections::HashMap<String, String> = Default::default();
-    let mut out = Vec::new();
-    for message in inbound {
-        let Inbound::Event(event) = message else { continue };
-        match &event.kind {
-            Kind::TurnStarted { .. } => out.push("turn started".to_owned()),
-            Kind::Delta { item_id, delta, stream: Stream::AgentMessage } => streamed.entry(item_id.clone()).or_default().push_str(delta),
-            Kind::ItemCompleted { item } => match item.get("type").and_then(Value::as_str) {
-                Some("agentMessage") => {
-                    let text = item["text"].as_str().unwrap();
-                    if let Some(deltas) = streamed.get(item["id"].as_str().unwrap()) {
-                        assert_eq!(deltas, text, "the deltas of a message add up to it");
-                    }
-                    out.push(format!("message: {}", text.trim()));
-                }
-                Some("commandExecution") => out.push(format!(
-                    "command: {} ({})",
-                    item.get("aggregatedOutput").and_then(Value::as_str).unwrap_or_default().trim(),
-                    item["status"].as_str().unwrap(),
-                )),
-                _ => {}
-            },
-            Kind::TurnCompleted { status, .. } => out.push(format!("turn {status:?}")),
-            _ => {}
-        }
-    }
-    out
-}
-
-fn ends_like_every_provider(steps: &[String]) {
-    assert_eq!(steps.first().map(String::as_str), Some("turn started"), "{steps:?}");
-    let tail: Vec<&str> = steps[steps.len().saturating_sub(3)..].iter().map(String::as_str).collect();
-    assert_eq!(tail, ["command: vcx (completed)", "message: done", "turn Completed"], "{steps:?}");
-}
-
-fn claude_paths() -> ClaudePaths {
-    let root = Path::new("/tmp/vcx-fixture/claude");
-    ClaudePaths { config: root.into(), sessions: root.join("sessions"), attachments: root.join("attachments"), added: Vec::new() }
-}
+use vcx_agents::{Event, Inbound, Kind, TurnStatus, codex};
 
 #[test]
 fn reads_the_recorded_codex_turn_into_the_shared_steps() {
@@ -114,10 +52,10 @@ fn reads_an_agy_turn_into_the_shared_steps_and_asks_before_the_command() {
 
     let (turn, started) = stream.start_turn();
     let (mut effects, mut asked, mut answer) = (vec![started], None, None);
-    for message in &lines[2..] {
+    for message in &lines[3..] {
         for effect in stream.receive(message) {
             match effect {
-                Effect::Resolve { request_id, outcome } if request_id == "3" => effects.extend(stream.finish_turn(&turn, outcome.as_ref().map_err(String::as_str))),
+                Effect::Resolve { request_id, outcome } if request_id == "4" => effects.extend(stream.finish_turn(&turn, outcome.as_ref().map_err(String::as_str))),
                 Effect::Event(event) if event.contains_key("id") => {
                     let id = event["id"].as_str().unwrap().to_owned();
                     asked = Some(codex::parse(event));
@@ -151,7 +89,7 @@ fn ends_an_agy_turn_stopped_mid_command_as_interrupted_with_the_command_failed()
     stream.opened(lines[1]["result"].as_object().unwrap(), None).unwrap();
     let (turn, started) = stream.start_turn();
     let mut effects = vec![started];
-    effects.extend(stream.receive(&lines[5]));
+    effects.extend(stream.receive(&lines[6]));
 
     effects.extend(stream.finish_turn(&turn, Ok(json!({"stopReason": "cancelled"}).as_object().unwrap())));
     let inbound = events(effects);
