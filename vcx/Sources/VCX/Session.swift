@@ -1640,6 +1640,14 @@ final class Session: ObservableObject {
         return source
     }
 
+    // Records saved before the archive (2026-11-25) carry no provider; their thread ID's prefix or account names it.
+    private func savedProvider(_ record: JSON) -> String? {
+        if let provider = record["provider"] as? String { return provider }
+        guard let thread = record["threadId"] as? String else { return nil }
+        if let prefix = thread.split(separator: ":").first, thread.contains(":"), ["claude", "agy", "qwen"].contains(String(prefix)) { return String(prefix) }
+        return restorableAccounts.first { $0.id == record["accountId"] as? String }?.provider ?? "codex"
+    }
+
     private func leaseNativeSource(_ source: NativeSource) throws {
         guard usesNativeHistory, nativeLeases[source.key] == nil else { return }
         nativeLeases[source.key] = try NativeThreadLease(source)
@@ -1682,7 +1690,7 @@ final class Session: ObservableObject {
         var matches: [ConversationArchive.Resolution] = []
         for (id, record) in snapshots {
             var sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
-            if sources.isEmpty, let thread = record["threadId"] as? String, let client = record["provider"] as? String {
+            if sources.isEmpty, let thread = record["threadId"] as? String, let client = savedProvider(record) {
                 let stored = restorableAccounts.first { $0.id == record["accountId"] as? String } ?? Account(name: "Saved profile", provider: client)
                 sources = [nativeSource(thread, account: stored, path: record["nativeHistoryPath"] as? String)]
             }
@@ -1698,7 +1706,7 @@ final class Session: ObservableObject {
         for path in paths {
             guard let data = try? Data(contentsOf: path), let record = try? JSONSerialization.jsonObject(with: data) as? JSON else { throw CXError(message: "Could not read an earlier conversation snapshot.") }
             var sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
-            if sources.isEmpty, let thread = record["threadId"] as? String, let provider = record["provider"] as? String {
+            if sources.isEmpty, let thread = record["threadId"] as? String, let provider = savedProvider(record) {
                 let stored = restorableAccounts.first { $0.id == record["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
                 sources = [nativeSource(thread, account: stored, path: record["nativeHistoryPath"] as? String)]
             }
@@ -1769,7 +1777,7 @@ final class Session: ObservableObject {
         guard !closed, !Task.isCancelled else { throw CancellationError() }
         guard let saved = materialized ?? archived else { throw CXError(message: "The saved conversation no longer exists.") }
         nativeSources = (saved["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
-        if let thread = saved["threadId"] as? String, let provider = saved["provider"] as? String {
+        if let thread = saved["threadId"] as? String, let provider = savedProvider(saved) {
             let stored = restorableAccounts.first { $0.id == saved["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
             let latest = nativeSource(thread, account: stored, path: saved["nativeHistoryPath"] as? String)
             if !nativeSources.contains(where: { $0.provider == latest.provider && $0.threadID == latest.threadID }) { nativeSources.append(latest) }
@@ -1783,9 +1791,9 @@ final class Session: ObservableObject {
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
         providerChoice = record["providerChoice"] as? String ?? providerChoice; accountChoice = record["accountChoice"] as? String ?? accountChoice; modeChoice = record["modeChoice"] as? String ?? modeChoice
         let rawThread = thread.split(separator: ":").last.map(String.init)?.lowercased()
-        let currentSource = requestedSource ?? nativeSources.last { $0.provider == record["provider"] as? String && $0.threadID.lowercased() == rawThread }
+        let currentSource = requestedSource ?? nativeSources.last { $0.provider == savedProvider(record) && $0.threadID.lowercased() == rawThread }
         guard let currentSource else { throw CXError(message: "The saved native source is unavailable.") }
-        let sourceIsLatest = currentSource.provider == record["provider"] as? String && currentSource.threadID.lowercased() == rawThread
+        let sourceIsLatest = currentSource.provider == savedProvider(record) && currentSource.threadID.lowercased() == rawThread
         let savedAccountID = currentSource.accountID ?? (sourceIsLatest ? accountID : nil)
         let profiles = restorableAccounts.filter { $0.provider == currentSource.provider && $0.enabled }
         let selectedProfile: Account?

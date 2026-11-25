@@ -1149,6 +1149,21 @@ enum Check {
                 }
             }
             do {
+                let restored = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("legacy-record"))
+                var connection: FixtureConnection?
+                restored.connectionFactory = { account, _ in
+                    let fixture = FixtureConnection(account); connection = fixture; return fixture
+                }
+                let id = UUID().uuidString, thread = "claude:" + UUID().uuidString.lowercased()
+                let legacy: JSON = ["accountId": "claude-default", "cwd": directory.path, "threadId": thread, "title": "Legacy", "draft": "", "rows": []]
+                try FileManager.default.createDirectory(at: restored.nativeDirectory, withIntermediateDirectories: true)
+                try JSONSerialization.data(withJSONObject: legacy).write(to: restored.nativeDirectory.appendingPathComponent(id + ".json"))
+                await restored.connect(resume: id)
+                check(restored.ready && restored.account.provider == "claude" && connection?.opened.first?["threadId"] as? String == thread,
+                      "a record saved before the archive, without a provider, restores its Claude thread")
+                restored.close()
+            } catch { check(false, "legacy record restore: " + error.localizedDescription) }
+            do {
                 let routed = Session(cwd: "/", stateDirectory: directory.appendingPathComponent("route-state"))
                 var folders: [String] = [], fixtures: [FixtureConnection] = []
                 routed.connectionFactory = { account, folder in let fixture = FixtureConnection(account); folders.append(folder); fixtures.append(fixture); return fixture }
