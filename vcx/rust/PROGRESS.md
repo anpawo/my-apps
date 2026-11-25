@@ -47,6 +47,15 @@ A session edits and commits only the paths it owns. To write to one, read its id
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
 - Rust charts. Done: nothing yet. Next: a chart block drawn in a sandboxed frame.
 - Rust chrome. Done: nothing yet. Next: status bar, task bar, model controls.
+  What `Views.swift` draws outside the rows and the composer, and who builds it. Rust chrome: the session panel
+  (Settings button, Hooks/Skills/Commands/MCP/MD Files/RAG counts and their search panels, Session ID copy), the
+  Settings sheet (Session, Accounts, Qwen, Background, Keys), the status line (dot, Thinking/Ready/Not connected/
+  Pending action, what runs, elapsed, "Your answer is needed"), the status bar (update chip, progress chip, Directory,
+  Model and effort, Mode, the debate models badge, Tokens, Usage with the quota overview, Repo, Pull request), the
+  permission prompt (Cancel, Decline, Allow), the sign-in panel, the task bar, notices, the window title. Rust
+  transcript: the pinned question, Back to latest, the find bar (top right of the transcript), the image preview,
+  question cards (`QuestionPanel`). Rust composer: the `/` palette, the draft's pictures, the send flight, the run
+  panel. Rust charts: the pinned chart and the chart preview.
 - Rust config. Done: nothing yet. Next: `vcx-config` reading today's settings and state folders.
 - Rust agents. Done: nothing yet. Next: the Codex adapter on a recorded stream.
 - Rust report. Done: slice 1, the report, `vcx-conformance` (21 cases green against the Swift worker). Next: cases for stop, answer, a frontend leaving mid-turn and worker retirement once the fixture can hold a turn open; the suite against the Rust worker.
