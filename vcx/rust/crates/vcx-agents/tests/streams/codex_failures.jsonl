@@ -1,0 +1,10 @@
+{"method":"error","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","turnId":"turn-2","willRetry":true,"error":{"message":"stream disconnected before completion; retrying 1/5"}}}
+{"method":"warning","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","message":"Falling back from WebSockets to HTTPS transport."}}
+{"method":"configWarning","params":{"summary":"Unknown key `foo` in config.toml"}}
+{"method":"thread/compacted","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","turnId":"turn-2"}}
+{"id":"q-7","method":"item/tool/requestUserInput","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","turnId":"turn-2","itemId":"item-question","questions":[{"id":"pick","header":"Pick","question":"Which file?","options":[{"label":"a"},{"label":"b"}]}]}}
+{"method":"turn/completed","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","turn":{"id":"turn-2","items":[],"status":"failed","error":{"message":"You've hit your usage limit."}}}}
+{"method":"turn/completed","params":{"threadId":"019a7c1e-5b2f-7d40-9a3e-0c8f4e2d1b6a","turn":{"id":"turn-3","items":[],"status":"interrupted"}}}
+{"id":9,"error":{"code":-32600,"message":"thread not found: 019a7c1e"}}
+{"method":"mcpServer/startupStatus/updated","params":{"name":"github","status":"ready"}}
+[1,2]

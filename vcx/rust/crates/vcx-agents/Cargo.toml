@@ -1,0 +1,13 @@
+[package]
+name = "vcx-agents"
+description = "VCX provider adapters: Codex, Claude, Qwen and agy, each turned into the event shape of `codex app-server`"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.22"
+libc.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tokio = { version = "1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
