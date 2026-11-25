@@ -113,7 +113,7 @@ Single-leg claims:
 |---|---|---|---|
 | C1 | Without an Edit menu, ⌘C/⌘V/⌘A do not reach the web view | likely true, not run; the app slice adds the menu | tao 0.38 installs no main menu; wry's parent view forwards keys to `app.mainMenu()` (`wry_web_view_parent.rs:30-35`), read by Claude; Codex undecided |
 | C2 | An unshown window with no size gives a 0×0 view | refuted | tao 0.38 `window_delegate.rs:174-176` defaults to 800×600 |
-| C3 | Sandboxed chart frames fail under a custom scheme | undecided | no source found; a `srcdoc` chart would inherit the page CSP, so charts need their own `vcx://chart/<id>` document |
+| C3 | Sandboxed chart frames fail under a custom scheme | refuted, run (see Outcomes, 26/11) | `tests/charts.rs` in `vcx-shell`: sandboxed `vcx://chart/<id>` frames draw, post to their parent and are refused the network by their own CSP header |
 | C4 | The Swift app can take a session back from the Rust app | supported by code, not run | `main.swift:213-217` closes the window on lease loss through `closing`, so `windowShouldClose` (`main.swift:419`) skips `beginClose`, and `RuntimeRecovery.requestClose`/`remove` run only from the close paths (`main.swift:433,443,495`, `RuntimeClient.swift:227-238`); `main.swift:170-174` reattaches pending entries on a cold launch; update race: `main.swift:215,312,344`, Codex undecided |
 | C5 | Only a private occlusion setter keeps a page visible | true for a shown, covered window only | WebKit `PageClientImplMac.mm`: a window that is not visible is hidden before occlusion is consulted; M3 |
 | C6 | Swift workers can connect to a Rust server through `--runtime-url` | refuted, withdrawn by Qwen | no such flag in the Swift sources; the worker is the server |
@@ -180,3 +180,13 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   the new frontend did not complete (its log: "the previous frontend kept its lock for 25 s", cause not established);
   the old frontend was quit at 00:19:55 and a cold launch at 00:20:10 runs the new build, each listed session with
   its entry in the recovery list.
+- 26/11/2026, observed: C3 is refuted (`7abeb34`, `cargo test -p vcx-shell --test charts`, 10 tests pass in the
+  unshown window). Under wry's custom scheme a `sandbox="allow-scripts"` frame served from `vcx://chart/<id>` runs
+  its script, loads the kit and the vendored lightweight-charts from `vcx://template`, and talks to the page by
+  `postMessage`. The `Content-Security-Policy` response header of the scheme handler is enforced: fetch, an image,
+  a WebSocket and `parent.document` are refused and the local test server sees no request; the same frame served
+  without that header reaches the server (`/fetch`, `/socket`, `/image`), so the refusal is the policy's. Two things
+  the scheme does not do alone: wry's navigation handler is asked for subframes too, so it must allow `vcx://chart/`
+  (`bridge::may_load`) and keeps a frame from navigating away; a frame's `webkit.messageHandlers.ipc` posts reach the
+  core with the frame's own `vcx://chart/` URI, so the core keeps only posts whose URI is the template's. `vcx.live`
+  lets a chart make the Mac fetch any http(s) URL, as the Swift app does.

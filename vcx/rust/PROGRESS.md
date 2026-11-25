@@ -50,7 +50,8 @@ A session edits and commits only the paths it owns. To write to one, read its id
 - Rust composer. Done: nothing yet. Next: chips, long paste, `/` palette, Edit menu, undo.
 - Rust app. Done: nothing yet. Next: `vcx-app` with several windows in one process.
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
-- Rust charts. Done: nothing yet. Next: a chart block drawn in a sandboxed frame.
+- Rust charts. Done: chart frames (`7abeb34`): sandboxed `vcx://chart/<id>` documents with their own CSP, the Swift page API (`vcx.chart` series, table, cards; `vcx.live` fetched by the core; pin above the chat, enlarge on double click, pinch, wheel and drag), lightweight-charts 5.3.0 vendored; `tests/charts.rs` 10 windowless tests pass, C3 refuted.
+- Rust charts. Next: Rust app wires `chart::Feeds` into `pane.rs` (asked) so `vcx.live` runs in the real window; the Nasdaq `symbol` chart is not run against the live API.
 - Rust chrome. Done: `chrome.js`/`chrome.css` (45aedec): status line (dot, Thinking/Ready/Not connected/Pending action, what runs, elapsed, "Your answer is needed"), status bar (progress and update chips, Directory, Model and effort, Mode, debate models badge, Tokens, Usage, Repo, PR) with the model, mode, models and quota popovers, the permission prompt answering through `answer`, the task bar, notices, the title; `tests/chrome.rs` 18 windowless tests pass. Next: the session panel and Settings sheet, the sign-in panel; waits on the view sending usage, repo state, models and efforts, and on Rust app forwarding answer/command/title/focus/quota and sending progress and tasks.
   What `Views.swift` draws outside the rows and the composer, and who builds it. Rust chrome: the session panel
   (Settings button, Hooks/Skills/Commands/MCP/MD Files/RAG counts and their search panels, Session ID copy), the
