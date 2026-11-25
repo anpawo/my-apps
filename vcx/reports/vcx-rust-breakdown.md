@@ -166,4 +166,12 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
 - 25/11/2026, observed: slice 1 built and pushed; `cargo test --workspace` passes (see the last section of the
   research folder's `disagreements.md` for M1 to M11).
 - 25/11/2026, observed: sign-off round, 59 AGREE and 1 DISAGREE out of 60 lines (six legs, ten key claims).
-- 25/11/2026, proposed, not done: slices 2 to 6, the Swift recovery-list fix, the worker binary split.
+- 25/11/2026, proposed, not done: slices 2 to 6, the worker binary split.
+- 26/11/2026, observed: the Swift recovery-list fix is pushed (`fb40939`). A window closed on lease loss deletes its
+  own entry of the recovery list (`RuntimeRecovery.release`, only when the entry's owner is the closing process and
+  no other window of that process holds the session); `--runtime-recovery-check` prints 48 checks passed, two of
+  them new (another owner's entry survives a release, this process's entry is removed). Not run: a real takeover by
+  the Rust app followed by a cold launch of the Swift app, so C4's stop rule holds until that test exists.
+- 26/11/2026, observed: every push under `vcx/rust` made the update job rebuild and swap the Swift app (6 Rust
+  commits installed on 25/11, one run failed and was retried); `7181bf0` takes `vcx/rust` and `vcx/build-rust.sh`
+  out of `auto-update.sh`'s paths.
