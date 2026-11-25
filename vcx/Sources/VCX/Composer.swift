@@ -361,9 +361,12 @@ struct Composer: NSViewRepresentable {
             if selector == #selector(NSResponder.insertNewline(_:)), view.string.isEmpty, NSApp.currentEvent?.modifierFlags.contains(.shift) == true, session.sendNow() { return true }
             if selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty != false {
                 if session.commandQuery != nil, !session.commandOptions.isEmpty {
-                    if session.commandToken != nil { _ = session.completeCommand(); return true }
-                    let selected = session.commandOptions[min(session.commandSelection, session.commandOptions.count - 1)]
-                    if selected.insert != view.string { _ = session.completeCommand(); return true }
+                    guard let typed = session.typedCommand(view.string) else {
+                        _ = session.completeCommand(); session.commandQuery = nil; return true
+                    }
+                    if let token = session.commandToken {
+                        session.lockCommand((view.string as NSString).substring(with: token), typed.insert.trimmingCharacters(in: .whitespaces), space: false, in: token)
+                    }
                 }
                 session.commandQuery = nil
                 (view as? ComposerText)?.submit(); return true

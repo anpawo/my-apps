@@ -261,6 +261,20 @@ extension Session {
         guard commandQuery != nil, !options.isEmpty else { return false }
         chooseCommand(options[min(commandSelection, options.count - 1)]); return true
     }
+    // The command written in full before Return, which then runs it; nil when Return should complete the highlighted one.
+    func typedCommand(_ text: String) -> ChatCommand? {
+        let options = commandOptions
+        guard let query = commandQuery, !options.isEmpty else { return nil }
+        var typed = query
+        if let token = commandToken { guard NSMaxRange(token) <= (text as NSString).length else { return nil }; typed = (text as NSString).substring(with: token) }
+        typed = typed.trimmingCharacters(in: .whitespaces).droppingDictatedPunctuation
+        func exact(_ command: ChatCommand) -> Bool { command.name.caseInsensitiveCompare(typed) == .orderedSame || command.insert.trimmingCharacters(in: .whitespaces) == typed }
+        let highlighted = options[min(commandSelection, options.count - 1)]
+        if exact(highlighted) { return highlighted }
+        // An arrow move picks another command on purpose: Return then takes that one.
+        guard commandSelection == (options.firstIndex(where: \.isCurrent) ?? 0) else { return nil }
+        return options.first(where: exact)
+    }
 
     // A provider or skill namespace (/codex:skill:sm, /claude:sm) names the same skill as /sm; a bare name owned by vcx stays vcx's.
     func providerSkill(_ source: String) -> ChatCommand? {

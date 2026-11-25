@@ -1966,12 +1966,15 @@ enum Check {
                     for query in ["/fixt", "/fixture", "/" + provider + ":skill:fixture"] {
                         selection.showCommands(query, preserveDraft: false); field.setDraft(selection.draft)
                         let before = (selection.rpc as! FixtureConnection).sent.count
-                        check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && (selection.rpc as! FixtureConnection).sent.count == before, "Return completes the highlighted \(provider) skill without sending: \(query)")
-                        field.setDraft(selection.draft)
-                        check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))), "the next Return handles the \(provider) skill")
+                        if query == "/fixt" {
+                            check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))) && (selection.rpc as! FixtureConnection).sent.count == before, "Return completes a partly typed \(provider) skill without sending")
+                            check(selection.commandQuery == nil, "Return closes the popup after completing a partly typed \(provider) skill")
+                            field.setDraft(selection.draft)
+                        }
+                        check(input.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return sends the \(provider) skill once it is written in full: \(query)")
                         for _ in 0..<200 where (selection.rpc as! FixtureConnection).sent.count == before || selection.busy { try? await Task.sleep(nanoseconds: 1_000_000) }
                         let sent = (selection.rpc as! FixtureConnection).sent
-                        check(sent.count == before + 1, "two Returns send the \(provider) skill: \(query), sent \(sent.count - before)")
+                        check(sent.count == before + 1, "Return sends the \(provider) skill: \(query), sent \(sent.count - before)")
                         check(selection.draft.length == 0, "Return clears the \(provider) skill draft: \(query)")
                         check(selection.commandQuery == nil, "Return closes the \(provider) skill popup: \(query)")
                         let content = sent.last?["input"] as? [JSON] ?? []
