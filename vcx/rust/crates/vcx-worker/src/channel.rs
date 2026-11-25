@@ -5,7 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::{AsRawFd, RawFd};
-use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,6 +19,7 @@ pub const MAX_BUFFERED_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_QUEUED_FRAMES: usize = 1024;
 const PRIVATE_FOLDER: u32 = 0o700;
 const PRIVATE_SOCKET: u32 = 0o600;
+const SOCKET_UMASK: libc::mode_t = 0o177;
 const READ_CHUNK: usize = 64 * 1024;
 
 fn refuse(message: &str) -> io::Error {
@@ -55,8 +56,12 @@ pub fn listen(path: &Path) -> io::Result<Listener> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    let listener = std::os::unix::net::UnixListener::bind(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_SOCKET))?;
+    // Created private through the umask: a chmod after bind leaves a moment in which a client finds the socket open
+    // to others and refuses it.
+    let previous = unsafe { libc::umask(SOCKET_UMASK) };
+    let bound = std::os::unix::net::UnixListener::bind(path);
+    unsafe { libc::umask(previous) };
+    let listener = bound?;
     listener.set_nonblocking(true)?;
     Ok(Listener { listener: tokio::net::UnixListener::from_std(listener)?, _lock: lock, path: path.to_owned() })
 }
@@ -154,5 +159,30 @@ async fn write(mut writer: OwnedWriteHalf, mut frames: mpsc::Receiver<Vec<u8>>, 
             channel.close();
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn binds_the_socket_private_whatever_the_umask_and_restores_it() {
+        let folder = std::env::temp_dir().join(format!("vcx-worker-listen-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir(&folder).unwrap();
+        fs::set_permissions(&folder, fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let open = 0;
+        let before = unsafe { libc::umask(open) };
+
+        let listener = runtime.block_on(async { listen(&folder.join("w.sock")) }).unwrap();
+        let after = unsafe { libc::umask(before) };
+
+        assert_eq!(fs::metadata(&listener.path).unwrap().mode() & 0o777, PRIVATE_SOCKET);
+        assert_eq!(after, open, "the process umask is given back");
+        drop(listener);
+        fs::remove_dir_all(folder).unwrap();
     }
 }
