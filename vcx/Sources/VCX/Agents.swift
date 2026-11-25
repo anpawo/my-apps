@@ -96,6 +96,8 @@ func claudeSaved(_ id: String, account: Account) -> Bool {
 
 @MainActor
 final class ClaudeConnection: Connection {
+    var archiveProcess: Process? { process }
+    private(set) var archiveClientVersion: String?
     var event: (JSON) -> Void = { _ in }
     let account: Account
     private(set) var cwd: String
@@ -136,6 +138,7 @@ final class ClaudeConnection: Connection {
     func start(command: [String]? = nil) async throws {
         self.command = command
         guard command == nil else { return }
+        archiveClientVersion = await nativeClientVersion("claude", environment: agentEnvironment(account))
         let process = Process(), output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["claude", "auth", "status", "--json"]
@@ -590,6 +593,7 @@ extension ClaudeConnection: AdoptableConnection {
         var state: JSON = ["kind": "claude", "thread": thread, "model": model, "history": history, "mode": mode, "developerInstructions": developerInstructions,
                            "resumed": resumed, "cwd": cwd, "initialDirectory": initialDirectory, "closed": closed]
         state["account"] = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(account))
+        state["archiveClientVersion"] = archiveClientVersion
         state["command"] = command; state["metadata"] = metadata; state["servedModel"] = servedModel
         guard !closed, let process else { return state }
         guard process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
@@ -605,6 +609,7 @@ extension ClaudeConnection: AdoptableConnection {
               let cwd = state["cwd"] as? String, let initial = state["initialDirectory"] as? String, let thread = state["thread"] as? String else { throw CXError(message: "Invalid adopted Claude connection.") }
         self.init(account: account, cwd: initial)
         self.cwd = cwd; self.thread = thread
+        archiveClientVersion = state["archiveClientVersion"] as? String
         model = state["model"] as? String ?? model; history = state["history"] as? String ?? ""
         mode = state["mode"] as? String ?? mode; developerInstructions = state["developerInstructions"] as? String ?? ""
         resumed = state["resumed"] as? Bool ?? false; closed = state["closed"] as? Bool ?? false

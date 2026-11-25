@@ -361,9 +361,23 @@ final class Session: ObservableObject {
     var modeChoice: String?
     var preferredMode: String { modeChoice ?? Settings.shared.value.mode }
     private var recordID = UUID().uuidString
+    private var nativeHistoryPath: String?
+    private var lastSnapshotURL: URL?
+    private var nativeSources: [NativeSource] = []
+    private var nativeLeases: [String: NativeThreadLease] = [:]
+    private var archiveClientVersions: [String: String] = [:]
+    private var stoppingNativeProcesses: [Process] = []
+    private var archivedForClose = false
+    private var archiving = false
+    private var switchingRecord = false
+    private var archiveRecoveryNeeded = false
+    private var recoveringArchive = false
+    private var archivedRecent: [JSON] = []
+    var archiveFixtureRoot: String?
     private var pendingInput: (String, [String])?
     private var transferring = false
     private var injectedContext = ""
+    private var archiveService = ""
     @Published var recalledRules: [String] = []
     private var testing = false
     private var suppressSave = false
@@ -413,6 +427,7 @@ final class Session: ObservableObject {
         self.stateDirectory = stateDirectory ?? URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_STATE_HOME"] ?? NSHomeDirectory() + "/.local/state/cx", isDirectory: true)
         do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
+        Trace.migrate(self.stateDirectory)
     }
     var fleetContextFile = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-fleet-" + UUID().uuidString).appendingPathComponent("task.context")
     var fleetContext: String { runtimeFleetContext ?? (try? String(contentsOf: fleetContextFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
@@ -486,6 +501,7 @@ final class Session: ObservableObject {
     }
 
     func connect(resume: String?, prompt: String = "", command: [String]? = nil) async {
+        guard !closed, !Task.isCancelled else { return }
         if let runtimeClient {
             do { try await runtimeClient.connect(resume: resume, prompt: prompt) }
             catch { ready = false; usageLoading = false; status = error.localizedDescription; notice(error.localizedDescription) }
@@ -493,6 +509,7 @@ final class Session: ObservableObject {
         }
         trace("connect", ["resume": resume ?? "", "prompt": prompt])
         await refreshRepository()
+        guard !closed, !Task.isCancelled else { return }
         do {
             testing = command != nil
             if testing {
@@ -504,9 +521,7 @@ final class Session: ObservableObject {
                 try await rpc.start(command: command)
                 try await open(nil)
             } else if let resume {
-                if resume == "last", let record = try? JSONSerialization.jsonObject(with: Data(contentsOf: nativePointer)) as? JSON, let id = record["recordId"] as? String {
-                    try await restore(id)
-                } else if resume.hasPrefix("native:") { try await restore(String(resume.dropFirst(7))) }
+                if let target = try await savedRecord(resume) { try await restore(target.id, source: target.source) }
                 else {
                     var id = resume
                     if resume == "last" {
@@ -516,8 +531,9 @@ final class Session: ObservableObject {
                     // A bare Claude session ID (vcx --resume <id>) went to Codex, which answered "no rollout found".
                     let projects = NSHomeDirectory() + "/.claude/projects/"
                     if !id.contains(":"), ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains(where: { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }) { id = "claude:" + id }
-                    let provider = id.hasPrefix("claude:") ? "claude" : "codex"
-                    let account = Settings.shared.value.accounts.first { $0.provider == provider && $0.enabled } ?? Account(id: provider + "-default", name: "Default " + provider.capitalized, provider: provider)
+                    let provider = id.hasPrefix("claude:") ? "claude" : id.hasPrefix("agy:") ? "agy" : "codex"
+                    let profiles = Settings.shared.candidates(provider).filter { $0.provider == provider && $0.enabled }
+                    guard profiles.count == 1, let account = profiles.first else { throw CXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
                     try await activate(account, resume: id, keepRows: false)
                 }
             } else {
@@ -526,7 +542,7 @@ final class Session: ObservableObject {
             // The catalog takes seconds; a prompt typed meanwhile went first and the opening task queued behind it (2026-11-22).
             if !prompt.isEmpty { await send(text: prompt, images: []) }
             await refreshCatalog()
-        } catch { usageLoading = false; notice(error.localizedDescription); status = "Connection failed" }
+        } catch { if !closed, !Task.isCancelled { usageLoading = false; notice(error.localizedDescription); status = "Connection failed" } }
     }
 
     func refreshCatalog() async {
@@ -539,6 +555,8 @@ final class Session: ObservableObject {
                 guard let id = thread["id"] as? String else { return nil }
                 return Recent(id: id, title: thread["name"] as? String ?? thread["preview"] as? String ?? "Untitled conversation")
             }
+            try await refreshArchiveCatalog()
+            guard rpc === connection, !closed else { return }
             let local = nativeRecent()
             let savedIDs = Set(local.compactMap(\.backendID))
             // A window saves its record when it closes, so once open ones are left out the newest file is the last one closed.
@@ -611,7 +629,9 @@ final class Session: ObservableObject {
             guard error.localizedDescription == "workspace routing discovery timed out" else { throw error }
             result = try await rpc.request(method, params)
         }
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
         guard let thread = result["thread"] as? JSON, let id = thread["id"] as? String else { throw CXError(message: "Codex did not return a conversation.") }
+        if let resume, id.split(separator: ":").last?.lowercased() != resume.split(separator: ":").last?.lowercased() { throw CXError(message: "The agent did not resume the exact requested native conversation.") }
         var history: [JSON] = []
         if resume != nil && !keepRows {
             var cursor: String?
@@ -623,14 +643,18 @@ final class Session: ObservableObject {
                 cursor = page["nextCursor"] as? String
             } while cursor != nil
         }
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
         flushTask?.cancel(); flushTask = nil; deltas.removeAll()
         if !keepRows { needsAttention = false; rows.removeAll(); itemMap.removeAll(); seen.removeAll(); try? FileManager.default.removeItem(at: fleetContextFile) }
         promptHistoryIndex = nil
         group = nil
         threadID = id
+        nativeHistoryPath = thread["path"] as? String
+        try rememberNativeSource(id, path: nativeHistoryPath, pendingCreation: resume == nil, managed: resume == nil)
         if !keepRows { planning = false; conversationName = thread["name"] as? String }
         turnID = nil; busy = false; stopRequested = false; backgroundTasks = 0
         model = result["model"] as? String ?? providerLabel
+        archiveService = account.provider == "claude" ? "anthropic" : result["modelProvider"] as? String ?? result["model_provider"] as? String ?? ""
         defaultEffort = result["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : nil)
         if let policy = result["approvalPolicy"] as? String { activeMode = policy == "never" && (result["sandbox"] as? JSON)?["type"] as? String == "dangerFullAccess" ? "bypass" : "ask" }
         context = ""
@@ -643,7 +667,7 @@ final class Session: ObservableObject {
         } catch { notice("Could not save the resume pointer: " + error.localizedDescription) } }
         for turn in history {
             group = nil
-            for item in turn["items"] as? [JSON] ?? [] { show(item) }
+            for item in turn["items"] as? [JSON] ?? [] { show(item, importedHistory: true) }
             if turn["status"] as? String == "inProgress" { turnID = turn["id"] as? String; busy = true }
         }
         ready = true
@@ -682,7 +706,14 @@ final class Session: ObservableObject {
         status = "Working…"
     }
 
-    func show(_ source: JSON) {
+    private func archiveOrigin(_ data: JSON = [:], importedHistory: Bool = false) -> JSON {
+        let knownModel = data["model"] as? String ?? (importedHistory || ["", "Claude", "Codex", "Antigravity", "Qwen"].contains(model) ? "" : model)
+        var origin: JSON = ["client": account.provider, "provider": importedHistory ? "" : archiveService, "model": knownModel]
+        if let threadID { origin["source"] = nativeSource(threadID).json }
+        return origin
+    }
+
+    func show(_ source: JSON, importedHistory: Bool = false) {
         var data = source
         if data["type"] as? String == "agentMessage", data["provider"] == nil { data["provider"] = providerLabel }
         // Codex stores a skill prompt as the "$name" it was sent as; show the "/name" that was typed.
@@ -703,13 +734,14 @@ final class Session: ObservableObject {
             if !lines.isEmpty { data["recalled"] = lines; recalledRules += lines.filter { !recalledRules.contains($0) } }
         }
         guard let id = data["id"] as? String, let kind = data["type"] as? String else { return }
-        if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; data["recalled"] = data["recalled"] ?? item.data["recalled"]; item.data = data; return }
+        if let item = itemMap[id] { data["sentAt"] = item.data["sentAt"] ?? data["sentAt"]; data["recalled"] = data["recalled"] ?? item.data["recalled"]; data["archiveOrigin"] = item.data["archiveOrigin"]; item.data = data; return }
         if kind == "userMessage" {
             let client = data["clientId"] as? String ?? id
             guard !seen.contains(id), !seen.contains(client) else { return }
             seen.insert(id); seen.insert(client)
         }
         guard !["hookPrompt", "contextCompaction"].contains(kind) else { return }
+        data["archiveOrigin"] = archiveOrigin(data, importedHistory: importedHistory)
         let item = Item(data)
         itemMap[id] = item
         // Prompts the agent has not read yet stay last: what it does meanwhile goes above them, into the bar it was filling.
@@ -735,6 +767,7 @@ final class Session: ObservableObject {
     }
 
     func event(_ message: JSON) {
+        guard !closed else { return }
         if loading { bufferedEvents.append(message); return }
         let method = message["method"] as? String ?? ""
         let p = message["params"] as? JSON ?? [:]
@@ -962,7 +995,7 @@ final class Session: ObservableObject {
     }
 
     func send(text: String, images: [String], retry: Bool = false, commandHandled: Bool = false, skill: JSON? = nil, expectedDraft: NSAttributedString? = nil, expectedGeneration: Int? = nil, displayText: String? = nil) async {
-        guard !frontendReplacing else { return }
+        guard !frontendReplacing, !closed, !archiving, !archivedForClose else { return }
         recalled = nil
         var text = text.droppingDictatedPunctuation
         if !retry, !text.hasPrefix("/") { text = codeEdits.attach(to: text) }
@@ -1001,7 +1034,7 @@ final class Session: ObservableObject {
         content += images.map { ["type": "localImage", "path": $0] }
         var displayed = content
         if let displayText, !displayed.isEmpty { displayed[0]["text"] = displayText }
-        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": displayed, "sentAt": Date().timeIntervalSince1970])])
+        let optimistic = Row("user", [Item(["id": id, "type": "userMessage", "content": displayed, "sentAt": Date().timeIntervalSince1970, "archiveOrigin": archiveOrigin()])])
         promptHistoryIndex = nil
         seen.insert(id); group = nil; if !retry { rows.append(optimistic) }
         follow.attached = true; revision += 1
@@ -1050,7 +1083,9 @@ final class Session: ObservableObject {
             }
             let recalled = ErrorsRecall.recall(text, cwd: params["cwd"] as? String ?? cwd).filter { !recalledRules.contains($0) }
             if !recalled.isEmpty { params["input"] = (params["input"] as? [JSON] ?? []) + [["type": "text", "text": ErrorsRecall.note(recalled)]] }
+            if !retry { optimistic.items.first?.data["archiveOrigin"] = archiveOrigin() }
             let result = try await rpc.request(wasBusy ? "turn/steer" : "turn/start", params)
+            if let threadID { try rememberNativeSource(threadID, path: nativeHistoryPath, pendingCreation: false) }
             recalledRules += recalled
             if !recalled.isEmpty { itemMap[id]?.data["recalled"] = recalled }
             if busy, turnID == nil { turnID = (result["turn"] as? JSON)?["id"] as? String }
@@ -1139,23 +1174,90 @@ final class Session: ObservableObject {
             let result = await performRuntime("switchThread", ["id": id as Any? ?? NSNull(), "fromCommand": fromCommand, "draft": draftContent(draft), "generation": draftGeneration])
             return result?["success"] as? Bool ?? false
         }
-        let previousRecord = recordID
-        guard !busy, !changing, fromCommand || draft.length == 0 else { if draft.length > 0 { notice("Send or clear your draft before switching conversations.") }; return false }
+        guard !busy, !changing, !closed, !switchingRecord, fromCommand || draft.length == 0 else { if draft.length > 0 { notice("Send or clear your draft before switching conversations.") }; return false }
+        switchingRecord = true
+        defer { switchingRecord = false }
         if fromCommand { draft = savedCommandDraft ?? NSAttributedString(string: ""); savedCommandDraft = nil; draftRevision += 1 }
         let previousDraft = draft, previousGeneration = draftGeneration
+        var target: ConversationArchive.Resolution?
+        do { try await recoverIncompleteArchive(); if let id { target = try await savedRecord(id) } }
+        catch { notice(error.localizedDescription); return false }
+        guard !closed, !Task.isCancelled else { return false }
+        if let target, target.id == recordID {
+            do { draft = NSAttributedString(string: ""); draftRevision += 1; try await restore(target.id, source: target.source); return true }
+            catch { restoreDraft(previousDraft, since: previousGeneration); notice(error.localizedDescription); return false }
+        }
+        let previous: RetiringRecord
+        do { previous = try beginRecordTransition() }
+        catch { notice(error.localizedDescription); return false }
         do {
-            save()
             draft = NSAttributedString(string: ""); draftRevision += 1
-            if let id, id.hasPrefix("native:") { try await restore(String(id.dropFirst(7))) }
+            if let target { try await restore(target.id, source: target.source) }
             else {
-                recordID = UUID().uuidString
-                let next = id != nil ? (account.provider == "codex" ? account : Settings.shared.value.accounts.first { $0.provider == "codex" && $0.enabled }) : available.first
+                let provider = id?.hasPrefix("claude:") == true ? "claude" : id?.hasPrefix("agy:") == true ? "agy" : id?.hasPrefix("qwen:") == true ? "qwen" : "codex"
+                let profiles = Settings.shared.candidates(provider).filter { $0.provider == provider && $0.enabled }
+                if id != nil, profiles.count != 1 { throw CXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
+                let next = id != nil ? profiles.first : available.first
                 guard let next else { throw CXError(message: "No enabled account available.") }
                 try await activate(next, resume: id, keepRows: false)
             }
+            await archiveRetired(previous)
             await refreshCatalog()
             return true
-        } catch { recordID = previousRecord; restoreDraft(previousDraft, since: previousGeneration); notice(error.localizedDescription); return false }
+        } catch {
+            guard !closed else { discardRetiringRecord(previous); return false }
+            rollbackRecordTransition(previous); restoreDraft(previousDraft, since: previousGeneration); notice(error.localizedDescription); return false
+        }
+    }
+
+    private struct RetiringRecord {
+        let id: String
+        let path: URL
+        let thread: String?
+        let historyPath: String?
+        let sources: [NativeSource]
+        let leases: [String: NativeThreadLease]
+        let clientVersions: [String: String]
+        let lock: (String, Int32)?
+        let connection: any Connection
+        let processes: [Process]
+    }
+
+    private func beginRecordTransition() throws -> RetiringRecord {
+        flush()
+        if usesNativeHistory, threadID != nil, !save() { throw CXError(message: "Could not save the current conversation before switching.") }
+        let previous = RetiringRecord(id: recordID, path: snapshotURL, thread: threadID, historyPath: nativeHistoryPath, sources: nativeSources, leases: nativeLeases, clientVersions: archiveClientVersions, lock: recordLock, connection: rpc, processes: stoppingNativeProcesses + [rpc.archiveProcess].compactMap { $0 })
+        recordID = UUID().uuidString; recordLock = nil; nativeSources = []; nativeLeases = [:]; nativeHistoryPath = nil; threadID = nil
+        stoppingNativeProcesses = []; archivedForClose = false
+        archiveClientVersions = [:]
+        return previous
+    }
+
+    private func rollbackRecordTransition(_ previous: RetiringRecord) {
+        releaseRecord()
+        recordID = previous.id; recordLock = previous.lock; nativeSources = previous.sources; nativeLeases = previous.leases
+        threadID = previous.thread; nativeHistoryPath = previous.historyPath; stoppingNativeProcesses = previous.processes
+        archiveClientVersions = previous.clientVersions
+    }
+
+    private func discardRetiringRecord(_ previous: RetiringRecord) {
+        Task {
+            try? await previous.connection.stopForArchive(processes: previous.processes)
+            if let lock = previous.lock { flock(lock.1, LOCK_UN); Darwin.close(lock.1) }
+            withExtendedLifetime(previous.leases) {}
+        }
+    }
+
+    private func archiveRetired(_ previous: RetiringRecord) async {
+        defer { if let lock = previous.lock { flock(lock.1, LOCK_UN); Darwin.close(lock.1) } }
+        guard usesNativeHistory, previous.thread != nil else { return }
+        do {
+            var leases = previous.leases
+            defer { withExtendedLifetime(leases) {} }
+            for source in previous.sources where leases[source.key] == nil { leases[source.key] = try NativeThreadLease(source) }
+            try await previous.connection.stopForArchive(processes: previous.processes)
+            try await ConversationArchive.archive(path: previous.path, state: stateDirectory, sources: previous.sources, owned: previous.sources.filter { leases[$0.key] != nil }, clientVersions: previous.clientVersions, childExited: true, fixtureRoot: archiveFixtureRoot)
+        } catch { notice("The previous conversation remains saved. Its archive could not finish: " + error.localizedDescription) }
     }
 
     func changeModel(_ value: String, effort selectedEffort: String? = nil) async {
@@ -1195,14 +1297,22 @@ final class Session: ObservableObject {
     var available: [Account] {
         let settings = Settings.shared
         let chosen = settings.value.accounts.filter { $0.id == accountChoice && $0.provider == preferredProvider }
-        return (chosen + settings.candidates(preferredProvider).filter { $0.id != accountChoice }).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
+        let chosenIDs = Set(chosen.map(\.id))
+        return (chosen + settings.candidates(preferredProvider).filter { !chosenIDs.contains($0.id) }).filter { (settings.value.limits[$0.id] ?? 0) <= Date().timeIntervalSince1970 }
     }
 
     func activate(_ next: Account, resume: String?, keepRows: Bool, reason: String? = nil) async throws {
         trace("activate", ["provider": next.provider, "resume": resume ?? "", "keepRows": keepRows, "reason": reason ?? ""])
         guard !changing else { throw CXError(message: "A connection change is already in progress.") }
+        guard !closed, !Task.isCancelled, !archiving, !archivedForClose else { throw CXError(message: "This conversation is closing.") }
+        if let resume, usesNativeHistory {
+            try claimCurrentRecord()
+            try leaseNativeSource(nativeSource(resume, account: next))
+        }
         changing = true
         defer { changing = false }
+        try await recoverIncompleteArchive()
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
         Connectivity.watch(self)
         // The shared default picks a session's provider once; a later change to it (an older VCX build still writes it) must not move this session.
         if providerChoice == nil { providerChoice = preferredProvider }
@@ -1226,7 +1336,7 @@ final class Session: ObservableObject {
         connection.event = { startupEvents.append($0) }
         do {
             try await connection.start(command: nil)
-            guard startingConnection === connection else { throw CXError(message: "Connection change was cancelled.") }
+            guard !closed, !Task.isCancelled, startingConnection === connection else { throw CXError(message: "Connection change was cancelled.") }
         }
         catch {
             connection.event = { _ in }; connection.close()
@@ -1242,12 +1352,15 @@ final class Session: ObservableObject {
         flush()
         // A resumed provider thread already holds the conversation; Qwen keeps none of its own.
         injectedContext = keepRows && (resume == nil || next.provider == "qwen") ? handoffContext() : ""
+        stoppingNativeProcesses.removeAll { !$0.isRunning }
+        if let process = rpc.archiveProcess { stoppingNativeProcesses.append(process) }
         rpc.event = { _ in }; rpc.close()
         ready = false; busy = false; turnID = nil; permissions.removeAll(); activeActions.removeAll()
         providerCommands = []; skillPaths = [:]; legacyCommandPaths = [:]; hooks = []; skills = []; builtinCommands = []; mcp = []; instructions = []
         tokens = "Not reported"
         contextUsed = nil; contextLimit = nil; promptHistoryIndex = nil
         account = next; providerLabel = next.provider == "codex" ? "Codex" : next.provider == "agy" ? "Antigravity" : next.provider.capitalized
+        archiveClientVersions[next.provider] = connection.archiveClientVersion
         activeMode = preferredMode
         context = ""; usage = ""; usageLoading = true; usagePercent = nil; status = "Connecting to " + providerLabel + "…"
         rpc = connection
@@ -1261,6 +1374,7 @@ final class Session: ObservableObject {
             if let reason { reconnected(reason, resumed: resume != nil, switched: previous.0.id != next.id) }
         } catch {
             rpc.event = { _ in }; rpc.close()
+            guard !closed, !Task.isCancelled else { throw CancellationError() }
             account = previous.0; threadID = previous.1; model = previous.2
             context = previous.3; usage = previous.4; usageLoading = false; injectedContext = previous.5; contextUsed = previous.6; contextLimit = previous.7
             defaultEffort = previous.8
@@ -1431,23 +1545,48 @@ final class Session: ObservableObject {
         catch { recordID = previousRecord; notice(error.localizedDescription) }
     }
 
-    // Every folder's records, newest first: a session that cd'd into a project saved its record under that project, not this window's folder.
+    private static let nativeRecentLimit = 40
+
+    func refreshArchiveCatalog() async throws {
+        let entries = try await ConversationArchive.records(state: stateDirectory)
+        guard !closed else { return }
+        archivedRecent = entries
+    }
+
+    // Files are ordered before decoding: opening /resume must not read the entire retained history.
     func nativeRecent() -> [Recent] {
         let manager = FileManager.default, root = stateDirectory.appendingPathComponent("native")
         let files = ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).flatMap { (try? manager.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] }
-        let dated = files.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-        return dated.sorted { $0.1 > $1.1 }.lazy.compactMap { url, _ -> Recent? in
-            guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON, (record["rows"] as? [Any])?.isEmpty == false else { return nil }
-            let answer = self.lastAnswer(record["rows"] as? [JSON] ?? []) ?? record["title"] as? String ?? "New conversation"
-            let label = (record["fleetContext"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return Recent(id: "native:" + url.deletingPathExtension().lastPathComponent, title: label.isEmpty ? answer : label + ": " + answer, backendID: record["threadId"] as? String)
-        }.prefix(40).map { $0 }
+        var candidates: [(id: String, date: Date, path: URL?, summary: JSON?, record: JSON?)] = files.map { url in
+            (url.deletingPathExtension().lastPathComponent, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast, url, nil, nil)
+        }
+        candidates += archivedRecent.compactMap { entry in
+            guard let id = entry["id"] as? String else { return nil }
+            return (id, Date(timeIntervalSince1970: (entry["updated_at"] as? Double ?? 0) / 1000), nil, entry["summary"] as? JSON, entry["record"] as? JSON)
+        }
+        var result: [Recent] = [], seen: Set<String> = []
+        for candidate in candidates.sorted(by: { $0.date > $1.date }) {
+            guard !seen.contains(candidate.id) else { continue }
+            let record = candidate.record ?? candidate.path.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON }
+            let summary = candidate.summary ?? record?["recentSummary"] as? JSON
+            guard summary?["hasRows"] as? Bool ?? ((record?["rows"] as? [Any])?.isEmpty == false) else { continue }
+            let answer = summary?["title"] as? String ?? self.lastAnswer(record?["rows"] as? [JSON] ?? []) ?? record?["title"] as? String ?? "New conversation"
+            let label = (summary?["fleetContext"] as? String ?? record?["fleetContext"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            result.append(Recent(id: "native:" + candidate.id, title: label.isEmpty ? answer : label + ": " + answer, backendID: summary?["threadId"] as? String ?? record?["threadId"] as? String))
+            seen.insert(candidate.id)
+            if result.count == Self.nativeRecentLimit { break }
+        }
+        return result
     }
     private func nativeRecordURL(_ id: String) -> URL? {
-        let own = nativeDirectory.appendingPathComponent(id + ".json"), manager = FileManager.default
-        if manager.fileExists(atPath: own.path) { return own }
+        nativeRecordURLs(id).max { left, right in
+            ((try? left.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) < ((try? right.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+        }
+    }
+    private func nativeRecordURLs(_ id: String) -> [URL] {
+        let manager = FileManager.default
         let root = stateDirectory.appendingPathComponent("native")
-        return ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).map { $0.appendingPathComponent(id + ".json") }.first { manager.fileExists(atPath: $0.path) }
+        return ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).map { $0.appendingPathComponent(id + ".json") }.filter { manager.fileExists(atPath: $0.path) }
     }
     // The last green answer line, as the chat shows it, names a conversation better than its first prompt.
     func lastAnswer(_ rows: [JSON]) -> String? {
@@ -1482,46 +1621,186 @@ final class Session: ObservableObject {
         if let lock = recordLock { flock(lock.1, LOCK_UN); Darwin.close(lock.1); recordLock = nil }
     }
 
-    func save() {
-        guard runtimeClient == nil, !testing, !suppressSave, !closed, threadID != nil else { return }
-        do {
-            if recordLock?.0 != recordID {
-                let fd = try claimRecord(recordID)
-                releaseRecord(); recordLock = (recordID, fd)
+    // Agy and Qwen profiles are built in, never in the saved account list.
+    private var restorableAccounts: [Account] { Settings.shared.value.accounts + Settings.shared.candidates("auto").filter { ["agy", "qwen"].contains($0.provider) } }
+    private var usesNativeHistory: Bool { !testing && connectionFactory == nil && Session.testConnectionFactory == nil }
+
+    private func claimCurrentRecord() throws {
+        guard recordLock?.0 != recordID else { return }
+        let fd = try claimRecord(recordID)
+        releaseRecord(); recordLock = (recordID, fd)
+    }
+
+    private func nativeSource(_ thread: String, account selected: Account? = nil, path: String? = nil, pendingCreation: Bool = false) -> NativeSource {
+        let selected = selected ?? account
+        let environment = agentEnvironment(selected)
+        let home = selected.provider == "claude" ? selected.home ?? NSHomeDirectory() + "/.claude" : selected.provider == "codex" ? environment["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex" : NSHomeDirectory() + "/.gemini/antigravity-cli"
+        var source = NativeSource(provider: selected.provider, home: home, threadID: thread, path: path, pendingCreation: pendingCreation)
+        source.accountID = selected.id
+        return source
+    }
+
+    private func leaseNativeSource(_ source: NativeSource) throws {
+        guard usesNativeHistory, nativeLeases[source.key] == nil else { return }
+        nativeLeases[source.key] = try NativeThreadLease(source)
+    }
+
+    private func rememberNativeSource(_ thread: String, path: String?, pendingCreation: Bool, managed: Bool = false) throws {
+        guard usesNativeHistory else { return }
+        var source = nativeSource(thread, path: path, pendingCreation: pendingCreation)
+        source.managed = managed
+        source.clientVersion = rpc.archiveClientVersion
+        try leaseNativeSource(source)
+        if let index = nativeSources.firstIndex(where: { $0.key == source.key }) {
+            source.path = path ?? nativeSources[index].path
+            source.pendingCreation = nativeSources[index].pendingCreation && pendingCreation
+            source.managed = nativeSources[index].managed || managed
+            nativeSources[index] = source
+        } else { nativeSources.append(source) }
+    }
+
+    private func savedRecord(_ value: String) async throws -> ConversationArchive.Resolution? {
+        let raw = value.hasPrefix("native:") ? String(value.dropFirst(7)) : value
+        if raw == "last", let data = try? Data(contentsOf: nativePointer), let pointer = try? JSONSerialization.jsonObject(with: data) as? JSON,
+           let id = pointer["recordId"] as? String {
+            return try await ConversationArchive.resolve(id, state: stateDirectory) ?? UUID(uuidString: id).map { ConversationArchive.Resolution(id: $0.uuidString, source: nil) }
+        }
+        if let target = try await ConversationArchive.resolve(raw, state: stateDirectory) { return target }
+        if value.hasPrefix("native:") { return UUID(uuidString: raw).map { ConversationArchive.Resolution(id: $0.uuidString, source: nil) } }
+        if let uuid = UUID(uuidString: raw)?.uuidString, nativeRecordURL(uuid) != nil { return ConversationArchive.Resolution(id: uuid, source: nil) }
+        let root = stateDirectory.appendingPathComponent("native")
+        let snapshots = await Task.detached { () -> [(String, JSON)] in
+            let manager = FileManager.default
+            let folders = (try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            return folders.flatMap { (try? manager.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.compactMap { url in
+                guard let data = try? Data(contentsOf: url), let record = try? JSONSerialization.jsonObject(with: data) as? JSON else { return nil }
+                return (url.deletingPathExtension().lastPathComponent, record)
             }
+        }.value
+        let parts = raw.split(separator: ":").map(String.init), nativeID = parts.last?.lowercased()
+        let provider = parts.count > 1 ? parts.first : nil
+        var matches: [ConversationArchive.Resolution] = []
+        for (id, record) in snapshots {
+            var sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
+            if sources.isEmpty, let thread = record["threadId"] as? String, let client = record["provider"] as? String {
+                let stored = restorableAccounts.first { $0.id == record["accountId"] as? String } ?? Account(name: "Saved profile", provider: client)
+                sources = [nativeSource(thread, account: stored, path: record["nativeHistoryPath"] as? String)]
+            }
+            for source in sources where source.threadID.lowercased() == nativeID && (provider == nil || provider == source.provider) {
+                if !matches.contains(where: { $0.id == id && $0.source?.key == source.key }) { matches.append(ConversationArchive.Resolution(id: id, source: source)) }
+            }
+        }
+        guard matches.count < 2 else { throw CXError(message: "More than one saved source uses this native ID. Choose its saved conversation and profile instead.") }
+        return matches.first
+    }
+
+    private func mergeSnapshotSources(_ paths: [URL]) throws {
+        for path in paths {
+            guard let data = try? Data(contentsOf: path), let record = try? JSONSerialization.jsonObject(with: data) as? JSON else { throw CXError(message: "Could not read an earlier conversation snapshot.") }
+            var sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
+            if sources.isEmpty, let thread = record["threadId"] as? String, let provider = record["provider"] as? String {
+                let stored = restorableAccounts.first { $0.id == record["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
+                sources = [nativeSource(thread, account: stored, path: record["nativeHistoryPath"] as? String)]
+            }
+            for source in sources where !nativeSources.contains(where: { $0.key == source.key }) {
+                try leaseNativeSource(source)
+                nativeSources.append(source)
+            }
+        }
+    }
+
+    @discardableResult
+    func save() -> Bool {
+        guard runtimeClient == nil, !testing, !suppressSave, !closed, !archiving, !archivedForClose, threadID != nil else { return false }
+        do {
+            try claimCurrentRecord()
+            let earlier = lastSnapshotURL == snapshotURL ? [] : nativeRecordURLs(recordID).filter { $0.resolvingSymlinksInPath().path != snapshotURL.resolvingSymlinksInPath().path }
+            try mergeSnapshotSources(earlier)
             try FileManager.default.createDirectory(at: snapshotURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let title = conversationName ?? rows.first { $0.kind == "user" }?.items.first.flatMap { ($0.data["content"] as? [JSON] ?? []).compactMap { $0["text"] as? String }.first }.map { String($0.prefix(100)) } ?? "New conversation"
             var record: JSON = ["cwd": conversationDirectory, "workingDirectory": cwd, "title": title, "threadId": threadID ?? "", "accountId": account.id, "rows": rows.map { ["kind": $0.kind, "items": $0.items.map { $0.data }] }, "draft": draftContent(savedCommandDraft ?? draft), "needsAttention": needsAttention]
             record["effort"] = effort
+            record["provider"] = account.provider; record["model"] = model
+            record["nativeHistoryPath"] = nativeHistoryPath
+            record["nativeSources"] = nativeSources.map(\.json)
+            record["injectedContext"] = injectedContext
+            record["recentSummary"] = ["title": lastAnswer(record["rows"] as? [JSON] ?? []) ?? title, "fleetContext": fleetContext, "hasRows": !rows.isEmpty, "threadId": threadID ?? ""]
             record["planning"] = planning
             record["conversationName"] = conversationName
             record["fleetContext"] = fleetContext
             record["providerChoice"] = providerChoice; record["accountChoice"] = accountChoice; record["modeChoice"] = modeChoice
-            try JSONSerialization.data(withJSONObject: record).write(to: snapshotURL, options: .atomic)
+            try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]).write(to: snapshotURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: snapshotURL.path)
+            for path in earlier { try FileManager.default.removeItem(at: path) }
+            lastSnapshotURL = snapshotURL
             try JSONSerialization.data(withJSONObject: ["recordId": recordID]).write(to: nativePointer, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: nativePointer.path)
-        } catch { status = "Could not save conversation: " + error.localizedDescription }
+            return true
+        } catch { status = "Could not save conversation: " + error.localizedDescription; return false }
     }
 
-    private func restore(_ id: String, reason: String? = nil) async throws {
+    private func restore(_ id: String, source requestedSource: NativeSource? = nil, reason: String? = nil) async throws {
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
         trace("restore", ["id": id, "reason": reason ?? ""])
         guard UUID(uuidString: id) != nil else { throw CXError(message: "Invalid saved conversation ID.") }
         let claimed = recordLock?.0 == id ? nil : try claimRecord(id)
+        let previousRecord = recordID, previousLock = recordLock
+        let previousSources = nativeSources, previousLeases = nativeLeases
         var accepted = false
+        var claimTransferred = false
         suppressSave = true
         defer {
             suppressSave = false
-            if !accepted, let claimed { flock(claimed, LOCK_UN); Darwin.close(claimed) }
+            if !accepted {
+                if let claimed {
+                    if !claimTransferred { flock(claimed, LOCK_UN); Darwin.close(claimed) }
+                    else if recordLock?.1 == claimed { releaseRecord() }
+                }
+                if !closed {
+                    recordID = previousRecord; recordLock = previousLock
+                    nativeSources = previousSources; nativeLeases = previousLeases
+                }
+            }
         }
+        let archived = try await ConversationArchive.record(id, state: stateDirectory)
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
+        let materializedURL = nativeRecordURL(id)
+        let materialized = await Task.detached { materializedURL.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON } }.value
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
+        guard let saved = materialized ?? archived else { throw CXError(message: "The saved conversation no longer exists.") }
+        nativeSources = (saved["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
+        if let thread = saved["threadId"] as? String, let provider = saved["provider"] as? String {
+            let stored = restorableAccounts.first { $0.id == saved["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
+            let latest = nativeSource(thread, account: stored, path: saved["nativeHistoryPath"] as? String)
+            if !nativeSources.contains(where: { $0.provider == latest.provider && $0.threadID == latest.threadID }) { nativeSources.append(latest) }
+        }
+        for source in nativeSources + (archived?["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init) { try leaseNativeSource(source) }
+        recordID = id
+        if let claimed { recordLock = (id, claimed); claimTransferred = true }
+        try await ConversationArchive.restore(id, state: stateDirectory)
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
         guard let url = nativeRecordURL(id) else { throw CXError(message: "The saved conversation no longer exists.") }
         guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
         providerChoice = record["providerChoice"] as? String ?? providerChoice; accountChoice = record["accountChoice"] as? String ?? accountChoice; modeChoice = record["modeChoice"] as? String ?? modeChoice
-        let settings = Settings.shared
-        let stored = settings.candidates.first { $0.id == accountID } ?? settings.value.accounts.first { $0.id == accountID }
-        let preferred = preferredProvider != "auto" ? available.first : available.first { $0.id == stored?.id } ?? available.first
-        guard let selected = preferred else { throw CXError(message: "No enabled account is available for this conversation.") }
-        let resumeID = selected.id == accountID ? thread : nil
+        let rawThread = thread.split(separator: ":").last.map(String.init)?.lowercased()
+        let currentSource = requestedSource ?? nativeSources.last { $0.provider == record["provider"] as? String && $0.threadID.lowercased() == rawThread }
+        guard let currentSource else { throw CXError(message: "The saved native source is unavailable.") }
+        let sourceIsLatest = currentSource.provider == record["provider"] as? String && currentSource.threadID.lowercased() == rawThread
+        let savedAccountID = currentSource.accountID ?? (sourceIsLatest ? accountID : nil)
+        let profiles = restorableAccounts.filter { $0.provider == currentSource.provider && $0.enabled }
+        let selectedProfile: Account?
+        if let savedAccountID { selectedProfile = profiles.first { $0.id == savedAccountID } }
+        else { selectedProfile = { () -> Account? in let exact = profiles.filter { nativeSource(currentSource.threadID, account: $0).home == currentSource.home }; return exact.count == 1 ? exact[0] : nil }() }
+        guard var selected = selectedProfile else { throw CXError(message: "The saved account is unavailable. Enable its exact profile before resuming this conversation.") }
+        if ["claude", "codex"].contains(selected.provider) { selected.home = currentSource.home }
+        let pendingCreation = currentSource.pendingCreation
+        let nativeThread = ["claude", "agy", "qwen"].contains(currentSource.provider) ? currentSource.provider + ":" + currentSource.threadID : currentSource.threadID
+        let resumeID = pendingCreation ? nil : nativeThread
+        if usesNativeHistory, !pendingCreation, currentSource.provider != "qwen" {
+            guard !(try await ConversationArchive.sourceFiles([currentSource], state: stateDirectory)).isEmpty else { throw CXError(message: "The exact saved native history is unavailable.") }
+            guard !closed, !Task.isCancelled else { throw CancellationError() }
+        }
+        providerChoice = selected.provider; accountChoice = selected.id
         let generation = draftGeneration
         let previousDirectory = cwd, previousConversationDirectory = conversationDirectory
         if url.deletingLastPathComponent() != nativeDirectory, let home = record["cwd"] as? String { conversationDirectory = home }
@@ -1533,13 +1812,14 @@ final class Session: ObservableObject {
         if conversationDirectory != previousConversationDirectory { (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X" }
         do { try (record["fleetContext"] as? String ?? "").write(to: fleetContextFile, atomically: true, encoding: .utf8) }
         catch { NSLog("VCX: could not restore Fleet context: %@", error.localizedDescription) }
-        effort = selected.id == accountID ? record["effort"] as? String : nil
-        planning = selected.provider == "codex" && record["planning"] as? Bool == true
+        effort = sourceIsLatest ? record["effort"] as? String : nil
+        planning = sourceIsLatest && selected.provider == "codex" && record["planning"] as? Bool == true
         conversationName = record["conversationName"] as? String
         needsAttention = record["needsAttention"] as? Bool ?? false
         if needsAttention { status = "Needs attention" }
         recordID = id
-        if let claimed { releaseRecord(); recordLock = (id, claimed) }
+        archivedForClose = false
+        if let previousLock, previousLock.0 != id { flock(previousLock.1, LOCK_UN); Darwin.close(previousLock.1) }
         accepted = true
         rows.removeAll(); itemMap.removeAll(); seen.removeAll(); group = nil
         for row in record["rows"] as? [JSON] ?? [] {
@@ -1555,30 +1835,37 @@ final class Session: ObservableObject {
             else if let path = piece["path"] as? String { restoredDraft.append(NSAttributedString(attachment: ImageChip(path: path, number: n + 1))) }
         }
         restoreDraft(restoredDraft, since: generation)
-        injectedContext = selected.provider == "qwen" || resumeID == nil ? handoffContext() : ""
+        let savedContext = record["injectedContext"] as? String ?? ""
+        injectedContext = pendingCreation && !savedContext.isEmpty ? savedContext : selected.provider == "qwen" || resumeID == nil ? handoffContext() : ""
         if let reason { reconnected(reason, resumed: resumeID != nil, switched: selected.id != accountID) }
         suppressSave = false
         save()
     }
 
     func changeDirectory(_ path: String) async throws {
-        guard !busy, !changing else { throw CXError(message: "Stop the current turn before changing directory.") }
+        guard !busy, !changing, !closed, !switchingRecord else { throw CXError(message: "Stop the current turn before changing directory.") }
+        switchingRecord = true
+        defer { switchingRecord = false }
+        try await recoverIncompleteArchive()
         let expanded = (path as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: cwd, isDirectory: true)).standardized
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Directory does not exist.") }
         if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
         else if draft.commandText.hasPrefix("/dir ") || draft.commandText.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
-        save()
-        let previous = (cwd, recordID, draft, draftGeneration, conversationDirectory)
-        cwd = url.path; conversationDirectory = cwd; recordID = UUID().uuidString; draft = NSAttributedString(string: ""); draftRevision += 1
+        let previous = (cwd, draft, draftGeneration, conversationDirectory)
+        let retiring = try beginRecordTransition()
+        cwd = url.path; conversationDirectory = cwd; draft = NSAttributedString(string: ""); draftRevision += 1
         do {
             guard let next = available.first else { throw CXError(message: "No enabled account is available.") }
             try await activate(next, resume: nil, keepRows: false)
+            await archiveRetired(retiring)
             await refreshCatalog()
             (NSApp.delegate as? AppDelegate)?.window?.title = folder + " · Vibe Code X"
-        } catch { cwd = previous.0; conversationDirectory = previous.4; recordID = previous.1; pendingActivation = nil; pendingRestore = nil
-            restoreDraft(previous.2, since: previous.3); throw error }
+        } catch {
+            guard !closed else { discardRetiringRecord(retiring); throw error }
+            cwd = previous.0; conversationDirectory = previous.3; rollbackRecordTransition(retiring); pendingActivation = nil; pendingRestore = nil
+            restoreDraft(previous.1, since: previous.2); throw error }
     }
 
     private var sentPrompts: [String] {
@@ -1754,6 +2041,10 @@ final class Session: ObservableObject {
             "providerCommands": providerCommands.map { ["name": $0.name, "detail": $0.detail, "source": $0.source, "insert": $0.insert, "isCurrent": $0.isCurrent] }
         ]
         value["account"] = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(account))) ?? NSNull()
+        value["nativeSources"] = nativeSources.map(\.json)
+        value["archiveClientVersions"] = archiveClientVersions
+        value["nativeHistoryPath"] = nativeHistoryPath
+        value["archiveService"] = archiveService
         value["threadID"] = threadID as Any? ?? NSNull()
         value["turnID"] = turnID as Any? ?? NSNull()
         value["effort"] = effort as Any? ?? NSNull()
@@ -1772,6 +2063,10 @@ final class Session: ObservableObject {
         (NSApp.delegate as? AppDelegate)?.updateTitle(session: self)
         threadID = value["threadID"] as? String; turnID = value["turnID"] as? String
         recordID = value["recordID"] as? String ?? recordID
+        nativeSources = (value["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
+        archiveClientVersions = value["archiveClientVersions"] as? [String: String] ?? [:]
+        nativeHistoryPath = value["nativeHistoryPath"] as? String
+        archiveService = value["archiveService"] as? String ?? ""
         if let data = value["account"], let encoded = try? JSONSerialization.data(withJSONObject: data), let decoded = try? JSONDecoder().decode(Account.self, from: encoded) { account = decoded }
         model = value["model"] as? String ?? model
         effort = value["effort"] as? String; defaultEffort = value["defaultEffort"] as? String
@@ -1863,14 +2158,31 @@ final class Session: ObservableObject {
 
     // What a live update carries beyond the runtime snapshot; nil while a turn, a prompt or a switch is in flight.
     func swapState() -> JSON? {
-        guard !busy, !changing, !submitting, !transferring, !loading, pendingLimit == nil, pendingInput == nil, pendingActivation == nil, permissions.isEmpty else { return nil }
+        guard !busy, !changing, !submitting, !transferring, !loading, !archiving, !archivedForClose, !closed, pendingLimit == nil, pendingInput == nil, pendingActivation == nil, permissions.isEmpty, stoppingNativeProcesses.allSatisfy({ !$0.isRunning }) else { return nil }
         flush()
+        if usesNativeHistory, threadID != nil, !save() { return nil }
         var state: JSON = ["seen": Array(seen), "injectedContext": injectedContext, "testing": testing, "fleetContextFile": fleetContextFile.path, "autoResumes": autoResumes, "modeOverride": modeOverride]
         state["providerChoice"] = providerChoice; state["accountChoice"] = accountChoice; state["modeChoice"] = modeChoice
+        state["nativeLeases"] = nativeLeases.values.map(\.swapState)
+        if let recordLock { state["recordLock"] = ["id": recordLock.0, "descriptor": Int(recordLock.1)] }
         return state
     }
 
-    func adoptSwap(_ state: JSON, snapshot: JSON, connection: any Connection) {
+    func adoptSwap(_ state: JSON, snapshot: JSON, connection: any Connection) throws {
+        let leases = state["nativeLeases"] as? [JSON] ?? []
+        for lease in leases {
+            guard let value = lease["source"] as? JSON, NativeSource(value) != nil,
+                  let raw = lease["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw CXError(message: "Invalid native conversation lease in live update.") }
+        }
+        if let lock = state["recordLock"] as? JSON {
+            guard let id = lock["id"] as? String, id == snapshot["recordID"] as? String,
+                  let raw = lock["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw CXError(message: "Invalid conversation lock in live update.") }
+            recordLock = (id, fd); _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        }
+        for lease in leases {
+            let source = NativeSource(lease["source"] as! JSON)!
+            nativeLeases[source.key] = NativeThreadLease(adopting: source, descriptor: Int32(lease["descriptor"] as! Int))
+        }
         applyRuntimeSnapshot(snapshot); runtimeFleetContext = nil
         seen = Set(state["seen"] as? [String] ?? [])
         injectedContext = state["injectedContext"] as? String ?? ""
@@ -1883,10 +2195,20 @@ final class Session: ObservableObject {
             fleetContextFile = URL(fileURLWithPath: path)
         }
         rpc = connection; rpc.fleetFile = fleetContextFile.path; rpc.logFile = agentLogFile; rpc.event = { [weak self] message in self?.event(message) }
+        if usesNativeHistory {
+            for source in nativeSources { try leaseNativeSource(source) }
+            if nativeSources.isEmpty, let threadID { try rememberNativeSource(threadID, path: nativeHistoryPath, pendingCreation: false) }
+        }
         if !testing { Connectivity.watch(self) }
         save()
         // The carried lists were computed by the previous build's code.
         if !testing { Task { await refreshCapabilities() } }
+    }
+
+    func abandonSwap() {
+        releaseRecord(); nativeLeases = [:]; closed = true
+        rpc.event = { _ in }; rpc.close()
+        try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent())
     }
 
     func applyRuntimePatch(_ value: JSON) {
@@ -1915,9 +2237,45 @@ final class Session: ObservableObject {
         if value["items"] != nil || value["rowUpdates"] != nil || value["rowOrder"] != nil { revision += 1 }
     }
 
+    private func recoverIncompleteArchive() async throws {
+        guard archiveRecoveryNeeded else { return }
+        guard !recoveringArchive, !closed else { throw CXError(message: "The previous archive is still being recovered.") }
+        recoveringArchive = true
+        defer { recoveringArchive = false }
+        for source in nativeSources { try leaseNativeSource(source) }
+        try await ConversationArchive.restore(recordID, state: stateDirectory, preserveDraft: true)
+        guard !closed, !Task.isCancelled else { throw CancellationError() }
+        archiveRecoveryNeeded = false
+    }
+
+    func prepareForClose() throws {
+        guard !closed, !archiving, !changing, !loading, !submitting, !transferring, !switchingRecord, !recoveringArchive, startingConnection == nil else { throw CXError(message: "Wait for the current connection change before closing this conversation.") }
+        guard !archivedForClose, usesNativeHistory, threadID != nil else { return }
+        flush()
+        guard save() else { throw CXError(message: "Could not save the current conversation before archiving. Native history has been kept.") }
+        if let process = rpc.archiveProcess, !stoppingNativeProcesses.contains(where: { $0 === process }) { stoppingNativeProcesses.append(process) }
+    }
+
+    func archiveForClose() async throws {
+        if archivedForClose { return }
+        try prepareForClose()
+        guard runtimeClient == nil, usesNativeHistory, threadID != nil else { return }
+        archiving = true
+        defer { archiving = false; if !archivedForClose { archiveRecoveryNeeded = true } }
+        for source in nativeSources { try leaseNativeSource(source) }
+        rpc.event = { _ in }
+        try await rpc.stopForArchive(processes: stoppingNativeProcesses)
+        ready = false
+        try await ConversationArchive.archive(path: snapshotURL, state: stateDirectory, sources: nativeSources, owned: nativeSources.filter { nativeLeases[$0.key] != nil }, clientVersions: archiveClientVersions, childExited: true, fixtureRoot: archiveFixtureRoot)
+        archivedForClose = true
+        busy = false; turnID = nil
+        Trace.migrate(stateDirectory, force: true)
+    }
+
     func close() {
         // A frontend window detaches only (its session lives on in the worker, an update handover too): the worker's own close cleans up.
         if let runtimeClient { runtimeClient.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()); return }
+        guard !closed, !archiving else { return }
         DiskCleanup.run(cwd, force: true)
         if busy {
             needsAttention = true; status = "Interrupted"; busy = false
@@ -1925,5 +2283,9 @@ final class Session: ObservableObject {
         }
         Connectivity.unwatch(self)
         startingConnection?.event = { _ in }; startingConnection?.close(); startingConnection = nil
-        flush(); save(); releaseRecord(); closed = true; flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }; rpc.close(); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
+        flush(); save(); releaseRecord(); closed = true; flushTask?.cancel(); resumeTask?.cancel(); rpc.event = { _ in }
+        let connection = rpc, leases = nativeLeases, processes = stoppingNativeProcesses + [rpc.archiveProcess].compactMap { $0 }
+        nativeLeases = [:]
+        Task { try? await connection.stopForArchive(processes: processes); withExtendedLifetime(leases) {} }
+        rpc.close(); Trace.migrate(stateDirectory); try? FileManager.default.removeItem(at: fleetContextFile.deletingLastPathComponent()) }
 }

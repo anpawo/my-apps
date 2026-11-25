@@ -25,11 +25,27 @@ protocol Connection: AnyObject {
     func respond(_ id: Any, _ result: JSON) throws
     func reject(_ id: Any, method: String) throws
     func close()
+    var archiveProcess: Process? { get }
+    var archiveClientVersion: String? { get }
+    var archiveStopAttempts: Int { get }
     var fleetFile: String? { get set }
     var logFile: String? { get set }
 }
 
 extension Connection {
+    var archiveProcess: Process? { nil }
+    var archiveClientVersion: String? { nil }
+    var archiveStopAttempts: Int { 100 }
+    func stopForArchive(processes: [Process] = []) async throws {
+        let children = processes + [archiveProcess].compactMap { $0 }
+        close()
+        let pollDelay: UInt64 = 100_000_000
+        for _ in 0..<archiveStopAttempts {
+            if children.allSatisfy({ !$0.isRunning }) { return }
+            try await Task.sleep(nanoseconds: pollDelay)
+        }
+        throw CXError(message: "The agent is still stopping; its native history has been kept.")
+    }
     func request(_ method: String, _ params: JSON = [:]) async throws -> JSON { try await request(method, params, timeout: 120) }
     var fleetFile: String? { get { nil } set {} }
     var logFile: String? { get { nil } set {} }
@@ -37,6 +53,8 @@ extension Connection {
 
 @MainActor
 final class RPC: Connection {
+    var archiveProcess: Process? { process }
+    private(set) var archiveClientVersion: String?
     var event: (JSON) -> Void = { _ in }
     var account: Account?
     var cwd: String?
@@ -52,6 +70,7 @@ final class RPC: Connection {
     private var closed = false
 
     func start(command: [String]? = nil) async throws {
+        if command == nil { archiveClientVersion = await nativeClientVersion("codex", environment: agentEnvironment(account, fleet: fleetFile)) }
         let process = Process(), incoming = Pipe(), outgoing = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = command ?? ["codex", "app-server"]
@@ -163,6 +182,7 @@ extension RPC: AdoptableConnection {
         guard pending.isEmpty else { return nil }
         var state: JSON = ["kind": "codex", "nextID": nextID, "closed": closed]
         state["cwd"] = cwd
+        state["archiveClientVersion"] = archiveClientVersion
         state["account"] = account.flatMap { try? JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }
         guard !closed else { return state }
         guard let process, process.isRunning, let input, let reader, let leftover = reader.freeze() else { return nil }
@@ -177,6 +197,7 @@ extension RPC: AdoptableConnection {
         self.init()
         log = (state["log"] as? String).map { ($0, UInt64(state["logStart"] as? Int ?? 0)) }
         cwd = state["cwd"] as? String
+        archiveClientVersion = state["archiveClientVersion"] as? String
         account = (state["account"] as? JSON).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { try? JSONDecoder().decode(Account.self, from: $0) }
         nextID = state["nextID"] as? Int ?? 0
         closed = state["closed"] as? Bool ?? false

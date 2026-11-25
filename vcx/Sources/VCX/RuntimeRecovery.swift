@@ -161,7 +161,7 @@ enum RuntimeRecovery {
         return entries
     }
 
-    static func finishRequestedCloses() async throws -> Int {
+    static func finishRequestedCloses(onFailure: ((Error) -> Void)? = nil) async throws -> Int {
         var completed = 0
         for entry in try entries(closing: true) {
             let session = Session(cwd: entry.cwd)
@@ -174,18 +174,22 @@ enum RuntimeRecovery {
             } catch let response as RuntimeResponseError where ["closed", "unknownSession"].contains(response.code ?? "") {
                 try remove(sessionID: entry.sessionID)
                 completed += 1
-            } catch {}
+            } catch { onFailure?(error) }
             client.close(); session.close()
         }
         return completed
     }
 
-    static func hasSavedRecord(_ entry: Entry) -> Bool {
+    static func hasSavedRecord(_ entry: Entry) async -> Bool {
         guard let recordID = entry.state["recordID"] as? String, UUID(uuidString: recordID) != nil,
               let stateDirectory = entry.state["stateDirectory"] as? String, stateDirectory.hasPrefix("/") else { return false }
         let group = SHA256.hash(data: Data(entry.cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24)
         let path = URL(fileURLWithPath: stateDirectory).appendingPathComponent("native").appendingPathComponent(String(group)).appendingPathComponent(recordID + ".json")
-        guard let record = try? read(path) else { return false }
+        let materialized = try? read(path)
+        let record: JSON?
+        if let materialized { record = materialized }
+        else { record = try? await ConversationArchive.record(recordID, state: URL(fileURLWithPath: stateDirectory)) }
+        guard let record else { return false }
         return record["cwd"] as? String == entry.cwd && record["threadId"] as? String != nil && record["accountId"] as? String != nil
     }
 

@@ -78,9 +78,11 @@ final class RuntimeClient {
 
     func connect(resume: String?, prompt: String = "") async throws {
         if let connectTask { return try await connectTask.value }
-        let canRecover = recoveryEntry.map(RuntimeRecovery.hasSavedRecord) ?? false
         // A worker moving to a new build drops every connection while it re-executes; a replacement window attaching then quit.
         let task = Task {
+            let canRecover: Bool
+            if let recoveryEntry { canRecover = await RuntimeRecovery.hasSavedRecord(recoveryEntry) }
+            else { canRecover = false }
             for attempt in 0..<8 {
                 do { return try await attach(resume: resume, prompt: prompt, launch: !resumingRuntime || canRecover) }
                 catch {
@@ -140,7 +142,7 @@ final class RuntimeClient {
             params["resume"] = resume
             params["existingOnly"] = resumingRuntime || swapping
             if let recoveryEntry, let previous = recoveryEntry.instanceID, workerInstanceID != previous {
-                guard RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw CXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
+                guard await RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw CXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
                 params["resume"] = saved; params["prompt"] = ""; params["cwd"] = recoveryEntry.cwd
                 params["recovery"] = recoveryEntry.state; params["existingOnly"] = false
                 coldRecoveryInProgress = true
