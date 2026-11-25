@@ -541,6 +541,26 @@ fn pastes_an_image_through_the_core_and_shows_it_in_its_chip(page: &Page) -> Res
     check(state["chips"] == json!(["Image #1 · shot.png"]) && state["previews"] == 1, format!("{state}"))
 }
 
+fn flies_the_sent_message_into_its_new_bubble_only(page: &Page) -> Result<(), String> {
+    page.deliver(full(json!({"ready": true}), json!([user_row("R1", "Send this", json!([]))])))?;
+    page.keys("Send this")?;
+    page.press(Key::Return, NONE)?;
+    page.next("send")?;
+
+    page.deliver(json!({"type": "patch", "rows": [user_row("R2", "Send this", json!([]))]}))?;
+
+    let flying = "(id => { const bubble = document.querySelector(`[data-row=\"${id}\"] .bubble`); return bubble ? bubble.getAnimations().map(motion => motion.effect.getKeyframes()[0].transform) : null; })";
+    let deadline = Instant::now() + WAIT;
+    let mut moved = page.eval(&format!("{flying}('R2')"))?;
+    while moved.as_array().is_none_or(Vec::is_empty) && Instant::now() < deadline {
+        spin();
+        moved = page.eval(&format!("{flying}('R2')"))?;
+    }
+    let old = page.eval(&format!("{flying}('R1')"))?;
+    check(moved.as_array().is_some_and(|motions| motions.len() == 1 && motions[0].as_str().is_some_and(|from| from.starts_with("translate("))), format!("the new bubble moved {moved}"))?;
+    check(old == json!([]), format!("the bubble already there moved {old}"))
+}
+
 /// The report's stop rule for slice 3: marked text, paste, undo and focus in one run of the page composer.
 fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), String> {
     page.eval("document.getElementById('input').blur()")?;
@@ -567,7 +587,7 @@ fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), St
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 22] = [
+const TESTS: [(&str, Test); 23] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("sends nothing for an empty composer", sends_nothing_for_an_empty_composer),
@@ -589,6 +609,7 @@ const TESTS: [(&str, Test); 22] = [
     ("keeps the draft of the session and takes only newer ones", keeps_the_draft_of_the_session_and_takes_only_newer_ones),
     ("attaches dropped files, folders and images as chips", attaches_dropped_files_folders_and_images_as_chips),
     ("pastes an image through the core and shows it in its chip", pastes_an_image_through_the_core_and_shows_it_in_its_chip),
+    ("flies the sent message into its new bubble only", flies_the_sent_message_into_its_new_bubble_only),
     ("keeps marked text, paste, undo and focus together", keeps_marked_text_paste_undo_and_focus_together),
 ];
 

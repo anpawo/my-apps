@@ -6,6 +6,9 @@
   // A pasted text this long folds into a chip, as in the Swift composer (`Composer.swift`, `paste(from:)`).
   const PASTE_FOLD_CHARACTERS = 20;
   const DRAFT_SAVE_DELAY_MS = 250;
+  // The send flight, as in the Swift `SendAnimation`: how long the bubble glides, and how long a send waits for its row.
+  const FLIGHT_MS = 420;
+  const FLIGHT_WAIT_MS = 5000;
   const IMAGE_MAX_BYTES = 32 * 1024 * 1024;
   const PROVIDERS = ['claude', 'codex', 'qwen', 'agy'];
   // Their values run as soon as they are chosen; the others go into the composer to be read before Return.
@@ -51,6 +54,7 @@
   let applying = false;
   let fileSerial = 0;
   let imageSerial = 0;
+  let flight = null;
   const palette = { kind: '', key: '', start: 0, end: 0, query: '', whole: false, options: [], selected: 0, home: 0, dismissed: '' };
 
   function make(tag, className, text) {
@@ -464,6 +468,7 @@
     const { text, images } = message();
     if (!text && images.length === 0) return;
     post({ type: 'send', text, images, draft: pieces(), generation });
+    prepareFlight(text, images);
     clearTimeout(saveTimer);
     saveTimer = 0;
     chips.clear();
@@ -626,9 +631,32 @@
     refresh();
   }
 
+  // The sent message's bubble glides in from where the composer stood; one already shown before the send never does.
+  function prepareFlight(text, images) {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    flight = reduced ? null : { text, images, previous: new Set(prompts.keys()), origin: form.getBoundingClientRect(), sent: performance.now() };
+  }
+
+  function land() {
+    if (!flight) return;
+    if (performance.now() - flight.sent > FLIGHT_WAIT_MS) return void (flight = null);
+    const same = prompt => prompt.text === flight.text && prompt.images.join('\n') === flight.images.join('\n');
+    const id = [...prompts.keys()].find(key => !flight.previous.has(key) && same(prompts.get(key)));
+    const bubble = id && document.querySelector(`[data-row="${CSS.escape(id)}"] .bubble`);
+    if (!bubble) return;
+    const { origin } = flight;
+    flight = null;
+    const target = bubble.getBoundingClientRect();
+    if (target.width === 0) return;
+    const from = `translate(${origin.left - target.left}px, ${origin.top - target.top}px)`;
+    bubble.animate([{ transform: from, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: FLIGHT_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+  }
+
   function receive(message) {
     if (message.type === 'full' || message.type === 'patch') {
       track(message);
+      // After app.js has drawn the rows of this message.
+      if (flight) setTimeout(land, 0);
       if (message.meta) describe(message.meta);
       takeDraft(message.draft, message.draftGeneration, message.type === 'full');
     } else if (message.type === 'files') filesArrived(message);
