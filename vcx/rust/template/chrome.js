@@ -29,12 +29,30 @@
   };
   const DEBATE_COLORS = { claude: 'rgb(199 97 56)', codex: 'rgb(10 122 102)', qwen: 'rgb(51 97 209)', agy: 'rgb(133 77 199)', gemini: 'rgb(209 64 128)' };
   const TASK_COLORS = { working: 'rgb(237 128 26)', question: 'rgb(51 115 230)', done: 'rgb(51 166 77)' };
+  // Swift `sessionPanel`: what the session loaded, in this order, and what each card is called.
+  const CAPABILITIES = [['Hooks', 'HOOKS'], ['Skills', 'SKILLS'], ['Commands', 'COMMANDS'], ['MCP', 'MCP'], ['Instructions', 'MD FILES'], ['RAG', 'RAG']];
+  // These lists show names only; the full text shows beside the row under the pointer.
+  const DETAIL_BESIDE = ['RAG', 'Skills'];
+  // A short dwell, so a pointer crossing the panel opens nothing; a grace, so it can cross from a card to its list.
+  const HOVER_OPEN_MS = 60;
+  const HOVER_CLOSE_MS = 100;
+  const CARD_COLOR = 'rgb(222 225 229)';
+  const ICONS = {
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  };
+  // An ERRORS line starts with its date, then a colon or a dash (Swift `capabilityItems`).
+  const RULE_DATE = /^[0-9/, -]+?(: | \u2014 )/;
 
   const $ = id => document.getElementById(id);
   const post = message => window.ipc.postMessage(JSON.stringify(message));
   const state = { meta: {}, rows: new Map(), order: [], notes: { link: '', problem: '' }, progress: null, update: null, tasks: null, quota: null };
   const shown = { chips: new Map(), tasks: '', title: '', status: '', request: '', empty: false };
   let popover = null;
+  const capability = { open: null, hovered: null, inPanel: false, choose: null, signature: '' };
   let busySince = null;
   let ticking = null;
   let answering = null;
@@ -112,13 +130,35 @@
   }
   // ---- End of effect ----
 
-  // ---- Effect: side bar of count cards with a sliding glass selector (WT-050), without its counting numbers ----
+  // ---- Effect: side bar of count cards with a sliding glass selector (WT-050) ----
+  // bar: the panel; onChoose(card) is told each card clicked. A card's number is its data-count. On the first draw each
+  // number counts up from 0 (a second, half the way in its first fifth), rising out of its box from 95 % of its size.
   // A click lays the glass on the card, sliding from the card that had it, and opens the bar's outline along it. A
-  // card or title added to or taken from the bar fades in or out, the others move to their new place, and the bar's
-  // height follows, clipped to it. Returns choose(card), to choose one from code.
-  function cardBar(bar, { slide = 300, onChoose } = {}) {
+  // card, title or warning added to or taken from the bar fades in or out, the others move to their new place, and
+  // the bar's height follows, clipped to it. Returns choose(card), to choose one from code.
+  function cardBar(bar, { slide = 300, count = 1000, onChoose } = {}) {
     const how = { duration: slide, easing: 'cubic-bezier(.16, 1, .3, 1)' };
     const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const number = card => {
+      const n = card.dataset.count;
+      if (n === undefined || card.querySelector('.num')) return;
+      const box = document.createElement('span'), digits = document.createElement('span');
+      box.className = 'num'; box.style.minWidth = `${n.length}ch`; box.append(digits); digits.textContent = n;
+      card.querySelector('.name').before(box);
+      // room after the name for a second digit: the bar keeps its width from 9 to 10
+      card.querySelector('.name').style.paddingRight = `${Math.max(0, 2 - n.length)}ch`;
+      return [digits, Number(n)];
+    };
+    const counting = [...bar.querySelectorAll('.card')].map(number).filter(Boolean);
+    if (!still()) {
+      const start = performance.now();
+      requestAnimationFrame(function step(now) {
+        const t = Math.min(1, Math.max(0, (now - start) / count)), k = 1 - (1 - t) ** 4;
+        for (const [el, to] of counting) { el.textContent = Math.round(to * k); el.style.scale = .95 + .05 * k; el.style.translate = `0 ${.3 * (1 - k)}em`; }
+        if (t < 1) requestAnimationFrame(step);
+      });
+    }
+
     // where the outline opens: from the top of the glass's upper curve to the foot of its lower one
     const opening = (card, glass) => {
       const top = bar.clientTop + card.offsetTop + card.clientTop + glass.offsetTop - 12;
@@ -159,6 +199,7 @@
     let at = read(), tall = bar.offsetHeight, grow;
     new MutationObserver(changes => {
       if (!changes.some(c => [...c.addedNodes, ...c.removedNodes].some(n => n instanceof HTMLElement && !n.dataset.ghost))) return;
+      for (const card of bar.querySelectorAll('.card')) number(card);
       const now = read(), calm = still();
       for (const [k, was] of at) {
         const e = was.el;
@@ -196,6 +237,80 @@
   }
   // ---- End of effect ----
 
+  // ---- Effect: search field and filter button with value lists (WT-030) ----
+  // The search lets through the rows whose text holds what is typed. A click on the button opens the lists under it,
+  // centred on it: a block per list, its name on a grey band over its values, each with a checkbox and the count of
+  // rows holding it, the most first. In a list any value ticked lets a row through, none ticked all of them; the lists
+  // narrow each other and the search. While values are ticked the button turns blue and says how many, the number
+  // sliding in from no width; the lists stay open while values are ticked, and Escape, the button or a pointerdown
+  // outside closes them. `at`: the button's
+  // wrapper, or null for the search alone; `lists`: [[name, row => its value]]; `text(row)`: what the search reads;
+  // `show(row, on)` shows or hides a row; `reset`, if given, clears the search and the ticks and is disabled while
+  // there are none.
+  function tableFilter({ find, at, rows, lists = [], text, show, reset }) {
+    const input = find.querySelector('input'), btn = at?.querySelector('.lists-btn'), box = at?.querySelector('.lists');
+    const ticked = Object.fromEntries(lists.map(([l]) => [l, new Set()]));
+    const query = () => input.value.trim().toLowerCase();
+    const fits = r => (!query() || text(r).toLowerCase().includes(query())) && lists.every(([l, of]) => !ticked[l].size || ticked[l].has(of(r)));
+    const open = on => { box.hidden = !on; btn.ariaExpanded = on; };
+    const draw = () => box.replaceChildren(...lists.map(([l, of]) => {
+      const count = new Map();
+      for (const r of rows) count.set(of(r), (count.get(of(r)) ?? 0) + 1);
+      const block = document.createElement('div'), name = document.createElement('p'), values = document.createElement('div');
+      block.className = 'list'; block.role = 'group'; block.ariaLabel = l; name.textContent = l;
+      values.append(...[...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([v, n]) => {
+        const label = document.createElement('label'), tick = document.createElement('input'), word = document.createElement('span'), k = document.createElement('small');
+        tick.type = 'checkbox'; tick.checked = ticked[l].has(v);
+        tick.onchange = () => { ticked[l].has(v) ? ticked[l].delete(v) : ticked[l].add(v); refresh(false); };
+        word.textContent = v; k.textContent = n;
+        label.append(tick, word, k);
+        return label;
+      }));
+      block.append(name, values);
+      return block;
+    }));
+    // a tick leaves the lists open and drawn as they are, so a scrolled list keeps its place
+  const refresh = (redraw = true) => {
+      const n = Object.values(ticked).reduce((n, s) => n + s.size, 0);
+      if (reset) reset.disabled = !n && !query();
+      for (const r of rows) show(r, fits(r));
+      if (!at) return;
+      btn.classList.toggle('chosen', n > 0);
+      if (n) btn.querySelector('.count span').textContent = n; // closing, it keeps the last number, not a 0
+      if (redraw) draw();
+    };
+    input.addEventListener('input', refresh);
+    if (reset) reset.onclick = () => { input.value = ''; Object.values(ticked).forEach(s => s.clear()); refresh(); };
+    if (at) {
+      btn.onclick = () => open(box.hidden);
+      addEventListener('pointerdown', e => !box.hidden && !at.contains(e.target) && open(false));
+      addEventListener('keydown', e => e.key === 'Escape' && !box.hidden && open(false));
+    }
+    refresh();
+  }
+  // ---- End of effect ----
+
+  // ---- Effect: copy to checkmark (WT-020); the page has no clipboard of its own, so the core writes it ----
+  // A click on button copies `text`; its copy icon turns into a check and its label into the copied one for `show` ms.
+  // button holds the two labels (`b`, the second hidden) and the two icons (`.go`, the second, the check, hidden).
+  function copyCheck(button, text, { show = 1500 } = {}) {
+    // the svgs have no hidden property, so the attribute is toggled
+    const [label, done, icon, tick] = button.querySelectorAll('b, .go');
+    // the old pair fades out, then the new one fades in where it was
+    const fade = (els, opacity) => Promise.all(els.map(el => el.animate({ opacity }, { duration: 120, easing: 'ease-out' }).finished));
+    const copied = async on => {
+      await fade(on ? [label, icon] : [done, tick], [1, 0]);
+      for (const el of [label, icon]) el.toggleAttribute('hidden', on);
+      for (const el of [done, tick]) el.toggleAttribute('hidden', !on);
+      fade(on ? [done, tick] : [label, icon], [0, 1]);
+    };
+    button.addEventListener('click', () => Promise.resolve(post({ type: 'copy', text: typeof text === 'function' ? text() : text })).then(() => {
+      copied(true);
+      setTimeout(() => copied(false), show);
+    }));
+  }
+  // ---- End of effect ----
+
   // The elements index.html does not carry: placed once, beside the ones app.js keeps drawing until it lets go of them.
   function place() {
     const status = $('status');
@@ -230,7 +345,58 @@
     const layer = make('div', 'pop');
     layer.id = 'popover';
     layer.hidden = true;
-    document.body.append(tasks, layer);
+    document.body.append(sessionPanel(), tasks, layer, capabilityPanel());
+  }
+
+  function icon(name, className = 'go') {
+    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+  }
+
+  // Swift `sessionPanel`: Settings, a count card for each thing the session loaded, the session's ID to copy.
+  function sessionPanel() {
+    const panel = make('aside');
+    panel.id = 'session';
+    const settings = button('b b-outline wide', '', () => post({ type: 'settings' }));
+    settings.id = 'settings-button';
+    settings.title = 'Settings (⌘,)';
+    settings.innerHTML = `${icon('settings')}<b>SETTINGS</b>`;
+    const bar = make('div', 'bar');
+    const group = make('section', 'bar-group');
+    group.append(...CAPABILITIES.map(([title, label]) => {
+      const card = make('button', 'card');
+      card.type = 'button';
+      card.dataset.card = title;
+      card.dataset.count = '0';
+      card.style.setProperty('--full', CARD_COLOR);
+      card.title = title === 'RAG' ? "ERRORS lines sent with this session's prompts" : `Browse ${title.toLowerCase()}`;
+      const glass = make('span', 'card-glass');
+      glass.ariaHidden = 'true';
+      card.append(glass, make('span', 'name', label));
+      card.addEventListener('pointerenter', () => hoverCapability(title));
+      card.addEventListener('pointerleave', () => leaveCapability(title));
+      return card;
+    }));
+    bar.append(group);
+    const copy = make('button', 'b b-outline wide');
+    copy.type = 'button';
+    copy.id = 'session-id';
+    copy.innerHTML = `<span><b>SESSION ID</b><b hidden>COPIED</b></span>${icon('copy')}${icon('check').replace('<svg', '<svg hidden')}`;
+    copyCheck(copy, () => state.meta.threadID || '');
+    panel.append(settings, bar, copy);
+    capability.choose = cardBar(bar, { onChoose: card => openCapability(card.dataset.card) });
+    return panel;
+  }
+
+  function capabilityPanel() {
+    const panel = make('section', 'light');
+    panel.id = 'capability';
+    panel.hidden = true;
+    panel.addEventListener('pointerenter', () => { capability.inPanel = true; });
+    panel.addEventListener('pointerleave', () => {
+      capability.inPanel = false;
+      closeCapabilityLater();
+    });
+    return panel;
   }
 
   // Swift `Session.modelName`; run again on a name already shown, it leaves it as it is.
@@ -703,6 +869,165 @@
     emptyState(tasks.querySelector('.empty'), shown.empty);
   }
 
+  // The commands the composer offers, without the provider's skills or the terminal's own (Swift `capabilityCommands`).
+  function capabilityCommands() {
+    const provided = new Set((state.meta.providerCommands || []).map(command => command.name));
+    const builtins = state.meta.builtinCommands || [];
+    const names = new Set();
+    return (window.vcxCatalog ? window.vcxCatalog() : []).filter(command => !(command.source || '').endsWith(' terminal')
+      && (!provided.has(command.name) || builtins.includes(command.name.slice(1))) && !names.has(command.name) && names.add(command.name));
+  }
+
+  function byName(left, right) {
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  // Swift `capabilityItems`: each list as name and detail, a hook's events gathered under its name.
+  function capabilityItems(title) {
+    const meta = state.meta;
+    if (title === 'Commands') return capabilityCommands().map(command => ({ name: command.name.slice(1), detail: command.detail || '' })).sort(byName);
+    if (title === 'RAG') {
+      return (meta.recalledRules || []).map(rule => {
+        const date = rule.match(RULE_DATE);
+        return { name: 'ERRORS line', detail: date ? rule.slice(date[0].length) : rule };
+      });
+    }
+    const items = (({ Hooks: meta.hooks, Skills: meta.skills, MCP: meta.mcp, Instructions: meta.instructions })[title] || []).map(value => {
+      const parts = value.split(' · '), name = parts[0];
+      const summary = parts.slice(1).filter(part => title !== 'Hooks' || part !== 'trusted').join(' · ');
+      if (title === 'Instructions') return { name: value.split('/').pop(), detail: value };
+      if (title === 'Skills') return { name, detail: ((meta.providerCommands || []).find(command => command.name === `/${name}`) || {}).detail || 'Provider skill' };
+      return { name, detail: summary || (title === 'Hooks' ? 'Provider hook' : 'Configured MCP server') };
+    });
+    if (title !== 'Hooks') return items;
+    const grouped = [];
+    for (const item of items) {
+      const known = grouped.find(other => other.name === item.name);
+      if (known) known.detail += `\n\n${item.detail}`;
+      else grouped.push({ ...item });
+    }
+    return grouped;
+  }
+
+  function capabilityCount(title) {
+    const meta = state.meta;
+    const listed = { Skills: meta.skills, MCP: meta.mcp, Instructions: meta.instructions, RAG: meta.recalledRules }[title];
+    return listed ? listed.length : capabilityItems(title).length;
+  }
+
+  function drawSession() {
+    for (const card of $('session').querySelectorAll('.card')) {
+      const count = String(capabilityCount(card.dataset.card));
+      card.dataset.count = count;
+      const digits = card.querySelector('.num > span');
+      if (digits) digits.textContent = count;
+    }
+    const id = state.meta.threadID;
+    const copy = $('session-id');
+    copy.disabled = !id;
+    copy.title = id ? `Copy ${id}` : 'No session yet';
+    if (capability.open) drawCapability();
+  }
+
+  function hoverCapability(title) {
+    capability.hovered = title;
+    // Once a list is open, moving to another card switches at once.
+    if (capability.open) return openCapability(title);
+    setTimeout(() => capability.hovered === title && openCapability(title), HOVER_OPEN_MS);
+  }
+
+  function leaveCapability(title) {
+    if (capability.hovered === title) capability.hovered = null;
+    closeCapabilityLater();
+  }
+
+  function closeCapabilityLater() {
+    setTimeout(() => !capability.hovered && !capability.inPanel && closeCapability(), HOVER_CLOSE_MS);
+  }
+
+  function openCapability(title) {
+    if (capability.open === title) return;
+    capability.open = title;
+    capability.choose($('session').querySelector(`.card[data-card="${title}"]`));
+    drawCapability(true);
+  }
+
+  function closeCapability() {
+    if (!capability.open) return;
+    capability.open = null;
+    const bar = $('session').querySelector('.bar');
+    bar.querySelector('.card[aria-current]')?.removeAttribute('aria-current');
+    bar.style.setProperty('--cut-a', '0px');
+    bar.style.setProperty('--cut-b', '0px');
+    $('capability').hidden = true;
+    $('capability').replaceChildren();
+  }
+
+  function itemRow(title, item) {
+    const row = make('div', 'item');
+    row.append(make('b', 'name', item.name));
+    if (title === 'Hooks') {
+      for (const detail of item.detail.split('\n\n')) {
+        const line = make('div', 'line');
+        line.title = detail;
+        line.append(make('span', '', detail.split(' · ')[0]));
+        if (detail.split(' · ').includes('disabled')) line.append(make('span', 'off', 'disabled'));
+        row.append(line);
+      }
+    } else if (!DETAIL_BESIDE.includes(title) && item.detail) row.append(make('p', 'detail', item.detail));
+    if (DETAIL_BESIDE.includes(title)) {
+      row.addEventListener('pointerenter', () => showBeside(row, item.detail));
+      row.addEventListener('pointerleave', () => showBeside(null));
+    }
+    if (title === 'Instructions') row.addEventListener('click', () => post({ type: 'open', href: item.detail }));
+    return row;
+  }
+
+  function showBeside(row, text) {
+    const beside = $('capability').querySelector('.beside');
+    beside.hidden = !row;
+    if (!row) return;
+    beside.textContent = text;
+    beside.style.top = `${row.offsetTop}px`;
+  }
+
+  // Swift `CapabilityPopup`: the list with its search, which keeps what was typed while the session changes under it.
+  function drawCapability(fresh = false) {
+    const title = capability.open, panel = $('capability');
+    const listed = capabilityItems(title).sort(byName);
+    const signature = JSON.stringify([title, listed]);
+    if (!fresh && signature === capability.signature) return;
+    capability.signature = signature;
+    const typed = fresh ? '' : panel.querySelector('input')?.value || '';
+    const focused = !fresh && document.activeElement === panel.querySelector('input');
+    const head = make('header');
+    head.append(make('h2', '', title === 'Instructions' ? 'MD Files' : title), button('b b-ghost icon', '', closeCapability));
+    head.lastChild.innerHTML = icon('close');
+    head.lastChild.ariaLabel = `Close ${title.toLowerCase()}`;
+    const find = make('label', 'find');
+    find.innerHTML = `${icon('search', 'ico')}<input type="search">`;
+    const input = find.querySelector('input');
+    input.placeholder = `Search ${title.toLowerCase()}`;
+    input.value = typed;
+    const items = listed.map(item => ({ ...item, el: itemRow(title, item) }));
+    const list = make('div', 'items');
+    list.append(...items.map(item => item.el));
+    const none = make('p', 'none');
+    const beside = make('p', 'beside');
+    beside.hidden = true;
+    panel.replaceChildren(head, find, list, none, beside);
+    panel.hidden = false;
+    tableFilter({ find, at: null, rows: items, text: item => `${item.name} ${item.detail}`, show: (item, on) => { item.el.hidden = !on; } });
+    const tell = () => {
+      const empty = !items.some(item => !item.el.hidden);
+      none.hidden = !empty;
+      none.textContent = input.value ? 'No matches' : title === 'RAG' ? 'No ERRORS line sent yet' : 'None reported';
+    };
+    input.addEventListener('input', tell);
+    tell();
+    if (fresh || focused) input.focus();
+  }
+
   // The connection's state and the last problem are told apart, so one clearing does not hide the other.
   function drawNotice() {
     const shownText = [state.notes.link, state.notes.problem].filter(Boolean).join(' ');
@@ -759,6 +1084,7 @@
     drawTasks();
     drawNotice();
     drawTitle();
+    drawSession();
     if (popover) drawPopover();
   }
 
@@ -775,10 +1101,18 @@
       tasks: cards.map(node => ({ text: node.textContent, state: node.dataset.state, current: node.hasAttribute('aria-current') })),
       groups: [...$('tasks').querySelectorAll('.bar-head:not([data-ghost])')].map(node => node.textContent),
       empty: !$('tasks').querySelector('.empty').classList.contains('hidden'),
+      capabilities: [...$('session').querySelectorAll('.card')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.hasAttribute('aria-current') })),
+      capability: capability.open && {
+        title: capability.open,
+        rows: [...$('capability').querySelectorAll('.item:not([hidden])')].map(node => node.innerText.trim().split('\n').filter(Boolean)),
+        none: $('capability').querySelector('.none').hidden ? null : $('capability').querySelector('.none').textContent,
+      },
+      sessionID: { label: [...$('session-id').querySelectorAll('b:not([hidden])')].map(node => node.textContent).join(''), disabled: $('session-id').disabled },
     };
   }
 
   function close(event) {
+    if (capability.open && !event.target.closest('#capability, #session .card')) closeCapability();
     if (!popover || event.target.closest('#popover')) return;
     popover = null;
     drawPopover();
@@ -797,11 +1131,13 @@
     drawNotice();
   });
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !popover) return;
+    if (event.key !== 'Escape' || !(popover || capability.open)) return;
     event.preventDefault();
     event.stopPropagation();
-    popover = null;
-    drawPopover();
+    if (popover) {
+      popover = null;
+      drawPopover();
+    } else closeCapability();
   }, true);
   window.vcxChrome = { dump, setClock: next => { clock = next; drawStatus(); } };
   draw();

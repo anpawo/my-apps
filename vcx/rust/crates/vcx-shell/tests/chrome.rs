@@ -1,5 +1,6 @@
-//! The window's chrome (status line, status bar and its popovers, permission prompt, task bar, notices, title) in a
-//! window that is never shown, fed the session state the core builds with `vcx-model` and clicked with real `NSEvent`s.
+//! The window's chrome (session panel, status line, status bar and its popovers, permission prompt, task bar, notices,
+//! title) in a window that is never shown, fed the session state the core builds with `vcx-model` and clicked with
+//! real `NSEvent`s.
 //! Its own `main` on the main thread: AppKit and WebKit live there, and the test harness runs tests elsewhere.
 
 #[allow(dead_code, unused_imports)]
@@ -80,6 +81,16 @@ impl Page {
         Ok(())
     }
 
+    /// Ends every animation running: a hidden window draws no frames, so none would end on its own.
+    fn settle(&self) -> Result<(), String> {
+        self.eval("document.getAnimations().forEach(motion => { try { motion.finish(); } catch { /* an endless one */ } })").map(drop)
+    }
+
+    /// Types `text` into the field `selector` finds, as a keystroke would leave it.
+    fn type_into(&self, selector: &str, text: &str) -> Result<(), String> {
+        self.eval(&format!("(() => {{ const field = document.querySelector({selector:?}); field.value = {text:?}; field.dispatchEvent(new Event('input')); }})()")).map(drop)
+    }
+
     /// Waits for `script` to evaluate to `expected`: a pill swaps its word in after its fade.
     fn until(&self, script: &str, expected: Value) -> Result<(), String> {
         self.wait(script, |page| page.eval(script).is_ok_and(|value| value == expected))
@@ -142,7 +153,7 @@ impl Page {
     /// A real mouse click in the middle of the element `selector` finds, once the page's motion has ended: a hidden
     /// window draws no frames, so an animation (the task bar growing to its cards) would otherwise never end.
     fn click(&self, selector: &str) -> Result<(), String> {
-        self.eval("document.getAnimations().forEach(motion => { try { motion.finish(); } catch { /* an endless one */ } })")?;
+        self.settle()?;
         let script = format!("(() => {{ const r = document.querySelector({selector:?}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()");
         let point = self.eval(&script)?;
         let (x, y) = (point[0].as_f64().ok_or(format!("{selector} is not on the page"))?, point[1].as_f64().unwrap_or_default());
@@ -440,7 +451,92 @@ fn tells_the_link_and_the_last_problem_apart(page: &Page) -> Result<(), String> 
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 18] = [
+const THREAD: &str = "019a7c3e-thread";
+
+/// What a Claude session reports it loaded, as the worker's snapshot carries it. The view hands these to the page
+/// once its page keys include them (asked of Rust transcript), so the tests give them through the meta.
+fn loaded(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    let meta = json!({"model": "claude-fable-5-2", "providerLabel": "Claude", "ready": true, "threadID": THREAD,
+        "hooks": ["gateguard.py · PreToolUse · trusted · Checks a tool call before it runs.", "gateguard.py · UserPromptSubmit · configured · Checks a prompt before it is sent.",
+            "memory.sh · SessionStart · disabled · Loads context when a session starts."],
+        "skills": ["deep", "council"], "mcp": ["lightpanda · connected · Tools: goto"], "instructions": ["~/.claude/CLAUDE.md", "~/self/my-apps/CLAUDE.md"],
+        "recalledRules": ["24/11: An S3 HeadObject 403 does not prove denied uploads."],
+        "providerCommands": [{"name": "/council", "detail": "Convenes a council"}, {"name": "/deep", "detail": "Deep mode"}], "builtinCommands": []});
+    page.deliver(json!({"type": "patch", "meta": meta}))
+}
+
+fn names(rows: &Value) -> Value {
+    json!(rows.as_array().into_iter().flatten().map(|row| row[0].clone()).collect::<Vec<_>>())
+}
+
+fn counts_what_the_session_loaded_on_its_cards(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+
+    let cards = page.dump()?["capabilities"].clone();
+
+    let counts: Vec<(Value, Value)> = cards.as_array().into_iter().flatten().map(|card| (card["title"].clone(), card["count"].clone())).collect();
+    same(&json!(counts[..3]), json!([["Hooks", 2], ["Skills", 2], ["Commands", counts[2].1]]), "the first counts")?;
+    check(counts[2].1.as_u64().is_some_and(|commands| commands > 0), "the composer's commands are counted")?;
+    same(&json!(counts[3..]), json!([["MCP", 1], ["Instructions", 2], ["RAG", 1]]), "the last counts")
+}
+
+fn opens_a_capability_list_and_narrows_it_to_what_is_typed(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+    page.click("#session .card[data-card=Hooks]")?;
+    let opened = page.dump()?;
+
+    page.type_into("#capability input", "memory")?;
+    let narrowed = page.dump()?["capability"].clone();
+    page.type_into("#capability input", "nothing like it")?;
+    let none = page.dump()?["capability"]["none"].clone();
+    page.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")?;
+
+    same(&opened["capability"]["title"], json!("Hooks"), "the list opened")?;
+    same(&names(&opened["capability"]["rows"]), json!(["gateguard.py", "memory.sh"]), "a hook's events under its one name")?;
+    check(opened["capabilities"][0]["open"] == true, "the glass on the Hooks card")?;
+    same(&names(&narrowed["rows"]), json!(["memory.sh"]), "the list narrowed")?;
+    same(&none, json!("No matches"), "nothing left")?;
+    same(&page.dump()?["capability"], Value::Null, "the list after Escape")
+}
+
+fn leaves_the_providers_skills_out_of_the_commands(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+
+    page.click("#session .card[data-card=Commands]")?;
+
+    let rows = names(&page.dump()?["capability"]["rows"]);
+    check(!rows.as_array().unwrap().iter().any(|name| name == "council" || name == "deep"), format!("no skill among the commands: {rows}"))?;
+    check(rows.as_array().unwrap().iter().any(|name| name == "compact"), format!("the provider's own commands are there: {rows}"))
+}
+
+fn opens_an_md_file_from_its_list(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+    page.click("#session .card[data-card=Instructions]")?;
+
+    page.click("#capability .item")?;
+
+    same(&page.wait_post("open")?, json!({"type": "open", "href": "~/.claude/CLAUDE.md"}), "the file opened")
+}
+
+fn copies_the_session_id_through_the_core(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+
+    page.click("#session-id")?;
+
+    same(&page.wait_post("copy")?, json!({"type": "copy", "text": THREAD}), "the copy")?;
+    page.until("(document.getAnimations().forEach(motion => motion.finish()), window.vcxChrome.dump().sessionID.label)", json!("COPIED"))
+}
+
+fn opens_the_settings_from_the_session_panel(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.click("#settings-button")?;
+
+    same(&page.wait_post("settings")?, json!({"type": "settings"}), "the settings post")
+}
+
+const TESTS: [(&str, Test); 24] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -459,6 +555,12 @@ const TESTS: [(&str, Test); 18] = [
     ("lists every window's task by project and brings one up", lists_every_windows_task_by_project_and_brings_one_up),
     ("says when there is no task yet", says_when_there_is_no_task_yet),
     ("tells the link and the last problem apart", tells_the_link_and_the_last_problem_apart),
+    ("counts what the session loaded on its cards", counts_what_the_session_loaded_on_its_cards),
+    ("opens a capability list and narrows it to what is typed", opens_a_capability_list_and_narrows_it_to_what_is_typed),
+    ("leaves the provider's skills out of the commands", leaves_the_providers_skills_out_of_the_commands),
+    ("opens an MD file from its list", opens_an_md_file_from_its_list),
+    ("copies the session ID through the core", copies_the_session_id_through_the_core),
+    ("opens the settings from the session panel", opens_the_settings_from_the_session_panel),
 ];
 
 fn main() -> ExitCode {

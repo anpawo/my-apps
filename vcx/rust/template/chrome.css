@@ -1,11 +1,13 @@
 /* The window around the transcript and the composer. Each element is one of his web templates
    (~/self/templates/web), copied between its effect markers, then scoped to its element and given light colours
    where the template is dark: the status pill WT-037, the progress bar WT-104, the bar dialog WT-072, the toggle
-   chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102. The status
-   line's layout (the pill, what runs, its time, the note) has no template and is drawn in their style. */
-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
-#transcript { grid-column: 1; grid-row: 1; }
-footer { grid-column: 1; grid-row: 2; }
+   chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102, the button
+   variants WT-033, the search field WT-030, the copy check WT-020. The status line's layout (the pill, what runs,
+   its time, the note) has no template and is drawn in their style. */
+/* Swift `CXView`: the session panel, 168 px, then the transcript over the composer, then the task bar. */
+body { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
+#transcript { grid-column: 2; grid-row: 1; }
+footer { grid-column: 2; grid-row: 2; }
 
 /* ---- Effect: status pill. Copy from here ---- */
 .pill { display: inline-block; justify-self: start; overflow: hidden; padding: 2px 12px; border: 1px solid rgb(0 0 0 / .1); border-radius: 999px;
@@ -146,7 +148,7 @@ footer { grid-column: 1; grid-row: 2; }
 #popover .vcx-table td { white-space: nowrap; }
 
 /* The task bar: the card bar down the window's right side. */
-#tasks { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 12px; min-width: 200px; max-width: 320px; padding: 22px 16px;
+#tasks { grid-column: 3; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 12px; min-width: 200px; max-width: 320px; padding: 22px 16px;
   overflow-y: auto; border-left: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .02); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
 #tasks header { display: flex; align-items: center; gap: 8px; padding: 0 6px; color: rgb(0 0 0 / .75); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 #tasks header .count { margin-left: auto; color: rgb(0 0 0 / .45); letter-spacing: 0; }
@@ -154,45 +156,48 @@ footer { grid-column: 1; grid-row: 2; }
 /* ---- Effect: side bar of count cards with a sliding glass selector. Copy from here ---- */
 @property --cut-a { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --cut-b { syntax: "<length>"; inherits: true; initial-value: 0px; }
-#tasks .bar { --edge: rgb(246 247 249 / .2); --reach: 13px; position: relative; display: flex; flex-direction: column; gap: 16px; width: max-content;
+:is(#tasks, #session) .bar { --edge: rgb(246 247 249 / .2); --reach: 13px; position: relative; display: flex; flex-direction: column; gap: 16px; width: max-content;
   padding: 12px; border: 1px solid transparent; border-radius: 16px; background: rgb(246 247 249 / .1); clip-path: inset(0 round 16px); }
-#tasks .bar::before { content: ""; position: absolute; inset: -1px; border: 1px solid var(--edge); border-radius: inherit; pointer-events: none;
+:is(#tasks, #session) .bar::before { content: ""; position: absolute; inset: -1px; border: 1px solid var(--edge); border-radius: inherit; pointer-events: none;
   mask: linear-gradient(#000 0 0) left / calc(100% - 1px) 100% no-repeat,
         linear-gradient(#000 var(--cut-a), transparent 0 var(--cut-b), #000 0) right / 1px 100% no-repeat; }
-#tasks .bar-group { display: flex; flex-direction: column; gap: 8px; }
-#tasks .bar-head { padding: 8px 4px 0; font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
-#tasks .card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid transparent;
+:is(#tasks, #session) .bar-group { display: flex; flex-direction: column; gap: 8px; }
+:is(#tasks, #session) .bar-head { padding: 8px 4px 0; font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
+:is(#tasks, #session) .card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid transparent;
   border-radius: 10px; background: transparent; color: #1f2328; font-family: inherit; font-size: 14.5px; font-weight: 600; line-height: 1.5; text-align: left; outline: none;
   transition: background-color 100ms ease-out, transform 150ms cubic-bezier(.16, 1, .3, 1); }
-#tasks .card:focus-visible { box-shadow: 0 0 0 2px #4c90f0; }
-#tasks .card::before, #tasks .card::after { content: ""; position: absolute; z-index: -1; inset: -1px; border-radius: inherit; background: rgb(0 0 0 / .1); }
-#tasks .card::after { inset: 0; background: none; background-color: var(--full); transition: inherit; }
-#tasks .card:not([aria-current]):not(:enabled:hover)::after {
+:is(#tasks, #session) .card:focus-visible { box-shadow: 0 0 0 2px #4c90f0; }
+:is(#tasks, #session) .card::before, :is(#tasks, #session) .card::after { content: ""; position: absolute; z-index: -1; inset: -1px; border-radius: inherit; background: rgb(0 0 0 / .1); }
+:is(#tasks, #session) .card::after { inset: 0; background: none; background-color: var(--full); transition: inherit; }
+:is(#tasks, #session) .card:not([aria-current]):not(:enabled:hover)::after {
   background-color: color-mix(in srgb, color-mix(in srgb, var(--full), white var(--lighten, 15%)), transparent var(--clear, 20%)); }
-#tasks .card:enabled:active { transform: scale(var(--press, .97)); }
-#tasks .card:disabled { cursor: default; }
-#tasks .name { flex: 1; white-space: nowrap; }
-#tasks .card-glass { --tint: rgb(255 255 255 / var(--glass, .1)); position: absolute; z-index: -2; top: -4px; bottom: -4px;
+:is(#tasks, #session) .card:enabled:active { transform: scale(var(--press, .97)); }
+:is(#tasks, #session) .card:disabled { cursor: default; }
+:is(#tasks, #session) .name { flex: 1; white-space: nowrap; }
+:is(#tasks, #session) .card-glass { --tint: rgb(255 255 255 / var(--glass, .1)); position: absolute; z-index: -2; top: -4px; bottom: -4px;
   left: calc(-1 * var(--reach)); right: calc(-1px - var(--reach)); pointer-events: none; visibility: hidden;
   background: linear-gradient(var(--edge) 0 0) top left / calc(100% - 13px) 1px no-repeat,
               linear-gradient(var(--edge) 0 0) bottom left / calc(100% - 13px) 1px no-repeat,
               linear-gradient(var(--tint) 0 0) 0 1px / 100% calc(100% - 2px) no-repeat;
   box-shadow: 0 6px 18px rgb(0 0 0 / .3); }
-#tasks .card-glass::before, #tasks .card-glass::after { content: ""; position: absolute; right: 0; width: 13px; height: 13px;
+:is(#tasks, #session) .card-glass::before, :is(#tasks, #session) .card-glass::after { content: ""; position: absolute; right: 0; width: 13px; height: 13px;
   --ring: transparent 11.75px, var(--edge) 12.25px 12.75px, var(--tint) 13.25px; }
-#tasks .card-glass::before { bottom: calc(100% - 1px); background: radial-gradient(circle at 0 0, var(--ring)); }
-#tasks .card-glass::after { top: calc(100% - 1px); background: radial-gradient(circle at 0 100%, var(--ring)); }
-#tasks .card[aria-current] .card-glass { visibility: visible; }
-@media (prefers-reduced-motion: reduce) { #tasks .card { transition: none; } #tasks .card:enabled:active { transform: none; } }
+:is(#tasks, #session) .card-glass::before { bottom: calc(100% - 1px); background: radial-gradient(circle at 0 0, var(--ring)); }
+:is(#tasks, #session) .card-glass::after { top: calc(100% - 1px); background: radial-gradient(circle at 0 100%, var(--ring)); }
+:is(#tasks, #session) .card[aria-current] .card-glass { visibility: visible; }
+/* its number is as wide as its digits from the start; on the first draw it rises out of its box as it counts */
+:is(#tasks, #session) .num { overflow: hidden; text-align: center; line-height: 1; font-variant-numeric: tabular-nums; }
+:is(#tasks, #session) .num > span { display: block; transform-origin: bottom; }
+@media (prefers-reduced-motion: reduce) { :is(#tasks, #session) .card { transition: none; } :is(#tasks, #session) .card:enabled:active { transform: none; } }
 /* ---- End of effect ---- */
 /* On the window's white: a dark hairline, a faint panel, a white glass, a lighter shadow, the cards at the bar's size. */
-#tasks .bar { --edge: rgb(0 0 0 / .12); --glass: .7; width: 100%; background: rgb(0 0 0 / .03); }
-#tasks .bar[hidden] { display: none; }
-#tasks .bar-head { color: rgb(0 0 0 / .5); }
-#tasks .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
-#tasks .card-glass { box-shadow: 0 4px 12px rgb(0 0 0 / .1); }
-#tasks .name { overflow: hidden; text-overflow: ellipsis; }
-#tasks .mark { width: 12px; font-style: normal; font-weight: 700; text-align: center; }
+:is(#tasks, #session) .bar { --edge: rgb(0 0 0 / .12); --glass: .7; width: 100%; background: rgb(0 0 0 / .03); }
+:is(#tasks, #session) .bar[hidden] { display: none; }
+:is(#tasks, #session) .bar-head { color: rgb(0 0 0 / .5); }
+:is(#tasks, #session) .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
+:is(#tasks, #session) .card-glass { box-shadow: 0 4px 12px rgb(0 0 0 / .1); }
+:is(#tasks, #session) .name { overflow: hidden; text-overflow: ellipsis; }
+:is(#tasks, #session) .mark { width: 12px; font-style: normal; font-weight: 700; text-align: center; }
 
 /* ---- Effect: empty state. Copy from here ---- */
 #tasks { --foreground: oklch(0.985 0 0); --muted: oklch(0.269 0 0); --muted-foreground: oklch(0.708 0 0); --border: oklch(1 0 0 / 10%); --radius: 0.625rem; }
@@ -204,3 +209,88 @@ footer { grid-column: 1; grid-row: 2; }
 #tasks .empty { padding: 16px; color: var(--muted-foreground); }
 #tasks .empty-title { margin: 0; font-size: 12px; }
 #tasks .empty.hidden { display: none; }
+
+/* The session panel down the window's left side (Swift `sessionPanel`). */
+#session { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 10px;
+  overflow-y: auto; border-right: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+/* ---- Effect: button in the dashboard's variants. Copy from here ---- */
+/* Nested under the panel, so the composer's own .b buttons keep their look. */
+:is(#session, #capability) {
+  /* The recon dashboard's button (ui/button.tsx) on its dark theme: 32 px tall, radius 10, 14 px medium, an icon 16 px.
+     Under the pointer its fill steps up; pressed, it sinks 1 px; with the keyboard, a blue ring. Greyed out at half. */
+  .b { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px;
+    border: 1px solid transparent; border-radius: 10px; background-clip: padding-box; font: 500 14px/20px Inter, -apple-system, system-ui, sans-serif;
+    white-space: nowrap; color: #f6f7f9; cursor: pointer; outline: none; user-select: none;
+    transition: all var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+  .b svg { width: 16px; height: 16px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .b.icon { width: 32px; padding: 0; }
+  .b.sm { gap: 4px; padding: 0 10px; border-radius: 8px; font-size: 12.8px; }
+  .b.sm svg { width: 14px; height: 14px; }
+  .b:active { translate: 0 1px; }
+  .b:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+  .b:disabled { opacity: .5; pointer-events: none; }
+  .b-default { background-color: #2d72d2; color: #fff; }
+  .b-default:hover { background-color: rgb(45 114 210 / .8); }
+  .b-outline { border-color: #404854; background-color: rgb(64 72 84 / .3); }
+  .b-outline:hover, .b-outline[aria-expanded=true] { background-color: rgb(64 72 84 / .5); }
+  .b-secondary { background-color: #2f343c; }
+  .b-secondary:hover { background-color: color-mix(in oklch, #2f343c, #f6f7f9 5%); }
+  .b-ghost { background-color: transparent; }
+  .b-ghost:hover, .b-ghost[aria-expanded=true] { background-color: rgb(47 52 60 / .5); }
+  .b-destructive { background-color: rgb(231 106 110 / .2); color: #e76a6e; }
+  .b-destructive:hover { background-color: rgb(231 106 110 / .3); }
+  .b-destructive:focus-visible { border-color: rgb(231 106 110 / .4); box-shadow: 0 0 0 3px rgb(231 106 110 / .4); }
+  .b-link { color: #2d72d2; text-decoration: underline transparent; text-underline-offset: 4px; }
+  .b-link:hover { text-decoration-color: currentColor; }
+  @media (prefers-reduced-motion: reduce) { .b { transition-duration: 1ms; } .b:active { translate: none; } }
+}
+/* ---- End of effect ---- */
+/* On the window's white: the outline in light greys, the bar's own small size. */
+#session .b, #capability .b { color: #1c2127; }
+#session .b-outline { border-color: #c5cbd3; background-color: #fff; }
+#session .b-outline:hover { background-color: #f5f5f5; }
+#session .b.wide { width: 100%; justify-content: flex-start; height: 38px; padding: 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+#session .b.wide svg { width: 13px; height: 13px; }
+#capability .b-ghost:hover { background-color: rgb(0 0 0 / .06); }
+#session .bar { padding: 8px; }
+#session .card { gap: 8px; padding: 9px 10px; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+#session .card .num { order: 2; margin-left: auto; font: 600 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+/* ---- Effect: copy to checkmark. Copy from here ---- */
+#session-id [hidden] { display: none; }
+/* ---- End of effect ---- */
+#session-id span { display: inline-grid; }
+#session-id svg { order: -1; }
+
+/* A capability's list beside the session panel (Swift `CapabilityPopup`): the bar dialog's glass, the search field. */
+#capability { position: fixed; z-index: 45; top: 10px; left: 176px; display: flex; flex-direction: column; width: 380px; height: min(440px, calc(100vh - 20px));
+  border-radius: 12px; box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); background: rgb(250 250 250 / .97);
+  font: 13px/1.45 -apple-system, system-ui, sans-serif; animation: capability-in 200ms cubic-bezier(.32, .72, 0, 1); }
+#capability[hidden] { display: none; }
+@keyframes capability-in { from { opacity: 0; translate: -6px 0; } }
+#capability header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; }
+#capability h2 { margin: 0; font-size: 14px; font-weight: 600; }
+/* ---- Effect: search field and filter button with value lists. Copy from here ---- */
+#capability .ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#capability .find { display: flex; align-items: center; width: var(--w, 320px); height: 32px; padding-left: 8px; border-radius: 10px; border: 1px solid #404854;
+  background: rgb(64 72 84 / .3); cursor: text;
+  transition: border-color var(--ring-dur, 150ms) cubic-bezier(.4, 0, .2, 1), box-shadow var(--ring-dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+#capability .find:has(input:focus-visible) { border-color: var(--ring, #4c90f0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #4c90f0) 50%, transparent); }
+#capability .find .ico { color: #abb3bf; }
+#capability .find input { flex: 1; min-width: 0; height: 100%; padding: 4px 10px 4px 6px; border: 0; outline: none; background: none; color: inherit; font: inherit; font-size: 14px; }
+#capability .find input::placeholder { color: #abb3bf; }
+#capability .find input::-webkit-search-cancel-button { display: none; }
+@media (prefers-reduced-motion: reduce) { #capability .find { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+#capability .find { --w: auto; margin: 0 14px 12px; border-color: #c5cbd3; background: rgb(0 0 0 / .04); }
+#capability .find .ico, #capability .find input::placeholder { color: rgb(28 33 39 / .45); }
+#capability .items { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 0; padding: 12px 16px 16px; overflow-y: auto; border-top: 1px solid rgb(0 0 0 / .08); }
+#capability .item { display: grid; gap: 4px; padding: 12px; border: 1px solid rgb(0 0 0 / .12); border-radius: 10px; background: #fff; user-select: text; }
+#capability .item[hidden] { display: none; }
+#capability .item .name { font-size: 12px; font-weight: 500; }
+#capability .item .detail { margin: 0; color: rgb(0 0 0 / .6); font-size: 11px; }
+#capability .item .line { display: flex; justify-content: space-between; gap: 8px; color: rgb(0 0 0 / .6); font-size: 11px; }
+#capability .none { margin: 0 16px 16px; color: rgb(0 0 0 / .5); font-size: 12px; }
+#capability .none[hidden], #capability .beside[hidden] { display: none; }
+#capability .beside { position: absolute; left: 388px; width: 300px; margin: 0; padding: 12px; border: 1px solid rgb(0 0 0 / .12); border-radius: 10px;
+  background: #fff; box-shadow: 0 6px 18px rgb(0 0 0 / .1); font-size: 11px; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #capability { animation-duration: 1ms; } }
