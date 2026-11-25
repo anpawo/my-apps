@@ -249,6 +249,23 @@ impl Settings {
         }).collect()
     }
 
+    /// What the Settings sheet draws, as one page message: an account still limited at `now` carries the time it
+    /// comes back (seconds since 1970).
+    pub fn page(&self, now: f64) -> serde_json::Value {
+        let accounts: Vec<serde_json::Value> = self.accounts().into_iter().map(|account| {
+            let after = self.limit(&account.id).filter(|reset| *reset > now);
+            serde_json::json!({"id": account.id, "name": account.name, "provider": account.provider, "enabled": account.enabled, "home": account.home, "availableAfter": after})
+        }).collect();
+        let qwen = self.qwen();
+        serde_json::json!({
+            "type": "settings",
+            "provider": self.default_provider(),
+            "mode": self.mode(),
+            "accounts": accounts,
+            "qwen": {"host": qwen.host(), "url": qwen.url, "proxy": qwen.proxy, "model": qwen.model, "wake": qwen.wake},
+        })
+    }
+
     /// The candidates whose limit has passed at `now` (seconds since 1970).
     pub fn available(&self, provider: &str, now: f64) -> Vec<Account> {
         self.candidates(provider).into_iter().filter(|account| self.limit(&account.id).is_none_or(|reset| reset <= now)).collect()
@@ -338,6 +355,22 @@ impl Drop for Lock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gives_the_settings_sheet_its_accounts_with_the_time_a_limited_one_comes_back() {
+        let mut settings = Settings::parse(br#"{"defaultProvider":"claude","qwenURL":"http:\/\/localhost:11434\/api\/chat","qwenProxy":""}"#).unwrap();
+        settings.set_limit("claude-default", 2000.0).unwrap();
+        settings.set_limit("codex-default", 500.0).unwrap();
+
+        let page = settings.page(1000.0);
+
+        assert_eq!(page["type"], "settings");
+        assert_eq!((page["provider"].as_str(), page["mode"].as_str()), (Some("claude"), Some("bypass")));
+        assert_eq!(page["accounts"][0]["availableAfter"], 2000.0);
+        assert!(page["accounts"][1]["availableAfter"].is_null());
+        assert_eq!((page["accounts"][1]["provider"].as_str(), page["accounts"][1]["enabled"].as_bool()), (Some("codex"), Some(true)));
+        assert_eq!(page["qwen"], serde_json::json!({"host": "mac", "url": "http://localhost:11434/api/chat", "proxy": "", "model": QWEN_MODEL, "wake": false}));
+    }
 
     #[test]
     fn gives_the_swift_defaults_for_an_empty_file() {
