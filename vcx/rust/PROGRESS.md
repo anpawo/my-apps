@@ -39,4 +39,4 @@ A session edits and commits only the paths it owns. The session is found by its 
 - Rust composer. Done: nothing yet. Next: chips, long paste, `/` palette, Edit menu, undo.
 - Rust app. Done: nothing yet. Next: `vcx-app` with several windows in one process.
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
-- Rust report. Done: slice 1, the report. Next: `vcx-conformance` against the Swift worker.
+- Rust report. Done: slice 1, the report, `vcx-conformance` (21 cases green against the Swift worker). Next: cases for stop, answer, a frontend leaving mid-turn and worker retirement once the fixture can hold a turn open; the suite against the Rust worker.
