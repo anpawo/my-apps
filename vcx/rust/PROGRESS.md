@@ -6,7 +6,8 @@ tree at the same time.
 
 ## Owners
 
-A session edits and commits only the paths it owns. The session is found by its Fleet label (`vcx --sessions`).
+A session edits and commits only the paths it owns. To write to one, read its id beside its Fleet label in
+`vcx --sessions` in the same turn and send to that id (`vcx --send <id> "<text>"`), never to the name alone.
 
 | Session (Fleet label) | Slice | Owns |
 |---|---|---|
@@ -22,7 +23,7 @@ A session edits and commits only the paths it owns. The session is found by its 
 
 ## Rules of the shared tree
 
-- A change needed in a path another session owns: ask its owner (`vcx --send "<Fleet label>" "<what and why>"`).
+- A change needed in a path another session owns: ask its owner (`vcx --send <its id> "<what and why>"`).
   A one-line additive edit (a `mod` line, a `<script>` tag, an enum variant) may be made directly and told to the
   owner in the same way.
 - A new crate lists its own dependencies in its own `Cargo.toml`; the workspace table changes only through its
