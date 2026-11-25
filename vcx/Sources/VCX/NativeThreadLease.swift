@@ -62,7 +62,7 @@ final class NativeThreadLease {
     let source: NativeSource
     let descriptor: Int32
     static var directory: URL {
-        URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_NATIVE_LOCK_HOME"] ?? NSHomeDirectory() + "/.local/state/cx/native-locks", isDirectory: true)
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_NATIVE_LOCK_HOME"] ?? StateHome.current + "/native-locks", isDirectory: true)
     }
 
     init(_ source: NativeSource) throws {
