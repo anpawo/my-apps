@@ -295,8 +295,8 @@ final class TranscriptController: NSObject {
                 ForEach(parts.debates) { row in if let item = row.items.first { DebateView(item: item, ownModel: session.modelLabel) } }
                 if let last = parts.last {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(parts.notes) { row in ConversationRow(row: row, session: session, showsProvider: row.id == parts.notes.first?.id, progress: true).equatable() }
-                        ConversationRow(row: last, session: session, showsProvider: parts.notes.isEmpty, progress: working).equatable()
+                        ForEach(parts.notes) { row in ConversationRow(row: row, session: session, showsProvider: row.id == parts.notes.first?.id, progress: !row.endedTurn).equatable() }
+                        ConversationRow(row: last, session: session, showsProvider: parts.notes.isEmpty, progress: working && !last.endedTurn).equatable()
                             .padding(.top, !working && !parts.notes.isEmpty ? 12 : 0)
                     }.clipped().animation(reduceMotion ? .easeOut(duration: reducedThoughtSpacingDuration) : .easeOut, value: working)
                 }
