@@ -154,10 +154,7 @@ impl App {
             UserEvent::TemplateEdited => self.template_edited(),
             UserEvent::ReadyDeadline(load) if load == self.load && !self.ready => self.fall_back("The template's page did not start."),
             UserEvent::ReadyDeadline(_) => {}
-            UserEvent::Dump(dump) => match (self.report(&dump), self.picture_path()) {
-                (Ok(()), Some(_)) => self.take_picture(),
-                (written, _) => return Some(exit_code(written)),
-            },
+            UserEvent::Dump(dump) => return self.reported(&dump),
             UserEvent::Picture(picture) => return Some(exit_code(self.picture_path().map_or(Ok(()), |path| check::save_picture(path, picture)))),
             UserEvent::CheckTimeout => {
                 let progress = self.check.as_ref().map(Check::progress).unwrap_or_default();
@@ -179,6 +176,7 @@ impl App {
                     self.dump();
                 }
             }
+            FromPage::Restyled { .. } => self.edited(),
             FromPage::Open { href } => self.open(&href),
         }
     }
@@ -223,7 +221,10 @@ impl App {
                 self.styles += 1;
                 self.evaluate(&format!("window.vcx&&vcx.restyle({})", self.styles));
             }
-            Ok(Change::Page) => self.reload(),
+            Ok(Change::Page) => {
+                self.reload();
+                self.edited();
+            }
             Err(problem) => self.note(format!("{problem} {LAST_GOOD}")),
         }
     }
@@ -231,6 +232,9 @@ impl App {
     fn reload(&mut self) {
         self.ready = false;
         self.tell(Message::PageGone);
+        if let Some(check) = &mut self.check {
+            check.reloading();
+        }
         self.load += 1;
         if let Err(error) = self.webview.load_url(template::HOME) {
             eprintln!("vcx-shell: the page could not be reloaded: {error}");
@@ -264,8 +268,29 @@ impl App {
         }
     }
 
-    fn report(&self, dump: &str) -> Result<(), String> {
-        self.check.as_ref().map_or(Ok(()), |check| check.write(dump, &self.store.current().name))
+    fn edited(&mut self) {
+        if self.check.as_mut().is_some_and(Check::edited) {
+            self.dump();
+        }
+    }
+
+    /// The page's dump arrived: writes the report, then ends the check unless it waits for more template edits.
+    fn reported(&mut self, dump: &str) -> Option<i32> {
+        let check = self.check.as_mut()?;
+        if let Err(problem) = check.write(dump, &self.store.current().name, self.load) {
+            return Some(exit_code(Err(problem)));
+        }
+        if !check.written() {
+            if check.due() {
+                self.dump();
+            }
+            return None;
+        }
+        if self.picture_path().is_some() {
+            self.take_picture();
+            return None;
+        }
+        Some(0)
     }
 
     fn picture_path(&self) -> Option<&PathBuf> {

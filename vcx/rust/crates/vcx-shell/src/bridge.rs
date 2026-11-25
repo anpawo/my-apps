@@ -11,6 +11,7 @@ pub enum FromPage {
     Send { text: String },
     Stop,
     Rendered { serial: u64 },
+    Restyled { version: u64 },
     Open { href: String },
 }
 
@@ -23,6 +24,7 @@ pub fn parse(body: &str) -> Option<FromPage> {
         "send" => Some(FromPage::Send { text: text("text")? }),
         "stop" => Some(FromPage::Stop),
         "rendered" => Some(FromPage::Rendered { serial: number("serial")? }),
+        "restyled" => Some(FromPage::Restyled { version: number("version")? }),
         "open" => Some(FromPage::Open { href: text("href")? }),
         _ => None,
     }
@@ -50,7 +52,7 @@ mod tests {
 
     #[test]
     fn reads_each_message_the_page_posts() {
-        let bodies = [r#"{"type":"ready","contract":1}"#, r#"{"type":"send","text":"hi"}"#, r#"{"type":"stop"}"#, r#"{"type":"rendered","serial":7}"#, r#"{"type":"open","href":"https://example.com"}"#];
+        let bodies = [r#"{"type":"ready","contract":1}"#, r#"{"type":"send","text":"hi"}"#, r#"{"type":"stop"}"#, r#"{"type":"rendered","serial":7}"#, r#"{"type":"restyled","version":2}"#, r#"{"type":"open","href":"https://example.com"}"#];
 
         let parsed: Vec<FromPage> = bodies.iter().filter_map(|body| parse(body)).collect();
 
@@ -59,6 +61,7 @@ mod tests {
             FromPage::Send { text: "hi".into() },
             FromPage::Stop,
             FromPage::Rendered { serial: 7 },
+            FromPage::Restyled { version: 2 },
             FromPage::Open { href: "https://example.com".into() },
         ];
         assert_eq!(parsed, expected);

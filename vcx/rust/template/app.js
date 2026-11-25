@@ -159,6 +159,7 @@
 
   function restyle(version) {
     for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
+      link.addEventListener('load', () => post({ type: 'restyled', version }), { once: true });
       link.href = `${link.href.split('?')[0]}?v=${version}`;
     }
   }

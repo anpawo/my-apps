@@ -15,8 +15,8 @@ use std::time::Duration;
 use vcx_proto::AttachRequest;
 
 const USAGE: &str = "usage: vcx-shell (--socket <worker socket> [--session <id>] [--cwd <folder>] [--prompt <text>] [--resume <thread>] | --demo <state.json>)
-                 [--template <folder>] [--check <report.json> [--picture <page.png>] [--check-timeout <seconds>]]";
-const FLAGS: [&str; 10] = ["--socket", "--session", "--cwd", "--prompt", "--resume", "--demo", "--template", "--check", "--picture", "--check-timeout"];
+                 [--template <folder>] [--check <report.json> [--picture <page.png>] [--check-timeout <seconds>] [--check-after-edits <count>]]";
+const FLAGS: [&str; 11] = ["--socket", "--session", "--cwd", "--prompt", "--resume", "--demo", "--template", "--check", "--picture", "--check-timeout", "--check-after-edits"];
 const EXIT_USAGE: u8 = 2;
 const CHECK_TIMEOUT_SECONDS: u64 = 30;
 
@@ -57,11 +57,15 @@ fn options(mut arguments: impl Iterator<Item = String>) -> Result<app::Options, 
         Some(seconds) => seconds.parse().map_err(|_| format!("--check-timeout takes whole seconds, not {seconds}"))?,
         None => CHECK_TIMEOUT_SECONDS,
     };
+    let edits = match values.remove("--check-after-edits") {
+        Some(count) => count.parse().map_err(|_| format!("--check-after-edits takes a count, not {count}"))?,
+        None => 0,
+    };
     let picture = values.remove("--picture").map(Into::into);
     if picture.is_some() && !values.contains_key("--check") {
         return Err("--picture goes with --check".into());
     }
-    let check = values.remove("--check").map(|output| check::Options { output: output.into(), picture, timeout: Duration::from_secs(timeout), wait_for_answer });
+    let check = values.remove("--check").map(|output| check::Options { output: output.into(), picture, timeout: Duration::from_secs(timeout), wait_for_answer, edits });
     Ok(app::Options { source, template: values.remove("--template").map(Into::into), check })
 }
 

@@ -1,12 +1,16 @@
 //! The shell run with `--check`: its window is never shown, and what the page drew is read from the report it writes.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
+use std::thread;
+use std::time::{Duration, Instant};
 use vcx_testkit::SwiftWorker;
 
 const CHECK_TIMEOUT_SECONDS: &str = "40";
+const REPORT_WAIT: Duration = Duration::from_secs(30);
+const REPORT_POLL: Duration = Duration::from_millis(50);
 
 struct Scratch(PathBuf);
 
@@ -35,6 +39,33 @@ fn check(scratch: &Path, arguments: &[&str]) -> Value {
     let status = Command::new(env!("CARGO_BIN_EXE_vcx-shell")).args(arguments).arg("--check").arg(&report).args(["--check-timeout", CHECK_TIMEOUT_SECONDS]).status().unwrap();
     assert!(status.success(), "the shell ended with {status}");
     serde_json::from_str(&fs::read_to_string(report).unwrap()).unwrap()
+}
+
+/// A shell left running by a failed test is stopped with it.
+struct Shell(Child);
+
+impl Drop for Shell {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Waits for the report the shell writes once its page took `edits` template edits.
+fn report_after(report: &Path, edits: u64) -> Value {
+    let deadline = Instant::now() + REPORT_WAIT;
+    loop {
+        let read: Option<Value> = fs::read_to_string(report).ok().and_then(|text| serde_json::from_str(&text).ok());
+        match read {
+            Some(read) if read["edits"] == edits => return read,
+            _ if Instant::now() > deadline => panic!("no report after {edits} template edits"),
+            _ => thread::sleep(REPORT_POLL),
+        }
+    }
+}
+
+fn append(file: &Path, text: &str) {
+    fs::write(file, fs::read_to_string(file).unwrap() + text).unwrap();
 }
 
 fn kinds(report: &Value) -> Vec<&str> {
@@ -97,4 +128,37 @@ fn returns_to_the_built_in_template_when_the_folder_one_never_starts() {
     assert_eq!(report["template"], "VCX default");
     assert!(report["notice"].as_str().unwrap().contains("did not start"), "{}", report["notice"]);
     assert_eq!(kinds(&report).len(), 5);
+}
+
+#[test]
+fn applies_template_edits_to_the_open_page_and_survives_a_broken_one() {
+    const EDITED_BACKGROUND: &str = "rgb(1, 2, 3)";
+    let scratch = Scratch::new("edits");
+    let folder = scratch.0.join("template");
+    fs::create_dir(&folder).unwrap();
+    for file in ["manifest.json", "index.html", "style.css", "app.js"] {
+        fs::copy(source("template").join(file), folder.join(file)).unwrap();
+    }
+    let report = scratch.0.join("report.json");
+    let demo = source("fixtures/demo_state.json");
+    let arguments = ["--demo", demo.to_str().unwrap(), "--template", folder.to_str().unwrap(), "--check", report.to_str().unwrap(), "--check-after-edits", "3", "--check-timeout", CHECK_TIMEOUT_SECONDS];
+    let mut shell = Shell(Command::new(env!("CARGO_BIN_EXE_vcx-shell")).args(arguments).spawn().unwrap());
+
+    let opened = report_after(&report, 0);
+    append(&folder.join("style.css"), &format!("\nbody {{ background: {EDITED_BACKGROUND}; }}\n"));
+    let restyled = report_after(&report, 1);
+    append(&folder.join("app.js"), "\ndocument.body.dataset.edited = 'yes';\n");
+    let reloaded = report_after(&report, 2);
+    fs::write(folder.join("app.js"), "throw new Error('a broken edit');").unwrap();
+    let status = shell.0.wait().unwrap();
+    let broken = report_after(&report, 3);
+
+    assert!(status.success(), "the shell ended with {status}");
+    assert_ne!(opened["background"], EDITED_BACKGROUND);
+    let script_edited = |report: &Value| report["html"].as_str().unwrap().contains(r#"data-edited="yes""#);
+    assert_eq!((&restyled["background"], &restyled["reloads"], script_edited(&restyled)), (&json!(EDITED_BACKGROUND), &json!(0), false), "a style edit is applied without loading the page again");
+    assert_eq!((&reloaded["background"], &reloaded["reloads"], script_edited(&reloaded)), (&json!(EDITED_BACKGROUND), &json!(1), true));
+    assert_eq!(kinds(&reloaded).len(), 5, "the page loaded again shows the session again");
+    assert_eq!((script_edited(&broken), kinds(&broken).len()), (true, 5), "the broken edit gave way to the page before it");
+    assert!(broken["notice"].as_str().unwrap().contains("did not start"), "{}", broken["notice"]);
 }
