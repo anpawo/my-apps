@@ -493,7 +493,7 @@ MainActor.assumeIsolated {
 signal(SIGPIPE, SIG_IGN)
 let rawArgs = Array(CommandLine.arguments.dropFirst())
 if rawArgs.contains("--runtime-protocol") { print("1"); exit(0) }
-if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
+if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--selection-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_STATE_HOME", isolated + "/state", 1)
@@ -627,6 +627,10 @@ if let index = args.firstIndex(of: "--render"), index + 1 < args.count {
 if let index = args.firstIndex(of: "--interaction-check"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     exit(InteractionCheck.run(directory: args[index + 1]) ? 0 : 1)
+}
+if args.contains("--selection-check") {
+    app.setActivationPolicy(.prohibited)
+    exit(SelectionCheck.run() ? 0 : 1)
 }
 if let index = args.firstIndex(of: "--chart-check"), index + 1 < args.count {
     app.setActivationPolicy(.prohibited)

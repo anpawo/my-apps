@@ -2073,6 +2073,7 @@ struct LinkText: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         // Measured once per width: layout asks every row again on each pass, a new layout manager each time.
         var sizes: [CGFloat: CGSize] = [:]
+        var bands: [Int: Band] = [:]
         var runCommand: ((String) -> Void)?
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
@@ -2107,9 +2108,14 @@ struct LinkText: NSViewRepresentable {
         }
         // A box keeps 12 pt of colour around its text and 12 pt of white around itself.
         let starts = parts.reduce(into: [0]) { $0.append($0.last! + $1.length + 1) }
+        context.coordinator.bands = context.coordinator.bands.filter { $0.key < parts.count && parts[$0.key].band == $0.value.color }
         for (i, part) in parts.enumerated() {
             let range = NSIntersectionRange(NSRange(location: starts[i], length: part.length + 1), NSRange(location: 0, length: string.length))
-            if let band = part.band { string.addAttribute(bandKey, value: Band(band), range: range) }
+            if let color = part.band {
+                let band = context.coordinator.bands[i] ?? Band(color)
+                context.coordinator.bands[i] = band
+                string.addAttribute(bandKey, value: band, range: range)
+            }
             // Set per part, not per run: equal runs of neighbouring paragraphs arrive merged into one.
             if part.weight != .regular {
                 string.enumerateAttribute(.font, in: range) { value, sub, _ in
