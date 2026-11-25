@@ -345,7 +345,7 @@ enum BugCheck {
             let progress = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("visible-progress"))
             progress.ready = true; progress.busy = true
             progress.show(["id": "progress-question", "type": "userMessage", "content": [["type": "text", "text": "Show progress"]]])
-            progress.show(["id": "progress-first", "type": "agentMessage", "text": "⟶ First visible progress note."])
+            progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note."])
             progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
             progress.show(["id": "progress-second", "type": "agentMessage", "text": "⟶ Second visible progress note.\n\n✓ Done: Progress checked.\n\n⟶ Next: Continue when ready."])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
@@ -372,6 +372,10 @@ enum BugCheck {
                 check(thoughtParts[0].band != answerParts[0].band, "thoughts use a different color from the final answer")
                 check(thoughtParts[1].band == answerParts[1].band && thoughtParts[2].band == answerParts[2].band, "thought styling preserves Done and Next colors")
             } else { check(false, "status colors are available for comparison") }
+            if case .text(let plainThought) = proseGroups("Reading the code.", progress: true).first,
+               case .text(let plainAnswer) = proseGroups("Reading the code.").first {
+                check(plainThought[0].band != nil && plainAnswer[0].band == nil, "a thought without an arrow still sits in its bubble")
+            } else { check(false, "plain thought parts are available for comparison") }
             window.close(); progress.close()
         }
         do {

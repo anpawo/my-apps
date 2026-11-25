@@ -2004,11 +2004,11 @@ func proseGroups(_ text: String, progress: Bool = false) -> [ProseGroup] {
     for paragraph in answerParagraphs(text) {
         let lines = paragraph.components(separatedBy: "\n")
         if lines.count >= 2, tableRule(lines[1]) { flush(); groups.append(.table(lines)) }
-        else if paragraph.hasPrefix("#") { parts.append(ProsePart(text: String(paragraph.drop(while: { $0 == "#" || $0 == " " })), weight: .semibold, lineSpacing: 0, band: nil)) }
+        else if paragraph.hasPrefix("#") { parts.append(ProsePart(text: String(paragraph.drop(while: { $0 == "#" || $0 == " " })), weight: .semibold, lineSpacing: 0, band: progress ? thoughtBackground : nil)) }
         else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
             let band = paragraph.hasPrefix("✓") ? NSColor(red: 1, green: 225 / 255, blue: 195 / 255, alpha: 1) : paragraph.hasPrefix("⟶ Next:") ? NSColor(red: 214 / 255, green: 230 / 255, blue: 1, alpha: 1) : progress ? thoughtBackground : NSColor(red: 214 / 255, green: 245 / 255, blue: 214 / 255, alpha: 1)
             parts.append(ProsePart(text: answerLine(paragraph), weight: .medium, lineSpacing: 5, band: band))
-        } else { parts.append(ProsePart(text: bulletDots(paragraph), weight: .regular, lineSpacing: 6, band: nil)) }
+        } else { parts.append(ProsePart(text: bulletDots(paragraph), weight: .regular, lineSpacing: 6, band: progress ? thoughtBackground : nil)) }
     }
     flush(); return groups
 }
