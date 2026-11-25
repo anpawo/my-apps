@@ -670,7 +670,7 @@ struct CXView: View {
 
     private var transcriptTable: some View {
         ZStack(alignment: .bottom) {
-            LiveTranscript(session: session, sending: sending, geometry: geometry, reduceMotion: reduceMotion)
+            LiveTranscript(session: session, working: session.busy, sending: sending, geometry: geometry, reduceMotion: reduceMotion)
                 // Clipped to the transcript: pushed up by the next question, it would slide over a pinned chart.
                 .overlay(alignment: .top) { PinnedQuestion(session: session, geometry: geometry).clipped() }
             if !session.follow.attached {
@@ -1269,14 +1269,16 @@ struct ConversationRow: View, Equatable {
     var collapsible = false
     var pinnedIn: CGSize?
     var lifted = false
-    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id && left.pinnedIn == right.pinnedIn && left.lifted == right.lifted }
+    var showsProvider = true
+    var progress = false
+    static func == (left: Self, right: Self) -> Bool { left.row.id == right.row.id && left.pinnedIn == right.pinnedIn && left.lifted == right.lifted && left.showsProvider == right.showsProvider && left.progress == right.progress }
     var body: some View {
         if let item = row.items.first {
             if row.kind == "user" { UserBubble(item: item, session: session, collapsible: collapsible, pinnedIn: pinnedIn, lifted: lifted) }
             else if row.kind == "notice" { NoticeLine(item: item) }
             else if row.kind == "peer" { PeerLine(item: item).background(Color.white) }
             else if row.kind == "debate" { DebateView(item: item, ownModel: session.modelLabel) }
-            else { AssistantBubble(item: item).environment(\.codeEdits, session.codeEdits) }
+            else { AssistantBubble(item: item, showsProvider: showsProvider, progress: progress).environment(\.codeEdits, session.codeEdits) }
         }
     }
 }
@@ -1666,13 +1668,21 @@ struct PictureView: View {
 
 struct AssistantBubble: View {
     @ObservedObject var item: Item
+    var showsProvider = true
+    var progress = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 7) { Image(systemName: "sparkle").foregroundStyle(accent); Text(item.data["provider"] as? String ?? "Codex").foregroundStyle(.black.opacity(0.6)) }.font(.system(size: 11, weight: .medium))
-            MarkdownBody(text: item.text.isEmpty ? "…" : item.text).environment(\.findItem, item.id)
+            if showsProvider {
+                HStack(spacing: 7) { Image(systemName: "sparkle").foregroundStyle(accent); Text(item.data["provider"] as? String ?? "Codex").foregroundStyle(.black.opacity(0.6)) }.font(.system(size: 11, weight: .medium))
+            }
+            MarkdownBody(text: item.text.isEmpty ? "…" : item.text).environment(\.findItem, item.id).environment(\.progressNote, progress)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+private struct ProgressNoteKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues { var progressNote: Bool { get { self[ProgressNoteKey.self] } set { self[ProgressNoteKey.self] = newValue } } }
+private let thoughtBackground = NSColor(red: 238 / 255, green: 234 / 255, blue: 247 / 255, alpha: 1)
 
 struct MarkdownBlock: Identifiable {
     let id: Int
@@ -1888,6 +1898,7 @@ func answerParagraphs(_ text: String) -> [String] {
 
 struct ProseView: View {
     let text: String
+    @Environment(\.progressNote) private var progress
     @Environment(TranscriptFind.self) private var find: TranscriptFind?
     @Environment(\.findItem) private var findItem
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1965,7 +1976,7 @@ struct ProseView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(proseGroups(text).enumerated()), id: \.offset) { index, group in
+            ForEach(Array(proseGroups(text, progress: progress).enumerated()), id: \.offset) { index, group in
                 switch group {
                 case .table(let lines): table(numberedTable(lines), paragraph: index)
                 case .text(let parts): joined(parts)
@@ -1987,7 +1998,7 @@ enum ProseGroup {
     case text([ProsePart])
 }
 
-func proseGroups(_ text: String) -> [ProseGroup] {
+func proseGroups(_ text: String, progress: Bool = false) -> [ProseGroup] {
     var groups: [ProseGroup] = [], parts: [ProsePart] = []
     func flush() { if !parts.isEmpty { groups.append(.text(parts)); parts = [] } }
     for paragraph in answerParagraphs(text) {
@@ -1995,7 +2006,7 @@ func proseGroups(_ text: String) -> [ProseGroup] {
         if lines.count >= 2, tableRule(lines[1]) { flush(); groups.append(.table(lines)) }
         else if paragraph.hasPrefix("#") { parts.append(ProsePart(text: String(paragraph.drop(while: { $0 == "#" || $0 == " " })), weight: .semibold, lineSpacing: 0, band: nil)) }
         else if paragraph.hasPrefix("⟶ ") || paragraph.hasPrefix("✓ Done:") {
-            let band = paragraph.hasPrefix("✓") ? NSColor(red: 1, green: 225 / 255, blue: 195 / 255, alpha: 1) : paragraph.hasPrefix("⟶ Next:") ? NSColor(red: 214 / 255, green: 230 / 255, blue: 1, alpha: 1) : NSColor(red: 214 / 255, green: 245 / 255, blue: 214 / 255, alpha: 1)
+            let band = paragraph.hasPrefix("✓") ? NSColor(red: 1, green: 225 / 255, blue: 195 / 255, alpha: 1) : paragraph.hasPrefix("⟶ Next:") ? NSColor(red: 214 / 255, green: 230 / 255, blue: 1, alpha: 1) : progress ? thoughtBackground : NSColor(red: 214 / 255, green: 245 / 255, blue: 214 / 255, alpha: 1)
             parts.append(ProsePart(text: answerLine(paragraph), weight: .medium, lineSpacing: 5, band: band))
         } else { parts.append(ProsePart(text: bulletDots(paragraph), weight: .regular, lineSpacing: 6, band: nil)) }
     }

@@ -42,11 +42,12 @@ enum TranscriptKey: Hashable { case top, empty, question(UUID), exchange(UUID), 
 
 struct LiveTranscript: View {
     let session: Session
+    let working: Bool
     let sending: SendAnimation
     let geometry: TranscriptGeometry
     let reduceMotion: Bool
     var body: some View {
-        TranscriptTable(session: session, rows: session.rows, revision: session.revision, details: session.details,
+        TranscriptTable(session: session, rows: session.rows, revision: session.revision, working: working, details: session.details,
                         replacing: session.frontendReplacing, sending: sending, geometry: geometry, reduceMotion: reduceMotion)
             .onChange(of: session.revision) { if session.find.open { session.find.refresh(session.rows) } }
     }
@@ -57,6 +58,7 @@ struct TranscriptTable: NSViewRepresentable {
     // Compared by SwiftUI to call updateNSView when one of them changes.
     let rows: [Row]
     let revision: Int
+    let working: Bool
     let details: Bool
     let replacing: Bool
     let sending: SendAnimation
@@ -147,6 +149,7 @@ final class TranscriptController: NSObject {
     private var index: [TranscriptKey: Int] = [:]
     private var sections: [UUID: ConversationSection] = [:]
     private var lastSection: UUID?
+    private var workingSection: UUID?
     private var signatures: [TranscriptKey: [AnyHashable]] = [:]
     private var cells: [TranscriptKey: TranscriptCell] = [:]
     // Heights measured at `width`; a stale one is still the best estimate until its row is measured again.
@@ -282,14 +285,14 @@ final class TranscriptController: NSObject {
             guard let section = sections[id] else { return nil }
             let parts = sectionParts(section.rows), sent = parts.notices.filter { $0.kind == "peer" }
             let top: (CGFloat) -> CGFloat = { [weak self] in (self?.top(of: key) ?? 0) + $0 }
-            let reduceMotion = parent.reduceMotion
+            let reduceMotion = parent.reduceMotion, working = workingSection == id
             return root(key, LiveDetails(details: details) { on in VStack(alignment: .leading, spacing: 24) {
                 if !parts.trail.isEmpty {
                     WorkBlock(rows: parts.trail, details: on, reveal: { [weak self] in self?.scroll(to: section.question == nil ? key : .question(id), bottom: false, animated: !reduceMotion) }, viewportTop: top)
                 }
                 ForEach(parts.debates) { row in if let item = row.items.first { DebateView(item: item, ownModel: session.modelLabel) } }
-                ForEach(parts.notes) { row in ConversationRow(row: row, session: session).equatable() }
-                if let last = parts.last { ConversationRow(row: last, session: session).equatable() }
+                ForEach(parts.notes) { row in ConversationRow(row: row, session: session, showsProvider: row.id == parts.notes.first?.id, progress: true).equatable() }
+                if let last = parts.last { ConversationRow(row: last, session: session, showsProvider: parts.notes.isEmpty, progress: working).equatable() }
                 if !sent.isEmpty {
                     WorkBlock(rows: sent, details: on, reveal: { [weak self] in self?.scroll(to: key, bottom: parts.last != nil, animated: !reduceMotion) }, viewportTop: top)
                 }
@@ -370,6 +373,7 @@ final class TranscriptController: NSObject {
         if session.rows.isEmpty { next.append(.empty); signatures[.empty] = [parent.replacing] }
         sections = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         lastSection = all.last?.id
+        workingSection = parent.working ? all.last(where: { $0.question?.items.first?.data["queued"] as? Bool != true })?.id : nil
         for section in all {
             if section.question != nil {
                 next.append(.question(section.id))
@@ -377,7 +381,7 @@ final class TranscriptController: NSObject {
             }
             if !section.rows.isEmpty {
                 next.append(.exchange(section.id))
-                signatures[.exchange(section.id)] = section.rows.map(\.id) + [parent.replacing]
+                signatures[.exchange(section.id)] = section.rows.map(\.id) + [parent.replacing, workingSection == section.id]
             }
         }
         next.append(.bottom)

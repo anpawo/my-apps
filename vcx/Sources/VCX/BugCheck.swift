@@ -345,9 +345,9 @@ enum BugCheck {
             let progress = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("visible-progress"))
             progress.ready = true; progress.busy = true
             progress.show(["id": "progress-question", "type": "userMessage", "content": [["type": "text", "text": "Show progress"]]])
-            progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note."])
+            progress.show(["id": "progress-first", "type": "agentMessage", "text": "⟶ First visible progress note."])
             progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
-            progress.show(["id": "progress-second", "type": "agentMessage", "text": "Second visible progress note."])
+            progress.show(["id": "progress-second", "type": "agentMessage", "text": "⟶ Second visible progress note.\n\n✓ Done: Progress checked.\n\n⟶ Next: Continue when ready."])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(progress)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
@@ -355,9 +355,23 @@ enum BugCheck {
                 (view as? NSTextView)?.string.contains(text) == true || view.subviews.contains { shows(text, in: $0) }
             }
             check(shows("First visible progress note.", in: window.contentView!) && shows("Second visible progress note.", in: window.contentView!), "every progress message is visible while the turn is working")
+            func captureProgress(_ name: String) throws {
+                guard let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView,
+                      let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent(name))
+            }
+            try captureProgress("progress-working.png")
             progress.busy = false
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             check(shows("First visible progress note.", in: window.contentView!) && shows("Second visible progress note.", in: window.contentView!), "earlier progress messages stay visible after the turn ends")
+            try captureProgress("progress-complete.png")
+            let colors = "⟶ Progress\n\n✓ Done: Complete\n\n⟶ Next: Continue"
+            if case .text(let thoughtParts) = proseGroups(colors, progress: true).first,
+               case .text(let answerParts) = proseGroups(colors).first {
+                check(thoughtParts[0].band != answerParts[0].band, "thoughts use a different color from the final answer")
+                check(thoughtParts[1].band == answerParts[1].band && thoughtParts[2].band == answerParts[2].band, "thought styling preserves Done and Next colors")
+            } else { check(false, "status colors are available for comparison") }
             window.close(); progress.close()
         }
         do {
