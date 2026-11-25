@@ -10,6 +10,7 @@ enum StateHome {
     static var current: String { parent + "/" + linkTarget }
     static let linkCheckInterval: TimeInterval = 60
     private static let linkTarget = "vcx"
+    private static let processName = "VCX"
     // One empty file per running process of a build that knows the move, named <pid>-<start>.
     private static var registry: String { current + "/.moved" }
 
@@ -79,23 +80,33 @@ enum StateHome {
         return false
     }
 
-    private static func appProcesses() -> [pid_t] {
+    // By the kernel's process name, not proc_pidpath: that fails once an install has replaced the running binary, which on
+    // 25/11/2026 hid every older process and removed the link under them.
+    static func appProcesses() -> [pid_t] {
         var pids = [pid_t](repeating: 0, count: Int(proc_listallpids(nil, 0)) + 64)
         let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
-        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         return pids.prefix(max(count, 0)).filter { pid in
-            pid > 0 && proc_pidpath(pid, &path, UInt32(path.count)) > 0 && String(cString: path).hasSuffix(".app/Contents/MacOS/VCX")
+            guard pid > 0, let info = processInfo(pid) else { return false }
+            return withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } == processName
         }
     }
 
     private static func startTime(_ pid: pid_t) -> UInt64? {
+        processInfo(pid).map { $0.pbi_start_tvsec * 1_000_000 + $0.pbi_start_tvusec }
+    }
+
+    private static func processInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size),
               info.pbi_uid == getuid() else { return nil }
-        return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+        return info
     }
 
-    private static func isLegacyLink() -> Bool { (try? FileManager.default.destinationOfSymbolicLink(atPath: legacy)) == linkTarget }
+    // ./vcx is the link put back by hand after that removal.
+    private static func isLegacyLink() -> Bool {
+        let target = try? FileManager.default.destinationOfSymbolicLink(atPath: legacy)
+        return target == linkTarget || target == "./" + linkTarget
+    }
 
     private static func isFolder(_ path: String) -> Bool {
         var info = stat()

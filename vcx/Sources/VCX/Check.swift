@@ -68,9 +68,13 @@ enum Check {
             try? "{}".write(toFile: parent + "/cx/runtime/kept.json", atomically: true, encoding: .utf8)
             let (realParent, realApps) = (StateHome.parent, StateHome.runningApps)
             defer { StateHome.parent = realParent; StateHome.runningApps = realApps; try? manager.removeItem(atPath: parent) }
-            let older = Process()
-            older.executableURL = URL(fileURLWithPath: "/bin/sleep"); older.arguments = ["30"]
+            let older = Process(), replaced = parent + "/older/VCX"
+            try? manager.createDirectory(atPath: parent + "/older", withIntermediateDirectories: true)
+            try? manager.copyItem(atPath: "/bin/sleep", toPath: replaced)
+            older.executableURL = URL(fileURLWithPath: replaced); older.arguments = ["30"]
             try? older.run()
+            try? manager.removeItem(atPath: replaced)
+            check(StateHome.appProcesses().contains(older.processIdentifier), "a VCX process whose binary an install replaced still counts as running")
             StateHome.parent = parent; StateHome.runningApps = { [getpid(), older.processIdentifier] }
             StateHome.adopt()
             check((try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx" && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
