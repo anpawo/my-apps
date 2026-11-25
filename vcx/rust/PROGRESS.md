@@ -32,6 +32,11 @@ A session edits and commits only the paths it owns. To write to one, read its id
   edits finished before it starts. `cargo test --workspace` is the integration run of the launching session.
 - Commit small and often, own paths only, through a private index (never `git add -A`, never `git commit -a`),
   then push. A crate is committed only while its own tests pass.
+- The page is built from his web templates. Marius, 25/11/2026: "make sure to use my templates for the display of
+  the app, ok ? since its web". They are in `~/self/templates/web` (read its `CLAUDE.md` first): search
+  `templates.json` before drawing any element (a favourite first, then an accepted one), copy the effect between
+  its `Effect: … Copy from here` and `End of effect` markers, and say in the commit which template (`WT-…`) an
+  element comes from. An element no template covers is built in their style and told to him as a new one.
 - Nothing opens a window to check: every check runs in the unshown window (`--check`) or in a plain test.
 - Nothing is installed at `~/Applications/Vibe Code X.app`, and the Swift app, its workers and its state under
   `~/.local/state/vcx` are never stopped, killed, attached to or written. Tests start their own Swift worker
