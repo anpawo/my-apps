@@ -50,14 +50,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
 
 /// Where this worker keeps checkpoints: never the Swift app's folder unless `VCX_RUNTIME_HOME` names it.
 pub fn runtime_home() -> PathBuf {
-    if let Some(home) = std::env::var_os("VCX_RUNTIME_HOME") {
-        return PathBuf::from(home);
-    }
-    let state = std::env::var_os("VCX_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
-        home.join(".local/state/vcx-rust")
-    });
-    state.join("runtime")
+    vcx_config::WorkerHomes::from_env().runtime
 }
 
 pub fn run(args: Vec<String>) -> i32 {

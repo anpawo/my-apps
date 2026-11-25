@@ -2550,6 +2550,7 @@ dependencies = [
 name = "vcx-testkit"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde_json",
  "uuid",
 ]
@@ -2563,6 +2564,7 @@ dependencies = [
  "tokio",
  "uuid",
  "vcx-agents",
+ "vcx-config",
  "vcx-conformance",
  "vcx-model",
  "vcx-proto",

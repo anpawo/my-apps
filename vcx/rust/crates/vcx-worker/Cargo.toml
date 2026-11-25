@@ -10,6 +10,7 @@ libc.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 vcx-agents = { path = "../vcx-agents" }
+vcx-config = { path = "../vcx-config" }
 vcx-model.workspace = true
 vcx-proto.workspace = true
 tokio = { version = "1.54", default-features = false, features = ["rt", "net", "process", "io-util", "sync", "time", "signal"] }

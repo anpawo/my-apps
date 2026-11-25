@@ -3,6 +3,8 @@
 The Swift worker starts it through `--runtime-test --runtime-fixture-command`, so interop tests need no account.
 With `--history <file>` it also behaves as Codex does across restarts: each thread gets its own id, the prompt comes
 back as a userMessage item, and finished turns are kept in the file for `thread/resume` and `thread/turns/list`.
+A prompt holding `fixture:hold` starts a turn that stays open until `turn/interrupt`; one holding `fixture:approve`
+also asks for a command approval and ends once it is answered, accepted or declined.
 """
 import json
 import os
@@ -14,7 +16,12 @@ THREAD = 'fixture-thread'
 TURN = 'fixture-turn'
 ANSWER = '## Fixture answer\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nDone with **bold** text.'
 HISTORY = sys.argv[sys.argv.index('--history') + 1] if '--history' in sys.argv else None
+HOLD = 'fixture:hold'
+APPROVE = 'fixture:approve'
+APPROVAL_ID = 7301
+HELD_TOOL = {'id': 'fixture-held-tool', 'type': 'commandExecution', 'command': 'fixture-held-tool'}
 output_lock = threading.Lock()
+awaiting = {}
 
 
 def send(value):
@@ -66,6 +73,34 @@ def run_turn(thread=THREAD, turn=TURN, prompt=None):
     event('turn/completed', {'turn': {'id': turn, 'status': 'completed'}}, thread)
 
 
+def prompt_text(params):
+    return ' '.join(piece.get('text', '') for piece in params.get('input', []) if isinstance(piece, dict))
+
+
+def held(params):
+    text = prompt_text(params)
+    return HOLD in text or APPROVE in text
+
+
+def open_turn(thread, turn, params):
+    event('turn/started', {'turn': {'id': turn}}, thread)
+    event('item/started', {'item': {**HELD_TOOL, 'status': 'inProgress'}}, thread)
+    if APPROVE in prompt_text(params):
+        awaiting[APPROVAL_ID] = (thread, turn)
+        request = {'threadId': thread, 'turnId': turn, 'itemId': HELD_TOOL['id'], 'command': HELD_TOOL['command']}
+        send({'id': APPROVAL_ID, 'method': 'item/commandExecution/requestApproval', 'params': request})
+
+
+def answered(message):
+    thread, turn = awaiting.pop(message['id'])
+    accepted = (message.get('result') or {}).get('decision') == 'accept'
+    tool = {**HELD_TOOL, 'status': 'completed' if accepted else 'declined', 'exitCode': 0 if accepted else None}
+    event('item/completed', {'item': tool}, thread)
+    answer = {'id': 'fixture-held-answer', 'type': 'agentMessage', 'text': 'approved' if accepted else 'declined'}
+    event('item/completed', {'item': answer}, thread)
+    event('turn/completed', {'turn': {'id': turn, 'status': 'completed'}}, thread)
+
+
 RESULTS = {
     'initialize': {'userAgent': 'fixture'},
     'account/read': {'account': {'type': 'chatgpt'}},
@@ -96,7 +131,10 @@ def answer_with_history(message):
     if method == 'turn/start':
         turn = 'fixture-turn-' + uuid.uuid4().hex[:12]
         prompt = {'id': 'fixture-user-' + turn, 'type': 'userMessage', 'clientId': params.get('clientUserMessageId'), 'content': params.get('input', [])}
-        threading.Timer(0, run_turn, (thread, turn, prompt)).start()
+        if held(params):
+            threading.Timer(0, open_turn, (thread, turn, params)).start()
+        else:
+            threading.Timer(0, run_turn, (thread, turn, prompt)).start()
         return {'turn': {'id': turn}}, None
     return RESULTS.get(method, {}), None
 
@@ -104,16 +142,23 @@ def answer_with_history(message):
 for line in sys.stdin:
     message = json.loads(line)
     method = message.get('method')
+    if method is None and message.get('id') in awaiting:
+        answered(message)
+        continue
     if method is None or 'id' not in message:
         continue
     if HISTORY:
         result, error = answer_with_history(message)
         send({'id': message['id'], 'error': error} if error else {'id': message['id'], 'result': result})
         if method == 'turn/interrupt':
+            awaiting.clear()
             event('turn/completed', {'turn': {'id': (message.get('params') or {}).get('turnId'), 'status': 'interrupted'}}, (message.get('params') or {}).get('threadId'))
         continue
     send({'id': message['id'], 'result': RESULTS.get(method, {})})
-    if method == 'turn/start':
+    if method == 'turn/start' and held(message.get('params') or {}):
+        threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
+    elif method == 'turn/start':
         threading.Thread(target=run_turn, daemon=True).start()
     elif method == 'turn/interrupt':
+        awaiting.clear()
         event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})

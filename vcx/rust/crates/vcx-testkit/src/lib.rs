@@ -6,6 +6,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const SOCKET_WAIT: Duration = Duration::from_secs(15);
@@ -13,8 +16,16 @@ const POLL: Duration = Duration::from_millis(20);
 const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
 const PRIVATE_FOLDER: u32 = 0o700;
 
+/// Written into a worker's folder once its process has ended, with its exit code: a test reads an exit from
+/// `Target.directory` alone, where `kill(pid, 0)` would still find the child until it is reaped.
+pub const EXIT_MARKER: &str = "worker.exited";
+
+pub fn has_exited(directory: &Path) -> bool {
+    directory.join(EXIT_MARKER).exists()
+}
+
 pub struct SwiftWorker {
-    child: Child,
+    process: Process,
     pub directory: PathBuf,
     pub socket: PathBuf,
 }
@@ -25,21 +36,20 @@ impl SwiftWorker {
         let binary = swift_binary()?;
         let directory = private_folder("interop", name);
         let command = fixture_command(&directory, None);
-        let child = launch(&binary, &directory, &command);
-        let worker = Self { child, socket: directory.join(SOCKET), directory };
+        let process = Process::watch(launch(&binary, &directory, &command), &directory);
+        let worker = Self { process, socket: directory.join(SOCKET), directory };
         wait_for_socket(&worker.socket, "the Swift worker never opened its socket");
         Some(worker)
     }
 
     pub fn pid(&self) -> i64 {
-        i64::from(self.child.id())
+        i64::from(self.process.pid)
     }
 }
 
 impl Drop for SwiftWorker {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.process.kill();
         let _ = fs::remove_dir_all(&self.directory);
     }
 }
@@ -47,7 +57,7 @@ impl Drop for SwiftWorker {
 /// The Rust worker under test, in a folder of its own. With a history file, the fixture agent keeps its turns
 /// there, so a worker killed and started again can reopen the conversation from the agent's history.
 pub struct RustWorker {
-    child: Child,
+    process: Process,
     binary: PathBuf,
     command: PathBuf,
     pub directory: PathBuf,
@@ -67,21 +77,21 @@ impl RustWorker {
     fn start_in(binary: &Path, directory: PathBuf, history: bool) -> Self {
         assert!(binary.exists(), "no Rust worker at {}", binary.display());
         let command = fixture_command(&directory, history.then(|| directory.join("history.json")));
-        let child = launch(binary, &directory, &command);
-        let worker = Self { child, binary: binary.to_owned(), command, socket: directory.join(SOCKET), directory };
+        let process = Process::watch(launch(binary, &directory, &command), &directory);
+        let worker = Self { process, binary: binary.to_owned(), command, socket: directory.join(SOCKET), directory };
         wait_for_socket(&worker.socket, "the Rust worker never opened its socket");
         worker
     }
 
     pub fn pid(&self) -> i64 {
-        i64::from(self.child.id())
+        i64::from(self.process.pid)
     }
 
     /// Kills the worker with SIGKILL, as a crash would, and starts a new one on the same folder and socket.
     pub fn restart_after_kill(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.child = launch(&self.binary, &self.directory, &self.command);
+        self.process.kill();
+        let _ = fs::remove_file(self.directory.join(EXIT_MARKER));
+        self.process = Process::watch(launch(&self.binary, &self.directory, &self.command), &self.directory);
         let deadline = Instant::now() + SOCKET_WAIT;
         while serves(&self.socket).is_none() {
             assert!(Instant::now() < deadline, "the restarted Rust worker never served its socket");
@@ -92,13 +102,43 @@ impl RustWorker {
 
 impl Drop for RustWorker {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.process.kill();
         let _ = fs::remove_dir_all(&self.directory);
     }
 }
 
 const SOCKET: &str = "worker.sock";
+
+/// A worker process reaped by its own thread, which writes the exit marker.
+struct Process {
+    pid: u32,
+    ended: Arc<AtomicBool>,
+    waiter: Option<JoinHandle<()>>,
+}
+
+impl Process {
+    fn watch(mut child: Child, directory: &Path) -> Self {
+        let pid = child.id();
+        let ended = Arc::new(AtomicBool::new(false));
+        let (flag, marker) = (Arc::clone(&ended), directory.join(EXIT_MARKER));
+        let waiter = std::thread::spawn(move || {
+            let code = child.wait().ok().and_then(|status| status.code());
+            let _ = fs::write(marker, json!({"code": code}).to_string());
+            flag.store(true, Ordering::SeqCst);
+        });
+        Process { pid, ended, waiter: Some(waiter) }
+    }
+
+    /// SIGKILL, as a crash would, unless the process already ended, then waits for its marker.
+    fn kill(&mut self) {
+        if !self.ended.load(Ordering::SeqCst) {
+            unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) };
+        }
+        if let Some(waiter) = self.waiter.take() {
+            let _ = waiter.join();
+        }
+    }
+}
 
 // Unix socket paths are capped near 104 bytes, so the folder sits in /tmp.
 fn private_folder(kind: &str, name: &str) -> PathBuf {
