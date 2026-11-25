@@ -1,0 +1,13 @@
+[package]
+name = "vcx-cli"
+description = "The command line of the Rust VCX app (`vcx-rust`), in the words of the Swift `vcx`: open a session, list, message, move and close windows, run a headless turn"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+vcx-config = { path = "../vcx-config" }
+
+[dev-dependencies]
+uuid.workspace = true
