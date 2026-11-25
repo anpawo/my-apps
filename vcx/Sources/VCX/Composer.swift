@@ -24,6 +24,7 @@ final class ComposerWindow: NSWindow {
         return false
     }
     @objc func toggleFind(_ sender: Any?) { if find?.open == true { closeFind() } else { find?.toggle() } }
+    @objc func closeImmediately(_ sender: Any?) { (delegate as? AppDelegate)?.closeImmediately(self) }
     // Read-only text only: Control-click in the composer keeps its menu.
     private func word(at point: NSPoint) -> (field: NSTextView, range: NSRange)? {
         guard attachedSheet == nil, let field = contentView?.hitTest(point) as? NSTextView, !field.isEditable, let range = word(in: field, at: point),

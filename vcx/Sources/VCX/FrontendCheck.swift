@@ -17,7 +17,7 @@ enum FrontendCheck {
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32)!
         try bitmap.representation(using: .png, properties: [:])!.write(to: image)
         var workers: [Process] = [], candidates: [Process] = [], sockets: [String] = [], ids: [String] = [], frontends: [AppDelegate] = []
-        var count = 0
+        var count = try await InstantCloseCheck.run()
         let previousDelegate = NSApp.delegate
         defer {
             NSApp.delegate = previousDelegate
@@ -148,6 +148,7 @@ enum FrontendCheck {
                 try check(old.allSatisfy { !$0.window.isVisible }, "quit verification displayed a window")
                 try check(NSApp.sendAction(quit.action!, to: old[0].window, from: quit), "last session did not handle Cmd+Q")
                 try await wait { frontend.windows.isEmpty }
+                try await wait { !frontend.hasPendingCloses }
                 frontend.headless = false
                 try check(frontend.applicationShouldTerminateAfterLastWindowClosed(NSApp), "closing the last session did not quit the app")
                 try check(frontend.applicationShouldTerminate(NSApp) == .terminateNow, "empty app did not allow termination")

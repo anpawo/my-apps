@@ -257,9 +257,13 @@ final class RuntimeClient {
         try await task.value
     }
 
-    func checkpointWindow(_ state: JSON) async throws {
+    func saveWindow(_ state: JSON) throws {
         windowState = state
         try persistRecovery()
+    }
+
+    func checkpointWindow(_ state: JSON) async throws {
+        try saveWindow(state)
         if let checkpointTask { try await checkpointTask.value }
         guard let session else { return }
         _ = try await perform("checkpoint", ["draft": draftContent(session.savedCommandDraft ?? session.draft), "generation": session.draftGeneration, "windowState": state])

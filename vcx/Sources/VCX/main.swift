@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var updating = false
     private var terminating = false
     private var closing = Set<ObjectIdentifier>()
+    private var closeTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    var hasPendingCloses: Bool { !closeTasks.isEmpty }
     private var observers: [NSObjectProtocol] = []
     private var handoffFile: URL?
     private var replacement: FrontendReplacementProcess?
@@ -113,6 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let app = NSMenuItem(); app.submenu = appMenu; menu.addItem(app)
         appMenu.addItem(withTitle: "About Vibe Code X", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Close Session", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "q")
+        let close = appMenu.addItem(withTitle: "Close Session", action: #selector(ComposerWindow.closeImmediately(_:)), keyEquivalent: "k")
+        close.isHidden = true; close.allowsKeyEquivalentWhenHidden = true
         let file = NSMenuItem(title: "File", action: nil, keyEquivalent: ""); file.submenu = fileMenu; menu.addItem(file)
         fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow), keyEquivalent: "N")
         fileMenu.addItem(withTitle: "Open Project…", action: #selector(openProject), keyEquivalent: "o")
@@ -402,6 +406,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else { createWindow(options) }
     }
     func closeWindow(session: Session) { windows.first { $0.session === session }?.window.performClose(nil) }
+    func closeImmediately(_ window: NSWindow) {
+        guard let entry = windows.first(where: { $0.window === window }), !entry.session.frontendReplacing else { return }
+        if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .abort) }
+        beginClose(entry)
+    }
     func updateTitle(session: Session) {
         windows.first { $0.session === session }?.window.title = session.folder + " · Vibe Code X"
     }
@@ -410,31 +419,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if terminating || closing.contains(ObjectIdentifier(sender)) { return true }
         guard let entry = windows.first(where: { $0.window === sender }) else { return true }
         guard !entry.session.frontendReplacing, sender.attachedSheet == nil else { return false }
-        let close = { [self] in
-            entry.session.frontendReplacing = true
-            Task {
-                do {
-                    try await entry.session.runtimeClient?.checkpointWindow(RuntimeUpdate.state(window: sender, session: entry.session))
-                    _ = try await entry.session.runtimeClient?.perform("close")
-                    closing.insert(ObjectIdentifier(sender)); pressClose(sender)
-                } catch let error where entry.session.runtimeClient.map({ !$0.isAttached }) ?? false {
-                    // A dead worker can neither save nor close: the draft stays in the recovery file, marked closed so no launch reopens it.
-                    if let client = entry.session.runtimeClient { try? RuntimeRecovery.requestClose(sessionID: client.sessionID) }
-                    NSLog("VCX closed a window whose runtime is gone: %@", error.localizedDescription)
-                    closing.insert(ObjectIdentifier(sender)); pressClose(sender)
-                } catch { entry.session.frontendReplacing = false; entry.session.notice("Cannot close before saving the draft: " + error.localizedDescription) }
-            }
-        }
+        let close = { [self] in beginClose(entry) }
         if !headless, let work = runningWork(entry.session) {
             closeAlert("Close \(entry.session.folder)?", work).beginSheetModal(for: sender) { if $0 == .alertFirstButtonReturn { close() } }
         } else { close() }
         return false
     }
-    // The red button shows pressed for a beat so closing one of two stacked blank windows visibly lands on the other.
-    private func pressClose(_ window: NSWindow) {
-        guard !headless, let button = window.standardWindowButton(.closeButton) else { window.close(); return }
-        button.highlight(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { window.close() }
+    private func beginClose(_ entry: FrontendWindow) {
+        let window = entry.window, session = entry.session, id = ObjectIdentifier(entry.window)
+        let state = RuntimeUpdate.state(window: window, session: session)
+        do {
+            try session.runtimeClient?.saveWindow(state)
+            if let client = session.runtimeClient { try RuntimeRecovery.requestClose(sessionID: client.sessionID) }
+        } catch { session.notice("Cannot close before saving the draft: " + error.localizedDescription); return }
+        session.frontendReplacing = true
+        // Keep the connection alive after dismissing the window so the worker can finish archiving.
+        closeTasks[id] = Task {
+            defer { closeTasks[id] = nil }
+            do {
+                try await session.runtimeClient?.checkpointWindow(state)
+                _ = try await session.runtimeClient?.perform("close")
+            } catch let error where session.runtimeClient.map({ !$0.isAttached }) ?? false {
+                if let client = session.runtimeClient { try? RuntimeRecovery.requestClose(sessionID: client.sessionID) }
+                NSLog("VCX closed a window whose runtime is gone: %@", error.localizedDescription)
+            } catch {
+                if let client = session.runtimeClient { try? RuntimeRecovery.cancelClose(sessionID: client.sessionID) }
+                session.frontendReplacing = false
+                windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
+                session.notice("Cannot close before saving the draft: " + error.localizedDescription)
+                if !headless { window.makeKeyAndOrderFront(nil) }
+                return
+            }
+            session.close()
+        }
+        closing.insert(id); window.close()
     }
     func runningWork(_ session: Session) -> String? {
         if session.backgroundTasks > 0 { return session.backgroundTasks == 1 ? "A background task is still running." : "\(session.backgroundTasks) background tasks are still running." }
@@ -449,11 +467,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, let index = windows.firstIndex(where: { $0.window === window }) else { return }
         let entry = windows.remove(at: index)
-        entry.session.close(); entry.fleet.close(); closing.remove(ObjectIdentifier(window))
+        if closeTasks[ObjectIdentifier(window)] == nil { entry.session.close() }
+        entry.fleet.close(); closing.remove(ObjectIdentifier(window))
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !headless }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if terminating || windows.isEmpty { return .terminateNow }
+        if terminating || (windows.isEmpty && closeTasks.isEmpty) { return .terminateNow }
+        if windows.isEmpty {
+            Task {
+                for task in Array(closeTasks.values) { await task.value }
+                (terminationReply ?? sender.reply(toApplicationShouldTerminate:))(windows.isEmpty)
+            }
+            return .terminateLater
+        }
         let busy = windows.compactMap { entry in runningWork(entry.session).map { "\(entry.session.folder): \($0)" } }
         if !headless, !busy.isEmpty, closeAlert("Quit Vibe Code X?", busy.joined(separator: "\n"), button: "Quit").runModal() != .alertFirstButtonReturn { return .terminateCancel }
         Task {
@@ -471,6 +497,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     }
                     ended.append(entry.window)
                 }
+                for task in Array(closeTasks.values) { await task.value }
+                guard windows.allSatisfy({ $0.session.frontendReplacing }) else { throw CXError(message: "A session could not finish closing.") }
                 terminating = true; (terminationReply ?? sender.reply(toApplicationShouldTerminate:))(true)
             } catch {
                 // Their sessions already ended: those windows go, the others stay open.
