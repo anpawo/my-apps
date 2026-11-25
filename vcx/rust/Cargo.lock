@@ -2262,6 +2262,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcx-conformance"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vcx-model",
+ "vcx-proto",
+ "vcx-testkit",
+]
+
+[[package]]
 name = "vcx-model"
 version = "0.1.0"
 dependencies = [

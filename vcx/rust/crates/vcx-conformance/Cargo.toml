@@ -1,0 +1,12 @@
+[package]
+name = "vcx-conformance"
+description = "Protocol v1 as a runtime worker must speak it: one suite run against the Swift worker and the Rust one"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+vcx-model.workspace = true
+vcx-proto.workspace = true
+vcx-testkit.workspace = true
