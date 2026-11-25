@@ -1,0 +1,7 @@
+# Round 2, cross-examination
+
+Five other models answered the same brief blind. Their answers are in this folder: `claude-1.md`, `muse-1.md`, `grok-1.md`, `qwen-1.md`, `gemini-1.md`, and your own is `codex-1.md`. The points where the six answers differ, and what was measured on this Mac since round 1, are in `disagreements.md`. Read all of them whole. You may also read the Rust code that produced the measurements, in `../../rust` (crates `vcx-proto`, `vcx-model`, `vcx-shell`, `vcx-testkit`, folder `template`), and the Swift sources in `../../Sources/VCX`. Change no file outside this folder.
+
+For each disputed point D1 to D14 and each claim C1 to C7: say VERIFIED, REFUTED or UNDECIDED, with newly read evidence (a source URL and the date read, a line of code, or one of the measurements M1 to M7), in at most four lines per point. Attack your own round-1 claims first: name each one you now think wrong. A change of position counts only with new evidence; if you give in without any, say "yielded". Where a measurement M1 to M7 contradicts or settles a point, say so. End with your final recommendation for D1, D2, D3, D4, D6, D7, D8 and D11 in one line each, and the one read or measurement that would settle each point still open.
+
+Do not read any file in this folder or its parent other than the ones this message names (the other agents' answers land here too). Answer in plain prose for another agent: no ⟶ lines, no Done line, no Next line.

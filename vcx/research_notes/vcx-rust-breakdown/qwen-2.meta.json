@@ -1,0 +1,7 @@
+{
+ "model": "qwen3.5-9b-abl",
+ "created_at": "2026-11-25T22:13:00.9596137Z",
+ "prompt_eval_count": 685,
+ "eval_count": 180,
+ "done_reason": "stop"
+}
