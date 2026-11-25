@@ -3,9 +3,16 @@
 
 .chart-buttons { position: absolute; top: 4px; right: 4px; display: flex; opacity: 0; transition: opacity 120ms ease-out; }
 .chart:hover > .chart-buttons, .chart:focus-within > .chart-buttons, .chart-button.on { opacity: 1; }
-.chart-button { width: 22px; height: 22px; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--muted, #8a8a8e); cursor: pointer; }
-.chart-button:hover { background: rgb(0 0 0 / 0.06); color: var(--ink, #1d1d1f); }
-.chart-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+/* ---- Effect: button in the dashboard's variants (WT-033), its square icon size in the ghost variant, light colours ---- */
+.chart-button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+  border: 1px solid transparent; border-radius: 8px; background-clip: padding-box; background-color: transparent; color: var(--muted, #8a8a8e);
+  cursor: pointer; outline: none; user-select: none; transition: all 150ms cubic-bezier(.4, 0, .2, 1); }
+.chart-button svg { width: 14px; height: 14px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chart-button:hover { background-color: rgb(0 0 0 / .06); color: var(--ink, #1d1d1f); }
+.chart-button:active { translate: 0 1px; }
+.chart-button:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+@media (prefers-reduced-motion: reduce) { .chart-button { transition-duration: 1ms; } .chart-button:active { translate: none; } }
+/* ---- End of effect ---- */
 .chart-button.pin svg { fill: currentColor; stroke: none; }
 .chart-button.on { color: var(--ink, #1d1d1f); }
 
@@ -16,12 +23,18 @@
 #chart-pin .chart { max-width: var(--column, 760px); margin: 0 auto; box-shadow: 0 3px 8px rgb(0 0 0 / 0.08); }
 #chart-pin iframe { max-height: 280px; }
 
-#chart-zoom { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; animation: fade 240ms ease-out; }
-#chart-zoom .backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 0.25); }
-#chart-zoom .chart { width: 90vw; max-height: 85vh; margin: 0; padding: 16px; border-radius: 18px; box-shadow: 0 12px 28px rgb(0 0 0 / 0.2); }
-#chart-zoom .chart-buttons { right: 40px; opacity: 1; }
-#chart-zoom .chart-button.close { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 13px; background: rgb(0 0 0 / 0.06); }
-
-@media (prefers-reduced-motion: reduce) {
-  #chart-zoom { animation-duration: 100ms; }
-}
+/* The enlarged chart is the zoom popup (WT-118): its veil and its light glass, scoped to the overlay. */
+.chart-zoom { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; }
+.chart-zoom.closing { pointer-events: none; }
+/* ---- Effect: zoom and blur popup. Copy from here ---- */
+.chart-zoom .veil { position: absolute; inset: 0; background: rgb(0 0 0 / var(--dim, .3));
+  -webkit-backdrop-filter: blur(var(--veil-blur, 4px)); backdrop-filter: blur(var(--veil-blur, 4px)); }
+.chart-zoom .glass { color: var(--ink, #1c2127); border: 1px solid rgb(255 255 255 / .4);
+  background: color-mix(in srgb, var(--tint, #dce0e5) calc(var(--alpha, .4) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15));
+  backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15)); }
+.chart-zoom .veil:not(.open), .chart-zoom .glass:not(.open) { visibility: hidden; }
+/* ---- End of effect ---- */
+.chart-zoom .chart { width: 90vw; max-height: 85vh; margin: 0; padding: 16px; border-radius: 18px; box-shadow: 0 12px 28px rgb(0 0 0 / 0.2); }
+.chart-zoom .chart-buttons { right: 44px; opacity: 1; }
+.chart-zoom .chart-button.close { position: absolute; top: 4px; right: 4px; }

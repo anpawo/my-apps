@@ -539,7 +539,7 @@ fn enlarges_a_chart_on_a_double_click(page: &Page) -> Result<(), String> {
     page.read_until("#chart-zoom iframe", ".vcx-title", |read| texts(read) == ["Big"])?;
     let close = page.box_of("#chart-zoom .chart-button.close")?;
     input::click(&page.webview, close[0] + close[2] / 2.0, close[1] + close[3] / 2.0)?;
-    page.until("the enlarged chart to close", "!document.getElementById('chart-zoom')", |gone| gone == true).map(drop)
+    page.until("the enlarged chart to zoom out and go", "!document.querySelector('.chart-zoom')", |gone| gone == true).map(drop)
 }
 
 type Test = fn(&Page) -> Result<(), String>;

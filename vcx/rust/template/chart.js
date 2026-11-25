@@ -8,6 +8,29 @@
   const PINNED_MAX_PX = 280;
   const ENLARGED_SHARE = 0.85;
   const READ_WAIT_MS = 2000;
+  // An unshown window runs no animation frame and may never finish an animation: the zoom goes on without them.
+  const FRAME_WAIT_MS = 50;
+  const SETTLE_MARGIN_MS = 100;
+  const QUICK_MS = 100;
+
+  const settled = (promise, ms) => Promise.race([promise, new Promise(done => setTimeout(done, ms))]);
+
+  // ---- Effect: zoom and blur popup (WT-118), its two waits bounded for an unshown window ----
+  async function zoomPop(pop, veil, open, { dur = 400, out = 250, from = 108, blur = 8 } = {}) {
+    const shut = { opacity: 0, scale: from / 100, filter: `blur(${blur}px)` }, shown = { opacity: 1, scale: 1, filter: 'blur(0)' };
+    const way = { duration: open ? dur : out, easing: open ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.4,0,1,1)', fill: 'both' };
+    pop.classList.add('open');
+    veil.classList.add('open');
+    const moves = [veil.animate({ opacity: open ? [0, 1] : [1, 0] }, way), pop.animate(open ? [shut, shown] : [shown, shut], way)];
+    // Held for the popup's first paint (its backdrop blur and content), else that paint eats the start of the zoom.
+    if (open) { moves.forEach(m => m.pause()); await settled(new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))), FRAME_WAIT_MS); moves.forEach(m => m.play()); }
+    await settled(Promise.all(moves.map(m => m.finished)), way.duration + SETTLE_MARGIN_MS);
+    if (!open) { pop.classList.remove('open'); veil.classList.remove('open'); }
+    moves.forEach(m => m.cancel());
+  }
+  // ---- End of effect ----
+
+  const timing = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? { dur: QUICK_MS, out: QUICK_MS } : {};
   const ICONS = {
     pin: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5V10H8.6L8 14l-.6-4H4V8.5L6.5 6z"/></svg>',
     enlarge: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2H14v4.5M14 2l-5 5M6.5 14H2V9.5M2 14l5-5"/></svg>',
@@ -22,7 +45,7 @@
   const frameOf = source => [...document.querySelectorAll('.chart iframe')].find(frame => frame.contentWindow === source);
   const key = frame => Number(frame.dataset.frame ||= String(++frames));
   const blockOf = frame => frame.closest('.chart');
-  const view = frame => (blockOf(frame)?.classList.contains('pinned') ? 'pinned' : blockOf(frame)?.closest('#chart-zoom') ? 'enlarged' : 'inline');
+  const view = frame => (blockOf(frame)?.classList.contains('pinned') ? 'pinned' : blockOf(frame)?.closest('.chart-zoom') ? 'enlarged' : 'inline');
 
   function frame(id, mode) {
     const element = document.createElement('iframe');
@@ -47,7 +70,7 @@
     const id = block.dataset.chart;
     const bar = make('div', 'chart-buttons');
     const pin = button('pin', '', () => toggle(id));
-    bar.append(pin, ...(block.closest('#chart-zoom') ? [] : [button('enlarge', 'Enlarge the chart', () => enlarge(id, block))]));
+    bar.append(pin, ...(block.closest('.chart-zoom') ? [] : [button('enlarge', 'Enlarge the chart', () => enlarge(id, block))]));
     block.append(bar);
     label(block);
   }
@@ -94,24 +117,31 @@
     close();
     const overlay = make('div', '');
     overlay.id = 'chart-zoom';
+    overlay.className = 'chart-zoom';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Enlarged chart');
-    const backdrop = make('div', 'backdrop');
-    backdrop.addEventListener('click', close);
-    const block = make('div', 'chart enlarged');
+    const veil = make('div', 'veil');
+    veil.addEventListener('click', close);
+    const block = make('div', 'chart enlarged glass');
     block.dataset.chart = id;
     const element = frame(id, 'enlarged');
     const known = from?.querySelector('iframe')?.dataset.height;
     if (known) element.style.height = `${Math.min(Number(known), innerHeight * ENLARGED_SHARE)}px`;
     block.append(element, button('close', 'Close the chart', close));
-    overlay.append(backdrop, block);
+    overlay.append(veil, block);
     document.body.append(overlay);
     decorate(block);
+    zoomPop(block, veil, true, timing());
   }
 
+  // The overlay gives up its id at once, so a chart enlarged while it zooms out opens a new one.
   function close() {
-    document.getElementById('chart-zoom')?.remove();
+    const overlay = document.getElementById('chart-zoom');
+    if (!overlay) return;
+    overlay.id = '';
+    overlay.classList.add('closing');
+    zoomPop(overlay.querySelector('.chart'), overlay.querySelector('.veil'), false, timing()).then(() => overlay.remove());
   }
 
   function size(element, height) {

@@ -23,12 +23,14 @@ body { font: 13px/1.4 -apple-system, system-ui, Inter, sans-serif; color: #09090
 .vcx-days .day::after { right: 0; }
 .vcx-card + .vcx-card { margin-top: 16px; }
 .vcx-card > .vcx-title { margin: 0 2px 8px; }
+/* Table from data rows (WT-085), the same effect as the Swift kit it was taken from. */
 .vcx-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 .vcx-table th { font-weight: 500; font-size: 12px; color: #71717a; text-align: left; padding: 6px 10px; border-bottom: 1px solid #e4e4e7; white-space: nowrap; }
 .vcx-table td { padding: 6px 10px; border-bottom: 1px solid #f4f4f5; }
 .vcx-table .num { text-align: right; }
 .vcx-table tbody tr { transition: background-color 150ms ease-out; }
 .vcx-table tbody tr:hover { background: #fafafa; }
+/* Headline figures from data (WT-084), the same effect as the Swift kit it was taken from. */
 .vcx-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
 .vcx-tile { min-width: 96px; padding: 8px 12px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fff; transition: background-color 300ms ease-out, border-color 300ms ease-out; }
 .vcx-tile dt { font-size: 12px; line-height: 16px; color: #71717a; }
