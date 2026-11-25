@@ -42,6 +42,7 @@ enum SelfCheck {
         codexRollout(expect)
         codexBinding(expect)
         vcx(expect)
+        vcxStateRoot(expect)
         diskGrowth(expect)
         diskRefresh(expect)
         sleepGuard(expect)
@@ -83,6 +84,25 @@ enum SelfCheck {
                "disk growth retains hourly scans without a large change")
         expect(DiskGrowth.scanDue(elapsed: 60 * minute, freeChange: 0), true,
                "disk growth scans hourly without a large change")
+    }
+
+    private static func vcxStateRoot(_ expect: (Bool, Bool, String) -> Void) {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        let legacy = parent + "/cx", current = parent + "/vcx"
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        try! FileManager.default.createDirectory(atPath: current, withIntermediateDirectories: true)
+        expect(VCX.stateRoot(in: parent) == current, true,
+               "VCX reads the current state directory after migration")
+        try! FileManager.default.createDirectory(atPath: legacy, withIntermediateDirectories: true)
+        expect(VCX.stateRoot(in: parent) == legacy, true,
+               "VCX reads the legacy state directory while both directories exist")
+        try! FileManager.default.removeItem(atPath: legacy)
+        try! FileManager.default.createSymbolicLink(atPath: legacy, withDestinationPath: "vcx")
+        expect(VCX.stateRoot(in: parent) == current, true,
+               "VCX follows the current state directory once the legacy name is a link")
+        try! FileManager.default.removeItem(atPath: legacy)
+        expect(VCX.stateRoot(in: parent) == current, true,
+               "VCX keeps the current state directory after the compatibility link is removed")
     }
 
     private static func vcx(_ expect: (Bool, Bool, String) -> Void) {

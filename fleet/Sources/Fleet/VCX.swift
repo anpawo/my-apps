@@ -4,7 +4,13 @@ import NaturalLanguage
 
 @MainActor
 enum VCX {
-    static let root = NSHomeDirectory() + "/.local/state/vcx"
+    static var root: String { stateRoot(in: NSHomeDirectory() + "/.local/state") }
+
+    static func stateRoot(in parent: String) -> String {
+        let legacy = parent + "/cx"
+        var info = stat()
+        return lstat(legacy, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR ? legacy : parent + "/vcx"
+    }
     private static let transcripts = TranscriptStore()
     private static let projectEvidence = NativeProjectEvidence()
     private static var read: Set<String> = []
