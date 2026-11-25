@@ -114,6 +114,14 @@ enum RuntimeRecovery {
         try write(value, to: destination)
     }
 
+    // The session went to another frontend: this one stops answering for it, unless a newer owner already wrote the entry.
+    static func release(sessionID: String) throws {
+        let destination = try file(sessionID, kind: "window")
+        guard let value = try read(destination), value["ownerPID"] as? Int == Int(getpid()),
+              value["ownerStart"] as? UInt64 == ownerStart(getpid()) else { return }
+        if unlink(destination.path) != 0, errno != ENOENT { throw CXError(message: "Cannot release session recovery data.") }
+    }
+
     static func remove(sessionID: String) throws {
         for kind in ["window", "checkpoint"] {
             let destination = try file(sessionID, kind: kind)

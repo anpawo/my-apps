@@ -219,9 +219,14 @@ enum RecoveryCheck {
         try RuntimeRecovery.saveWindow(sessionID: registryID, socketPath: socketPath, state: state, instanceID: "registry-fixture")
         try staleOwner()
         try check((try RuntimeRecovery.pending()[0].state["draft"] as? [JSON])?.first?["text"] as? String == "newer unsent draft", "an unacknowledged newer local draft was lost after a crash")
+        try RuntimeRecovery.release(sessionID: registryID)
+        try check(try RuntimeRecovery.pending().count == 1, "a frontend released a session another frontend answers for")
         try RuntimeRecovery.requestClose(sessionID: registryID)
         try check(try RuntimeRecovery.pending().isEmpty, "a close request with a lost acknowledgment resurrected the window")
         try RuntimeRecovery.remove(sessionID: registryID)
+        try RuntimeRecovery.saveWindow(sessionID: registryID, socketPath: socketPath, state: state, instanceID: "registry-fixture")
+        try RuntimeRecovery.release(sessionID: registryID)
+        try check(!FileManager.default.fileExists(atPath: registryFile.path), "a session moved to another frontend stayed in this one's recovery list")
         print("\(count) crash recovery checks passed")
         return count
     }

@@ -210,9 +210,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
         if !headless, let desktop = state["desktop"] as? Int { restoreDesktops[ObjectIdentifier(window)] = desktop }
         startRefresh()
-        client.onLeaseLost = { [weak self, weak window] in
+        client.onLeaseLost = { [weak self, weak window, weak client] in
             guard let self, let window else { return }
             guard !self.updating else { return }
+            // Kept in the recovery list, the session would be taken back from its new frontend at the next cold launch.
+            if let client, !self.windows.contains(where: { $0.window !== window && $0.session.runtimeClient?.sessionID == client.sessionID }) {
+                try? RuntimeRecovery.release(sessionID: client.sessionID)
+            }
             self.closing.insert(ObjectIdentifier(window)); window.close()
         }
         if !headless {
