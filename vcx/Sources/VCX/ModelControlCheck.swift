@@ -64,6 +64,12 @@ enum ModelControlCheck {
         session.backgroundTasks = 0; session.draft = NSAttributedString(string: "unsent draft")
         guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve an unsent draft") }
         session.draft = NSAttributedString()
+        let wasReady = session.ready, rows = session.rows
+        session.ready = false; session.rows = []
+        guard CloseControl.reason(session, window: window) == nil else { throw CXError(message: "FAIL: a window that never connected nor was prompted must be closable") }
+        session.rows = [Row("user", [])]
+        guard CloseControl.reason(session, window: window) != nil else { throw CXError(message: "FAIL: close control must preserve a disconnected conversation") }
+        session.ready = wasReady; session.rows = rows
         print("Close control checks passed: active work, background work and drafts are preserved")
     }
 }

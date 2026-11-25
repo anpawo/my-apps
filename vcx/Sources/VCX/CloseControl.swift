@@ -9,7 +9,9 @@ enum CloseControl {
     static let closableStates: Set<String> = ["ready", "fresh"]
 
     static func reason(_ session: Session, window: NSWindow) -> String? {
-        if session.disabled || session.frontendReplacing { return "session is working or reconnecting" }
+        // A window that never connected and was never prompted has nothing to save or lose.
+        let neverUsed = !session.ready && !session.busy && !session.changing && !session.rows.contains { $0.kind == "user" }
+        if (session.disabled && !neverUsed) || session.frontendReplacing { return "session is working or reconnecting" }
         if session.backgroundTasks > 0 { return "background work is running" }
         if session.draft.length > 0 { return "the composer contains a draft" }
         if !session.permissions.isEmpty || window.attachedSheet != nil { return "a decision is pending" }
