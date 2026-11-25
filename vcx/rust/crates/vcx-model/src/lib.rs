@@ -1,6 +1,8 @@
+pub mod assets;
 pub mod item;
 pub mod markdown;
 pub mod replica;
+pub mod requests;
 pub mod state;
 pub mod view;
 

@@ -1,21 +1,109 @@
-use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, html};
+use crate::assets;
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
 
 /// Link targets the page may follow; anything else (`javascript:`, `data:`) is cut.
 const SAFE_SCHEMES: [&str; 4] = ["http://", "https://", "mailto:", "file://"];
 const BLOCKED_TARGET: &str = "#";
+/// A fence longer than three marks exists only to hold nested fences: its content is a Markdown document.
+const PLAIN_FENCE: usize = 3;
+const MARKDOWN_LANGUAGES: [&str; 2] = ["md", "markdown"];
+
+/// The answer lines Marius's replies open and close with, each drawn as its own coloured band.
+const ANSWER_LINES: [(&str, &str, &str); 3] = [("⟶ Next:", "next", "+ Next:"), ("⟶ ", "short", ""), ("✓ Done:", "done", "✓ Done:")];
 
 /// Agent Markdown as HTML the page can insert as is: raw HTML in the source comes out as text.
 pub fn to_html(markdown: &str) -> String {
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let events = Parser::new_ext(markdown, options).map(|event| match event {
-        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
-        Event::Start(Tag::Link { link_type, dest_url, title, id }) => Event::Start(Tag::Link { link_type, dest_url: safe_target(dest_url), title, id }),
-        Event::Start(Tag::Image { link_type, dest_url, title, id }) => Event::Start(Tag::Image { link_type, dest_url: safe_target(dest_url), title, id }),
-        other => other,
-    });
+    let mut parser = Parser::new_ext(markdown, options).into_offset_iter();
+    let mut events = Vec::new();
+    while let Some((event, range)) = parser.next() {
+        match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let mut code = String::new();
+                for (inner, _) in parser.by_ref() {
+                    match inner {
+                        Event::Text(text) => code.push_str(&text),
+                        Event::End(TagEnd::CodeBlock) => break,
+                        _ => {}
+                    }
+                }
+                events.push(Event::Html(code_block(&kind, &code, &markdown[range]).into()));
+            }
+            Event::Html(raw) | Event::InlineHtml(raw) => events.push(Event::Text(raw)),
+            Event::Start(Tag::Link { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Link { link_type, dest_url: safe_target(dest_url), title, id })),
+            Event::Start(Tag::Image { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Image { link_type, dest_url: safe_target(dest_url), title, id })),
+            other => events.push(other),
+        }
+    }
+    mark_answer_lines(&mut events);
     let mut output = String::with_capacity(markdown.len() * 3 / 2);
-    html::push_html(&mut output, events);
+    html::push_html(&mut output, events.into_iter());
     output
+}
+
+fn mark_answer_lines(events: &mut [Event<'_>]) {
+    for index in 1..events.len() {
+        if !matches!(events[index - 1], Event::Start(Tag::Paragraph)) {
+            continue;
+        }
+        let Event::Text(text) = &events[index] else { continue };
+        let Some((prefix, class, shown)) = ANSWER_LINES.iter().find(|(prefix, ..)| text.starts_with(prefix)) else { continue };
+        let rest = format!("{shown}{}", &text[prefix.len()..]);
+        events[index] = Event::Text(rest.into());
+        events[index - 1] = Event::Html(format!("<p class=\"answer {class}\">").into());
+    }
+}
+
+fn code_block(kind: &CodeBlockKind<'_>, code: &str, source: &str) -> String {
+    let info = match kind {
+        CodeBlockKind::Fenced(info) => info.as_ref(),
+        CodeBlockKind::Indented => "",
+    };
+    let tags: Vec<String> = info.split_whitespace().map(str::to_lowercase).collect();
+    let language = info.split_whitespace().next().unwrap_or_default();
+    let (fence, closed) = fence(source);
+    if tags.first().map(String::as_str) == Some("chart") && closed {
+        let id = assets::chart(code);
+        let pin = tags.iter().any(|tag| tag == "pin");
+        return format!("<div class=\"chart\" data-chart=\"{id}\" data-pin=\"{pin}\"><iframe sandbox=\"allow-scripts\" src=\"vcx://chart/{id}\" title=\"Chart\"></iframe></div>");
+    }
+    let markdown = matches!(kind, CodeBlockKind::Fenced(_)) && (MARKDOWN_LANGUAGES.contains(&tags.first().map(String::as_str).unwrap_or_default()) || fence > PLAIN_FENCE);
+    let label = match (language.is_empty(), markdown) {
+        (false, _) => escape(language),
+        (true, true) => "Markdown".to_owned(),
+        (true, false) => "Code".to_owned(),
+    };
+    let head = format!("<figcaption><span class=\"language\">{label}</span><button type=\"button\" class=\"copy\" aria-label=\"Copy code\" title=\"Copy code\"></button></figcaption>");
+    if markdown {
+        return format!("<figure class=\"code markdown\">{head}<div class=\"prose\">{}</div><pre class=\"source\" hidden><code>{}</code></pre></figure>", to_html(code), escape(code));
+    }
+    let class = if language.is_empty() { String::new() } else { format!(" class=\"language-{}\"", escape(language)) };
+    format!("<figure class=\"code\">{head}<pre><code{class}>{}</code></pre></figure>", escape(code))
+}
+
+/// The length of the block's opening fence, and whether a fence closes it: a chart still streaming in stays code.
+fn fence(source: &str) -> (usize, bool) {
+    let mut lines = source.lines().map(str::trim).filter(|line| !line.is_empty());
+    let Some(first) = lines.next() else { return (0, false) };
+    let Some(mark) = first.chars().next().filter(|mark| matches!(mark, '`' | '~')) else { return (0, true) };
+    let length = first.chars().take_while(|letter| *letter == mark).count();
+    let closed = lines.last().is_some_and(|last| last.chars().all(|letter| letter == mark) && last.chars().count() >= length);
+    (length, closed)
+}
+
+fn escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len() + text.len() / 8);
+    for letter in text.chars() {
+        match letter {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
 }
 
 fn safe_target(target: CowStr<'_>) -> CowStr<'_> {
@@ -59,5 +147,50 @@ mod tests {
 
         assert!(html.contains("href=\"/Users/me/notes.md\""), "{html}");
         assert!(html.contains("href=\"docs/a.md#top\""), "{html}");
+    }
+
+    #[test]
+    fn gives_a_code_block_its_language_and_a_copy_button() {
+        let html = to_html("```sh\necho \"<hi>\"\n```\n\n    indented\n");
+
+        assert!(html.contains("<span class=\"language\">sh</span><button type=\"button\" class=\"copy\""), "{html}");
+        assert!(html.contains("<code class=\"language-sh\">echo &quot;&lt;hi&gt;&quot;\n</code>"), "{html}");
+        assert!(html.contains("<span class=\"language\">Code</span>"), "{html}");
+    }
+
+    #[test]
+    fn draws_a_long_fence_as_formatted_markdown_holding_its_nested_fences() {
+        let html = to_html("````\n# Title\n\n```js\nx()\n```\n````\n");
+
+        assert!(html.contains("<figure class=\"code markdown\">"), "{html}");
+        assert!(html.contains("<h1>Title</h1>"), "{html}");
+        assert!(html.contains("<code class=\"language-js\">x()"), "{html}");
+    }
+
+    #[test]
+    fn turns_a_closed_chart_block_into_a_sandboxed_frame_served_by_the_core() {
+        let html = to_html("```chart pin\n<p>chart</p>\n```\n");
+
+        let id = assets::chart("<p>chart</p>\n");
+        assert!(html.contains(&format!("<iframe sandbox=\"allow-scripts\" src=\"vcx://chart/{id}\"")), "{html}");
+        assert!(html.contains("data-pin=\"true\""), "{html}");
+    }
+
+    #[test]
+    fn keeps_a_chart_still_streaming_in_as_code() {
+        let html = to_html("```chart\n<p>half");
+
+        assert!(!html.contains("<iframe"), "{html}");
+        assert!(html.contains("<span class=\"language\">chart</span>"), "{html}");
+    }
+
+    #[test]
+    fn marks_the_answer_lines_with_their_band() {
+        let html = to_html("⟶ It works.\n\nDetails.\n\n✓ Done: shipped.\n\n⟶ Next: ship it?");
+
+        assert!(html.contains("<p class=\"answer short\">It works.</p>"), "{html}");
+        assert!(html.contains("<p class=\"answer done\">✓ Done: shipped.</p>"), "{html}");
+        assert!(html.contains("<p class=\"answer next\">+ Next: ship it?</p>"), "{html}");
+        assert!(html.contains("<p>Details.</p>"), "{html}");
     }
 }

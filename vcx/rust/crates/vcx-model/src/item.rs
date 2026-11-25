@@ -10,6 +10,60 @@ const OUTPUT_KEYS: [&str; 5] = ["aggregatedOutput", "result", "error", "contentI
 const FILE_INPUT_KEYS: [&str; 2] = ["file_path", "notebook_path"];
 const SUMMARY_INPUT_KEYS: [&str; 5] = ["description", "pattern", "url", "query", "skill"];
 
+/// The scripts that run a round between models from a session; their output holds each turn after a `<<debate <speaker> [model]>>` line.
+const DEBATE_SCRIPTS: [&str; 7] = ["ask-codex.sh", "ask-qwen.sh", "ask-agy.sh", "ask-gemini.sh", "ask-grok.sh", "ask-muse.sh", "ask-meta.sh"];
+const DEBATE_HEAD: &str = "<<debate ";
+const DEBATE_TAIL: &str = ">>";
+
+#[derive(Debug, PartialEq)]
+pub struct DebateTurn {
+    pub speaker: String,
+    pub model: String,
+    pub text: String,
+}
+
+pub fn debate_turns(output: &str) -> Vec<DebateTurn> {
+    let mut turns = Vec::new();
+    let mut head: Option<(String, String)> = None;
+    let mut lines: Vec<&str> = Vec::new();
+    let mut close = |head: &Option<(String, String)>, lines: &mut Vec<&str>| {
+        if let Some((speaker, model)) = head {
+            turns.push(DebateTurn { speaker: speaker.clone(), model: model.clone(), text: lines.join("\n").trim().to_owned() });
+        }
+        lines.clear();
+    };
+    for line in output.split('\n') {
+        match line.strip_prefix(DEBATE_HEAD).and_then(|rest| rest.strip_suffix(DEBATE_TAIL)) {
+            Some(words) => {
+                close(&head, &mut lines);
+                let (speaker, model) = words.split_once(' ').unwrap_or((words, ""));
+                let speaker = if speaker.is_empty() { "agent".to_owned() } else { speaker.to_lowercase() };
+                head = Some((speaker, model.to_owned()));
+            }
+            None if head.is_some() => lines.push(line),
+            None => {}
+        }
+    }
+    close(&head, &mut lines);
+    turns
+}
+
+/// The kind a row is drawn as, ported from `Row.kind` in the Swift `Session.swift`: a lone debate command that emitted
+/// turns is a debate; reads and edits that only mention a debate script stay activity.
+pub fn row_kind<'a>(stored: &'a str, items: &[&Object]) -> &'a str {
+    if !matches!(stored, "activity" | "debate") {
+        return stored;
+    }
+    let Some(item) = items.first() else { return stored };
+    if (items.len() != 1 && stored != "debate") || kind(item) != "commandExecution" {
+        return stored;
+    }
+    if !DEBATE_SCRIPTS.iter().any(|script| text(item, "command").unwrap_or_default().contains(script)) {
+        return stored;
+    }
+    if items.len() != 1 || debate_turns(&output(item)).is_empty() { "activity" } else { "debate" }
+}
+
 pub fn kind(item: &Object) -> &str {
     text(item, "type").unwrap_or("activity")
 }
@@ -156,6 +210,31 @@ mod tests {
 
         assert!(shown.ends_with("END\nExit: 0"));
         assert_eq!(shown.chars().count(), MAX_OUTPUT_CHARS + "\nExit: 0".len());
+    }
+
+    #[test]
+    fn reads_each_turn_of_a_debate_with_its_speaker_and_model() {
+        let output = "preamble\n<<debate Claude>>\nmy point\n\n<<debate codex gpt-6.2 sol>>\nits answer\n";
+
+        let turns = debate_turns(output);
+
+        assert_eq!(turns, vec![
+            DebateTurn { speaker: "claude".into(), model: String::new(), text: "my point".into() },
+            DebateTurn { speaker: "codex".into(), model: "gpt-6.2 sol".into(), text: "its answer".into() },
+        ]);
+    }
+
+    #[test]
+    fn draws_a_lone_debate_command_with_turns_as_a_debate() {
+        let debate = object(json!({"type": "commandExecution", "command": "~/bin/ask-codex.sh brief.md", "aggregatedOutput": "<<debate codex>>\nyes"}));
+        let mention = object(json!({"type": "commandExecution", "command": "cat ask-codex.sh", "aggregatedOutput": "no turns"}));
+        let other = object(json!({"type": "commandExecution", "command": "ls"}));
+
+        assert_eq!(row_kind("activity", &[&debate]), "debate");
+        assert_eq!(row_kind("debate", &[&mention]), "activity");
+        assert_eq!(row_kind("debate", &[&debate, &other]), "activity");
+        assert_eq!(row_kind("activity", &[&other]), "activity");
+        assert_eq!(row_kind("user", &[&debate]), "user");
     }
 
     #[test]
