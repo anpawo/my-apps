@@ -2,6 +2,8 @@ import SwiftUI
 import AppKit
 import Combine
 
+private let reducedThoughtSpacingDuration = 0.1
+
 // The transcript is a stack of AppKit rows: one row per question, per exchange and per spacer, each an NSHostingView of the
 // SwiftUI row. SwiftUI's LazyVStack spun the main thread in its own prefetch (11-10: 17,000 layout
 // transactions a second with no VCX callback in them); a List measured every row up front (1 s to open 21 exchanges).
@@ -291,8 +293,13 @@ final class TranscriptController: NSObject {
                     WorkBlock(rows: parts.trail, details: on, reveal: { [weak self] in self?.scroll(to: section.question == nil ? key : .question(id), bottom: false, animated: !reduceMotion) }, viewportTop: top)
                 }
                 ForEach(parts.debates) { row in if let item = row.items.first { DebateView(item: item, ownModel: session.modelLabel) } }
-                ForEach(parts.notes) { row in ConversationRow(row: row, session: session, showsProvider: row.id == parts.notes.first?.id, progress: true).equatable() }
-                if let last = parts.last { ConversationRow(row: last, session: session, showsProvider: parts.notes.isEmpty, progress: working).equatable() }
+                if let last = parts.last {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(parts.notes) { row in ConversationRow(row: row, session: session, showsProvider: row.id == parts.notes.first?.id, progress: true).equatable() }
+                        ConversationRow(row: last, session: session, showsProvider: parts.notes.isEmpty, progress: working).equatable()
+                            .padding(.top, !working && !parts.notes.isEmpty ? 8 : 0)
+                    }.clipped().animation(reduceMotion ? .easeOut(duration: reducedThoughtSpacingDuration) : .easeOut, value: working)
+                }
                 if !sent.isEmpty {
                     WorkBlock(rows: sent, details: on, reveal: { [weak self] in self?.scroll(to: key, bottom: parts.last != nil, animated: !reduceMotion) }, viewportTop: top)
                 }
