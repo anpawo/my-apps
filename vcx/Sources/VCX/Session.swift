@@ -530,6 +530,7 @@ final class Session: ObservableObject {
                     }
                     // A bare Claude session ID (vcx --resume <id>) went to Codex, which answered "no rollout found".
                     let projects = NSHomeDirectory() + "/.claude/projects/"
+                    if !id.contains(":") { restoreClaudeTranscript(id) }
                     if !id.contains(":"), ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains(where: { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }) { id = "claude:" + id }
                     let provider = id.hasPrefix("claude:") ? "claude" : id.hasPrefix("agy:") ? "agy" : "codex"
                     let profiles = Settings.shared.candidates(provider).filter { $0.provider == provider && $0.enabled }

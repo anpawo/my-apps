@@ -87,9 +87,22 @@ func configuredClaudeEffort(account: Account, cwd: String, model: String) -> Str
     return modelEffort ?? effort
 }
 
+// A closed session's transcript is deleted once ~/.local/share/memory/chats.sqlite holds it exact (my-setup's
+// macos/dream/chats.py, default Claude home only): written back here before a resume looks for it.
+func restoreClaudeTranscript(_ id: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+    process.arguments = ["-I", NSHomeDirectory() + "/self/my-setup/macos/dream/chats.py", "restore", id]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return }
+    process.waitUntilExit()
+}
+
 // Claude writes a conversation to disk only with its first message: a window restored before it (after a live update)
 // resumed an ID Claude never saved, got "No conversation found" and lost the prompt.
 func claudeSaved(_ id: String, account: Account) -> Bool {
+    if account.home == nil { restoreClaudeTranscript(id) }
     let projects = (account.home ?? NSHomeDirectory() + "/.claude") + "/projects/"
     return ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }
 }
@@ -353,9 +366,7 @@ final class ClaudeConnection: Connection {
             Task { [weak self] in
                 guard let self, !closed else { return }
                 do {
-                    let session = String(thread.dropFirst(7)), projects = (account.home ?? NSHomeDirectory() + "/.claude") + "/projects"
-                    let saved = ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains { FileManager.default.fileExists(atPath: "\(projects)/\($0)/\(session).jsonl") }
-                    try launch(resume: saved)
+                    try launch(resume: claudeSaved(String(thread.dropFirst(7)), account: account))
                     if let effort { _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15) }
                     // A prompt steered in while the turn hung waited in the killed process's queue (2026-11-22: a Watcher task
                     // queued behind his first question never reached Claude), so it goes again behind the turn's own.

@@ -21,6 +21,7 @@ import uuid
 HOME = Path.home()
 CONFIG = Path(os.environ.get('VCX_CONFIG_HOME', HOME / 'Library/Application Support/VCX'))
 STATE = Path(os.environ.get('VCX_STATE_HOME', HOME / '.local/state/vcx'))
+RESTORE_SECONDS = 60
 QUOTA = re.compile(r'usage.?limit|rate.?limit|weekly limit|hit your limit|out of credits|credit balance.*(?:low|exhaust)|insufficient.?quota', re.I)
 AUTH = re.compile(r'not logged in|authentication (?:failed|required)|unauthorized|invalid (?:api key|authentication)|refresh token.*(?:expired|invalid)|please (?:run.*login|log in|login)', re.I)
 CHILD = None
@@ -528,6 +529,10 @@ class Runner:
             command_args += ['--mcp-config', config]
         if resume:
             command_args += ['--resume', resume]
+            if not account.get('home'):
+                # A closed session's transcript is deleted once chats.sqlite holds it exact: written back before the resume.
+                subprocess.run(['/usr/bin/python3', '-I', str(HOME / 'self/my-setup/macos/dream/chats.py'), 'restore', resume],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=RESTORE_SECONDS)
         body = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}).encode() + b'\n'
         streamed = self.args.output_format == 'stream-json'
         events = []
