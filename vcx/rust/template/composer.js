@@ -10,6 +10,11 @@
   const FLIGHT_MS = 420;
   const FLIGHT_WAIT_MS = 5000;
   const IMAGE_MAX_BYTES = 32 * 1024 * 1024;
+  // The command palette's opening, WT-089: it fades in from 95 %.
+  const PALETTE_OPEN_MS = 200;
+  const PALETTE_OPEN_SCALE = 0.95;
+  // The address pills' glide, WT-061.
+  const PILL_GLIDE_MS = 300;
   const PROVIDERS = ['claude', 'codex', 'qwen', 'agy'];
   // Their values run as soon as they are chosen; the others go into the composer to be read before Return.
   const RUN_AT_ONCE = ['/model ', '/provider ', '/perms ', '/resume '];
@@ -64,6 +69,25 @@
     return node;
   }
 
+  // A 24-pixel icon of his templates' stroke set: `paths` are its SVG path data.
+  function icon(...paths) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const d of paths) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      svg.append(path);
+    }
+    return svg;
+  }
+
+  // The button variants, WT-033: send is the default one with an arrow, stop the destructive one with a square.
+  $('send').className = 'b b-default';
+  $('send').append(icon('M12 19V5', 'm5 12 7-7 7 7'));
+  $('stop').className = 'b b-destructive';
+  $('stop').append(icon('M7 7h10v10H7z'));
+
   const strip = make('div', 'attachments');
   strip.id = 'attachments';
   strip.hidden = true;
@@ -71,15 +95,64 @@
   const panel = make('div');
   panel.id = 'palette';
   panel.setAttribute('role', 'listbox');
+  const list = make('div', 'palette-list');
   const head = make('div', 'palette-head');
   const title = make('span', 'palette-title');
   const count = make('span', 'palette-count');
-  head.append(title, count, make('span', 'palette-esc', 'esc'));
-  const list = make('div', 'palette-list');
+  head.append(title, count);
   const foot = make('div', 'palette-foot');
-  for (const [key, what] of [['↑', ''], ['↓', 'navigate'], ['↩', 'select'], ['⇥', 'complete']]) foot.append(make('kbd', '', key), what ? make('span', '', what) : '');
-  panel.append(head, list, foot);
+  for (const [key, what] of [['↑↓', 'navigate'], ['↩', 'select'], ['⇥', 'complete'], ['esc', 'close']]) foot.append(make('kbd', '', key), make('span', '', what));
+  panel.append(list, make('div', 'palette-sep'), foot);
   form.before(panel);
+
+  // ---- Effect: address pills pack onto the fewest lines. Copy from here ----
+  // The order that lays items `w` px wide, `gap` apart, on the fewest lines `line` px wide: the widest first, each on
+  // the first line with room for it (first-fit decreasing), a line's items in their own order; `last` px kept at the
+  // end of the last line.
+  function pack(w, line, gap, last = 0) {
+    const lines = [], all = w.map((x, n) => [x, n]);
+    if (last) all.push([last, -1]);
+    for (const [x, n] of all.sort((a, b) => b[0] - a[0])) {
+      let at = lines.find(l => l.room >= x);
+      if (!at) lines.push(at = { room: line, of: [] });
+      at.room -= x + gap;
+      at.of.push(n);
+    }
+    const ends = l => (l.of.includes(-1) ? 1 : 0);
+    return lines.sort((a, b) => ends(a) - ends(b)).flatMap(l => l.of.filter(n => n >= 0).sort((a, b) => a - b));
+  }
+  // Lays the pills of `dd` in that order (their CSS order) whenever it changes size or holds other pills; a pill that
+  // moves glides from where it stood in `dur` ms, a new one grows in, and the field eases to its new height.
+  function packPills(dd, { dur = 300 } = {}) {
+    const was = new Map(), calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let tall = 0;
+    // its place in the layout, whatever glide is under way
+    const at = el => [el.offsetLeft, el.offsetTop];
+    const lay = () => {
+      const pills = [...dd.children];
+      if (pills.length === 0) return void (tall = 0);
+      pack(pills.map(p => p.offsetWidth + 1), dd.clientWidth, parseFloat(getComputedStyle(dd).columnGap) || 0)
+        .forEach((n, k) => { pills[n].style.order = k; });
+      for (const k of pills) {
+        const [x, y] = at(k), old = was.get(k);
+        if (!old) k.animate({ opacity: [0, 1], scale: [0.85, 1] }, { duration: calm ? 100 : dur * 0.7, easing: 'ease-out' });
+        else if (!calm && (old[0] !== x || old[1] !== y)) k.animate({ translate: [`${old[0] - x}px ${old[1] - y}px`, '0 0'] }, { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        was.set(k, [x, y]);
+      }
+      // the height its pills take, whatever the height animation shows meanwhile
+      const h = Math.max(...pills.map(k => k.offsetTop + k.offsetHeight)) - Math.min(...pills.map(k => k.offsetTop));
+      if (tall && h !== tall && !calm) {
+        const from = dd.getAnimations().length ? dd.offsetHeight : tall;
+        dd.getAnimations().forEach(a => a.cancel());
+        dd.animate({ height: [from + 'px', h + 'px'], overflow: ['clip', 'clip'] }, { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }
+      tall = h;
+    };
+    new ResizeObserver(lay).observe(dd);
+    new MutationObserver(lay).observe(dd, { childList: true });
+  }
+  // ---- End of effect ----
+  packPills(strip, { dur: PILL_GLIDE_MS });
 
   const imageToken = number => `[Image #${number}]`;
   const pasteToken = number => `[Paste #${number}]`;
@@ -161,10 +234,22 @@
     return text;
   }
 
+  // ---- Effect: text area that grows. Copy from here ----
+  // The text area takes its text's height on each input: measured at no height, then eased from the old one. Past
+  // INPUT_MAX_HEIGHT_PX it stops growing and scrolls.
   function grow() {
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, INPUT_MAX_HEIGHT_PX)}px`;
+    const was = input.style.height;
+    input.style.transition = 'none';
+    input.style.height = '0';
+    const full = input.scrollHeight + input.offsetHeight - input.clientHeight;
+    const tall = `${Math.min(full, INPUT_MAX_HEIGHT_PX)}px`;
+    input.style.height = was || tall;
+    void input.offsetHeight;
+    input.style.transition = '';
+    input.style.height = tall;
+    input.style.overflowY = full > INPUT_MAX_HEIGHT_PX ? 'auto' : 'hidden';
   }
+  // ---- End of effect ----
 
   function refresh() {
     grow();
@@ -229,7 +314,8 @@
     }
     const label = chipLabel(place, images);
     node.append(make('span', 'attachment-label', label));
-    const remove = make('button', 'attachment-remove', '×');
+    const remove = make('button', 'attachment-remove');
+    remove.append(icon('M18 6 6 18', 'm6 6 12 12'));
     remove.type = 'button';
     remove.setAttribute('aria-label', `Remove ${label}`);
     remove.addEventListener('mousedown', event => event.preventDefault());
@@ -243,16 +329,17 @@
     const shown = placed().filter(place => !seen.has(place.token) && seen.add(place.token));
     const key = shown.map(place => place.token).join('\n');
     if (key === strip.dataset.key) return;
-    const before = new Set((strip.dataset.key || '').split('\n'));
     strip.dataset.key = key;
+    // A pill whose token and label stay is kept, so the packing glides it rather than growing it in again.
+    const kept = new Map([...strip.children].map(node => [`${node.dataset.token}\n${node.querySelector('.attachment-label').textContent}`, node]));
     let images = 0;
-    strip.replaceChildren(...shown.map(place => {
+    const nodes = shown.map(place => {
       if (place.chip.kind === 'image') images += 1;
       const node = chipNode(place, images);
-      if (!before.has(place.token)) node.classList.add('enter');
-      return node;
-    }));
+      return kept.get(`${place.token}\n${node.querySelector('.attachment-label').textContent}`) || node;
+    });
     strip.hidden = shown.length === 0;
+    strip.replaceChildren(...nodes);
   }
 
   function removeToken(token) {
@@ -303,6 +390,7 @@
     }
     return commands;
   }
+  window.vcxCatalog = catalog;
 
   // Swift's `commandOptions`: exact names first, then names that start with the query, then names and details that hold it.
   function commandOptions(query) {
@@ -382,6 +470,7 @@
   function closePalette() {
     palette.kind = '';
     palette.key = '';
+    panel.getAnimations().forEach(motion => motion.cancel());
     panel.classList.remove('open');
     form.removeAttribute('aria-expanded');
   }
@@ -414,7 +503,7 @@
     const files = palette.kind === 'file';
     title.textContent = files ? 'Files' : 'Commands';
     count.textContent = String(palette.options.length);
-    list.replaceChildren(...palette.options.map((option, index) => {
+    list.replaceChildren(head, ...palette.options.map((option, index) => {
       const row = make('div', index === palette.selected ? 'palette-option selected' : 'palette-option');
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(index === palette.selected));
@@ -428,9 +517,13 @@
       return row;
     }));
     if (palette.options.length === 0) list.append(make('div', 'palette-option-none', files ? 'Looking for files…' : 'No matching commands'));
-    panel.classList.add('open');
+    if (!panel.classList.contains('open')) {
+      panel.classList.add('open');
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!calm) panel.animate({ opacity: [0, 1], scale: [PALETTE_OPEN_SCALE, 1] }, { duration: PALETTE_OPEN_MS, easing: 'ease-out' });
+    }
     form.setAttribute('aria-expanded', 'true');
-    list.children[palette.selected]?.scrollIntoView({ block: 'nearest' });
+    list.querySelectorAll('.palette-option')[palette.selected]?.scrollIntoView({ block: 'nearest' });
   }
 
   function move(direction) {

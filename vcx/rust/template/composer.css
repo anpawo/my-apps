@@ -1,53 +1,90 @@
+/* The composer. Each element is one of his web templates (~/self/templates/web), copied between its effect markers,
+   then scoped to the composer's own ids and classes and given light colours where the template is dark: the box is
+   the text area that grows WT-035, the send and stop buttons the button variants WT-033, the chips the address
+   pills WT-061, the / and @ list the command palette WT-089. The list's key hints and a chip's remove button have no
+   template and are drawn in their style. */
 footer { position: relative; }
 
-#composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 16px; background: var(--panel); }
-#input { flex: 1; min-height: 28px; max-height: 220px; padding: 4px 0; border: 0; outline: 0; resize: none; background: none; color: inherit; font: inherit; }
-#input::placeholder { color: var(--muted); }
-#composer > button { flex: none; width: 28px; height: 28px; border: 0; cursor: pointer; }
-#stop { border-radius: 7px; background: var(--ink); }
-#send { border-radius: 50%; background: linear-gradient(135deg, #ff7eb6, #8b5cf6); }
-#send::before { content: "↑"; color: #fff; font-weight: 700; }
+/* ---- Effect: text area that grows. Copy from here ---- */
+/* The recon dashboard's text area (ui/textarea.tsx): radius 10, a faint fill and a grey border, its focus the same
+   blue ring as the fields. It is as tall as its text, and its height eases to each new line. Here the border and the
+   ring are the composer's, around the text, its chips and its buttons. */
+#composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid #c5cbd3; border-radius: 10px;
+  background: rgb(255 255 255 / .6);
+  transition: border-color 150ms cubic-bezier(.4, 0, .2, 1), box-shadow 150ms cubic-bezier(.4, 0, .2, 1); }
+#composer:focus-within { border-color: var(--ring, #4c90f0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #4c90f0) 50%, transparent); }
+#input { flex: 1; align-self: center; min-width: 0; padding: 6px 0; border: 0; resize: none; overflow: hidden; background: none; color: #1c2127;
+  font: 14px/20px Inter, -apple-system, system-ui, sans-serif; outline: none; transition: height var(--grow, 200ms) ease-out; }
+#input::placeholder { color: #8f99a8; }
+@media (prefers-reduced-motion: reduce) { #composer, #input { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
 
-.attachments { display: flex; flex-wrap: wrap; flex-basis: 100%; gap: 6px; font-size: 11px; }
+/* ---- Effect: button in the dashboard's variants. Copy from here ---- */
+/* The recon dashboard's button (ui/button.tsx): 32 px tall, radius 10, an icon 16 px. Under the pointer its fill steps
+   up; pressed, it sinks 1 px; with the keyboard, a blue ring. Send is the default variant, stop the destructive one. */
+#composer > .b { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+  border: 1px solid transparent; border-radius: 10px; background-clip: padding-box; color: #fff; cursor: pointer; outline: none; user-select: none;
+  transition: all var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+#composer > .b[hidden] { display: none; }
+#composer > .b svg { width: 16px; height: 16px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#composer > .b:active { translate: 0 1px; }
+#composer > .b:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+.b-default { background-color: #2d72d2; }
+.b-default:hover { background-color: rgb(45 114 210 / .8); }
+.b-destructive { background-color: rgb(231 106 110 / .2); color: #e76a6e; }
+#composer > .b-destructive { color: #c23030; }
+.b-destructive:hover { background-color: rgb(231 106 110 / .3); }
+#composer > .b-destructive:focus-visible { border-color: rgb(231 106 110 / .4); box-shadow: 0 0 0 3px rgb(231 106 110 / .4); }
+#composer > #stop svg { fill: currentColor; stroke: none; }
+@media (prefers-reduced-motion: reduce) { #composer > .b { transition-duration: 1ms; } #composer > .b:active { translate: none; } }
+/* ---- End of effect ---- */
+
+/* ---- Effect: address pills pack onto the fewest lines. Copy from here ---- */
+/* The recon dashboard's draft mail (mail.tsx, People, Pills, usePacked): the pills sit on the fewest lines (widest
+   first, each on the first line with room); a pill that moves glides to its new place. Grey for a file, blue for a
+   folder, violet for a picture, green for a folded paste. */
+.attachments { display: flex; flex-wrap: wrap; flex-basis: 100%; align-items: center; gap: 4px; min-width: 0; margin: 0; padding-top: 2px; line-height: 24px;
+  font: 12px/24px Inter, -apple-system, system-ui, sans-serif; }
 .attachments[hidden] { display: none; }
-.attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 2px 4px 2px 9px; border-radius: 9px; background: var(--page); box-shadow: 0 0 0 1px var(--line); }
-.attachment.enter { animation: chip-in 220ms ease-out; }
-.attachment img { width: 20px; height: 20px; margin-left: -5px; border-radius: 5px; object-fit: cover; }
-.attachment-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment.image .attachment-label { color: #6b3fd4; }
-.attachment.paste .attachment-label { color: #9a5b00; }
-.attachment.folder .attachment-label { color: #2456b8; }
-.attachment-remove { width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font: inherit; line-height: 16px; cursor: pointer; }
-.attachment-remove:hover { background: var(--panel); color: var(--ink); }
-@keyframes chip-in { from { opacity: 0; transform: scale(0.92); } }
+.attachment { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 4px 2px 10px; border-radius: 999px; line-height: 20px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1c2127; }
+.attachment.file { background: rgb(28 33 39 / .08); }
+.attachment.paste { background: var(--added-bg, oklch(96.2% .044 156.743)); color: var(--added-ink, oklch(39.3% .095 152.535)); }
+.attachment.folder { background: oklch(93.2% .032 255.585); color: oklch(37.9% .146 265.522); }
+.attachment.image { background: oklch(94.3% .029 294.588); color: oklch(38% .189 293.745); }
+.attachment svg { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+/* ---- End of effect ---- */
+.attachment img { width: 18px; height: 18px; margin-left: -6px; border-radius: 999px; object-fit: cover; }
+.attachment-label { overflow: hidden; text-overflow: ellipsis; }
+/* New, in the pills' style: the round remove button at a pill's end, as the pills' + is round. */
+.attachment-remove { display: grid; place-items: center; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: none;
+  color: inherit; opacity: .6; cursor: pointer; transition: background-color 150ms cubic-bezier(.4, 0, .2, 1), opacity 150ms cubic-bezier(.4, 0, .2, 1); }
+.attachment-remove:hover { background: rgb(28 33 39 / .1); opacity: 1; }
+.attachment-remove:active { translate: 0 1px; }
 
-#palette {
-  position: absolute; left: 24px; right: 24px; bottom: calc(100% - 4px); max-width: var(--column); margin-inline: auto;
-  display: flex; flex-direction: column; border-radius: 14px; background: var(--page);
-  box-shadow: 0 0 0 1px rgb(139 92 246 / 0.22), 0 8px 22px rgb(0 0 0 / 0.12);
-  opacity: 0; transform: translateY(12px); visibility: hidden; pointer-events: none;
-  transition: opacity 240ms ease-out, transform 240ms ease-out, visibility 0s linear 240ms;
-}
-#palette.open { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition: opacity 240ms ease-out, transform 240ms ease-out; }
-.palette-head, .palette-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12px; }
-.palette-head { border-bottom: 1px solid rgb(0 0 0 / 0.03); }
-.palette-title { font-weight: 600; }
-.palette-count, .palette-esc { color: var(--muted); font-size: 10px; }
-.palette-esc { margin-left: auto; }
-.palette-list { max-height: 250px; overflow-y: auto; padding: 6px; }
-.palette-foot { gap: 5px; padding-block: 8px; border-top: 1px solid rgb(0 0 0 / 0.03); color: var(--muted); font-size: 9px; }
-.palette-foot span { margin-right: 6px; }
-.palette-foot kbd { padding: 1px 5px; border-radius: 4px; background: var(--panel); font: inherit; }
-.palette-option { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-.palette-option.selected { background: rgb(139 92 246 / 0.17); }
+/* ---- Effect: command palette. Copy from here ---- */
+/* shadcn/ui's CommandDialog (cmdk, new-york v4) in its light theme: it fades in from 95 % in 200 ms; typing narrows
+   the items, the first match is highlighted, arrow keys and the pointer move the highlight, Enter runs it. Here the
+   composer is its input, so it opens above the composer with no input row and no veil. */
+#palette { --popover: oklch(1 0 0); --foreground: oklch(0.145 0 0); --border: oklch(0.922 0 0); --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0); --radius: 0.625rem;
+  position: absolute; z-index: 50; left: 24px; right: 24px; bottom: calc(100% - 4px); max-width: var(--column); margin-inline: auto; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); color: var(--foreground); transform-origin: bottom center;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); font: 14px/1.43 Inter, -apple-system, system-ui, sans-serif; }
+#palette:not(.open) { display: none; }
+.palette-list { max-height: 300px; overflow: hidden auto; scroll-padding: 4px 0; padding: 4px 8px; }
+.palette-head { display: flex; align-items: baseline; gap: 6px; padding: 6px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+.palette-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: default; user-select: none; }
+.palette-option.selected { background: var(--accent); }
+.palette-option-source { flex: none; margin-left: auto; font: 12px/1 Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; color: var(--muted-foreground); }
+.palette-sep { height: 1px; margin: 0 -1px; background: var(--border); }
+.palette-option-none { padding: 24px 0; text-align: center; }
+/* ---- End of effect ---- */
+.palette-count { font-variant-numeric: tabular-nums; }
 .palette-option-text { flex: 1; min-width: 0; }
 .palette-option-name, .palette-option-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-option-name { font-weight: 500; }
-.palette-option-detail { margin-top: 2px; color: var(--muted); font-size: 11px; }
-.palette-option-source { flex: none; padding: 3px 7px; border-radius: 9px; background: rgb(139 92 246 / 0.1); color: #6b3fd4; font-size: 9px; }
-.palette-option-none { padding: 22px 0; text-align: center; color: var(--muted); }
-
-@media (prefers-reduced-motion: reduce) {
-  .attachment.enter { animation: fade 120ms linear; }
-  #palette, #palette.open { transform: none; transition-duration: 100ms; }
-}
+.palette-option-detail { color: var(--muted-foreground); font-size: 12px; }
+/* New, in the palette's style: the keys it answers, in its kbd's muted letters. */
+.palette-foot { display: flex; align-items: center; gap: 6px; padding: 8px 16px; color: var(--muted-foreground); font-size: 12px; }
+.palette-foot kbd { font: 12px/1 Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; }
+.palette-foot span { margin-right: 8px; }
