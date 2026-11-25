@@ -10,7 +10,7 @@ and instruction files apply as they do in the terminal; the sidebar lists them.
 
 - **Work stays folded.** An answer's actions and notes fold into one block above its last message; a click opens it.
 - **Questions in the composer.** A question card replaces the input; a number key picks an option, or type your own.
-- **Every provider, one palette.** `/model` switches between Claude, Codex and Qwen, then the model and effort.
+- **Every provider, one palette.** `/model` switches between Claude, Codex and Qwen, then the model and effort; `/codex`, `/fable` and `/opus` set provider and model in one go. Only each model's newest version is listed.
   When an account hits its usage limit, the turn carries on with the next enabled account, context included.
 - **Images and pastes as chips.** A pasted picture stays a compact card that previews on click; a long paste folds
   into a `[Paste #N]` chip.

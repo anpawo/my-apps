@@ -1767,6 +1767,10 @@ enum Check {
                 commands.updateCommands(typed, caret: typed.count)
                 check(commands.commandOptions.first?.name == "/model" && !commands.commandOptions.contains { $0.name == "/perms" }, "typing toward /model offers /model first, never /perms")
             }
+            commands.models = ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-luna", "codex-auto-review", "default", "opus", "claude-opus-4-8", "claude-haiku-4-5-20251001", "haiku"]
+            commands.modelAliases = ["default": "claude-opus-5-5", "opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"]
+            check(commands.latestModels == ["gpt-6.2-sol", "gpt-6-luna", "codex-auto-review", "default", "opus", "haiku"], "the model menu lists only each model's newest version")
+            commands.models = []; commands.modelAliases = [:]
             commands.updateCommands("/perms.", caret: 7)
             check(commands.commandOptions.first?.name == "/perms", "a dictated period after a command still matches it")
             check("/sm.".droppingDictatedPunctuation == "/sm" && "/tmp/a.txt b".droppingDictatedPunctuation == "/tmp/a.txt b", "dictated punctuation is dropped from a lone command only")
@@ -1790,6 +1794,14 @@ enum Check {
             for _ in 0..<200 where commands.savedCommandDraft != nil || commands.changing { try? await Task.sleep(nanoseconds: 1_000_000) }
             check(commands.activeMode == "ask" && (commands.rpc as? FixtureConnection)?.modes == ["ask"], "footer mode selection executes the permission command without Return")
             check(commands.draft.string == "Keep this prompt" && commands.commandQuery == nil, "footer selection restores the unsent prompt")
+        }
+        let shortcut = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("model-shortcut"))
+        await part {
+            shortcut.connectionFactory = { account, _ in FixtureConnection(account) }
+            await shortcut.connect(resume: nil)
+            await shortcut.command("/codex")
+            check(shortcut.account.provider == "codex" && shortcut.model == "fixture-model" && shortcut.commandQuery == nil, "/codex sets Codex and its newest model in one command")
+            shortcut.close()
         }
         var footerItems: Int { commands.rows.reduce(0) { $0 + $1.items.count } }
         let tokenItems = footerItems

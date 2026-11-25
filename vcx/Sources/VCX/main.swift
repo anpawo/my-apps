@@ -521,7 +521,7 @@ MainActor.assumeIsolated {
 signal(SIGPIPE, SIG_IGN)
 let rawArgs = Array(CommandLine.arguments.dropFirst())
 if rawArgs.contains("--runtime-protocol") { print("1"); exit(0) }
-if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--selection-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
+if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--selection-check", "--chart-check", "--icon", "--graph-dump-check", "--busy-command-check"].contains($0) }) {
     let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
     setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
     setenv("VCX_STATE_HOME", isolated + "/state", 1)
@@ -713,6 +713,13 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
             else { throw CXError(message: "A load report path is required.") }
             exit(0)
         } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+    }
+    RunLoop.main.run()
+} else if args.contains("--busy-command-check") {
+    app.setActivationPolicy(.prohibited)
+    Task {
+        do { try await BusyCommandCheck.run(); exit(0) }
+        catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
     }
     RunLoop.main.run()
 } else if args.contains("--runtime-check") {

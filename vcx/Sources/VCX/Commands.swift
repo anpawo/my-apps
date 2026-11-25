@@ -1,5 +1,29 @@
 import AppKit
 
+private let releaseDateDigits = 8
+
+// "gpt-6.2-sol" → ("gpt-*-sol", [6, 2]); "claude-haiku-4-5-20251001" → ("claude-haiku-*", [4, 5]); nil for a name without a version.
+func modelVersion(_ id: String) -> (family: String, number: [Int])? {
+    var family: [String] = [], number: [Int] = []
+    for token in id.lowercased().split(separator: "-").map(String.init) {
+        if token.count == releaseDateDigits, Int(token) != nil { continue }
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        if parts.allSatisfy({ $0 != nil }) {
+            if number.isEmpty { family.append("*") }
+            number += parts.compactMap { $0 }
+        } else { family.append(token) }
+    }
+    return number.isEmpty ? nil : (family.joined(separator: "-"), number)
+}
+
+func isNewer(_ version: [Int], than other: [Int]) -> Bool {
+    for index in 0..<max(version.count, other.count) {
+        let left = index < version.count ? version[index] : 0, right = index < other.count ? other[index] : 0
+        if left != right { return left > right }
+    }
+    return false
+}
+
 struct ChatCommand: Identifiable, Equatable, Hashable {
     var name: String
     var detail: String
@@ -12,6 +36,16 @@ struct ChatCommand: Identifiable, Equatable, Hashable {
 @MainActor
 extension Session {
     var modelCommand: String { "/model " + account.provider + " " }
+    // Provider and model in one command; an effort may follow (/opus high).
+    var modelShortcuts: [String: String] { ["/codex": "codex", "/fable": "claude fable", "/opus": "claude opus"] }
+
+    // Each model family's newest version only (gpt-6.2-sol hides gpt-6.1-sol, opus → claude-opus-5-5 hides claude-opus-4-8).
+    var latestModels: [String] {
+        let versions = models.map { modelVersion(modelAliases[$0] ?? $0) }
+        var newest: [String: [Int]] = [:]
+        for case let version? in versions where newest[version.family].map({ isNewer(version.number, than: $0) }) ?? true { newest[version.family] = version.number }
+        return zip(models, versions).filter { _, version in version.map { newest[$0.family] == $0.number } ?? true }.map(\.0)
+    }
 
     var appCommands: [ChatCommand] {
         [
@@ -27,6 +61,9 @@ extension Session {
             ("rename", "Name the current conversation", true),
             ("plan", "Use Codex plan mode; off returns to implementation", true),
             ("effort", "Set reasoning effort for the active model", true),
+            ("codex", "Switch to Codex and its newest model", false),
+            ("fable", "Switch to Claude Fable", false),
+            ("opus", "Switch to Claude Opus", false),
             ("reconnect", "Reconnect the current conversation", false),
             ("stop", "Interrupt the current response", false),
             ("settings", "Show configuration and available settings commands", false),
@@ -121,7 +158,7 @@ extension Session {
                 guard provider == account.provider || provider == "auto" else { return [] }
                 if args.count == 2 {
                     // Claude lists its newest models only as aliases ("opus" → claude-opus-5-5), so the row names what the alias runs.
-                    return models.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) || (modelAliases[$0].map { $0.localizedCaseInsensitiveContains(args[1]) || modelName($0).localizedCaseInsensitiveContains(args[1]) } ?? false) }.map {
+                    return latestModels.filter { args[1].isEmpty || $0.localizedCaseInsensitiveContains(args[1]) || (modelAliases[$0].map { $0.localizedCaseInsensitiveContains(args[1]) || modelName($0).localizedCaseInsensitiveContains(args[1]) } ?? false) }.map {
                         let id = $0, resolved = modelAliases[id].flatMap { $0 == id ? nil : $0 }
                         return option(provider + " " + id + ((modelEfforts[id] ?? []).isEmpty ? "" : " "), resolved ?? "Choose model", label: resolved.map { id + " · " + modelName($0) } ?? id, isCurrent: id == model || modelAliases[id] == model)
                     }
@@ -357,15 +394,22 @@ extension Session {
         }
         do {
             switch verb {
-            case "/provider", "/model":
-                if argument.isEmpty { showCommands("/model ", preserveDraft: false); return }
+            case "/provider", "/model", "/codex", "/fable", "/opus":
+                let shortcut = modelShortcuts[verb]
+                if argument.isEmpty, shortcut == nil { showCommands("/model ", preserveDraft: false); return }
                 guard !changing else { throw CXError(message: "A connection change is already in progress.") }
+                var args = ((shortcut.map { [$0] } ?? []) + [argument]).joined(separator: " ").split(separator: " ").map(String.init)
                 if busy {
-                    pendingModelCommand = "/model " + argument
+                    // The current provider's model and effort menus open during a turn; only the final choice waits for it to end.
+                    if shortcut == nil, args[0] == account.provider {
+                        if args.count == 1 { showCommands("/model " + args[0] + " ", preserveDraft: false); return }
+                        if args.count == 2, models.contains(args[1]), !(modelEfforts[args[1]] ?? []).isEmpty { showCommands("/model " + argument + " ", preserveDraft: false); return }
+                    }
+                    pendingModelCommand = shortcut == nil ? "/model " + argument : source
                     if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.commandText.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
+                    notice("Model change queued: " + args.joined(separator: " ") + " applies when the current turn ends.")
                     return
                 }
-                let args = argument.split(separator: " ").map(String.init)
                 let providers = ["auto", "claude", "codex", "qwen", "agy"]
                 if providers.contains(args[0]) {
                     let provider = args[0], previousProvider = providerChoice
@@ -381,12 +425,18 @@ extension Session {
                         await refreshCatalog()
                     }
                     if provider != "auto", (settings.value.limits[next.id] ?? 0) > Date().timeIntervalSince1970 { settings.updateLimit(account: next.id, reset: 0) }
+                    // /codex takes the newest model Codex lists, known only once Codex is connected.
+                    if verb == "/codex" {
+                        guard let newest = latestModels.first else { throw CXError(message: "Codex listed no model.") }
+                        args.insert(newest, at: 1)
+                    }
                     if args.count == 1 { showCommands("/model " + provider + " ", preserveDraft: false); return }
                     guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
                     let efforts = modelEfforts[args[1]] ?? []
-                    if args.count == 2, !efforts.isEmpty { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
+                    if args.count == 2, !efforts.isEmpty, shortcut == nil { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
                     guard args.count == 2 || efforts.contains(args[2]) else { throw CXError(message: "Choose an effort from the menu.") }
-                    await changeModel(args[1], effort: args.count == 3 ? args[2] : nil)
+                    // A shortcut keeps the effort chosen earlier when the new model has it, else the model's default.
+                    await changeModel(args[1], effort: args.count == 3 ? args[2] : shortcut != nil && effort.map(efforts.contains) == true ? effort : nil)
                 } else {
                     guard ready else { throw CXError(message: "Reconnect before changing models.") }
                     await changeModel(argument)
