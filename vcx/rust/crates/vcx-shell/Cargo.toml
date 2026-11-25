@@ -9,6 +9,10 @@ publish.workspace = true
 name = "vcx-shell"
 path = "src/main.rs"
 
+[[test]]
+name = "chrome"
+harness = false
+
 [dependencies]
 block2.workspace = true
 objc2.workspace = true

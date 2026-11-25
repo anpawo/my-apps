@@ -20,6 +20,7 @@ pub const DUMP: &str = r#"(() => {
   status: document.getElementById('status-text')?.textContent ?? null,
   notice: document.getElementById('notice')?.hidden === false ? document.getElementById('notice').textContent : null,
   chips: [...document.querySelectorAll('.chip')].map(chip => chip.textContent),
+  chrome: window.vcxChrome?.dump?.() ?? null,
   rows: [...document.querySelectorAll('[data-row]')].map(row => {
     const box = row.getBoundingClientRect();
     return { id: row.dataset.row, kind: row.dataset.kind, text: row.innerText, box: [box.x, box.y, box.width, box.height].map(Math.round) };
