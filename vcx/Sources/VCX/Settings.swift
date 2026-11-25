@@ -15,8 +15,8 @@ struct Preferences: Codable {
     var mode = "bypass"
     var accounts = [Account(id: "claude-default", name: "Default Claude", provider: "claude"), Account(id: "codex-default", name: "Default Codex", provider: "codex")]
     var limits: [String: Double] = [:]
-    var qwenProxy = ""
-    var qwenURL = "http://localhost:11434/api/chat"
+    var qwenProxy = "socks5h://127.0.0.1:1056"
+    var qwenURL = "http://100.100.151.8:11434/api/chat"
     var qwenModel = "qwen3.5-9b-abl"
     var qwenWake = false
     // /qwen host: the same model served by this Mac's ollama, or by the Windows PC through the personal tailnet's SOCKS.

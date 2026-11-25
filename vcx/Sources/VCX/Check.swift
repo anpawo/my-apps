@@ -1891,8 +1891,9 @@ enum Check {
             Settings.shared.value.accounts[1].enabled = false; Settings.shared.save()
             await first.command("/provider codex")
             check(Settings.shared.value.provider == "auto" && first.account.provider == "claude", "an unavailable provider is rejected instead of reconnecting the wrong provider")
+            let proxyBefore = Settings.shared.value.qwenProxy
             await first.command("/qwen proxy socks5://localhost")
-            check(Settings.shared.value.qwenProxy.isEmpty && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
+            check(Settings.shared.value.qwenProxy == proxyBefore && !validQwenProxy("socks5://localhost") && validQwenProxy("socks5://localhost:1055"), "a proxy requires a supported scheme and explicit port")
             check(validQwenProxy("socks5h://localhost:1055"), "Jarvis SOCKS5 hostname-proxy URLs remain compatible")
             await first.command("/qwen host pc")
             let onPC = Settings.shared.value.qwenHost
