@@ -129,6 +129,22 @@ fn takes_real_keys_and_a_real_click_in_a_window_that_is_never_shown() {
 }
 
 #[test]
+fn takes_text_composed_by_an_input_method_in_a_window_that_is_never_shown() {
+    const COMPOSED: &str = "かな変換é";
+    let Some(worker) = SwiftWorker::start("ime") else {
+        eprintln!("skipped: no Swift VCX binary (set VCX_SWIFT_BINARY)");
+        return;
+    };
+    let scratch = Scratch::new("ime");
+
+    let report = check(&scratch.0, &["--socket", worker.socket.to_str().unwrap(), "--cwd", worker.directory.to_str().unwrap(), "--check-type", COMPOSED]);
+
+    assert_eq!(report["rows"][0]["text"].as_str().unwrap().trim(), COMPOSED);
+    assert!(report["html"].as_str().unwrap().contains(r#"data-composed="5""#), "each character went through a composition");
+    assert_eq!(kinds(&report), ["user", "activity", "assistant"], "the marked text sent nothing before the click: {:#}", report["rows"]);
+}
+
+#[test]
 fn returns_to_the_built_in_template_when_the_folder_one_never_starts() {
     let scratch = Scratch::new("broken");
     let folder = scratch.0.join("template");

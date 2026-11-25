@@ -16,8 +16,9 @@ wry = "0.58"
 notify = "8"
 uuid = { version = "1", features = ["v4"] }
 block2 = "0.6"
+objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSEvent", "NSGraphicsContext", "NSResponder", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSData", "NSDate", "NSDictionary", "NSError", "NSGeometry", "NSProcessInfo", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSData", "NSDate", "NSDictionary", "NSError", "NSGeometry", "NSProcessInfo", "NSRange", "NSString"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
 vcx-proto = { path = "crates/vcx-proto" }
 vcx-model = { path = "crates/vcx-model" }
