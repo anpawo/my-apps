@@ -62,7 +62,7 @@ pub fn a_failed_action_spends_its_sequence(target: &Target) {
 
     assert_eq!(fault(failed), "actionFailed");
     assert_eq!((last, held.lease.sequence), (Value::from(1), 2));
-    assert_eq!(held.kinds(), ["user", "activity", "assistant"]);
+    assert_eq!(held.turn_kinds(), ["user", "activity", "assistant"]);
 }
 
 pub fn close_ends_the_session_for_good(target: &Target) {

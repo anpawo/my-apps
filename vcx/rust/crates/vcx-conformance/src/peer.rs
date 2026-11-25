@@ -119,12 +119,20 @@ impl Held {
         self.follow(answered);
     }
 
-    /// The kinds of the turn's rows. A notice is the worker's remark about its surroundings, not part of a turn:
-    /// under a loaded machine the Swift worker adds one when its conversation refresh fails.
     pub fn kinds(&self) -> Vec<String> {
         let page = view::full(self.replica.state().expect("a snapshot"));
-        let kinds = page["rows"].as_array().expect("rows").iter().map(|row| row["kind"].as_str().expect("a row kind").to_owned());
-        kinds.filter(|kind| kind != NOTICE).collect()
+        page["rows"].as_array().expect("rows").iter().map(|row| row["kind"].as_str().expect("a row kind").to_owned()).collect()
+    }
+
+    /// The rows of the turns alone. A notice is the worker's remark about its surroundings, not part of a turn:
+    /// on a loaded machine the Swift worker adds one when its conversation refresh fails.
+    pub fn turn_rows(&self) -> Vec<Value> {
+        let page = view::full(self.replica.state().expect("a snapshot"));
+        page["rows"].as_array().expect("rows").iter().filter(|row| row["kind"] != NOTICE).cloned().collect()
+    }
+
+    pub fn turn_kinds(&self) -> Vec<String> {
+        self.turn_rows().iter().map(|row| row["kind"].as_str().expect("a row kind").to_owned()).collect()
     }
 }
 

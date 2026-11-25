@@ -76,7 +76,7 @@ pub fn a_second_attach_takes_the_lease_from_the_first(target: &Target) {
     assert!(told.contains(&Event::LeaseLost { session_id: first.id().to_owned() }), "the first frontend is told: {told:?}");
     assert_ne!(first.attachment.lease, second.attachment.lease);
     assert_eq!(fault(refused), "staleLease");
-    assert_eq!(second.kinds(), ["user", "activity", "assistant"]);
+    assert_eq!(second.turn_kinds(), ["user", "activity", "assistant"]);
 }
 
 pub fn detach_gives_up_the_lease(target: &Target) {
@@ -104,6 +104,6 @@ pub fn a_session_outlives_its_frontend_connection(target: &Target) {
 
     let second = Held::attach(peer, &AttachRequest { existing_only: true, ..request_for(target, &id) });
 
-    assert_eq!(second.kinds(), ["user", "activity", "assistant"]);
+    assert_eq!(second.turn_kinds(), ["user", "activity", "assistant"]);
     assert_eq!((second.attachment.revision, second.attachment.last_sequence), (revision, 1));
 }

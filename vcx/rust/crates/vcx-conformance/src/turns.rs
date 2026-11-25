@@ -3,7 +3,6 @@
 use crate::Target;
 use crate::peer::{Held, Peer, request_for};
 use serde_json::Value;
-use vcx_model::view;
 use vcx_proto::{AttachRequest, Event};
 
 pub fn a_turn_streams_one_revision_at_a_time_to_its_answer(target: &Target) {
@@ -12,11 +11,11 @@ pub fn a_turn_streams_one_revision_at_a_time_to_its_answer(target: &Target) {
 
     held.turn("hello from the suite");
 
-    let page = view::full(held.replica.state().unwrap());
-    assert_eq!(held.kinds(), ["user", "activity", "assistant"], "{page:#}");
-    assert_eq!(page["rows"][0]["items"][0]["text"], "hello from the suite");
-    assert_eq!(page["rows"][1]["items"][0]["title"], "echo fixture");
-    let answer = page["rows"][2]["items"][0]["html"].as_str().unwrap();
+    let rows = held.turn_rows();
+    assert_eq!(held.turn_kinds(), ["user", "activity", "assistant"], "{rows:#?}");
+    assert_eq!(rows[0]["items"][0]["text"], "hello from the suite");
+    assert_eq!(rows[1]["items"][0]["title"], "echo fixture");
+    let answer = rows[2]["items"][0]["html"].as_str().unwrap();
     assert!(answer.contains("<table>") && answer.contains("<strong>bold</strong>"), "{answer}");
     assert!(held.replica.revision() > before, "the turn moved the revision");
     assert_eq!(held.replica.state().unwrap().meta.get("busy"), Some(&Value::Bool(false)));
