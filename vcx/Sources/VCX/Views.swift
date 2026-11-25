@@ -121,6 +121,25 @@ extension Session {
     }
 }
 
+// The models the status bar's badge counts, each beside its debate color; this session's own model first.
+struct DebateModelList: View {
+    let models: [String]
+    let ownProvider: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("MODELS IN THIS CONVERSATION").font(.system(size: 10, weight: .bold)).tracking(1.1).foregroundStyle(.black.opacity(0.5))
+            ForEach(Array(models.enumerated()), id: \.offset) { index, model in
+                let color = debateColor(index == 0 ? ownProvider : model.split(separator: " ").first.map { $0.lowercased() } ?? "")
+                HStack(spacing: 8) {
+                    Circle().fill(color).frame(width: 7, height: 7)
+                    Text(model).font(.system(size: 11.5, weight: .medium, design: .monospaced)).foregroundStyle(color).textSelection(.enabled)
+                    if index == 0 { Text("this session").font(.system(size: 10.5)).foregroundStyle(.black.opacity(0.4)) }
+                }
+            }
+        }.padding(14).fixedSize()
+    }
+}
+
 // The one who writes sits on the right, whoever answers on the left, each in its model's color.
 struct DebateView: View {
     @ObservedObject var item: Item
@@ -779,10 +798,15 @@ struct CXView: View {
             setting("Mode", value: session.activeMode == "bypass" ? "bypass" : "ask", command: "/perms ", color: Color(red: 0.75, green: 0.15, blue: 0.15))
             if let models = session.debateModels {
                 separator
-                Text("\(models.count) models").font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(debateColor("codex")).lineLimit(1).fixedSize()
-                    .padding(.horizontal, 6).padding(.vertical, 5)
-                    .background(debateColor("codex").opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5))
-                    .help(models.joined(separator: "\n")).accessibilityLabel("\(models.count) models: " + models.joined(separator: ", "))
+                Button { overview = "Models" } label: {
+                    Text("\(models.count) models").font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(debateColor("codex")).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 6).padding(.vertical, 5)
+                        .background(debateColor("codex").opacity(0.08), in: RoundedRectangle(cornerRadius: 5)).raised(RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
+                }.buttonStyle(.reactive(RoundedRectangle(cornerRadius: 5))).help("Models in this conversation's debates")
+                    .accessibilityLabel("\(models.count) models: " + models.joined(separator: ", "))
+                    .popover(isPresented: Binding(get: { overview == "Models" }, set: { if !$0 { overview = nil } }), arrowEdge: .top) {
+                        DebateModelList(models: models, ownProvider: session.account.provider)
+                    }
             }
         }
     }
