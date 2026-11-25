@@ -1,0 +1,10 @@
+[package]
+name = "vcx-testkit"
+description = "Test support: an isolated Swift runtime worker whose agent is the fixture"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+uuid.workspace = true

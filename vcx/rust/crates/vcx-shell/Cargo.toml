@@ -10,9 +10,17 @@ name = "vcx-shell"
 path = "src/main.rs"
 
 [dependencies]
+block2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-web-kit.workspace = true
 notify.workspace = true
 serde_json.workspace = true
 tao.workspace = true
+uuid.workspace = true
 vcx-model.workspace = true
 vcx-proto.workspace = true
 wry.workspace = true
+
+[dev-dependencies]
+vcx-testkit.workspace = true

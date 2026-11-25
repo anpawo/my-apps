@@ -11,3 +11,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 vcx-model.workspace = true
+vcx-testkit.workspace = true

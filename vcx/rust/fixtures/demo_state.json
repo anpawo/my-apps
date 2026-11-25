@@ -1,0 +1,32 @@
+{
+  "model": "claude-fable-5-2",
+  "providerLabel": "Claude",
+  "status": "Ready",
+  "ready": true,
+  "busy": false,
+  "cwd": "/Users/demo/projects/vcx",
+  "conversationName": "Rust shell demo",
+  "branch": "main",
+  "contextUsed": 42000,
+  "contextLimit": 200000,
+  "usagePercent": 31,
+  "activeMode": "auto",
+  "effort": "high",
+  "rows": [
+    {"id": "R1", "kind": "user", "items": [
+      {"id": "u1", "type": "userMessage", "content": [{"type": "text", "text": "Show me the layout of this folder, then say what the shell crate does."}]}
+    ]},
+    {"id": "R2", "kind": "activity", "items": [
+      {"id": "t1", "type": "commandExecution", "command": "ls rust/crates", "aggregatedOutput": "vcx-model\nvcx-proto\nvcx-shell\nvcx-testkit\n", "exitCode": 0, "status": "completed"},
+      {"id": "t2", "type": "commandExecution", "command": "wc -l rust/crates/vcx-shell/src/*.rs", "aggregatedOutput": "wc: no such file\n", "exitCode": 1, "status": "failed"},
+      {"id": "t3", "type": "reasoning", "summary": ["The shell is the window: it attaches to a worker and draws the session."]}
+    ]},
+    {"id": "R3", "kind": "assistant", "items": [
+      {"id": "a1", "type": "agentMessage", "text": "## Layout\n\n| Crate | Role |\n|---|---|\n| `vcx-proto` | The runtime protocol |\n| `vcx-model` | The session state and the page contract |\n| `vcx-shell` | The window: **tao** + **wry** |\n\nThe shell attaches to a worker over its socket:\n\n```rust\nlet client = Client::connect(&socket, on_event)?;\n```\n\nMore in the [wry documentation](https://docs.rs/wry). <script>alert('never runs')</script>"}
+    ]},
+    {"id": "R4", "kind": "notice", "items": [{"id": "n1", "text": "Checkpoint saved."}]},
+    {"id": "R5", "kind": "user", "items": [
+      {"id": "u2", "type": "userMessage", "queued": true, "content": [{"type": "localImage", "path": "/tmp/screenshot.png"}, {"type": "text", "text": "And a_very_long_unbreakable_token_that_must_wrap_inside_its_bubble_instead_of_widening_the_page_0123456789_0123456789_0123456789"}]}
+    ]}
+  ]
+}

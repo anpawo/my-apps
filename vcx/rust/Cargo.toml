@@ -14,8 +14,14 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 tao = "0.38"
 wry = "0.58"
 notify = "8"
+uuid = { version = "1", features = ["v4"] }
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDictionary", "NSError", "NSString"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
 vcx-proto = { path = "crates/vcx-proto" }
 vcx-model = { path = "crates/vcx-model" }
+vcx-testkit = { path = "crates/vcx-testkit" }
 
 [profile.release]
 lto = "thin"

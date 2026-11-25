@@ -15,6 +15,8 @@ use std::time::Duration;
 pub const PROTOCOL_VERSION: i64 = 1;
 pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// A window that closes does not wait on a worker that stopped answering.
+pub const DETACH_TIMEOUT: Duration = Duration::from_secs(2);
 const READ_CHUNK_BYTES: usize = 65_536;
 /// Fault codes the worker raises before it records a sequence number: the same number is still free.
 const NOT_ADMITTED: [&str; 7] = ["staleLease", "invalidAction", "closed", "sequenceGap", "busy", "unknownSession", "handshakeRequired"];
@@ -179,6 +181,15 @@ impl Client {
     }
 }
 
+impl Drop for Client {
+    /// The reader thread holds its own handle on the stream: without this it would wait on a connection nobody uses.
+    fn drop(&mut self) {
+        if let Ok(stream) = self.writer.lock() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
 /// The right to write to one session, held by the last frontend that attached.
 #[derive(Debug, Clone)]
 pub struct Lease {
@@ -204,7 +215,7 @@ impl Lease {
     }
 
     pub fn detach(self, client: &Client) -> Result<(), Error> {
-        client.request("detach", json!({"sessionId": self.session_id, "lease": self.lease}), REQUEST_TIMEOUT).map(|_| ())
+        client.request("detach", json!({"sessionId": self.session_id, "lease": self.lease}), DETACH_TIMEOUT).map(|_| ())
     }
 }
 
@@ -269,5 +280,109 @@ fn notification(mut message: Object) -> Option<Event> {
             Some(Event::Update { session_id, revision, patch })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::sync::mpsc::Receiver;
+
+    const WAIT: Duration = Duration::from_secs(5);
+
+    /// A client wired to a scripted worker: the script answers each request it reads with the reply it returns.
+    fn scripted(reply: impl Fn(&Object) -> Value + Send + 'static) -> (Client, Receiver<Event>) {
+        let (near, far) = UnixStream::pair().unwrap();
+        thread::spawn(move || {
+            let mut writer = far.try_clone().unwrap();
+            for line in BufReader::new(far).lines() {
+                let Ok(line) = line else { break };
+                let request: Object = serde_json::from_str(&line).unwrap();
+                let mut answer = reply(&request);
+                answer["id"] = request["id"].clone();
+                writer.write_all(format!("{answer}\n").as_bytes()).unwrap();
+            }
+        });
+        let (sender, events) = mpsc::channel();
+        (Client::over(near, move |event| drop(sender.send(event))).unwrap(), events)
+    }
+
+    fn lease() -> Lease {
+        Lease { session_id: "S".into(), lease: "L".into(), sequence: 7 }
+    }
+
+    #[test]
+    fn returns_the_result_of_the_request_that_asked() {
+        let (client, _events) = scripted(|request| json!({"result": {"echo": request["method"]}}));
+
+        let reply = client.request("list", json!({}), WAIT).unwrap();
+
+        assert_eq!(reply["echo"], "list");
+    }
+
+    #[test]
+    fn turns_an_error_reply_into_a_fault() {
+        let (client, _events) = scripted(|_| json!({"error": {"code": "unknownMethod", "message": "No such method."}}));
+
+        let error = client.request("nope", json!({}), WAIT).unwrap_err();
+
+        assert!(matches!(error, Error::Fault(fault) if fault.code == "unknownMethod" && fault.message == "No such method."));
+    }
+
+    #[test]
+    fn refuses_a_worker_that_speaks_another_protocol() {
+        let (client, _events) = scripted(|_| json!({"result": {"protocol": 2}}));
+
+        let error = client.hello().unwrap_err();
+
+        assert!(matches!(error, Error::Invalid(_)));
+    }
+
+    #[test]
+    fn spends_the_sequence_number_once_the_worker_admitted_the_action() {
+        let (client, _events) = scripted(|_| json!({"error": {"code": "actionFailed", "message": "The agent refused."}}));
+        let mut lease = lease();
+
+        let result = lease.perform(&client, "send", json!({"text": "hi"}));
+
+        assert!(result.is_err());
+        assert_eq!(lease.sequence, 8);
+    }
+
+    #[test]
+    fn keeps_the_sequence_number_when_the_worker_did_not_admit_the_action() {
+        let (client, _events) = scripted(|_| json!({"error": {"code": "busy", "message": "Too many actions."}}));
+        let mut lease = lease();
+
+        let result = lease.perform(&client, "send", json!({"text": "hi"}));
+
+        assert!(result.is_err());
+        assert_eq!(lease.sequence, 7);
+    }
+
+    #[test]
+    fn hands_over_updates_then_reports_the_lost_connection() {
+        let (near, mut far) = UnixStream::pair().unwrap();
+        let (sender, events) = mpsc::channel();
+        let _client = Client::over(near, move |event| drop(sender.send(event))).unwrap();
+
+        far.write_all(b"{\"method\":\"session/update\",\"params\":{\"sessionId\":\"S\",\"revision\":3,\"patch\":{\"meta\":{\"busy\":true}}}}\n").unwrap();
+        drop(far);
+
+        let update = events.recv_timeout(WAIT).unwrap();
+        assert!(matches!(update, Event::Update { ref session_id, revision: 3, ref patch } if session_id == "S" && patch["meta"]["busy"] == true));
+        assert_eq!(events.recv_timeout(WAIT).unwrap(), Event::Disconnected);
+    }
+
+    #[test]
+    fn stops_its_reader_when_dropped() {
+        let (near, _far) = UnixStream::pair().unwrap();
+        let (sender, events) = mpsc::channel();
+        let client = Client::over(near, move |event| drop(sender.send(event))).unwrap();
+
+        drop(client);
+
+        assert_eq!(events.recv_timeout(WAIT).unwrap(), Event::Disconnected);
     }
 }
