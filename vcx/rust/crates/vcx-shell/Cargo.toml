@@ -10,6 +10,10 @@ name = "vcx-shell"
 path = "src/main.rs"
 
 [[test]]
+name = "charts"
+harness = false
+
+[[test]]
 name = "chrome"
 harness = false
 

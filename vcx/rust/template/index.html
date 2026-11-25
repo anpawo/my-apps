@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' vcx:; style-src 'self' vcx:; img-src 'self' vcx: data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' vcx:; style-src 'self' vcx:; img-src 'self' vcx: data:; frame-src vcx:">
 <title>VCX</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chart.css">
 <link rel="stylesheet" href="chrome.css">
 </head>
 <body>
@@ -23,6 +24,7 @@
   </form>
   <div id="chips"></div>
 </footer>
+<script src="chart.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 </body>
