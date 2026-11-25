@@ -10,4 +10,4 @@ base64 = "0.22"
 libc.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-tokio = { version = "1", features = ["rt", "process", "io-util", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt", "process", "io-util", "net", "sync", "time", "macros"] }

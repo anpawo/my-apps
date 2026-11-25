@@ -3,6 +3,7 @@
 
 use crate::agy::AgyConnection;
 use crate::claude::ClaudeConnection;
+use crate::qwen::QwenConnection;
 use crate::rpc::{Agent, AgentError};
 use serde_json::{Value, json};
 use std::rc::Rc;
@@ -13,6 +14,7 @@ pub enum Connection {
     Codex(Agent),
     Claude(Rc<ClaudeConnection>),
     Agy(Rc<AgyConnection>),
+    Qwen(Rc<QwenConnection>),
 }
 
 impl Connection {
@@ -21,6 +23,7 @@ impl Connection {
             Self::Codex(agent) => agent.request(method, params, timeout).await,
             Self::Claude(claude) => claude.request(method, params, timeout).await,
             Self::Agy(agy) => agy.request(method, params, timeout).await,
+            Self::Qwen(qwen) => qwen.request(method, params, timeout).await,
         }
     }
 
@@ -37,6 +40,7 @@ impl Connection {
             Self::Codex(agent) => agent.respond(id, result),
             Self::Claude(claude) => claude.respond(id, result),
             Self::Agy(agy) => agy.respond(id, result),
+            Self::Qwen(qwen) => qwen.respond(id, result),
         }
     }
 
@@ -46,6 +50,7 @@ impl Connection {
             Self::Codex(agent) => agent.reject(id, code, message),
             Self::Claude(claude) => claude.respond(id, json!({"decision": "decline"})),
             Self::Agy(agy) => agy.reject(id),
+            Self::Qwen(qwen) => qwen.reject(id),
         }
     }
 
@@ -54,6 +59,7 @@ impl Connection {
             Self::Codex(agent) => agent.is_closed(),
             Self::Claude(claude) => claude.is_closed(),
             Self::Agy(agy) => agy.is_closed(),
+            Self::Qwen(qwen) => qwen.is_closed(),
         }
     }
 
@@ -62,6 +68,7 @@ impl Connection {
             Self::Codex(agent) => agent.close(),
             Self::Claude(claude) => claude.close(),
             Self::Agy(agy) => agy.close(),
+            Self::Qwen(qwen) => qwen.close(),
         }
     }
 }

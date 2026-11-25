@@ -8,7 +8,10 @@ pub mod claude_stream;
 pub mod codex;
 pub mod connection;
 pub mod directory;
+pub mod http;
 pub mod process;
+pub mod qwen;
+pub mod qwen_text;
 pub mod rpc;
 pub mod shape;
 
