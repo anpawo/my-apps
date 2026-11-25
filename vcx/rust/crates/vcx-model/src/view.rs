@@ -9,10 +9,13 @@ use std::collections::HashSet;
 
 pub const CONTRACT_VERSION: u32 = 1;
 
-/// Metadata the page may read. The rest of the worker's metadata (paths, account, hooks) stays in the core.
-const PAGE_META_KEYS: [&str; 16] = [
+/// Metadata the page may read: the transcript's, the composer's (its palette and model lists) and the chrome's (status
+/// bar, popovers, session panel). The rest of the worker's metadata (state paths, the account) stays in the core.
+const PAGE_META_KEYS: [&str; 38] = [
     "model", "providerLabel", "status", "ready", "busy", "needsAttention", "cwd", "conversationName", "repository", "branch", "contextUsed", "contextLimit",
-    "usagePercent", "activeMode", "effort", "backgroundTasks",
+    "usagePercent", "activeMode", "effort", "backgroundTasks", "providerCommands", "models", "modelEfforts", "modelDefaultEfforts", "modelAliases",
+    "defaultEffort", "recent", "usage", "usageLoading", "repositoryStatus", "repositoryChanges", "repositoryDirectory", "pullRequest", "pullRequestURL",
+    "changing", "threadID", "hooks", "skills", "builtinCommands", "mcp", "instructions", "recalledRules",
 ];
 const MODEL_PREFIXES: [&str; 4] = ["claude-", "claude ", "codex-", "codex "];
 const AGENT_PROVIDERS: [&str; 5] = ["claude", "codex", "qwen", "agy", "agent"];
@@ -23,6 +26,7 @@ pub fn full(state: &SessionState) -> Value {
         "meta": meta(state),
         "rows": state.rows.iter().map(|row| row_view(state, row)).collect::<Vec<_>>(),
         "draft": state.draft,
+        "draftGeneration": state.draft_generation,
     })
 }
 
@@ -48,6 +52,7 @@ pub fn patch(state: &SessionState, changes: &Changes) -> Value {
     }
     if changes.draft {
         view.insert("draft".into(), json!(state.draft));
+        view.insert("draftGeneration".into(), json!(state.draft_generation));
     }
     Value::Object(view)
 }
@@ -55,6 +60,9 @@ pub fn patch(state: &SessionState, changes: &Changes) -> Value {
 fn meta(state: &SessionState) -> Value {
     let mut view: Object = PAGE_META_KEYS.iter().filter_map(|key| state.meta.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect();
     view.insert("modelLabel".into(), json!(model_label(&state.meta)));
+    if let Some(provider) = state.meta.get("account").and_then(|account| account.get("provider")).filter(|provider| provider.is_string()) {
+        view.insert("provider".into(), provider.clone());
+    }
     view.insert("requests".into(), Value::Array(requests::views(state.meta.get("permissions"))));
     Value::Object(view)
 }
@@ -65,9 +73,29 @@ fn model_label(meta: &Object) -> String {
     if model.is_empty() || (meta.get("ready") != Some(&Value::Bool(true)) && model == "Codex") {
         return "Not connected".into();
     }
-    let named = meta.get("modelAliases").and_then(|aliases| aliases.get(model)).and_then(Value::as_str).unwrap_or(model);
-    let lowered = named.to_ascii_lowercase();
-    MODEL_PREFIXES.iter().find(|prefix| lowered.starts_with(*prefix)).map_or(named, |prefix| &named[prefix.len()..]).to_owned()
+    model_name(meta.get("modelAliases").and_then(|aliases| aliases.get(model)).and_then(Value::as_str).unwrap_or(model))
+}
+
+/// The Swift `modelName`: `claude-opus-5-5` reads "Opus 5.5".
+fn model_name(id: &str) -> String {
+    let lowered = id.to_ascii_lowercase();
+    let bare = MODEL_PREFIXES.iter().find(|prefix| lowered.starts_with(*prefix)).map_or(id, |prefix| &id[prefix.len()..]);
+    let numbered = version(bare).unwrap_or_else(|| bare.to_owned());
+    numbered.replace('-', " ").split(' ').map(capitalized).collect::<Vec<_>>().join(" ")
+}
+
+/// `-(\d+)-(\d+)$` read as " $1.$2".
+fn version(id: &str) -> Option<String> {
+    let (rest, minor) = id.rsplit_once('-')?;
+    let (head, major) = rest.rsplit_once('-')?;
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    (digits(major) && digits(minor)).then(|| format!("{head} {major}.{minor}"))
+}
+
+/// Foundation's `capitalized` on one word: its first letter upper case, the rest lower case.
+fn capitalized(word: &str) -> String {
+    let mut letters = word.chars();
+    letters.next().map(|first| first.to_uppercase().chain(letters.flat_map(char::to_lowercase)).collect()).unwrap_or_default()
 }
 
 fn row_view(state: &SessionState, row: &Row) -> Value {
@@ -208,7 +236,7 @@ mod tests {
         let view = full(&state());
 
         assert_eq!(view["contract"], CONTRACT_VERSION);
-        assert_eq!(view["meta"], json!({"model": "fable", "busy": true, "modelLabel": "fable", "requests": []}));
+        assert_eq!(view["meta"], json!({"model": "fable", "busy": true, "modelLabel": "Fable", "requests": []}));
         assert_eq!(view["rows"][0]["items"][0]["text"], "show this");
         assert_eq!(view["rows"][0]["items"][0]["images"], json!(["/tmp/a.png"]));
         assert_eq!(view["rows"][1]["items"][0]["title"], "ls");
@@ -269,7 +297,7 @@ mod tests {
         assert_eq!(view["rows"][0]["kind"], "debate");
         assert_eq!(view["rows"][0]["items"][0]["turns"][0], json!({"speaker": "claude", "model": "", "html": "<p><strong>mine</strong></p>\n"}));
         assert_eq!(view["rows"][0]["items"][0]["turns"][1]["model"], "gpt-6.2");
-        assert_eq!(view["meta"]["modelLabel"], "fable-5-2");
+        assert_eq!(view["meta"]["modelLabel"], "Fable 5.2");
     }
 
     #[test]
@@ -294,5 +322,22 @@ mod tests {
 
         assert_eq!(view["meta"]["requests"][0]["questions"][0]["question"], "Which?");
         assert!(view["meta"].get("permissions").is_none(), "the raw request stays in the core");
+    }
+
+    #[test]
+    fn names_a_model_as_the_swift_status_bar_does() {
+        let names = ["claude-opus-5-5", "fable-5-2", "Codex gpt-6.2-sol", "claude-sonnet-5"].map(model_name);
+
+        assert_eq!(names, ["Opus 5.5", "Fable 5.2", "Gpt 6.2 Sol", "Sonnet 5"]);
+    }
+
+    #[test]
+    fn hands_the_page_the_provider_of_the_account_and_the_draft_generation() {
+        let snapshot = json!({"account": {"provider": "claude", "name": "secret"}, "draft": [], "draftGeneration": 4, "rows": []});
+
+        let view = full(&SessionState::from_snapshot(snapshot.as_object().unwrap()));
+
+        assert_eq!((&view["meta"]["provider"], &view["draftGeneration"]), (&json!("claude"), &json!(4)));
+        assert!(view["meta"].get("account").is_none(), "the account itself stays in the core");
     }
 }
