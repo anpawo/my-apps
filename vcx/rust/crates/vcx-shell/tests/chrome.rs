@@ -80,6 +80,11 @@ impl Page {
         Ok(())
     }
 
+    /// Waits for `script` to evaluate to `expected`: a pill swaps its word in after its fade.
+    fn until(&self, script: &str, expected: Value) -> Result<(), String> {
+        self.wait(script, |page| page.eval(script).is_ok_and(|value| value == expected))
+    }
+
     /// Runs `script` in the page and gives back what it evaluates to, as JSON.
     fn eval(&self, script: &str) -> Result<Value, String> {
         let result = Arc::new(Mutex::new(None));
@@ -134,8 +139,10 @@ impl Page {
         self.deliver(message)
     }
 
-    /// A real mouse click in the middle of the element `selector` finds.
+    /// A real mouse click in the middle of the element `selector` finds, once the page's motion has ended: a hidden
+    /// window draws no frames, so an animation (the task bar growing to its cards) would otherwise never end.
     fn click(&self, selector: &str) -> Result<(), String> {
+        self.eval("document.getAnimations().forEach(motion => { try { motion.finish(); } catch { /* an endless one */ } })")?;
         let script = format!("(() => {{ const r = document.querySelector({selector:?}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()");
         let point = self.eval(&script)?;
         let (x, y) = (point[0].as_f64().ok_or(format!("{selector} is not on the page"))?, point[1].as_f64().unwrap_or_default());
@@ -198,7 +205,7 @@ fn shows_ready_and_the_status_bar_of_a_connected_session(page: &Page) -> Result<
     same(chip(&dump, "mode"), json!("ask"), "the mode")?;
     same(chip(&dump, "tokens"), json!("21% token - 200K"), "the context")?;
     same(chip(&dump, "repo"), json!("@main"), "the repository")?;
-    same(&dump["chips"][0]["color"], json!("rgb(71, 92, 179)"), "the directory's colour")
+    same(&dump["chips"][0]["color"], json!("rgb(71 92 179)"), "the directory's colour")
 }
 
 fn names_the_window_after_its_folder_and_tells_the_core(page: &Page) -> Result<(), String> {
@@ -227,6 +234,7 @@ fn shows_thinking_what_runs_and_the_elapsed_time_during_a_turn(page: &Page) -> R
     same(&dump["doing"], json!(format!("· {title}")), "what runs")?;
     same(&dump["elapsed"], json!("· 1:15"), "the elapsed time")?;
     page.patch(&mut state, json!({"meta": {"busy": false, "status": "Ready"}}))?;
+    page.until("window.vcxChrome.dump().status", json!("Ready"))?;
     let dump = page.dump()?;
     same(&json!([&dump["status"], &dump["doing"], &dump["elapsed"]]), json!(["Ready", "", ""]), "the status once the turn ended")
 }
@@ -321,9 +329,9 @@ fn badges_the_models_of_a_debate_and_lists_them(page: &Page) -> Result<(), Strin
 fn switches_provider_from_the_model_popover(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
     page.open_popover("model", "model")?;
-    let current = page.eval("document.querySelector('#popover .option.current').textContent")?;
+    let current = page.eval("document.querySelector('#popover [aria-pressed=true]').textContent")?;
 
-    page.click("#popover .option:nth-child(3)")?;
+    page.click("#popover .chips button:nth-child(3)")?;
 
     same(&current, json!("claude"), "the provider shown as current")?;
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/model codex"}), "the command")?;
@@ -340,9 +348,9 @@ fn keeps_each_familys_newest_model_and_a_valid_effort(page: &Page) -> Result<(),
         "modelDefaultEfforts": {"claude-haiku-5-5": "high"}});
     page.deliver(json!({"type": "patch", "meta": meta}))?;
     page.open_popover("model", "model")?;
-    let names = page.eval("[...document.querySelectorAll('#popover > .option .name')].map(node => node.textContent)")?;
+    let names = page.eval("[...document.querySelectorAll('#popover .choice .name')].map(node => node.textContent)")?;
 
-    page.click("#popover > .option:nth-of-type(2)")?;
+    page.click("#popover .choices li:nth-child(2) .choice")?;
 
     same(&names, json!(["Fable 5.2", "Haiku 5.5"]), "the models offered")?;
     same(&page.wait_post("command")?["text"], json!("/model claude claude-haiku-5-5 high"), "the command")
@@ -355,7 +363,7 @@ fn sets_the_permission_mode_and_closes_on_escape(page: &Page) -> Result<(), Stri
     same(&page.dump()?["popover"], Value::Null, "the popover after Escape")?;
     page.open_popover("mode", "mode")?;
 
-    page.click("#popover .option:first-of-type")?;
+    page.click("#popover .choice")?;
 
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/perms bypass"}), "the command")
 }
@@ -368,7 +376,7 @@ fn asks_the_core_for_the_quota_and_draws_it(page: &Page) -> Result<(), String> {
 
     page.deliver(json!({"type": "quota", "lines": [{"agent": "Claude", "fiveHour": "12%", "week": "40%"}, {"agent": "Codex", "fiveHour": "3%", "week": "9%"}]}))?;
 
-    let cells = page.eval("[...document.querySelectorAll('#popover .quota span')].map(node => node.textContent)")?;
+    let cells = page.eval("[...document.querySelectorAll('#popover .vcx-table th, #popover .vcx-table td')].map(node => node.textContent)")?;
     same(&cells, json!(["Agent", "5 hours", "Week", "Claude", "12%", "40%", "Codex", "3%", "9%"]), "the quota grid")
 }
 
@@ -379,8 +387,8 @@ fn shows_the_progress_file_and_drops_it_when_done(page: &Page) -> Result<(), Str
 
     let dump = page.dump()?;
     same(&dump["chips"][0]["kind"], json!("progress"), "the first chip")?;
-    same(&dump["chips"][0]["text"], json!("Downloading the Qwen model weights for …·42% · 1.2 of 2.9 GB · 30 MB/s · 57 s left"), "the progress chip")?;
-    same(&page.eval("document.querySelector('[data-chip=progress] .bar').style.width")?, json!("42%"), "the bar")?;
+    same(&dump["chips"][0]["text"], json!("Downloading the Qwen model weights for … · 42% · 1.2 of 2.9 GB · 30 MB/s · 57 s left"), "the progress chip")?;
+    same(&page.eval("document.querySelector('[data-chip=progress] .pg').style.getPropertyValue('--value')")?, json!("42"), "the bar")?;
     page.deliver(json!({"type": "progress"}))?;
     same(&kinds(&page.dump()?)[0], json!("directory"), "the first chip once done")
 }
@@ -401,7 +409,7 @@ fn lists_every_windows_task_by_project_and_brings_one_up(page: &Page) -> Result<
         {"text": "?Fix Fleet names", "state": "question", "current": false}
     ]), "the rows")?;
 
-    page.click("#tasks .task[data-state=question]")?;
+    page.click("#tasks .card[data-state=question]")?;
 
     same(&page.wait_post("focus")?, json!({"type": "focus", "id": "W2"}), "the focus post")
 }
@@ -411,7 +419,8 @@ fn says_when_there_is_no_task_yet(page: &Page) -> Result<(), String> {
 
     page.deliver(json!({"type": "tasks", "entries": []}))?;
 
-    same(&page.eval("document.querySelector('#tasks .empty').textContent")?, json!("No task yet."), "the empty task bar")
+    same(&page.eval("document.querySelector('#tasks .empty').textContent")?, json!("No task yet."), "the empty words")?;
+    same(&page.dump()?["empty"], json!(true), "the empty task bar shown")
 }
 
 fn tells_the_link_and_the_last_problem_apart(page: &Page) -> Result<(), String> {

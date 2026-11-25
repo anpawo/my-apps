@@ -1,130 +1,206 @@
-/* The window around the transcript and the composer, read from the Swift `CXView`: its greys, sizes and colours.
-   Motion from the web templates: chips swap their fill as WT-037 (status pill), choices press as WT-034 (toggle
-   chips), the progress bar eases as WT-104, the permission card opens as WT-087 (alert dialog), popovers drop as
-   WT-023 (menu drop panel). */
-:root {
-  --accent: rgb(110 59 191);
-  --ready-ink: rgb(26 115 46);
-  --pending: rgb(222 107 0);
-  --agent-pink: rgb(235 56 143);
-  --soft: rgb(0 0 0 / 0.6);
-  --faint: rgb(0 0 0 / 0.45);
-  --hairline: rgb(0 0 0 / 0.1);
-  --raised: 0 2px 6px rgb(0 0 0 / 0.22);
-  --task-working: rgb(237 128 26);
-  --task-question: rgb(51 115 230);
-  --task-done: rgb(51 166 77);
-}
-
+/* The window around the transcript and the composer. Each element is one of his web templates
+   (~/self/templates/web), copied between its effect markers, then scoped to its element and given light colours
+   where the template is dark: the status pill WT-037, the progress bar WT-104, the bar dialog WT-072, the toggle
+   chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102. The status
+   line's layout (the pill, what runs, its time, the note) has no template and is drawn in their style. */
 body { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
 #transcript { grid-column: 1; grid-row: 1; }
 footer { grid-column: 1; grid-row: 2; }
 
-#status { gap: 6px; margin-bottom: 4px; font-size: 12px; }
-#status #dot { width: 6px; height: 6px; background: var(--ready-ink); opacity: 1; animation: none; transition: background 200ms ease-out, opacity 200ms ease-out; }
-#status #dot.busy { background: var(--accent); animation: drift 0.6s ease-in-out infinite alternate; }
-#status #dot.pending { background: var(--pending); animation: drift 0.6s ease-in-out infinite alternate; }
-#status #dot.off { opacity: 0.35; }
-@keyframes drift { from { translate: -3px 0; } to { translate: 3px 0; } }
-#status-text { color: var(--ready-ink); }
-#status[data-tone="busy"] #status-text { color: var(--accent); }
-#status[data-tone="pending"] #status-text { color: var(--pending); }
-#status[data-tone="off"] #status-text { color: var(--muted); }
-#status-doing, #status-elapsed { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ---- Effect: status pill. Copy from here ---- */
+.pill { display: inline-block; justify-self: start; overflow: hidden; padding: 2px 12px; border: 1px solid rgb(0 0 0 / .1); border-radius: 999px;
+  background-color: var(--fill); color: #1f2328; font: 600 14px/20px Inter, -apple-system, system-ui, sans-serif; white-space: nowrap;
+  transition: background-color var(--dur, 300ms) ease-out; }
+.pill span { display: inline-block; transition: opacity calc(var(--dur, 300ms) / 2) ease-out; }
+.pill.swap span { opacity: 0; }
+.f-green { --fill: #88cb9e; } .f-yellow { --fill: #e3be3b; } .f-orange { --fill: #e28e4f; } .f-red { --fill: #e2828a; }
+.f-blue { --fill: #86b3de; } .f-grey { --fill: #afb2b7; } .f-slate { --fill: #a4b3c7; } .f-violet { --fill: #b4a5e7; }
+@media (prefers-reduced-motion: reduce) { .pill { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+
+/* The status line: the status pill, then what runs and for how long, in the bar's grey. */
+#status { gap: 6px; }
+#status #dot { display: none; }
+#status-pill { font-size: 12px; line-height: 18px; padding: 0 10px; }
+#status-doing, #status-elapsed { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #status-doing { min-width: 0; }
 #status-elapsed { font-variant-numeric: tabular-nums; }
-#status-note { margin: 0 0 8px; color: var(--soft); font-size: 12px; }
+#status-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 
-#notice[data-tone="problem"] { background: rgb(217 48 37 / 0.08); color: var(--failed); }
+#notice.pill { display: block; width: fit-content; max-width: 100%; padding: 2px 12px; border-radius: 999px; background-color: var(--fill);
+  font-size: 12px; line-height: 18px; white-space: normal; }
+#notice[hidden] { display: none; }
 
-#chips { align-items: center; gap: 8px; margin-top: 10px; }
-#chips .sep { color: rgb(0 0 0 / 0.25); font-size: 10.5px; }
-#chips .chip {
-  display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; border: 0; border-radius: 5px;
-  background: color-mix(in srgb, var(--tint, rgb(0 0 0 / 0.6)) 8%, white); box-shadow: var(--raised);
-  color: var(--tint, var(--soft)); font: 500 10.5px/1.2 ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap; cursor: pointer;
-  transition: background-color 300ms ease-out, color 300ms ease-out;
-}
-#chips button.chip:hover { background: color-mix(in srgb, var(--tint) 14%, white); }
-#chips button.chip:focus-visible { outline: 2px solid color-mix(in srgb, var(--tint) 50%, transparent); outline-offset: 1px; }
-#chips .chip.glide { position: relative; overflow: hidden; padding-bottom: 7px; --tint: var(--accent); background: color-mix(in srgb, var(--accent) 10%, white); cursor: default; }
+/* The status bar: status pills of the chip's colour washed into white. */
+#chips { align-items: center; gap: 6px; }
+#chips .pill { position: relative; padding: 1px 9px; font-size: 11px; line-height: 16px; }
+#chips button.pill { cursor: pointer; }
+#chips button.pill:hover { filter: brightness(0.96); }
+#chips button.pill:focus-visible { outline: 2px solid #4c90f0; outline-offset: 1px; }
+#chips button.pill[aria-expanded=true] { border-color: rgb(0 0 0 / .3); }
+#chips .pill.loading span { animation: pulse 1.2s ease-in-out infinite; }
+#chips .glide { --fill: color-mix(in srgb, var(--accent) 16%, white); padding-bottom: 4px; }
 #chips .glide b { font-weight: 700; }
-#chips .glide .dim { opacity: 0.5; }
-#chips .glide .bar { position: absolute; left: 0; bottom: 0; height: 2.5px; background: linear-gradient(90deg, var(--agent-pink), var(--accent)); transition: width 1s ease-out; }
-.spinner { width: 8px; height: 8px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { rotate: 360deg; } }
+#chips .glide .dim { opacity: .5; }
 
-#permission {
-  max-width: 750px; max-height: 240px; overflow-y: auto; margin-bottom: 10px; padding: 16px; border: 1px solid var(--hairline);
-  border-radius: 14px; background: rgb(255 255 255 / 0.97); animation: open-card 200ms ease-out;
-}
-@keyframes open-card { from { opacity: 0; scale: 0.95; } }
-#permission h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
-#permission h2::before { content: "✋ "; }
-#permission .reason { margin: 0 0 6px; color: var(--soft); font-size: 12px; }
-#permission .detail { margin: 0 0 12px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-#permission .actions { display: flex; gap: 8px; }
-#permission .spacer { flex: 1; }
-#permission button, #popover .link {
-  height: 28px; padding: 0 12px; border: 1px solid rgb(0 0 0 / 0.15); border-radius: 8px; background: white; color: var(--ink);
-  font: 500 12.8px/1 -apple-system, system-ui, sans-serif; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-#permission button:hover { background: var(--panel); }
-#permission button:active { translate: 0 1px; }
-#permission button.allow { border-color: transparent; background: var(--accent); color: white; }
-#permission button.allow:hover { background: rgb(110 59 191 / 0.85); }
-#permission button:disabled { opacity: 0.5; pointer-events: none; }
+/* ---- Effect: progress bar. Copy from here ---- */
+#chips .glide { --primary: var(--accent); }
+.pg { position: relative; height: 8px; width: 100%; overflow: hidden; border-radius: 999px; background: color-mix(in oklab, var(--primary) 20%, transparent); }
+.pg-bar { height: 100%; width: 100%; background: var(--primary); transform: translateX(calc(var(--value, 0) * 1% - 100%));
+  transition: transform var(--dur, 150ms) cubic-bezier(0.4, 0, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .pg-bar { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+#chips .glide .pg { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 0; }
 
-#popover {
-  position: fixed; z-index: 40; display: grid; gap: 6px; min-width: 220px; max-width: 360px; max-height: 70vh; overflow-y: auto; padding: 14px;
-  border: 1px solid var(--hairline); border-radius: 10px; background: white; box-shadow: 0 10px 24px rgb(0 0 0 / 0.14);
-  font-size: 11px; transform-origin: bottom left; animation: drop 200ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-#popover[hidden] { display: none; }
-@keyframes drop { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
-#popover .heading { margin: 4px 0 0; color: rgb(0 0 0 / 0.5); font-size: 10px; font-weight: 700; letter-spacing: 1.1px; }
-#popover .title { margin: 0; font: 600 12px -apple-system, system-ui, sans-serif; }
-#popover .row { display: flex; flex-wrap: wrap; gap: 4px; }
-#popover .option {
-  display: flex; align-items: baseline; gap: 8px; padding: 4px 10px; border: 1px solid rgb(0 0 0 / 0.15); border-radius: 999px; background: transparent;
-  color: var(--ink); font: 500 11px ui-monospace, "SF Mono", Menlo, monospace; text-align: left; cursor: pointer;
-  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-#popover > .option { border-radius: 8px; }
-#popover .option:hover { background: var(--panel); }
-#popover .option.current { border-color: transparent; background: var(--accent); color: white; }
-#popover .option .detail { color: var(--faint); font-size: 10px; }
-#popover .option.current .detail { color: rgb(255 255 255 / 0.75); }
+/* ---- Effect: dialog with a sticky title bar and a footer bar. Copy from here ---- */
+.light { --ink: #1c2127; color: var(--ink); background: rgb(220 224 229 / .4); border: 1px solid rgb(255 255 255 / .4);
+  -webkit-backdrop-filter: blur(40px) saturate(200%) brightness(1.15); backdrop-filter: blur(40px) saturate(200%) brightness(1.15); }
+.dialog { position: fixed; z-index: 50; top: 50%; left: 50%; translate: -50% -50%; display: flex; flex-direction: column; gap: 16px;
+  width: min(var(--width, 560px), calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: 16px; border-radius: 14px; box-shadow: 0 0 0 1px rgb(28 33 39 / .1); outline: none; }
+.dialog[hidden] { display: none; }
+.dialog .bar { display: grid; align-content: center; min-height: calc(3.75rem + 1px); margin: -16px -16px 0; padding: 8px 16px;
+  border-bottom: 1px solid #c5cbd3; border-radius: 14px 14px 0 0; background: rgb(255 255 255 / .25); }
+.dialog .bar > div { justify-self: center; min-width: 0; max-width: calc(100% - 9.5rem); padding: 4px 16px; border: 1px solid #c5cbd3; border-radius: 10px; background: rgb(255 255 255 / .6); }
+.dialog .bar p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.025em; }
+.dialog .body { flex: 1 1 auto; display: grid; gap: 8px; align-content: start; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin: 0 -16px -16px; padding: 16px; border-top: 1px solid #c5cbd3; border-radius: 0 0 14px 14px;
+  background: rgb(255 255 255 / .25); }
+.dialog .foot .first { margin-right: auto; }
+.ub { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px;
+  font-size: 14px; font-weight: 500; white-space: nowrap; transition: all 150ms cubic-bezier(.4, 0, .2, 1); }
+.ub:active { translate: 0 1px; }
+.ub.primary { background: #2d72d2; color: #fff; }
+.ub.primary:is(:hover, .hover) { background: rgb(45 114 210 / .8); }
+.ub.outline { background: #fff; border-color: #c5cbd3; color: var(--ink); }
+.ub.outline:is(:hover, .hover) { background: #f5f5f5; }
+/* ---- End of effect ---- */
+/* In the footer, above the status line, rather than over a veil: Swift draws the prompt in place. */
+#permission { position: relative; z-index: auto; top: auto; left: auto; translate: none; width: 100%; max-height: 240px; margin-bottom: 10px;
+  font: 13px/1.45 -apple-system, system-ui, sans-serif; }
+#permission .bar { min-height: 0; }
+#permission .bar p { font-size: 16px; line-height: 24px; }
+#permission .reason { margin: 0; color: rgb(28 33 39 / .7); }
+#permission .detail { margin: 0; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#permission .ub { height: 28px; font: 500 13px -apple-system, system-ui, sans-serif; cursor: pointer; }
+#permission .ub:disabled { opacity: .5; pointer-events: none; }
+
+/* ---- Effect: box with a one-choice list. Copy from here ---- */
+.pop { position: absolute; z-index: 50; top: calc(100% + 4px); left: 50%; min-width: 100%; width: max-content; padding: 6px; border-radius: 10px; color: #f6f7f9;
+  font-size: 16px; line-height: 24px; background: #2f343c; box-shadow: 0 0 0 1px rgb(246 247 249 / .1), 0 4px 6px -1px rgb(0 0 0 / .1), 0 2px 4px -2px rgb(0 0 0 / .1);
+  transform-origin: top; visibility: hidden; opacity: 0; scale: .95; translate: -50% -8px;
+  transition: opacity var(--pop, 100ms) ease-out, scale var(--pop, 100ms) ease-out, translate var(--pop, 100ms) ease-out, visibility var(--pop, 100ms); }
+.choices { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; white-space: nowrap; }
+.choice { display: block; width: 100%; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; text-align: left; color: inherit; background: none;
+  cursor: pointer; transition: background-color 150ms ease-out, opacity 150ms ease-out; }
+.choice:is(:hover, .hover) { background: #383e47; }
+.choice[aria-current=true] { background: var(--chosen, #2d72d2); border-color: var(--chosen, #2d72d2); color: #fff; font-weight: 600; }
+.choice[aria-current=true]:is(:hover, .hover) { opacity: .9; }
+@media (prefers-reduced-motion: reduce) { .choice { transition-duration: 0s; } .pop { transition: opacity 100ms; } }
+/* ---- End of effect ---- */
+/* Opened above its chip, placed by chrome.js, in light colours; it shows when its `hidden` goes, so it rises by an
+   animation rather than the template's transition. */
+#popover.pop { position: fixed; top: auto; min-width: 220px; max-width: 360px; max-height: 70vh; overflow-y: auto; display: grid; gap: 6px; padding: 10px;
+  color: #1c2127; background: #fff; box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); font: 12px/18px -apple-system, system-ui, sans-serif;
+  transform-origin: bottom left; visibility: visible; opacity: 1; scale: 1; translate: none; animation: pop-in var(--pop, 100ms) ease-out; }
+#popover.pop[hidden] { display: none; }
+@keyframes pop-in { from { opacity: 0; scale: .95; translate: 0 8px; } }
+#popover .heading { margin: 4px 0 0; padding: 0; color: rgb(28 33 39 / .5); font-size: 10px; font-weight: 700; letter-spacing: .08em; background: none; }
+#popover .choice:is(:hover, .hover) { background: #f0f1f3; }
+#popover .choice[aria-current=true] { background: var(--chosen, #2d72d2); }
+#popover .choice .name { font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; }
+#popover .choice .detail { display: block; color: rgb(28 33 39 / .5); font-size: 11px; font-weight: 400; }
+#popover .choice[aria-current=true] .detail { color: rgb(255 255 255 / .75); }
 #popover .model { display: flex; align-items: center; gap: 7px; color: var(--tint); font: 500 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
 #popover .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--tint); }
-#popover .own { color: rgb(0 0 0 / 0.4); font-size: 10.5px; }
-#popover .quota { display: grid; grid-template-columns: auto auto auto; gap: 4px 14px; font: 11px ui-monospace, "SF Mono", Menlo, monospace; }
-#popover .quota .head { color: var(--muted); }
-#popover .quota hr { grid-column: 1 / -1; width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); }
-#popover .link { justify-self: start; border: 0; padding: 0; height: auto; background: none; color: var(--accent); }
+#popover .own { color: rgb(0 0 0 / .4); font-size: 10.5px; }
+#popover .loading { margin: 0; color: rgb(28 33 39 / .5); }
+#popover .link { justify-self: start; padding: 0; border: 0; background: none; color: #2d72d2; font: inherit; cursor: pointer; }
 #popover .link:hover { text-decoration: underline; }
 
-#tasks {
-  grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; min-width: 200px; max-width: 320px; overflow-y: auto;
-  border-left: 1px solid rgb(0 0 0 / 0.07); background: rgb(0 0 0 / 0.025);
-}
-#tasks header { display: flex; align-items: center; gap: 8px; padding: 22px; color: rgb(0 0 0 / 0.75); font-size: 11px; font-weight: 700; letter-spacing: 1.2px; }
-#tasks header .count { margin-left: auto; color: var(--faint); letter-spacing: 0; }
-#tasks .list { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 14px; }
-#tasks .empty { margin: 0 8px; color: var(--faint); font-size: 11px; }
-#tasks .group { margin: 8px 4px 0; color: var(--faint); font-size: 10px; font-weight: 600; }
-#tasks .task {
-  display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--tint) 22%, transparent); border-radius: 8px;
-  background: color-mix(in srgb, var(--tint) 8%, white); color: var(--ink); font: 500 11.5px ui-monospace, "SF Mono", Menlo, monospace; text-align: left; cursor: pointer;
-  transition: background-color 150ms ease-out;
-}
-#tasks .task.current { border-color: color-mix(in srgb, var(--tint) 50%, transparent); background: color-mix(in srgb, var(--tint) 16%, white); font-weight: 600; }
-#tasks .task:hover { background: color-mix(in srgb, var(--tint) 14%, white); }
-#tasks .mark { width: 12px; color: var(--tint); font-style: normal; font-weight: 700; text-align: center; }
-#tasks .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ---- Effect: row of toggle chips. Copy from here ---- */
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.chips button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 32px; min-width: 32px; padding: 0 16px;
+  border: 1px solid #404854; border-radius: 999px; background: transparent; color: #f6f7f9; font: 500 14px/20px Inter, -apple-system, system-ui, sans-serif;
+  white-space: nowrap; cursor: pointer; outline: none; transition: color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1), background-color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1), border-color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+.chips button:hover { background: #2f343c; }
+.chips button[aria-pressed=true] { background: var(--on, #2d72d2); color: #fff; }
+.chips button:focus-visible { z-index: 1; border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+@media (prefers-reduced-motion: reduce) { .chips button { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+#popover .chips { justify-content: flex-start; }
+#popover .chips button { height: 24px; padding: 0 10px; border-color: #c5cbd3; color: #1c2127; font: 500 11px ui-monospace, "SF Mono", Menlo, monospace; }
+#popover .chips button:hover { background: #f0f1f3; }
+#popover .chips button[aria-pressed=true] { border-color: transparent; background: var(--on, #2d72d2); color: #fff; }
 
-@media (prefers-reduced-motion: reduce) {
-  #status #dot.busy, #status #dot.pending, .spinner { animation: none; }
-  #permission, #popover { animation-duration: 1ms; }
-  #chips .chip, #chips .glide .bar, #popover .option, #tasks .task { transition-duration: 1ms; }
-}
+/* ---- Effect: table from data rows. Copy from here ---- */
+.vcx-title { margin: 0 2px 8px; font-weight: 600; font-size: 14px; }
+.vcx-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.vcx-table th { font-weight: 500; font-size: 12px; color: #71717a; text-align: left; padding: 6px 10px; border-bottom: 1px solid #e4e4e7; white-space: nowrap; }
+.vcx-table td { padding: 6px 10px; border-bottom: 1px solid #f4f4f5; }
+.vcx-table .num { text-align: right; }
+.vcx-table tbody tr { transition: background-color var(--dur, 150ms) ease-out; }
+.vcx-table tbody tr:hover, .vcx-table tbody tr.hover { background: #fafafa; }
+.t-green { background: #f0fdf4; } .t-red { background: #fef2f2; } .t-orange { background: #fff7ed; } .t-blue { background: #eff6ff; }
+/* ---- End of effect ---- */
+#popover .vcx-title { margin-bottom: 2px; }
+#popover .vcx-table td { white-space: nowrap; }
+
+/* The task bar: the card bar down the window's right side. */
+#tasks { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 12px; min-width: 200px; max-width: 320px; padding: 22px 16px;
+  overflow-y: auto; border-left: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .02); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+#tasks header { display: flex; align-items: center; gap: 8px; padding: 0 6px; color: rgb(0 0 0 / .75); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+#tasks header .count { margin-left: auto; color: rgb(0 0 0 / .45); letter-spacing: 0; }
+
+/* ---- Effect: side bar of count cards with a sliding glass selector. Copy from here ---- */
+@property --cut-a { syntax: "<length>"; inherits: true; initial-value: 0px; }
+@property --cut-b { syntax: "<length>"; inherits: true; initial-value: 0px; }
+#tasks .bar { --edge: rgb(246 247 249 / .2); --reach: 13px; position: relative; display: flex; flex-direction: column; gap: 16px; width: max-content;
+  padding: 12px; border: 1px solid transparent; border-radius: 16px; background: rgb(246 247 249 / .1); clip-path: inset(0 round 16px); }
+#tasks .bar::before { content: ""; position: absolute; inset: -1px; border: 1px solid var(--edge); border-radius: inherit; pointer-events: none;
+  mask: linear-gradient(#000 0 0) left / calc(100% - 1px) 100% no-repeat,
+        linear-gradient(#000 var(--cut-a), transparent 0 var(--cut-b), #000 0) right / 1px 100% no-repeat; }
+#tasks .bar-group { display: flex; flex-direction: column; gap: 8px; }
+#tasks .bar-head { padding: 8px 4px 0; font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
+#tasks .card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid transparent;
+  border-radius: 10px; background: transparent; color: #1f2328; font-family: inherit; font-size: 14.5px; font-weight: 600; line-height: 1.5; text-align: left; outline: none;
+  transition: background-color 100ms ease-out, transform 150ms cubic-bezier(.16, 1, .3, 1); }
+#tasks .card:focus-visible { box-shadow: 0 0 0 2px #4c90f0; }
+#tasks .card::before, #tasks .card::after { content: ""; position: absolute; z-index: -1; inset: -1px; border-radius: inherit; background: rgb(0 0 0 / .1); }
+#tasks .card::after { inset: 0; background: none; background-color: var(--full); transition: inherit; }
+#tasks .card:not([aria-current]):not(:enabled:hover)::after {
+  background-color: color-mix(in srgb, color-mix(in srgb, var(--full), white var(--lighten, 15%)), transparent var(--clear, 20%)); }
+#tasks .card:enabled:active { transform: scale(var(--press, .97)); }
+#tasks .card:disabled { cursor: default; }
+#tasks .name { flex: 1; white-space: nowrap; }
+#tasks .card-glass { --tint: rgb(255 255 255 / var(--glass, .1)); position: absolute; z-index: -2; top: -4px; bottom: -4px;
+  left: calc(-1 * var(--reach)); right: calc(-1px - var(--reach)); pointer-events: none; visibility: hidden;
+  background: linear-gradient(var(--edge) 0 0) top left / calc(100% - 13px) 1px no-repeat,
+              linear-gradient(var(--edge) 0 0) bottom left / calc(100% - 13px) 1px no-repeat,
+              linear-gradient(var(--tint) 0 0) 0 1px / 100% calc(100% - 2px) no-repeat;
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3); }
+#tasks .card-glass::before, #tasks .card-glass::after { content: ""; position: absolute; right: 0; width: 13px; height: 13px;
+  --ring: transparent 11.75px, var(--edge) 12.25px 12.75px, var(--tint) 13.25px; }
+#tasks .card-glass::before { bottom: calc(100% - 1px); background: radial-gradient(circle at 0 0, var(--ring)); }
+#tasks .card-glass::after { top: calc(100% - 1px); background: radial-gradient(circle at 0 100%, var(--ring)); }
+#tasks .card[aria-current] .card-glass { visibility: visible; }
+@media (prefers-reduced-motion: reduce) { #tasks .card { transition: none; } #tasks .card:enabled:active { transform: none; } }
+/* ---- End of effect ---- */
+/* On the window's white: a dark hairline, a faint panel, a white glass, a lighter shadow, the cards at the bar's size. */
+#tasks .bar { --edge: rgb(0 0 0 / .12); --glass: .7; width: 100%; background: rgb(0 0 0 / .03); }
+#tasks .bar[hidden] { display: none; }
+#tasks .bar-head { color: rgb(0 0 0 / .5); }
+#tasks .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
+#tasks .card-glass { box-shadow: 0 4px 12px rgb(0 0 0 / .1); }
+#tasks .name { overflow: hidden; text-overflow: ellipsis; }
+#tasks .mark { width: 12px; font-style: normal; font-weight: 700; text-align: center; }
+
+/* ---- Effect: empty state. Copy from here ---- */
+#tasks { --foreground: oklch(0.985 0 0); --muted: oklch(0.269 0 0); --muted-foreground: oklch(0.708 0 0); --border: oklch(1 0 0 / 10%); --radius: 0.625rem; }
+#tasks .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-width: 0; padding: 24px;
+  border: 1px dashed var(--border); border-radius: var(--radius); text-align: center; text-wrap: balance; }
+#tasks .empty-title { font-size: 18px; font-weight: 500; letter-spacing: -.01em; }
+/* ---- End of effect ---- */
+#tasks { --foreground: #1c2127; --muted-foreground: rgb(0 0 0 / .45); --border: rgb(0 0 0 / .15); }
+#tasks .empty { padding: 16px; color: var(--muted-foreground); }
+#tasks .empty-title { margin: 0; font-size: 12px; }
+#tasks .empty.hidden { display: none; }
