@@ -100,11 +100,34 @@ class BackgroundProcessTests(unittest.TestCase):
         self.assertEqual(json.loads(resumed.stdout)['session_id'], session)
         self.assertEqual(self.captured()[-1]['arguments'][:3], ['exec', 'resume', 'fixture-codex'])
 
+    def test_reconnect_message_keeps_reading_until_the_answer(self):
+        result = self.run_cli(mode='reconnect')
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['result'], 'DONE: Fixture follow-up completed.')
+        self.assertEqual([c['provider'] for c in self.captured()], ['codex'])
+
+    def test_stream_quota_before_actions_uses_another_provider(self):
+        result = self.run_cli(mode='stream_quota')
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['provider'], 'claude')
+        self.assertEqual([c['provider'] for c in self.captured()], ['codex', 'claude'])
+
     def test_quota_after_tools_does_not_launch_fallback_at_real_process_boundary(self):
         result = self.run_cli(mode='tool_quota')
         self.assertEqual(result.returncode, 1, result.stderr)
         value = json.loads(result.stdout)
         self.assertTrue(value['is_error'])
+        self.assertEqual([c['provider'] for c in self.captured()], ['codex'])
+        self.assertIn('SENT_ONCE', self.record(value['session_id']).read_text())
+        self.assertIn('Automatic replay was stopped', value['result'])
+
+    def test_stream_quota_after_tools_never_replays(self):
+        result = self.run_cli(mode='tool_stream_quota')
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        value = json.loads(result.stdout)
         self.assertEqual([c['provider'] for c in self.captured()], ['codex'])
         self.assertIn('SENT_ONCE', self.record(value['session_id']).read_text())
         self.assertIn('Automatic replay was stopped', value['result'])

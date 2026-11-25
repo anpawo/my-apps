@@ -46,7 +46,12 @@ if provider == 'claude':
     emit({'type': 'result', 'result': 'DONE: Fixture follow-up completed.', 'session_id': 'fixture-claude', 'is_error': False})
 else:
     emit({'type': 'thread.started', 'thread_id': 'fixture-codex'})
-    if mode in ('tool_quota', 'malformed_after_tool', 'malformed_shape_after_tool'):
+    if mode == 'reconnect':
+        emit({'type': 'error', 'message': 'Reconnecting... 1/5'})
+    if mode == 'stream_quota':
+        emit({'type': 'error', 'message': 'Usage limit reached'})
+        sys.exit(1)
+    if mode in ('tool_quota', 'tool_stream_quota', 'malformed_after_tool', 'malformed_shape_after_tool'):
         item = {'id': 'once', 'type': 'command_execution', 'command': 'fixture_send_once'}
         emit({'type': 'item.started', 'item': item})
         emit({'type': 'item.completed', 'item': dict(item, status='completed', aggregated_output='SENT_ONCE')})
@@ -54,7 +59,10 @@ else:
             print('{invalid JSON', flush=True)
         if mode == 'malformed_shape_after_tool':
             emit({'type': 'item.completed', 'item': None})
-        emit({'type': 'turn.failed', 'error': {'message': 'Usage limit reached'}})
+        if mode == 'tool_stream_quota':
+            emit({'type': 'error', 'message': 'Usage limit reached'})
+        else:
+            emit({'type': 'turn.failed', 'error': {'message': 'Usage limit reached'}})
         sys.exit(1)
     emit({'type': 'item.completed', 'item': {'id': 'answer', 'type': 'agent_message', 'text': 'DONE: Fixture follow-up completed.'}})
     emit({'type': 'turn.completed', 'usage': {'input_tokens': 10, 'output_tokens': 8}})

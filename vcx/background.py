@@ -318,6 +318,8 @@ def provider_event(line):
     if not line.startswith(b'{'):
         return None
     value = json.loads(line)
+    if value.get('type') == 'error' and isinstance(value.get('message'), str):
+        return value
     for key in ('item', 'message', 'event', 'error', 'usage'):
         # Claude Code tags an API error message with a string: "error": "rate_limit", "server_error"...
         if key in value and not isinstance(value[key], dict) and not (key == 'error' and isinstance(value[key], str)):
@@ -685,6 +687,8 @@ class Runner:
         events = received
         answers = [v['item']['text'] for v in events if v.get('type') == 'item.completed' and v.get('item', {}).get('type') == 'agent_message']
         failures = [v.get('error', {}).get('message', 'Codex turn failed') for v in events if v.get('type') == 'turn.failed']
+        if not failures and not answers:
+            failures = [v['message'] for v in events if v.get('type') == 'error']
         session = next((v['thread_id'] for v in events if v.get('type') == 'thread.started'), resume)
         text = failures[-1] if failures else answers[-1] if answers else err.decode(errors='replace') or 'Codex returned no answer.'
         rows = self.activity
