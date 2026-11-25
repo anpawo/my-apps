@@ -23,7 +23,7 @@ struct TaskEntry: Identifiable, Equatable {
 @MainActor
 final class TaskBoard: ObservableObject {
     static let shared = TaskBoard()
-    static let longestTask = 80
+    static let longestTask = 40
     @Published private(set) var entries: [TaskEntry] = []
     private var windows: [ObjectIdentifier: NSWindow] = [:]
     private var polling: Task<Void, Never>?
@@ -87,6 +87,7 @@ struct TaskBar: View {
     var body: some View {
         let group = TaskBoard.group(session)
         let entries = board.entries.filter { $0.group == group }
+        let width = Self.width(for: entries.map(\.task))
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "checklist").frame(width: 12)
@@ -103,8 +104,17 @@ struct TaskBar: View {
                     ForEach(entries) { entry in row(entry, current: window.map { ObjectIdentifier($0) == entry.id } ?? false) }
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.background(Color.black.opacity(0.025))
+        }.frame(width: width).background(Color.black.opacity(0.025))
+            .animation(.easeOut(duration: 0.2), value: width)
             .onAppear { board.start() }
+    }
+
+    // Each row on one line: the bar grows to the longest task (capped by longestTask), never below taskBarWidth.
+    static let rowChrome: CGFloat = 66
+    static func width(for tasks: [String]) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
+        let widest = tasks.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) }.max() ?? 0
+        return max(taskBarWidth, widest + rowChrome)
     }
 
     private func row(_ entry: TaskEntry, current: Bool) -> some View {
@@ -112,8 +122,7 @@ struct TaskBar: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: entry.state == .done ? "checkmark.circle.fill" : entry.state == .question ? "questionmark.circle.fill" : "ellipsis.circle.fill")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(entry.color)
-                Text(entry.task).font(.system(size: 11.5, weight: current ? .semibold : .medium)).lineLimit(3).multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(entry.task).font(.system(size: 11.5, weight: current ? .semibold : .medium)).lineLimit(1).fixedSize()
                 Spacer(minLength: 0)
             }.foregroundStyle(.black.opacity(0.8)).padding(.horizontal, 10).padding(.vertical, 9)
                 .frame(maxWidth: .infinity, alignment: .leading)

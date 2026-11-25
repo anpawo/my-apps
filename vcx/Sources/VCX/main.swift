@@ -196,10 +196,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.contentView = CXView.host(session)
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
-        if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
+        // A window saved before the task bar opens once as a new one, so every window has room for the bar.
+        if let frame = state["frame"] as? String, headless || state["taskBar"] != nil { window.setFrame(NSRectFromString(frame), display: false) }
         else if !headless, let screen = NSScreen.main?.visibleFrame {
-            // New windows always open at 9/10 of the screen's width (wider since the task bar), centered, whatever size the last one was left at.
-            window.setFrame(screen.insetBy(dx: screen.width / 20, dy: screen.height / 20).integral, display: false)
+            // New windows always open at 19/20 of the screen's width (wider since the task bar), centered, whatever size the last one was left at.
+            window.setFrame(screen.insetBy(dx: screen.width / 40, dy: screen.height / 20).integral, display: false)
         }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
         if !headless, let desktop = state["desktop"] as? Int { restoreDesktops[ObjectIdentifier(window)] = desktop }

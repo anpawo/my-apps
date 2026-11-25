@@ -488,7 +488,7 @@ struct CXView: View {
             .animation(.timingCurve(0.32, 0.72, 0, 1, duration: reduceMotion ? 0.1 : 0.2), value: openCapability != nil)
             .onChange(of: openCapability) { hoveredRule = nil; WorkBlock.covered = openCapability != nil }
             Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
-            TaskBar(session: session).frame(width: taskBarWidth)
+            TaskBar(session: session)
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
