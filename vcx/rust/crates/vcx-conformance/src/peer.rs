@@ -11,6 +11,7 @@ use vcx_testkit::session_id;
 pub const WAIT: Duration = Duration::from_secs(30);
 /// Long enough for a worker to send what it had in flight, short enough to wait for nothing on purpose.
 pub const QUIET: Duration = Duration::from_millis(400);
+const NOTICE: &str = "notice";
 
 pub struct Peer {
     pub client: Client,
@@ -118,9 +119,12 @@ impl Held {
         self.follow(answered);
     }
 
+    /// The kinds of the turn's rows. A notice is the worker's remark about its surroundings, not part of a turn:
+    /// under a loaded machine the Swift worker adds one when its conversation refresh fails.
     pub fn kinds(&self) -> Vec<String> {
         let page = view::full(self.replica.state().expect("a snapshot"));
-        page["rows"].as_array().expect("rows").iter().map(|row| row["kind"].as_str().expect("a row kind").to_owned()).collect()
+        let kinds = page["rows"].as_array().expect("rows").iter().map(|row| row["kind"].as_str().expect("a row kind").to_owned());
+        kinds.filter(|kind| kind != NOTICE).collect()
     }
 }
 
