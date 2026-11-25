@@ -190,3 +190,9 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   (`bridge::may_load`) and keeps a frame from navigating away; a frame's `webkit.messageHandlers.ipc` posts reach the
   core with the frame's own `vcx://chart/` URI, so the core keeps only posts whose URI is the template's. `vcx.live`
   lets a chart make the Mac fetch any http(s) URL, as the Swift app does.
+- 26/11/2026, reported by the session that built the worker, not rerun here: K10 is decided, the worker stays its own
+  binary (`3b3d841`). Release builds, median of 10 launches with one fixture session attached: `vcx-worker` is
+  1.6 MB, links 2 libraries, answers `hello` 3.6 ms after exec and idles at 2.1 MiB; the Swift worker (the app
+  binary with a flag) takes 46.8 ms and idles at 38.2 MiB. The Rust app binary links 13 libraries (AppKit, WebKit),
+  which a worker started from it would load, and tokio would enter the frontend binary. It ships as
+  `Contents/MacOS/vcx-worker` beside the app.
