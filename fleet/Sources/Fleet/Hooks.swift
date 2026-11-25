@@ -505,6 +505,9 @@ enum Hooks {
         set -l at (contains -i -- --resume $argv; or contains -i -- -r $argv)
         if test -n "$at"; and test (count $argv) -gt $at
             /usr/bin/python3 -I ~/self/my-setup/macos/dream/chats.py restore $argv[(math $at + 1)] >/dev/null 2>&1
+        else if test -n "$at"
+            set -l picker_sessions 20
+            /usr/bin/python3 -I ~/self/my-setup/macos/dream/chats.py restore-latest (pwd) $picker_sessions >/dev/null 2>&1
         else if contains -- --continue $argv; or contains -- -c $argv
             /usr/bin/python3 -I ~/self/my-setup/macos/dream/chats.py restore-latest (pwd) >/dev/null 2>&1
         end
