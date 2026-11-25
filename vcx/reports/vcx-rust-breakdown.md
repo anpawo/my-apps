@@ -175,3 +175,8 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
 - 26/11/2026, observed: every push under `vcx/rust` made the update job rebuild and swap the Swift app (6 Rust
   commits installed on 25/11, one run failed and was retried); `7181bf0` takes `vcx/rust` and `vcx/build-rust.sh`
   out of `auto-update.sh`'s paths.
+- 26/11/2026, observed: the update job installed `fb40939` at 00:18:48 on its second attempt (the first failed on
+  the network-retry check that also failed on `7b0f1cf` and `adcbcf2`, before this change). The live handover to
+  the new frontend did not complete (its log: "the previous frontend kept its lock for 25 s", cause not established);
+  the old frontend was quit at 00:19:55 and a cold launch at 00:20:10 runs the new build, each listed session with
+  its entry in the recovery list.
