@@ -345,7 +345,7 @@ enum BugCheck {
             let progress = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("visible-progress"))
             progress.ready = true; progress.busy = true
             progress.show(["id": "progress-question", "type": "userMessage", "content": [["type": "text", "text": "Show progress"]]])
-            progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note."])
+            progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note.\n\nIts second paragraph."])
             progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
             progress.show(["id": "progress-second", "type": "agentMessage", "text": "⟶ Second visible progress note.\n\n✓ Done: Progress checked.\n\n⟶ Next: Continue when ready."])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
@@ -355,6 +355,12 @@ enum BugCheck {
                 (view as? NSTextView)?.string.contains(text) == true || view.subviews.contains { shows(text, in: $0) }
             }
             check(shows("First visible progress note.", in: window.contentView!) && shows("Second visible progress note.", in: window.contentView!), "every progress message is visible while the turn is working")
+            func bands(holding text: String, in view: NSView) -> BandTextView? {
+                if let band = view as? BandTextView, band.string.contains(text) { return band }
+                return view.subviews.lazy.compactMap { bands(holding: text, in: $0) }.first
+            }
+            let firstBoxes = bands(holding: "First visible progress note.", in: window.contentView!)?.boxes ?? []
+            check(firstBoxes.count == 2 && firstBoxes[0].rect.maxY < firstBoxes[1].rect.minY, "each paragraph of a thought gets its own bubble, apart from the next")
             func captureProgress(_ name: String) throws {
                 guard let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView,
                       let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }

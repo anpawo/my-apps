@@ -2031,21 +2031,31 @@ private let bandBottom: CGFloat = bandPad + 2
 
 // Draws the answer lines' boxes behind the text, under the selection and the find tint. Here, not in the layout manager:
 // that one is clipped to the text container, which starts at the first line, so a first box lost its top.
+// One object per paragraph: enumerating the attribute merges equal neighbours, so two thought paragraphs given the same
+// NSColor were drawn as one box with the gap between them inside it.
+final class Band: NSObject {
+    let color: NSColor
+    init(_ color: NSColor) { self.color = color }
+}
+
 final class BandTextView: NSTextView {
     var top: CGFloat = 0
     override var textContainerOrigin: NSPoint { NSPoint(x: 0, y: top) }
-    override func draw(_ dirtyRect: NSRect) {
-        if let storage = textStorage, let manager = layoutManager {
-            storage.enumerateAttribute(bandKey, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-                guard let color = value as? NSColor else { return }
-                var rect = NSRect.null
-                manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)) { _, used, _, _, _ in rect = rect.union(used) }
-                // The box's last line rect carries the line spacing below it, except on the text's very last line.
-                if NSMaxRange(range) < storage.length { rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0 }
-                color.setFill()
-                NSBezierPath(roundedRect: NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad + bandBottom), xRadius: 10, yRadius: 10).fill()
-            }
+    var boxes: [(color: NSColor, rect: NSRect)] {
+        guard let storage = textStorage, let manager = layoutManager else { return [] }
+        var boxes: [(color: NSColor, rect: NSRect)] = []
+        storage.enumerateAttribute(bandKey, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard let band = value as? Band else { return }
+            var rect = NSRect.null
+            manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)) { _, used, _, _, _ in rect = rect.union(used) }
+            // The box's last line rect carries the line spacing below it, except on the text's very last line.
+            if NSMaxRange(range) < storage.length { rect.size.height -= (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.lineSpacing ?? 0 }
+            boxes.append((band.color, NSRect(x: 0, y: top + rect.minY - bandPad, width: bounds.width, height: rect.height + bandPad + bandBottom)))
         }
+        return boxes
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        for box in boxes { box.color.setFill(); NSBezierPath(roundedRect: box.rect, xRadius: 10, yRadius: 10).fill() }
         super.draw(dirtyRect)
     }
 }
@@ -2099,7 +2109,7 @@ struct LinkText: NSViewRepresentable {
         let starts = parts.reduce(into: [0]) { $0.append($0.last! + $1.length + 1) }
         for (i, part) in parts.enumerated() {
             let range = NSIntersectionRange(NSRange(location: starts[i], length: part.length + 1), NSRange(location: 0, length: string.length))
-            if let band = part.band { string.addAttribute(bandKey, value: band, range: range) }
+            if let band = part.band { string.addAttribute(bandKey, value: Band(band), range: range) }
             // Set per part, not per run: equal runs of neighbouring paragraphs arrive merged into one.
             if part.weight != .regular {
                 string.enumerateAttribute(.font, in: range) { value, sub, _ in
