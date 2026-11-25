@@ -43,19 +43,20 @@ func pinnedNote() {
     glyph("pin.fill", box: 300, at: NSPoint(x: 560, y: 700), angle: -35)
 }
 
-// one-text's: one bubble with a 1 cut out of it, every chat in one; the American 1, a flag and a bar at its foot.
+// one-text's: one bubble with an asterisk cut out of it, every chat in one.
 func oneBubble() {
     NSImage(size: NSSize(width: 1024, height: 1024), flipped: false) { _ in
         glyph("bubble.fill", box: 520)
         NSGraphicsContext.current!.compositingOperation = .destinationOut
-        let one = NSBezierPath()
-        one.move(to: NSPoint(x: 440, y: 624)); one.line(to: NSPoint(x: 514, y: 676)); one.line(to: NSPoint(x: 514, y: 448))
-        one.move(to: NSPoint(x: 444, y: 448)); one.line(to: NSPoint(x: 584, y: 448))
-        // Scaled down around its centre so the bubble's edge stays clear above the flag.
-        let fit = NSAffineTransform(); fit.translateX(by: 512, yBy: 562); fit.scale(by: 0.8); fit.translateX(by: -512, yBy: -562)
-        one.transform(using: fit as AffineTransform)
-        one.lineWidth = 44; one.lineCapStyle = .round; one.lineJoinStyle = .round
-        NSColor.black.setStroke(); one.stroke()
+        // Centred on the bubble's body, above its tail.
+        let centre = NSPoint(x: 512, y: 562), arm: CGFloat = 92, arms = 6
+        let star = NSBezierPath()
+        for i in 0..<arms {
+            let a = CGFloat(i) * .pi * 2 / CGFloat(arms) + .pi / 2
+            star.move(to: centre); star.line(to: NSPoint(x: centre.x + arm * cos(a), y: centre.y + arm * sin(a)))
+        }
+        star.lineWidth = 40; star.lineCapStyle = .round; star.lineJoinStyle = .round
+        NSColor.black.setStroke(); star.stroke()
         return true
     }.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), from: .zero, operation: .sourceOver, fraction: 1)
 }
