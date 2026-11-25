@@ -35,6 +35,8 @@ final class Inbox: NSObject, ObservableObject {
     var focus: (Store.Open) -> Void = Inbox.raise
     /// What a new mac-guard line does: the panel comes up on it. A stand-in in the selftest, which must not show one.
     var popUp: (Inbox) -> Void = { $0.show() }
+    /// What a new line does besides the count: Notifier's banner. Nil in the selftest and the renders.
+    var notify: ((InboxItem) -> Void)?
     private let folder: URL
     private var seen: Date?
     private var loaded = false
@@ -78,6 +80,7 @@ final class Inbox: NSObject, ObservableObject {
             (index, settings, asking) = (i, false, nil)
             popUp(self)
         }
+        if loaded { items.filter { $0.kind != "guard" && !known.contains($0.id) }.forEach { notify?($0) } }
         loaded = true
     }
 
@@ -292,6 +295,15 @@ final class Inbox: NSObject, ObservableObject {
         if panel?.isVisible == true { return hide() }
         refresh(force: true)
         if items.isEmpty { showSettings(true) }
+        show()
+    }
+
+    /// A banner clicked: the panel on its line, or on the checks when it named none or that line is gone.
+    func reveal(_ line: String?) {
+        refresh(force: true)
+        let i = line.flatMap { id in items.firstIndex { $0.id == id || $0.older?.contains(id) == true } }
+        if let i { index = i }
+        showSettings(i == nil)
         show()
     }
 

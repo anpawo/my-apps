@@ -9,6 +9,8 @@ headless follow-up that finished something, or stopped on something that needs y
 many lines wait; ⌘⌥K opens them Spotlight-style. mac-guard leaves a line too when it stops or kills a process,
 and the panel comes up on it by itself; there ↵ starts a Vibe Code X session with the line as its first message.
 
+A check that arrives, and each line a follow-up leaves, also pops up a macOS banner; a click on it opens the panel there.
+
 ![The panel: one line waiting, its subject, what the follow-up left, its age, and the buttons to move, open, set aside](docs/panel.png)
 
 | Key | Does |

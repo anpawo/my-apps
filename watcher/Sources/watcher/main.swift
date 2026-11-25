@@ -60,6 +60,7 @@ if let i = args.firstIndex(of: "--render-demo"), i + 1 < args.count {
 @MainActor
 final class App: NSObject, NSApplicationDelegate {
     let inbox = Inbox()
+    lazy var notifier = Notifier(inbox: inbox)
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // An agent with no window is a candidate for automatic termination; that is how it would "crash" unseen.
@@ -72,6 +73,7 @@ final class App: NSObject, NSApplicationDelegate {
             NSLog("watcher: already running")
             exit(0)
         }
+        notifier.start()
         inbox.start()
         Hourly.start()
         toggle = { [inbox] in MainActor.assumeIsolated { inbox.toggle() } }
