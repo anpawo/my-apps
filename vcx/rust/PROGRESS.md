@@ -1,7 +1,7 @@
 # VCX in Rust: who builds what
 
 The plan and its evidence: `../reports/vcx-rust-breakdown.md` (slices 1 to 6, measurements M1 to M11). Slice 1 is
-built: `cargo test --workspace` passes. Since 25/11/2026 the rest is split over five sessions working in this one
+built: `cargo test --workspace` passes. Since 25/11/2026 the rest is split over nine sessions working in this one
 tree at the same time.
 
 ## Owners
@@ -10,10 +10,14 @@ A session edits and commits only the paths it owns. The session is found by its 
 
 | Session (Fleet label) | Slice | Owns |
 |---|---|---|
-| Rust transcript | 2: transcript parity | `crates/vcx-model/`, `template/` except `composer.*`, `fixtures/demo_state.json`, `crates/vcx-shell/src/{bridge,template,snapshot}.rs`, `crates/vcx-shell/tests/transcript.rs` |
+| Rust transcript | 2: transcript parity | `crates/vcx-model/`, `template/` except `composer.*`, `chart*` and `chrome.*`, `fixtures/demo_state.json`, `crates/vcx-shell/src/{bridge,template,snapshot}.rs`, `crates/vcx-shell/tests/transcript.rs` |
+| Rust charts | 2: charts | `template/chart.js`, `template/chart.css`, `template/chart/`, `crates/vcx-shell/src/chart.rs`, `crates/vcx-shell/tests/charts.rs` |
+| Rust chrome | 2: everything in the window around the transcript and the composer | `template/chrome.js`, `template/chrome.css`, `crates/vcx-shell/tests/chrome.rs` |
 | Rust composer | 3: composer | `template/composer.js`, `template/composer.css`, `crates/vcx-shell/src/{input,menu}.rs`, `crates/vcx-shell/tests/composer.rs` |
 | Rust app | 4: the app | `crates/vcx-app/` (new), `crates/vcx-shell/src/{main,app,check,link,session}.rs`, `crates/vcx-shell/tests/windowless.rs`, `build-rust.sh` (new) |
-| Rust worker | 5: the worker | `crates/vcx-worker/` (new), `crates/vcx-agents/` (new), `crates/vcx-proto/`, `crates/vcx-testkit/`, `fixtures/fake_agent.py` |
+| Rust config | 4: settings, state folders, the command line | `crates/vcx-config/` (new), `crates/vcx-cli/` (new) |
+| Rust worker | 5: the worker | `crates/vcx-worker/` (new), `crates/vcx-proto/`, `crates/vcx-testkit/`, `fixtures/fake_agent.py` |
+| Rust agents | 5: provider adapters | `crates/vcx-agents/` (new), `fixtures/streams/` (new) |
 | Rust report (the launching session) | conformance suite, integration | `crates/vcx-conformance/` (new), `Cargo.toml`, this file |
 
 ## Rules of the shared tree
@@ -31,7 +35,8 @@ A session edits and commits only the paths it owns. The session is found by its 
 - Nothing is installed at `~/Applications/Vibe Code X.app`, and the Swift app, its workers and its state under
   `~/.local/state/vcx` are never stopped, killed, attached to or written. Tests start their own Swift worker
   through `vcx-testkit`.
-- No real provider turn (Codex, Claude, agy) without Marius's word: fixtures and recorded streams stand in.
+- Real provider turns: Marius allowed, on 25/11/2026, one short real turn each on Codex and Claude to record their
+  streams. They belong to the session `Rust agents`; every other test runs on fixtures and those recordings.
 
 ## State (each session keeps its own two lines)
 
@@ -39,4 +44,8 @@ A session edits and commits only the paths it owns. The session is found by its 
 - Rust composer. Done: nothing yet. Next: chips, long paste, `/` palette, Edit menu, undo.
 - Rust app. Done: nothing yet. Next: `vcx-app` with several windows in one process.
 - Rust worker. Done: nothing yet. Next: `vcx-worker` serving v1 with the fixture agent.
+- Rust charts. Done: nothing yet. Next: a chart block drawn in a sandboxed frame.
+- Rust chrome. Done: nothing yet. Next: status bar, task bar, model controls.
+- Rust config. Done: nothing yet. Next: `vcx-config` reading today's settings and state folders.
+- Rust agents. Done: nothing yet. Next: the Codex adapter on a recorded stream.
 - Rust report. Done: slice 1, the report, `vcx-conformance` (21 cases green against the Swift worker). Next: cases for stop, answer, a frontend leaving mid-turn and worker retirement once the fixture can hold a turn open; the suite against the Rust worker.
