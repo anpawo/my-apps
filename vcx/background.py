@@ -20,7 +20,7 @@ import uuid
 
 HOME = Path.home()
 CONFIG = Path(os.environ.get('VCX_CONFIG_HOME', HOME / 'Library/Application Support/VCX'))
-STATE = Path(os.environ.get('VCX_STATE_HOME', HOME / '.local/state/cx'))
+STATE = Path(os.environ.get('VCX_STATE_HOME', HOME / '.local/state/vcx'))
 QUOTA = re.compile(r'usage.?limit|rate.?limit|weekly limit|hit your limit|out of credits|credit balance.*(?:low|exhaust)|insufficient.?quota', re.I)
 AUTH = re.compile(r'not logged in|authentication (?:failed|required)|unauthorized|invalid (?:api key|authentication)|refresh token.*(?:expired|invalid)|please (?:run.*login|log in|login)', re.I)
 CHILD = None

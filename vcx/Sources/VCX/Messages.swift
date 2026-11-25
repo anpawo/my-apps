@@ -12,7 +12,7 @@ enum AgentMessages {
     struct Window { let id: String, provider: String, state: String, cwd: String, name: String }
 
     static func windows() -> [Window] {
-        let home = NSHomeDirectory() + "/.local/state/cx"
+        let home = StateHome.directory.path
         let files = (try? FileManager.default.contentsOfDirectory(atPath: home + "/fleet")) ?? []
         var found: [Window] = []
         for file in files where file.hasSuffix(".json") {

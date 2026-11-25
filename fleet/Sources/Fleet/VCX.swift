@@ -4,7 +4,7 @@ import NaturalLanguage
 
 @MainActor
 enum VCX {
-    static let root = NSHomeDirectory() + "/.local/state/cx"
+    static let root = NSHomeDirectory() + "/.local/state/vcx"
     private static let transcripts = TranscriptStore()
     private static let projectEvidence = NativeProjectEvidence()
     private static var read: Set<String> = []

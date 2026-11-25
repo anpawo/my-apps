@@ -184,11 +184,11 @@ enum RuntimeRecovery {
         guard let recordID = entry.state["recordID"] as? String, UUID(uuidString: recordID) != nil,
               let stateDirectory = entry.state["stateDirectory"] as? String, stateDirectory.hasPrefix("/") else { return false }
         let group = SHA256.hash(data: Data(entry.cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24)
-        let path = URL(fileURLWithPath: stateDirectory).appendingPathComponent("native").appendingPathComponent(String(group)).appendingPathComponent(recordID + ".json")
+        let path = URL(fileURLWithPath: StateHome.relocated(stateDirectory)).appendingPathComponent("native").appendingPathComponent(String(group)).appendingPathComponent(recordID + ".json")
         let materialized = try? read(path)
         let record: JSON?
         if let materialized { record = materialized }
-        else { record = try? await ConversationArchive.record(recordID, state: URL(fileURLWithPath: stateDirectory)) }
+        else { record = try? await ConversationArchive.record(recordID, state: URL(fileURLWithPath: StateHome.relocated(stateDirectory))) }
         guard let record else { return false }
         return record["cwd"] as? String == entry.cwd && record["threadId"] as? String != nil && record["accountId"] as? String != nil
     }

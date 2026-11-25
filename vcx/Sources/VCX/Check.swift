@@ -61,6 +61,32 @@ enum Check {
         // One async function this long took 17 GB to compile (LLVM copies it at every await), so its checks run in closures of their own.
         func part(_ body: @MainActor () async -> Void) async { await body() }
         func step(_ body: @MainActor () async -> Bool) async -> Bool { await body() }
+        do {
+            let parent = NSTemporaryDirectory() + "vcx-state-move-" + UUID().uuidString, manager = FileManager.default
+            func exists(_ path: String) -> Bool { (try? manager.attributesOfItem(atPath: path)) != nil }
+            try? manager.createDirectory(atPath: parent + "/cx/runtime", withIntermediateDirectories: true)
+            try? "{}".write(toFile: parent + "/cx/runtime/kept.json", atomically: true, encoding: .utf8)
+            let (realParent, realApps) = (StateHome.parent, StateHome.runningApps)
+            defer { StateHome.parent = realParent; StateHome.runningApps = realApps; try? manager.removeItem(atPath: parent) }
+            let older = Process()
+            older.executableURL = URL(fileURLWithPath: "/bin/sleep"); older.arguments = ["30"]
+            try? older.run()
+            StateHome.parent = parent; StateHome.runningApps = { [getpid(), older.processIdentifier] }
+            StateHome.adopt()
+            check((try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx" && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
+                  "the state move turns cx into a link to the vcx folder that now holds the state")
+            check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock" && StateHome.relocated(parent + "/cxa") == parent + "/cxa",
+                  "a path an older build saved under cx points into vcx")
+            check(StateHome.removeLegacyLinkIfUnused(), "the cx link stays while a process of an older build runs")
+            older.terminate(); older.waitUntilExit()
+            check(!StateHome.removeLegacyLinkIfUnused() && !exists(parent + "/cx") && !exists(parent + "/vcx/.moved") && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
+                  "the cx link goes once every running process knows vcx")
+            check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock", "a saved cx path still points into vcx once the link is gone")
+            try? manager.createDirectory(atPath: parent + "/cx", withIntermediateDirectories: true)
+            StateHome.adopt()
+            check(manager.fileExists(atPath: parent + "/vcx/runtime/kept.json") && (try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == nil,
+                  "a cx folder made again never replaces an existing vcx folder")
+        }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000; Connectivity.grace = 50_000_000
         do {
             let project = ErrorsRecall.home + "/self/app"

@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The Dock keeps its own icon cache that survives rebuilds (it served the old pink icon for weeks); the running tile reads the bundle instead.
         if !headless, let icon = Bundle.main.url(forResource: "VCX", withExtension: "icns").flatMap(NSImage.init(contentsOf:)) { NSApp.applicationIconImage = icon }
         if !headless { replaceFrontend(); FreezeTrace.start(); GraphDump.listen { FreezeTrace.folder }; UpdateBuild.shared.watch() }
+        if !headless { Timer.scheduledTimer(withTimeInterval: StateHome.linkCheckInterval, repeats: true) { timer in if !StateHome.removeLegacyLinkIfUnused() { timer.invalidate() } } }
     }
 
     func observeFrontendEvents() {
@@ -490,8 +491,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 MainActor.assumeIsolated {
 signal(SIGPIPE, SIG_IGN)
-let args = Array(CommandLine.arguments.dropFirst())
-if args.contains("--runtime-protocol") { print("1"); exit(0) }
+let rawArgs = Array(CommandLine.arguments.dropFirst())
+if rawArgs.contains("--runtime-protocol") { print("1"); exit(0) }
+if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
+    let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
+    setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
+    setenv("VCX_STATE_HOME", isolated + "/state", 1)
+    setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
+    setenv("VCX_ERRORS_HOME", isolated + "/errors", 1)
+}
+StateHome.migrate()
+let args = rawArgs.map { StateHome.relocated($0) }
 if let index = args.firstIndex(of: "--adopt-check"), index + 1 < args.count {
     do { _ = try RuntimeSwap.manifest(args[index + 1]); exit(0) }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
@@ -524,13 +534,6 @@ if args.first == "--route-project" {
     dispatchMain()
 }
 if args.contains("--help") { print("vcx [--cwd FOLDER] [--resume [ID]] [PROMPT]\nvcx -p [--provider auto|claude|codex|qwen] [--output-format text|json|stream-json] [PROMPT]\nUse -p for background jobs with automatic fallback. Use cx --terminal for the previous terminal interface.\nvcx --update-now moves every running session and window to the installed build once its sessions are idle, a build installed with --manual included.\nvcx --set-model <window id or name | self> [auto|claude|codex|qwen] [model] [effort] switches a window's model or provider; a busy window switches when its turn ends.\nvcx --set-dir <window id or name | self> <folder> files a window under another folder and keeps its conversation."); exit(0) }
-if args.contains(where: { ["--archive-safety-check", "--archive-fixture-prune", "--archive-live-check", "--check", "--provider-check", "--qwen-check", "--agy-check", "--bug-check", "--runtime-check", "--frontend-check", "--runtime-bounds-check", "--runtime-recovery-check", "--runtime-load-check", "--runtime-swap-check", "--verify-runtime", "--render", "--render-demo", "--scroll-bench", "--interaction-check", "--chart-check", "--icon", "--graph-dump-check"].contains($0) }) {
-    let isolated = NSTemporaryDirectory() + "vcx-preview-" + UUID().uuidString
-    setenv("VCX_CONFIG_HOME", isolated + "/config", 1)
-    setenv("VCX_STATE_HOME", isolated + "/state", 1)
-    setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
-    setenv("VCX_ERRORS_HOME", isolated + "/errors", 1)
-}
 let app = NSApplication.shared
 if let index = args.firstIndex(of: "--recovery-frontend"), index + 3 < args.count {
     app.setActivationPolicy(.prohibited)

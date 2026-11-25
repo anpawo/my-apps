@@ -13,7 +13,7 @@ enum RuntimeIdentity {
     static let build = (try? Data(contentsOf: executable)).map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "unavailable"
     static var directory: URL {
         if let path = ProcessInfo.processInfo.environment["VCX_RUNTIME_HOME"] { return URL(fileURLWithPath: path, isDirectory: true) }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/state/cx/runtime", isDirectory: true)
+        return StateHome.directory.appendingPathComponent("runtime", isDirectory: true)
     }
     // One worker per session: a live update waits for its sessions to be idle together, which several busy sessions never were.
     static func socket(session: String) -> String {
@@ -68,7 +68,7 @@ final class RuntimeClient {
         initialCwd = cwd
         resumingRuntime = resumeRuntimeID != nil
         sessionID = resumeRuntimeID.flatMap { UUID(uuidString: $0)?.uuidString } ?? UUID().uuidString
-        self.socketPath = socketPath ?? RuntimeIdentity.socket(session: sessionID)
+        self.socketPath = socketPath.map { StateHome.relocated($0) } ?? RuntimeIdentity.socket(session: sessionID)
         recoveryEntry = recovery
         if let recovery {
             recoveryState = recovery.state; windowState = recovery.windowState

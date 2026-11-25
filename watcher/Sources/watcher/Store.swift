@@ -103,7 +103,7 @@ enum Store {
     }
 
     /// The records VCX frontends keep for Fleet, one per process. Moved aside in the selftest.
-    nonisolated(unsafe) static var vcx = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/cx/fleet")
+    nonisolated(unsafe) static var vcx = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/vcx/fleet")
     nonisolated(unsafe) static var vcxFrontends: () -> [pid_t] = {
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx")
             .filter { $0.activationPolicy != .prohibited }.map(\.processIdentifier)

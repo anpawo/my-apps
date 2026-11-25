@@ -16,12 +16,12 @@ enum FreezeTrace {
         var shapes: [(time: TimeInterval, shape: Shape)] = []
     }
     private static let state = OSAllocatedUnfairLock(initialState: State())
-    nonisolated(unsafe) static var folder = URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx/freezes", isDirectory: true)
+    nonisolated(unsafe) static var folder = StateHome.directory.appendingPathComponent("freezes", isDirectory: true)
     // Uptime stops while the Mac sleeps: on wall time, 7 of the 8 first reports were a night's sleep, not a freeze.
     nonisolated(unsafe) static var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     // Freezes need 3 s; the lag felt on 11-12 was keystrokes answered 0.6 to 1.4 s late (spindump's "slow hid response"), and
     // nothing recorded it. Every stall over `hitch` while VCX is the front app gets one line here, with who held the CPU.
-    nonisolated(unsafe) static var hitchLog = URL(fileURLWithPath: NSHomeDirectory() + "/.local/state/cx/hitches.log")
+    nonisolated(unsafe) static var hitchLog = StateHome.directory.appendingPathComponent("hitches.log")
     // App Nap delays a background app's timers by seconds: only a stall seen active on both of its beats counts.
     nonisolated(unsafe) static var active: () -> Bool = { MainActor.assumeIsolated { NSApplication.shared.isActive } }
 

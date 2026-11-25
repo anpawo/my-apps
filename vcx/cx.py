@@ -275,7 +275,7 @@ class CxApp(App):
         self.resume_id = resume
         self.initial_prompt = initial_prompt
         self.client = client or CodexClient()
-        self.state_dir = Path(state_dir or Path.home() / ".local/state/cx")
+        self.state_dir = Path(state_dir or Path.home() / ".local/state/vcx")
         self.offline = offline
         self.thread_id = None
         self.turn_id = None

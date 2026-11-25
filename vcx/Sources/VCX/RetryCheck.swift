@@ -14,7 +14,7 @@ enum RetryCheck {
         session.connectionFactory = { _, _ in connection }
         let frontend = Session(cwd: folder.path)
         defer { frontend.close() }
-        guard frontend.stateDirectory.path != NSHomeDirectory() + "/.local/state/cx" else {
+        guard ![StateHome.legacy, StateHome.current].contains(frontend.stateDirectory.path) else {
             throw CXError(message: "FAIL: verification sessions use the real conversation history")
         }
         try await session.activate(account, resume: nil, keepRows: false)

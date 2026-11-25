@@ -424,7 +424,7 @@ final class Session: ObservableObject {
         let directory = URL(fileURLWithPath: cwd).standardized.path
         self.cwd = directory
         conversationDirectory = directory
-        self.stateDirectory = stateDirectory ?? URL(fileURLWithPath: ProcessInfo.processInfo.environment["VCX_STATE_HOME"] ?? NSHomeDirectory() + "/.local/state/cx", isDirectory: true)
+        self.stateDirectory = stateDirectory.map { StateHome.relocated($0) } ?? StateHome.directory
         do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
         Trace.migrate(self.stateDirectory)
