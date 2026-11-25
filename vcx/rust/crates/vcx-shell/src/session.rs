@@ -1,12 +1,13 @@
 //! One session as the window sees it: a replica kept in step with the worker, turned into messages for the page.
 
 use crate::link::{self, Command};
+use crate::summary::{self, Summary};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use vcx_model::{Applied, Object, Replica, view};
 use vcx_proto::{AttachRequest, Attachment, Event};
 
@@ -40,6 +41,10 @@ pub enum Output {
     Page(Value),
     /// The session reached the state a check waits for, as of this page message.
     Settled(u64),
+    /// Page message `serial`, which comes next, carries a worker revision that reached this frontend `at`.
+    Arrived { serial: u64, at: Instant },
+    /// What the session list and Fleet show of it changed.
+    Summary(Summary),
     Closed(String),
 }
 
@@ -51,6 +56,11 @@ pub struct Handle {
 impl Handle {
     pub fn send(&self, message: Message) {
         let _ = self.sender.send(message);
+    }
+
+    /// Gives the session back to its worker without waiting: its threads end once the worker has answered.
+    pub fn release(self) {
+        self.send(Message::Close);
     }
 
     /// Gives the session back to its worker, without waiting long on a worker that stopped answering.
@@ -110,11 +120,12 @@ struct Session<E> {
     link_state: Option<Value>,
     wait_for_answer: bool,
     settled: bool,
+    summary: Option<Summary>,
 }
 
 impl<E: Fn(Output)> Session<E> {
     fn new(link: Option<Sender<Command>>, wait_for_answer: bool, emit: E) -> Self {
-        Self { emit, replica: Replica::default(), link, connection: 0, attached: false, dropped: None, page_ready: false, serial: 0, link_state: None, wait_for_answer, settled: false }
+        Self { emit, replica: Replica::default(), link, connection: 0, attached: false, dropped: None, page_ready: false, serial: 0, link_state: None, wait_for_answer, settled: false, summary: None }
     }
 
     fn show(&mut self, state: &Object) {
@@ -153,11 +164,13 @@ impl<E: Fn(Output)> Session<E> {
         match event {
             Event::Update { revision, patch, .. } => match self.replica.update(revision, patch) {
                 Applied::Changed(changes) => {
+                    let arrived = Instant::now();
                     let state = self.replica.state().expect("a replica that applied a patch holds a state");
                     let view = view::patch(state, &changes);
                     if view.as_object().is_some_and(|fields| !fields.is_empty()) {
-                        self.page(typed("patch", view));
+                        self.stamped(typed("patch", view), Some(arrived));
                     }
+                    self.summarize();
                     self.settle();
                 }
                 Applied::Gap => self.resync(),
@@ -181,6 +194,16 @@ impl<E: Fn(Output)> Session<E> {
         }
         self.link_is("connected", "");
         self.full();
+        self.summarize();
+    }
+
+    fn summarize(&mut self) {
+        let Some(state) = self.replica.state() else { return };
+        let summary = summary::of(state);
+        if self.summary.as_ref() != Some(&summary) {
+            self.summary = Some(summary.clone());
+            (self.emit)(Output::Summary(summary));
+        }
     }
 
     /// The replica missed a revision: only a new snapshot puts it back in step.
@@ -211,12 +234,19 @@ impl<E: Fn(Output)> Session<E> {
         self.settle();
     }
 
-    fn page(&mut self, mut message: Value) {
+    fn page(&mut self, message: Value) {
+        self.stamped(message, None);
+    }
+
+    fn stamped(&mut self, mut message: Value, arrived: Option<Instant>) {
         if !self.page_ready {
             return;
         }
         self.serial += 1;
         message["serial"] = json!(self.serial);
+        if let Some(at) = arrived {
+            (self.emit)(Output::Arrived { serial: self.serial, at });
+        }
         (self.emit)(Output::Page(message));
     }
 
@@ -364,6 +394,21 @@ mod tests {
         let after: Vec<Output> = outputs.try_iter().filter(|output| matches!(output, Output::Settled(_))).collect();
         assert_eq!(while_busy, []);
         assert_eq!(after, [Output::Settled(3)]);
+    }
+
+    #[test]
+    fn stamps_each_patch_with_when_its_revision_arrived_and_tells_what_the_list_shows() {
+        let (mut session, outputs, _commands) = session(false);
+        attached(&mut session, 4);
+        let attached_outputs: Vec<Output> = outputs.try_iter().collect();
+
+        session.handle(answer(5, false));
+
+        let after: Vec<Output> = outputs.try_iter().collect();
+        assert!(attached_outputs.iter().any(|output| matches!(output, Output::Summary(summary) if summary.state == "working")));
+        let arrived = after.iter().position(|output| matches!(output, Output::Arrived { serial: 2, .. })).expect("the patch is stamped");
+        assert!(matches!(&after[arrived + 1], Output::Page(page) if page["serial"] == 2 && page["type"] == "patch"));
+        assert!(after.iter().any(|output| matches!(output, Output::Summary(summary) if summary.state == "ready" && summary.prompt.as_deref() == Some("hi"))));
     }
 
     #[test]

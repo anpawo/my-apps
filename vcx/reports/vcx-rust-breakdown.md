@@ -196,3 +196,10 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   binary with a flag) takes 46.8 ms and idles at 38.2 MiB. The Rust app binary links 13 libraries (AppKit, WebKit),
   which a worker started from it would load, and tokio would enter the frontend binary. It ships as
   `Contents/MacOS/vcx-worker` beside the app.
+- 26/11/2026 00:46, observed: the 13-window run of slice 4 (`cargo test -p vcx-app --test app -- --ignored
+  measures_thirteen_windows_in_one_process`, debug build, windows never shown, each session on its own Swift worker
+  talking to the fixture agent, two turns per window). One `vcx-rust` process holds 13 windows on plain threads, no
+  async runtime: 95 threads (10 idle with no window), 42.3 MB footprint (8.1 MB idle), 119 MB resident. WebKit
+  draws them in 13 WebContent processes, 147 threads and 684 MB footprint together (52.6 MB each). From a worker
+  revision reaching the app to its page posting `rendered`, over 59 patches: p50 3.5 ms, p95 11.1 ms, max 33.8 ms.
+  So D6 holds for 13 windows: threads stay, and the memory is WebKit's, one process per page.

@@ -67,6 +67,11 @@ impl Link {
             self.client = None;
             match self.open() {
                 Ok(attachment) => return self.attached(attachment),
+                // The worker answered and refused: asking again gets the same answer.
+                Err(Error::Fault(fault)) => {
+                    failure = fault.message;
+                    break;
+                }
                 Err(error) => failure = error.to_string(),
             }
             thread::sleep(CONNECT_RETRY);

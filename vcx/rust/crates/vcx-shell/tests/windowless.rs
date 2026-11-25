@@ -33,6 +33,12 @@ fn source(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(relative)
 }
 
+/// The whole built-in template, every file its page loads, into `folder`.
+fn copy_template(folder: &Path) {
+    let status = Command::new("/bin/cp").arg("-R").arg(source("template")).arg(folder).status().unwrap();
+    assert!(status.success(), "cannot copy the template");
+}
+
 /// Runs the shell windowless and gives back the report of what its page drew.
 fn check(scratch: &Path, arguments: &[&str]) -> Value {
     let report = scratch.join("report.json");
@@ -81,13 +87,14 @@ fn draws_a_saved_session_in_a_window_that_is_never_shown() {
 
     assert_eq!(report["visibility"], "hidden");
     assert_eq!(kinds(&report), ["user", "activity", "assistant", "notice", "user"]);
-    assert_eq!(report["rows"][1]["text"].as_str().unwrap().trim(), "3 actions");
+    // Tool activity folds into one closed block that shows its count, as the Swift WorkBlock.
+    assert!(report["html"].as_str().unwrap().contains(r#"<span class="count">3 actions</span>"#));
     assert_eq!(report["status"], "Ready");
     assert_eq!(report["chips"][0], "vcx");
     let html = report["html"].as_str().unwrap();
     assert!(html.contains("<table>") && !html.contains("<script>alert"), "the answer's Markdown is drawn and its raw HTML is not");
     let widest = report["viewport"][0].as_i64().unwrap();
-    for row in report["rows"].as_array().unwrap() {
+    for row in report["rows"].as_array().unwrap().iter().filter(|row| row["kind"] != "activity") {
         let (left, width, height) = (row["box"][0].as_i64().unwrap(), row["box"][2].as_i64().unwrap(), row["box"][3].as_i64().unwrap());
         assert!(height > 0 && left >= 0 && left + width <= widest, "row {} is laid out inside the page: {}", row["id"], row["box"]);
     }
@@ -106,7 +113,7 @@ fn draws_a_turn_of_a_swift_worker_from_prompt_to_answer() {
 
     assert_eq!(kinds(&report), ["user", "activity", "assistant"], "{:#}", report["rows"]);
     assert_eq!(report["rows"][0]["text"].as_str().unwrap().trim(), "hello from the shell");
-    assert_eq!(report["rows"][1]["text"].as_str().unwrap().trim(), "echo fixture");
+    assert!(report["html"].as_str().unwrap().contains(r#"<span class="title">echo fixture</span>"#));
     assert!(report["rows"][2]["text"].as_str().unwrap().contains("Fixture answer"));
     assert!(report["html"].as_str().unwrap().contains("<strong>bold</strong>"));
     assert_eq!(report["notice"], Value::Null);
@@ -148,10 +155,7 @@ fn takes_text_composed_by_an_input_method_in_a_window_that_is_never_shown() {
 fn returns_to_the_built_in_template_when_the_folder_one_never_starts() {
     let scratch = Scratch::new("broken");
     let folder = scratch.0.join("template");
-    fs::create_dir(&folder).unwrap();
-    for file in ["index.html", "style.css"] {
-        fs::copy(source("template").join(file), folder.join(file)).unwrap();
-    }
+    copy_template(&folder);
     fs::write(folder.join("manifest.json"), r#"{"name": "broken edit", "contract": 1}"#).unwrap();
     fs::write(folder.join("app.js"), "throw new Error('a broken edit');").unwrap();
 
@@ -167,10 +171,7 @@ fn applies_template_edits_to_the_open_page_and_survives_a_broken_one() {
     const EDITED_BACKGROUND: &str = "rgb(1, 2, 3)";
     let scratch = Scratch::new("edits");
     let folder = scratch.0.join("template");
-    fs::create_dir(&folder).unwrap();
-    for file in ["manifest.json", "index.html", "style.css", "app.js"] {
-        fs::copy(source("template").join(file), folder.join(file)).unwrap();
-    }
+    copy_template(&folder);
     let report = scratch.0.join("report.json");
     let demo = source("fixtures/demo_state.json");
     let arguments = ["--demo", demo.to_str().unwrap(), "--template", folder.to_str().unwrap(), "--check", report.to_str().unwrap(), "--check-after-edits", "3", "--check-timeout", CHECK_TIMEOUT_SECONDS];

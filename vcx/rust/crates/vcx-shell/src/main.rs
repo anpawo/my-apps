@@ -1,15 +1,7 @@
 //! One VCX session window in Rust: it attaches to the session's runtime worker and draws it with the page template.
 
-mod app;
-mod bridge;
-mod check;
-mod input;
-mod link;
-mod session;
-mod snapshot;
-mod template;
-
-use session::Source;
+use vcx_shell::session::Source;
+use vcx_shell::{app, check};
 use std::collections::HashMap;
 use std::process::ExitCode;
 use std::time::Duration;

@@ -2465,6 +2465,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcx-app"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "objc2-foundation",
+ "serde_json",
+ "tao",
+ "uuid",
+ "vcx-config",
+ "vcx-model",
+ "vcx-proto",
+ "vcx-shell",
+ "vcx-testkit",
+ "wry",
+]
+
+[[package]]
 name = "vcx-cli"
 version = "0.1.0"
 dependencies = [
