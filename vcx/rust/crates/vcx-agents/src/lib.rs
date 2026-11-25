@@ -3,6 +3,7 @@
 
 pub mod agy;
 pub mod agy_stream;
+pub mod capabilities;
 pub mod claude;
 pub mod claude_stream;
 pub mod codex;
