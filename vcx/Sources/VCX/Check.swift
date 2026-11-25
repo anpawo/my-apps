@@ -1622,6 +1622,9 @@ enum Check {
         let envB = agentEnvironment(Account(name: "B", provider: "codex", home: "/tmp/account-b"))
         check(envA["CODEX_HOME"] == "/tmp/account-a" && envB["CODEX_HOME"] == "/tmp/account-b", "account homes stay isolated")
         check(envA["OPENAI_API_KEY"] == nil && envA["ANTHROPIC_API_KEY"] == nil, "subscription mode strips inherited API keys")
+        let defaultClaude = agentEnvironment(Account(name: "Default", provider: "claude", home: NSHomeDirectory() + "/.claude"))
+        let otherClaude = agentEnvironment(Account(name: "Other", provider: "claude", home: "/tmp/claude-b"))
+        check(defaultClaude["CLAUDE_CONFIG_DIR"] == nil && otherClaude["CLAUDE_CONFIG_DIR"] == "/tmp/claude-b", "a Claude account on the default home leaves CLAUDE_CONFIG_DIR unset so its keychain login is found")
         check(parseLoginEnvironment(Data("motd\0vcx-environment\0noise\0vcx-environment\0A=1\0B=two\nlines\0=bad\0".utf8)) == ["A": "1", "B": "two\nlines"], "the login environment is read after its last marker, multi-line values kept")
         let plain = agentEnvironment(), login = loginEnvironment ?? [:], paths = plain["PATH"]?.split(separator: ":").map(String.init) ?? []
         let stripped = ["PATH", "PWD", "OLDPWD", "SHLVL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"]

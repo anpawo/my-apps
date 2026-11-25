@@ -183,7 +183,9 @@ func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [Strin
     environment["PATH"] = paths.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: ":")
     // Subscription selection must not silently use an inherited, metered API key.
     for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"] { environment.removeValue(forKey: key) }
-    if let home = account?.home { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
+    // Claude keys its keychain login on CLAUDE_CONFIG_DIR being set at all: pointing it at the default ~/.claude reads as logged out.
+    let defaultClaudeHome = account?.provider == "claude" && account?.home == NSHomeDirectory() + "/.claude"
+    if let home = account?.home, !defaultClaudeHome { environment[account?.provider == "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home }
     // His CLAUDE.md labels Fleet through this file; an inherited one belongs to another session.
     environment["FLEET_CONTEXT_FILE"] = fleet
     environment["VCX_PROGRESS_FILE"] = fleet.map { progressPath(fleet: $0) }
