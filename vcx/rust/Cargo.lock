@@ -2262,6 +2262,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcx-config"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "vcx-conformance"
 version = "0.1.0"
 dependencies = [
