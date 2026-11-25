@@ -113,6 +113,22 @@ fn draws_a_turn_of_a_swift_worker_from_prompt_to_answer() {
 }
 
 #[test]
+fn takes_real_keys_and_a_real_click_in_a_window_that_is_never_shown() {
+    const TYPED: &str = "typed with real keys 42";
+    let Some(worker) = SwiftWorker::start("keys") else {
+        eprintln!("skipped: no Swift VCX binary (set VCX_SWIFT_BINARY)");
+        return;
+    };
+    let scratch = Scratch::new("keys");
+
+    let report = check(&scratch.0, &["--socket", worker.socket.to_str().unwrap(), "--cwd", worker.directory.to_str().unwrap(), "--check-type", TYPED]);
+
+    assert_eq!(kinds(&report), ["user", "activity", "assistant"], "{:#}", report["rows"]);
+    assert_eq!(report["rows"][0]["text"].as_str().unwrap().trim(), TYPED, "the worker got the keys in order, sent by the click");
+    assert!(report["rows"][2]["text"].as_str().unwrap().contains("Fixture answer"));
+}
+
+#[test]
 fn returns_to_the_built_in_template_when_the_folder_one_never_starts() {
     let scratch = Scratch::new("broken");
     let folder = scratch.0.join("template");

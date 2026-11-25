@@ -37,6 +37,8 @@ pub struct Options {
     pub wait_for_answer: bool,
     /// How many template edits the page must have taken before the last report.
     pub edits: u64,
+    /// Text to type into the composer with real key events, then sent with a real click on the send button.
+    pub typed: Option<String>,
 }
 
 pub struct Check {
@@ -48,11 +50,15 @@ pub struct Check {
     /// The edit count carried by the report being read from the page.
     reading: Option<u64>,
     reported: Option<u64>,
+    /// The first page message that carried the session's state.
+    shown: Option<u64>,
+    typing: bool,
+    sent: bool,
 }
 
 impl Check {
     pub fn new(options: Options) -> Self {
-        Self { options, settled: None, rendered: 0, edits: 0, reading: None, reported: None }
+        Self { options, settled: None, rendered: 0, edits: 0, reading: None, reported: None, shown: None, typing: false, sent: false }
     }
 
     /// The session reached the awaited state as of page message `serial`. True when the page may now be read.
@@ -64,6 +70,24 @@ impl Check {
     /// The page drew message `serial`. True when the page may now be read.
     pub fn rendered(&mut self, serial: u64) -> bool {
         self.rendered = self.rendered.max(serial);
+        self.due()
+    }
+
+    /// Page message `serial` carries the session's state.
+    pub fn shows(&mut self, serial: u64) {
+        self.shown.get_or_insert(serial);
+    }
+
+    /// True once, when there is text to type and the page drew the session it is typed into.
+    pub fn begin_typing(&mut self) -> bool {
+        let begin = !self.typing && self.options.typed.is_some() && self.shown.is_some_and(|serial| self.rendered >= serial);
+        self.typing |= begin;
+        begin
+    }
+
+    /// The page sent the typed text. True when the page may now be read.
+    pub fn sent(&mut self) -> bool {
+        self.sent = true;
         self.due()
     }
 
@@ -80,7 +104,8 @@ impl Check {
 
     /// One report per edit count, read once the page drew the settled state.
     pub fn due(&mut self) -> bool {
-        let due = self.reading.is_none() && self.reported != Some(self.edits) && self.settled.is_some_and(|serial| self.rendered >= serial);
+        let typed = self.options.typed.is_none() || self.sent;
+        let due = typed && self.reading.is_none() && self.reported != Some(self.edits) && self.settled.is_some_and(|serial| self.rendered >= serial);
         if due {
             self.reading = Some(self.edits);
         }
@@ -94,6 +119,14 @@ impl Check {
     }
 
     pub fn progress(&self) -> String {
+        let drawn = self.drawn();
+        if self.options.typed.is_some() && !self.sent {
+            return format!("the typed text was never sent ({}); {drawn}", if self.typing { "keys were pressed" } else { "no key was pressed" });
+        }
+        drawn
+    }
+
+    fn drawn(&self) -> String {
         match self.settled {
             Some(serial) => format!("the session settled at page message {serial}, the page drew up to {}", self.rendered),
             None => format!("the session never settled, the page drew up to message {}", self.rendered),
@@ -118,7 +151,7 @@ pub fn save_picture(path: &PathBuf, picture: Result<Vec<u8>, String>) -> Result<
 }
 
 /// The web view hands a script's result over as JSON; the script's own result is a JSON text, hence one more layer.
-fn unwrap(dump: &str) -> Result<Value, String> {
+pub fn unwrap(dump: &str) -> Result<Value, String> {
     let invalid = |error: serde_json::Error| format!("The page returned an unreadable dump: {error}.");
     match serde_json::from_str(dump).map_err(invalid)? {
         Value::String(inner) => serde_json::from_str(&inner).map_err(invalid),
@@ -136,7 +169,7 @@ mod tests {
     }
 
     fn waiting_for(edits: u64) -> Check {
-        Check::new(Options { output: PathBuf::new(), picture: None, timeout: Duration::ZERO, wait_for_answer: false, edits })
+        Check::new(Options { output: PathBuf::new(), picture: None, timeout: Duration::ZERO, wait_for_answer: false, edits, typed: None })
     }
 
     #[test]
@@ -177,6 +210,23 @@ mod tests {
 
         assert_eq!([first, restyled, reloading, reloaded], [true, true, false, true]);
         assert_eq!([first_is_last, second_is_last, third_is_last], [false, false, true]);
+    }
+
+    #[test]
+    fn types_once_the_session_is_drawn_and_reads_the_page_only_after_the_text_was_sent() {
+        let mut check = waiting_for(0);
+        check.options.typed = Some("hello".into());
+
+        let before_the_state = [check.rendered(1), check.begin_typing()];
+        check.shows(2);
+        check.rendered(2);
+        let drawn = [check.begin_typing(), check.begin_typing()];
+        let settled_unsent = check.settled(2);
+        let sent = check.sent();
+
+        assert_eq!(before_the_state, [false, false]);
+        assert_eq!(drawn, [true, false]);
+        assert_eq!([settled_unsent, sent], [false, true]);
     }
 
     #[test]

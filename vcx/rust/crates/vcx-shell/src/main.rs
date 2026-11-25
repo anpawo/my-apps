@@ -3,6 +3,7 @@
 mod app;
 mod bridge;
 mod check;
+mod input;
 mod link;
 mod session;
 mod snapshot;
@@ -15,8 +16,8 @@ use std::time::Duration;
 use vcx_proto::AttachRequest;
 
 const USAGE: &str = "usage: vcx-shell (--socket <worker socket> [--session <id>] [--cwd <folder>] [--prompt <text>] [--resume <thread>] | --demo <state.json>)
-                 [--template <folder>] [--check <report.json> [--picture <page.png>] [--check-timeout <seconds>] [--check-after-edits <count>]]";
-const FLAGS: [&str; 11] = ["--socket", "--session", "--cwd", "--prompt", "--resume", "--demo", "--template", "--check", "--picture", "--check-timeout", "--check-after-edits"];
+                 [--template <folder>] [--check <report.json> [--picture <page.png>] [--check-timeout <seconds>] [--check-after-edits <count>] [--check-type <text>]]";
+const FLAGS: [&str; 12] = ["--socket", "--session", "--cwd", "--prompt", "--resume", "--demo", "--template", "--check", "--picture", "--check-timeout", "--check-after-edits", "--check-type"];
 const EXIT_USAGE: u8 = 2;
 const CHECK_TIMEOUT_SECONDS: u64 = 30;
 
@@ -40,7 +41,8 @@ fn options(mut arguments: impl Iterator<Item = String>) -> Result<app::Options, 
         values.insert(name, arguments.next().ok_or_else(|| format!("{flag} needs a value"))?);
     }
     let prompt = values.remove("--prompt").unwrap_or_default();
-    let wait_for_answer = !prompt.is_empty();
+    let typed = values.remove("--check-type");
+    let wait_for_answer = !prompt.is_empty() || typed.is_some();
     let source = match (values.remove("--demo"), values.remove("--socket")) {
         (Some(state), None) => Source::Demo(state.into()),
         (None, Some(socket)) => {
@@ -65,7 +67,7 @@ fn options(mut arguments: impl Iterator<Item = String>) -> Result<app::Options, 
     if picture.is_some() && !values.contains_key("--check") {
         return Err("--picture goes with --check".into());
     }
-    let check = values.remove("--check").map(|output| check::Options { output: output.into(), picture, timeout: Duration::from_secs(timeout), wait_for_answer, edits });
+    let check = values.remove("--check").map(|output| check::Options { output: output.into(), picture, timeout: Duration::from_secs(timeout), wait_for_answer, edits, typed });
     Ok(app::Options { source, template: values.remove("--template").map(Into::into), check })
 }
 

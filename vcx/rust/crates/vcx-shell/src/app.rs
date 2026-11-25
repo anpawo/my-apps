@@ -2,6 +2,7 @@
 
 use crate::bridge::{self, FromPage};
 use crate::check::{self, Check};
+use crate::input;
 use crate::session::{self, Message, Output, Source};
 use crate::snapshot;
 use crate::template::{self, Change, Store};
@@ -23,6 +24,8 @@ use wry::{BackgroundThrottlingPolicy, WebView, WebViewBuilder};
 const WINDOW_SIZE: LogicalSize<f64> = LogicalSize { width: 980.0, height: 720.0 };
 /// How long a freshly loaded page has to report ready before the last template that worked comes back.
 const READY_WAIT: Duration = Duration::from_secs(3);
+/// How often a check looks whether the keys it pressed have reached the composer.
+const TYPED_POLL: Duration = Duration::from_millis(40);
 const EXIT_FAILED: i32 = 1;
 const LAST_GOOD: &str = "Showing the last template that worked.";
 
@@ -39,6 +42,9 @@ pub enum UserEvent {
     ReadyDeadline(u64),
     Dump(String),
     Picture(Result<Vec<u8>, String>),
+    Aimed(String),
+    Typed(String),
+    ReadTyped,
     CheckTimeout,
 }
 
@@ -54,6 +60,8 @@ struct App {
     /// Counts style swaps: each one needs an address the web view has not fetched yet.
     styles: u64,
     notice: Option<String>,
+    /// Where a check clicks once the text it typed is in the composer.
+    send_button: Option<(f64, f64)>,
     _window: Window,
     _watcher: Option<notify::RecommendedWatcher>,
 }
@@ -84,7 +92,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         after(check.timeout, &proxy, UserEvent::CheckTimeout);
     }
     let notice = problem.map(|problem| format!("{problem} Showing the built-in template."));
-    let mut app = App { webview, store, session: Some(session), check: options.check.map(Check::new), proxy, load: 0, ready: false, styles: 0, notice, _window: window, _watcher: watcher };
+    let mut app = App { webview, store, session: Some(session), check: options.check.map(Check::new), proxy, load: 0, ready: false, styles: 0, notice, send_button: None, _window: window, _watcher: watcher };
     after(READY_WAIT, &app.proxy, UserEvent::ReadyDeadline(app.load));
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
@@ -141,7 +149,12 @@ impl App {
     fn on(&mut self, event: UserEvent) -> Option<i32> {
         match event {
             UserEvent::FromPage(body) => self.from_page(bridge::parse(&body)?),
-            UserEvent::Session(Output::Page(message)) => self.to_page(&message),
+            UserEvent::Session(Output::Page(message)) => {
+                if let (Some(check), "full", Some(serial)) = (&mut self.check, message["type"].as_str().unwrap_or_default(), message["serial"].as_u64()) {
+                    check.shows(serial);
+                }
+                self.to_page(&message);
+            }
             UserEvent::Session(Output::Settled(serial)) => {
                 if self.check.as_mut().is_some_and(|check| check.settled(serial)) {
                     self.dump();
@@ -156,6 +169,9 @@ impl App {
             UserEvent::ReadyDeadline(_) => {}
             UserEvent::Dump(dump) => return self.reported(&dump),
             UserEvent::Picture(picture) => return Some(exit_code(self.picture_path().map_or(Ok(()), |path| check::save_picture(path, picture)))),
+            UserEvent::Aimed(aim) => return self.type_text(&aim).err().map(|problem| exit_code(Err(problem))),
+            UserEvent::Typed(text) => return self.click_send(&text).err().map(|problem| exit_code(Err(problem))),
+            UserEvent::ReadTyped => self.read(input::TYPED, UserEvent::Typed),
             UserEvent::CheckTimeout => {
                 let progress = self.check.as_ref().map(Check::progress).unwrap_or_default();
                 eprintln!("vcx-shell: the check timed out: {progress}.");
@@ -169,11 +185,19 @@ impl App {
         match message {
             FromPage::Ready { contract } if contract == u64::from(CONTRACT_VERSION) => self.page_ready(),
             FromPage::Ready { contract } => self.fall_back(&format!("The template's page speaks contract {contract}; this build speaks contract {CONTRACT_VERSION}.")),
-            FromPage::Send { text } => self.tell(Message::Act { action: "send", params: json!({"text": text, "images": []}) }),
+            FromPage::Send { text } => {
+                self.tell(Message::Act { action: "send", params: json!({"text": text, "images": []}) });
+                if self.check.as_mut().is_some_and(Check::sent) {
+                    self.dump();
+                }
+            }
             FromPage::Stop => self.tell(Message::Act { action: "stop", params: json!({}) }),
             FromPage::Rendered { serial } => {
                 if self.check.as_mut().is_some_and(|check| check.rendered(serial)) {
                     self.dump();
+                }
+                if self.check.as_mut().is_some_and(Check::begin_typing) {
+                    self.read(input::AIM, UserEvent::Aimed);
                 }
             }
             FromPage::Restyled { .. } => self.edited(),
@@ -261,10 +285,41 @@ impl App {
     }
 
     fn dump(&self) {
+        self.read(check::DUMP, UserEvent::Dump);
+    }
+
+    /// Runs `script` in the page and hands its result to the event loop as `event`.
+    fn read(&self, script: &str, event: fn(String) -> UserEvent) {
         let proxy = self.proxy.clone();
-        let asked = self.webview.evaluate_script_with_callback(check::DUMP, move |dump| drop(proxy.send_event(UserEvent::Dump(dump))));
+        let asked = self.webview.evaluate_script_with_callback(script, move |result| drop(proxy.send_event(event(result))));
         if let Err(error) = asked {
             eprintln!("vcx-shell: the page could not be read: {error}");
+        }
+    }
+
+    /// The composer has the caret: presses the keys of the check's text.
+    fn type_text(&mut self, aim: &str) -> Result<(), String> {
+        let aim = check::unwrap(aim)?;
+        let (Some(true), Some(x), Some(y)) = (aim["focused"].as_bool(), aim["send"][0].as_f64(), aim["send"][1].as_f64()) else {
+            return Err(format!("The composer could not be aimed at: {aim}."));
+        };
+        self.send_button = Some((x, y));
+        let text = self.check.as_ref().and_then(|check| check.options.typed.as_deref()).unwrap_or_default();
+        input::type_text(&self.webview, text)?;
+        self.read(input::TYPED, UserEvent::Typed);
+        Ok(())
+    }
+
+    /// `composer` is what the composer holds, as the web view hands a text over: once it is the typed text, clicks send.
+    fn click_send(&mut self, composer: &str) -> Result<(), String> {
+        let typed = self.check.as_ref().and_then(|check| check.options.typed.as_deref());
+        if serde_json::from_str::<String>(composer).ok().as_deref() != typed {
+            after(TYPED_POLL, &self.proxy, UserEvent::ReadTyped);
+            return Ok(());
+        }
+        match self.send_button.take() {
+            Some((x, y)) => input::click(&self.webview, x, y),
+            None => Ok(()),
         }
     }
 
