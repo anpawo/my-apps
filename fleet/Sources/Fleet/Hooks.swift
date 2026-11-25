@@ -500,6 +500,14 @@ enum Hooks {
     # Runs Claude Code, and brings a session back in this terminal, with its conversation, when
     # Fleet's hook ended it to pick up settings a running session never rereads.
     function claude --wraps claude
+        # Transcripts of closed sessions are deleted once chats.sqlite holds them exact: write back
+        # the one a resume or a continue is about to read.
+        set -l at (contains -i -- --resume $argv; or contains -i -- -r $argv)
+        if test -n "$at"; and test (count $argv) -gt $at
+            /usr/bin/python3 -I ~/self/my-setup/macos/dream/chats.py restore $argv[(math $at + 1)] >/dev/null 2>&1
+        else if contains -- --continue $argv; or contains -- -c $argv
+            /usr/bin/python3 -I ~/self/my-setup/macos/dream/chats.py restore-latest (pwd) >/dev/null 2>&1
+        end
         if contains -- -p $argv; or contains -- --print $argv
             command claude $argv
             return

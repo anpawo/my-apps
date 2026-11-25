@@ -72,6 +72,7 @@ enum Store {
 
     /// The folder a session ran in, read from its transcript: `claude --resume` finds it only from there.
     static func folder(of session: String) -> String? {
+        restore(session)
         let projects = (try? FileManager.default.contentsOfDirectory(at: claude.appending(path: "projects"), includingPropertiesForKeys: nil)) ?? []
         for project in projects {
             guard let file = try? FileHandle(forReadingFrom: project.appending(path: "\(session).jsonl")) else { continue }
@@ -81,6 +82,19 @@ enum Store {
             return (try? JSONSerialization.jsonObject(with: Data(head[r].dropFirst(6).utf8), options: .fragmentsAllowed)) as? String
         }
         return nil
+    }
+
+    /// A closed session's transcript is deleted once chats.sqlite holds it exact: written back before a resume reads
+    /// it. Skipped when the selftest has moved Claude Code's folder aside, so a test never writes a real transcript.
+    static func restore(_ session: String) {
+        guard claude.path == URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude").path else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        p.arguments = ["-I", NSHomeDirectory() + "/self/my-setup/macos/dream/chats.py", "restore", session]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return }
+        p.waitUntilExit()
     }
 
     /// The session's pid while it still runs, from the file Claude Code keeps for each running session.
