@@ -327,7 +327,7 @@ enum BugCheck {
             print("Rows while the second prompt is unread: \(ordered.rows.map { "\($0.kind)(\($0.items.count))" }.joined(separator: " "))")
             check(ordered.rows.map(\.kind) == ["user", "activity", "assistant", "user"] && ordered.rows[1].items.count == 5,
                   "what the agent does before reading a queued prompt goes above it, its actions in the bar it was filling")
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(ordered)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
@@ -348,7 +348,7 @@ enum BugCheck {
             progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note."])
             progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
             progress.show(["id": "progress-second", "type": "agentMessage", "text": "⟶ Second visible progress note.\n\n✓ Done: Progress checked.\n\n⟶ Next: Continue when ready."])
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(progress)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             func shows(_ text: String, in view: NSView) -> Bool {
@@ -379,10 +379,59 @@ enum BugCheck {
             window.close(); progress.close()
         }
         do {
+            // Three windows on one project and one elsewhere: the bar lists the three, each in its state's color.
+            func tasked(_ name: String, cwd: String, task: String, _ setup: (Session) -> Void) -> (window: NSWindow, session: Session) {
+                let session = Session(cwd: cwd, stateDirectory: directory.appendingPathComponent("task-" + name))
+                session.ready = true; setup(session)
+                try? FileManager.default.createDirectory(atPath: (session.taskFile as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+                try? task.write(toFile: session.taskFile, atomically: true, encoding: .utf8)
+                return (NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false), session)
+            }
+            let other = directory.appendingPathComponent("other-project"); try? FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+            let open = [
+                tasked("working", cwd: directory.path, task: "Add a task bar to VCX") { $0.busy = true },
+                tasked("done", cwd: directory.path, task: "Fix the login retry") { session in
+                    session.show(["id": "done-question", "type": "userMessage", "content": [["type": "text", "text": "Fix it"]]])
+                    session.show(["id": "done-answer", "type": "agentMessage", "text": "⟶ Fixed.\n\n✓ Done: Login retry fixed, you can close this session."])
+                },
+                tasked("question", cwd: directory.path, task: "Pick the chart colors") { session in
+                    session.show(["id": "question-question", "type": "userMessage", "content": [["type": "text", "text": "Colors?"]]])
+                    session.show(["id": "question-answer", "type": "agentMessage", "text": "⟶ Two palettes fit.\n\n⟶ Next: Which palette?"])
+                },
+                tasked("elsewhere", cwd: other.path, task: "Unrelated project task") { $0.busy = true },
+                tasked("untasked", cwd: directory.path, task: "") { $0.busy = true },
+            ]
+            TaskBoard.shared.refresh(open)
+            let mine = TaskBoard.shared.entries.filter { $0.group == TaskBoard.group(open[0].session) }
+            check(mine.map(\.task) == ["Add a task bar to VCX", "Fix the login retry", "Pick the chart colors"] && mine.map(\.state) == [.working, .done, .question],
+                  "the task bar lists each tasked session of the project in order, orange working, green done, blue question")
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(open[0].session)
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            if let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] {
+                    try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("task-bar.png"))
+                }
+                let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
+                let bar = Int((content.bounds.width - taskBarWidth) * scale)..<bitmap.pixelsWide
+                // By the dominant channel: the bitmap's color space shifts exact components.
+                func hue(_ matches: (CGFloat, CGFloat, CGFloat) -> Bool) -> Bool {
+                    stride(from: 0, to: bitmap.pixelsHigh, by: 2).contains { y in stride(from: bar.lowerBound, to: bar.upperBound, by: 2).contains { x in
+                        guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+                        return matches(c.redComponent, c.greenComponent, c.blueComponent)
+                    } }
+                }
+                let orange = hue { r, g, b in r - g > 0.25 && g - b > 0.2 }, green = hue { r, g, b in g - r > 0.2 && g - b > 0.15 }, blue = hue { r, g, b in b - r > 0.4 && b - g > 0.2 }
+                check(orange && green && blue, "the right bar draws the orange, green and blue task marks (orange \(orange), green \(green), blue \(blue))")
+            } else { check(false, "the task bar renders offscreen") }
+            window.close(); TaskBoard.shared.refresh([]); for entry in open { entry.session.close() }
+        }
+        do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("tall-question"))
             asking.ready = true; asking.status = "Ready"
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 780, height: 560)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470 + taskBarWidth, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 780 + taskBarWidth, height: 560)
             window.contentView = CXView.host(asking)
             defer { window.close() }
             let before = window.frame.height
@@ -475,7 +524,7 @@ enum BugCheck {
                 }
                 }
             }
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
@@ -550,7 +599,7 @@ enum BugCheck {
             tabled.ready = true; tabled.status = "Ready"
             tabled.show(["id": "table-q", "type": "userMessage", "content": [["type": "text", "text": "compare"]]])
             tabled.show(["id": "table-a", "type": "agentMessage", "text": "Here:\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n" + String(repeating: "| " + String(repeating: "a long cell ", count: 4) + " ", count: 5) + "|\n| six | seven | eight | nine | ten |"])
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
@@ -578,7 +627,7 @@ enum BugCheck {
                 tabled.show(["id": "q\(n)", "type": "userMessage", "content": [["type": "text", "text": "question \(n)"]]])
                 tabled.show(["id": "a\(n)", "type": "agentMessage", "text": "Answer \(n):\n\n" + head + body + "\n\nAfter."])
             }
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
@@ -640,7 +689,7 @@ enum BugCheck {
             working.show(["id": "work-q", "type": "userMessage", "content": [["type": "text", "text": "list every step"]]])
             for n in 1...60 { working.show(["id": "work-c\(n)", "type": "commandExecution", "command": "ls step-\(n)", "aggregatedOutput": "", "status": "completed"]) }
             working.show(["id": "work-a", "type": "agentMessage", "text": "Done."])
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = CXView.host(working)
             defer { window.close() }
             await settle()
@@ -787,7 +836,7 @@ enum BugCheck {
                 let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent(name))
                 session.ready = true; session.status = "Ready"
                 RuntimeUpdate.adopt(state, session: session)
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
                 await settle(); window.contentView?.layoutSubtreeIfNeeded()
                 // connect applies the snapshot in a task of its own and restores once it resumes.
@@ -844,7 +893,7 @@ enum BugCheck {
                 let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent(name))
                 session.ready = true; session.status = "Ready"
                 RuntimeUpdate.adopt(state, session: session)
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
                 await settle(); window.contentView?.layoutSubtreeIfNeeded()
                 await Task { session.applyRuntimeSnapshot(tailSnapshot) }.value

@@ -487,6 +487,8 @@ struct CXView: View {
             // The web "Dropdown on hover" curve: most of the way in within the first frames.
             .animation(.timingCurve(0.32, 0.72, 0, 1, duration: reduceMotion ? 0.1 : 0.2), value: openCapability != nil)
             .onChange(of: openCapability) { hoveredRule = nil; WorkBlock.covered = openCapability != nil }
+            Rectangle().fill(.black.opacity(0.07)).frame(width: 1)
+            TaskBar(session: session).frame(width: taskBarWidth)
         }
         .fontDesign(.monospaced)
         .foregroundStyle(.black.opacity(0.92))
@@ -803,6 +805,7 @@ struct CXView: View {
 }
 
 let progressTick: UInt64 = 2_000_000_000
+let taskBarWidth: CGFloat = 200
 
 // What the agent waits on ($VCX_PROGRESS_FILE), drawn like the update; read every progressTick, the line glides between reads.
 struct ProgressChip: View {

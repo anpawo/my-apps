@@ -103,7 +103,7 @@ enum GraphDump {
         }
         session.revision += 1
         let host = NSHostingView(rootView: CXView(session: session))
-        host.sizingOptions = []; host.frame = CGRect(x: 0, y: 0, width: 1176, height: 803)
+        host.sizingOptions = []; host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         RunLoop.main.run(until: Date().addingTimeInterval(0.5)); host.layoutSubtreeIfNeeded()
@@ -115,7 +115,7 @@ enum GraphDump {
         var height = 803.0
         while result.withLock({ $0 }) == nil {
             height = height == 803 ? 775 : 803
-            host.setFrameSize(CGSize(width: 1176, height: height)); host.layoutSubtreeIfNeeded()
+            host.setFrameSize(CGSize(width: 1176 + taskBarWidth, height: height)); host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
         window.close(); session.close()

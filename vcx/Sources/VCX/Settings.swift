@@ -171,6 +171,7 @@ func parseLoginEnvironment(_ data: Data) -> [String: String]? {
 let claudeSettingsFile = Settings.directory.appendingPathComponent("claude-settings.json")
 
 func progressPath(fleet: String) -> String { (fleet as NSString).deletingLastPathComponent + "/task.progress" }
+func taskPath(fleet: String) -> String { (fleet as NSString).deletingLastPathComponent + "/task.goal" }
 
 func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [String: String] {
     var environment = (loginEnvironment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("CLAUDE") && !["PWD", "OLDPWD", "SHLVL"].contains($0.key) }
@@ -186,5 +187,6 @@ func agentEnvironment(_ account: Account? = nil, fleet: String? = nil) -> [Strin
     // His CLAUDE.md labels Fleet through this file; an inherited one belongs to another session.
     environment["FLEET_CONTEXT_FILE"] = fleet
     environment["VCX_PROGRESS_FILE"] = fleet.map { progressPath(fleet: $0) }
+    environment["VCX_TASK_FILE"] = fleet.map { taskPath(fleet: $0) }
     return environment
 }

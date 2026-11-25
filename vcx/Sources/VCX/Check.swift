@@ -1384,6 +1384,22 @@ enum Check {
                   "Claude gets the session's Fleet file through FLEET_CONTEXT_FILE, not a label or cd rule in its prompt")
             check(agentEnvironment(fleet: "/tmp/fleet-a")["FLEET_CONTEXT_FILE"] == "/tmp/fleet-a" && agentEnvironment()["FLEET_CONTEXT_FILE"] == nil, "an agent's FLEET_CONTEXT_FILE is its own session's, never an inherited one")
             check(agentEnvironment(fleet: "/tmp/fleet-a/task.context")["VCX_PROGRESS_FILE"] == "/tmp/fleet-a/task.progress" && agentEnvironment()["VCX_PROGRESS_FILE"] == nil, "an agent's VCX_PROGRESS_FILE sits beside its Fleet file")
+            check(agentEnvironment(fleet: "/tmp/fleet-a/task.context")["VCX_TASK_FILE"] == "/tmp/fleet-a/task.goal" && agentEnvironment()["VCX_TASK_FILE"] == nil && Session.agentInstructions.contains("$VCX_TASK_FILE"), "an agent writes its task to VCX_TASK_FILE beside its Fleet file, as its instructions say")
+            check(TaskBoard.state(waiting: false, busy: true, answers: ["✓ Done: old task."]) == .working, "a busy session's task is orange even after an earlier Done")
+            check(TaskBoard.state(waiting: false, busy: false, answers: ["⟶ Fixed it.\n\n✓ Done: Bar added, you can close this session."]) == .done, "a session whose last answer ends on Done is green")
+            check(TaskBoard.state(waiting: false, busy: false, answers: ["⟶ Two options.\n\n⟶ Next: Which one?"]) == .question && TaskBoard.state(waiting: false, busy: false, answers: []) == .question, "an idle session without Done waits on him and is blue")
+            check(TaskBoard.state(waiting: true, busy: true, answers: []) == .question, "a pending permission or question is blue while the turn runs")
+            do {
+                let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vcx-task-\(UUID().uuidString)")
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let goal = folder.appendingPathComponent("task.goal")
+                check(TaskBoard.task(at: goal.path) == nil, "a session that wrote no task has no row")
+                try? "  Add a task bar to VCX \nsecond line".write(to: goal, atomically: true, encoding: .utf8)
+                check(TaskBoard.task(at: goal.path) == "Add a task bar to VCX", "a task row shows the first line of VCX_TASK_FILE, trimmed")
+                try? String(repeating: "x", count: 500).write(to: goal, atomically: true, encoding: .utf8)
+                check(TaskBoard.task(at: goal.path)?.count == TaskBoard.longestTask, "a runaway task line is cut to the bar's length")
+                try? FileManager.default.removeItem(at: folder)
+            }
             do {
                 let start = Date(timeIntervalSince1970: 1000)
                 var samples: [(Date, Double)] = []
@@ -2785,7 +2801,7 @@ enum Render {
             session.show(["id": "opening-action", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0])
             session.show(["id": "opening-answer", "type": "agentMessage", "provider": "Claude", "text": (1...14).map { "- Answer line \($0), with [its link](https://example.com/answer-\($0))." }.joined(separator: "\n")])
         }
-        let scale = CGFloat(rep.pixelsWide) / 1176
+        let scale = CGFloat(rep.pixelsWide) / (1176 + taskBarWidth)
         // Only left-aligned rows (work, answer) draw this close to the left edge; the question bubble starts 40 pt further in.
         var ink = 0
         for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 2) {
@@ -2808,7 +2824,7 @@ enum Render {
             for turn in 0..<20 { exchange("turn\(turn)", lines: 40, tables: 3, session) }
             exchange("last", lines: 14, tables: 2, session)
         }
-        let scale = CGFloat(alone.pixelsWide) / 1176
+        let scale = CGFloat(alone.pixelsWide) / (1176 + taskBarWidth)
         var differing = 0, total = 0
         for y in stride(from: Int(frame.minY * scale), to: Int(frame.maxY * scale), by: 3) {
             for x in stride(from: Int(frame.minX * scale), to: Int(frame.maxX * scale), by: 3) {
@@ -2830,7 +2846,7 @@ enum Render {
         session.status = "Starting"
         let host = CXView.host(session)
         host.appearance = NSAppearance(named: .aqua)
-        host.frame = CGRect(x: 0, y: 0, width: 1176, height: 803)
+        host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { window.close() }
@@ -2908,7 +2924,7 @@ enum Render {
         let host = NSHostingView(rootView: CXView(session: session))
         host.appearance = NSAppearance(named: .aqua)
         host.sizingOptions = []
-        host.frame = CGRect(x: 0, y: 0, width: 1176, height: 803)
+        host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { window.close() }

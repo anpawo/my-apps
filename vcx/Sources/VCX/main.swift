@@ -180,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         RuntimeUpdate.adopt(state, session: session)
         let client = RuntimeClient(session: session, cwd: options.cwd, resumeRuntimeID: options.runtimeID, socketPath: options.socketPath, recovery: options.recoveryEntry)
         session.runtimeClient = client
-        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = ComposerWindow(contentRect: NSRect(x: 0, y: 0, width: 1280 + taskBarWidth, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.focusComposer = { [weak session] in session?.focusComposer() }
         window.chooseOption = { [weak session] in session?.chooseOption($0) ?? false }
         window.define = { [weak session] groups in
@@ -192,14 +192,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "\(session.folder) · Vibe Code X"
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .aqua)
-        window.minSize = NSSize(width: 780, height: 560)
+        window.minSize = NSSize(width: 780 + taskBarWidth, height: 560)
         window.contentView = CXView.host(session)
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         if let frame = state["frame"] as? String { window.setFrame(NSRectFromString(frame), display: false) }
         else if !headless, let screen = NSScreen.main?.visibleFrame {
-            // New windows always open at 4/5 of the screen's width, centered, whatever size the last one was left at.
-            window.setFrame(screen.insetBy(dx: screen.width / 10, dy: screen.height / 20).integral, display: false)
+            // New windows always open at 9/10 of the screen's width (wider since the task bar), centered, whatever size the last one was left at.
+            window.setFrame(screen.insetBy(dx: screen.width / 20, dy: screen.height / 20).integral, display: false)
         }
         windows.append(FrontendWindow(window: window, session: session, fleet: FleetPresence(session: session)))
         if !headless, let desktop = state["desktop"] as? Int { restoreDesktops[ObjectIdentifier(window)] = desktop }
