@@ -32,6 +32,8 @@ A session edits and commits only the paths it owns. To write to one, read its id
   edits finished before it starts. `cargo test --workspace` is the integration run of the launching session.
 - Commit small and often, own paths only, through a private index (never `git add -A`, never `git commit -a`),
   then push. A crate is committed only while its own tests pass.
+- `origin/main` builds after every push: a commit that needs another session's uncommitted file waits until its
+  owner has committed it (ask it), and the owner commits what others wait for first.
 - The page is built from his web templates. Marius, 25/11/2026: "make sure to use my templates for the display of
   the app, ok ? since its web". They are in `~/self/templates/web` (read its `CLAUDE.md` first): search
   `templates.json` before drawing any element (a favourite first, then an accepted one), copy the effect between
