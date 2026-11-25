@@ -342,6 +342,25 @@ enum BugCheck {
             ordered.close()
         }
         do {
+            let progress = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("visible-progress"))
+            progress.ready = true; progress.busy = true
+            progress.show(["id": "progress-question", "type": "userMessage", "content": [["type": "text", "text": "Show progress"]]])
+            progress.show(["id": "progress-first", "type": "agentMessage", "text": "First visible progress note."])
+            progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
+            progress.show(["id": "progress-second", "type": "agentMessage", "text": "Second visible progress note."])
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = CXView.host(progress)
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            func shows(_ text: String, in view: NSView) -> Bool {
+                (view as? NSTextView)?.string.contains(text) == true || view.subviews.contains { shows(text, in: $0) }
+            }
+            check(shows("First visible progress note.", in: window.contentView!) && shows("Second visible progress note.", in: window.contentView!), "every progress message is visible while the turn is working")
+            progress.busy = false
+            await settle(); window.contentView?.layoutSubtreeIfNeeded()
+            check(shows("First visible progress note.", in: window.contentView!) && shows("Second visible progress note.", in: window.contentView!), "earlier progress messages stay visible after the turn ends")
+            window.close(); progress.close()
+        }
+        do {
             let asking = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("tall-question"))
             asking.ready = true; asking.status = "Ready"
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)

@@ -46,11 +46,12 @@ func conversationSections(_ rows: [Row]) -> [ConversationSection] {
     return sections
 }
 
-// The last message (the latest thought while working, the answer once done) stays visible; the rest folds into one block.
-func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], debates: [Row]) {
+// Assistant messages stay visible; tool activity folds into one block.
+func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], debates: [Row], notes: [Row]) {
     var trail: [Row] = []
     var notices: [Row] = []
     var debates: [Row] = []
+    var notes: [Row] = []
     var trailStart = rows.startIndex
     let lastAssistantIndex = rows.lastIndex { $0.sectionRole == .assistant } ?? rows.endIndex
     for index in rows.indices {
@@ -58,6 +59,8 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], d
         switch row.sectionRole {
         case .assistant where index == lastAssistantIndex:
             break
+        case .assistant:
+            notes.append(row)
         case .notice, .peer:
             notices.append(row)
         case .tool where row.kind == "debate":
@@ -71,11 +74,11 @@ func sectionParts(_ rows: [Row]) -> (trail: [Row], last: Row?, notices: [Row], d
         trailStart = index + 1
     }
     let last = lastAssistantIndex == rows.endIndex ? nil : rows[lastAssistantIndex]
-    if trailStart == rows.startIndex { return (rows, last, notices, debates) }
+    if trailStart == rows.startIndex { return (rows, last, notices, debates, notes) }
     if trailStart < rows.endIndex {
         trail.append(contentsOf: rows[trailStart...])
     }
-    return (trail, last, notices, debates)
+    return (trail, last, notices, debates, notes)
 }
 
 // A round between models run from this session (stat-critic's ask-codex.sh): its output holds each turn after a `<<debate <speaker> [model]>>` line.
