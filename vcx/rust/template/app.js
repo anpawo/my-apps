@@ -458,11 +458,14 @@
     post({ type: 'rendered', serial: message.serial });
   }
 
+  // One edit, one `restyled`: the core counts edits, so the page answers once every sheet has loaded again.
   function restyle(version) {
-    for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
-      link.addEventListener('load', () => post({ type: 'restyled', version }), { once: true });
+    const loads = [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => new Promise(done => {
+      link.addEventListener('load', done, { once: true });
+      link.addEventListener('error', done, { once: true });
       link.href = `${link.href.split('?')[0]}?v=${version}`;
-    }
+    }));
+    Promise.all(loads).then(() => post({ type: 'restyled', version }));
   }
 
   function copyCode(button) {
