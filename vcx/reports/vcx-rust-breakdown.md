@@ -203,3 +203,7 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   draws them in 13 WebContent processes, 147 threads and 684 MB footprint together (52.6 MB each). From a worker
   revision reaching the app to its page posting `rendered`, over 59 patches: p50 3.5 ms, p95 11.1 ms, max 33.8 ms.
   So D6 holds for 13 windows: threads stay, and the memory is WebKit's, one process per page.
+- 26/11/2026, observed: on a fresh checkout of `main` (`53509d4`, a scratch worktree with its own build folder),
+  `cargo test -j 2 --workspace --no-fail-fast` ends with exit 0: 452 tests pass, none fails, one is left out on
+  purpose (`measures_thirteen_windows_in_one_process`, a measurement). `vcx-conformance` has 26 cases and both the
+  Swift worker and the Rust worker pass all of them.
