@@ -15,7 +15,7 @@ jiff = "0.2"
 libc.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSAlert", "NSApplication", "NSButton", "NSControl", "NSMenu", "NSMenuItem", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2"] }
-objc2-foundation = { workspace = true, features = ["NSURL"] }
+objc2-foundation = { workspace = true, features = ["NSDistributedNotificationCenter", "NSNotification", "NSOperation", "NSURL", "block2"] }
 serde_json.workspace = true
 tao.workspace = true
 tokio = { version = "1", features = ["rt", "time"] }

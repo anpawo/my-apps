@@ -36,6 +36,7 @@ impl Run {
 
     /// The app with its sessions on `worker`.
     fn on(name: &str, worker: &Path) -> Self {
+        keep_build_lock_out();
         // Unix socket paths are capped near 104 bytes, so the homes sit in /tmp.
         let root = PathBuf::from(format!("/tmp/vcx-rust-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -133,6 +134,8 @@ impl Run {
             // SAFETY: the pid was named by a worker on this run's own socket.
             unsafe { libc::kill(pid as i32, libc::SIGKILL) };
         }
+        // A worker that no longer answers on its socket still names this run's folder in its arguments.
+        let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-f", &format!("{}/", self.root.display())]).status();
     }
 }
 
@@ -142,6 +145,13 @@ impl Drop for Run {
         self.kill_workers();
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+/// No process a test starts may keep `build-stack`'s lock once the test is gone (see `worker::keep_build_lock_out`).
+fn keep_build_lock_out() {
+    let Some(fd) = std::env::var("BUILD_STACK_FD").ok().and_then(|fd| fd.parse::<libc::c_int>().ok()) else { return };
+    // SAFETY: F_SETFD on a number only changes that descriptor's flags.
+    unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
 }
 
 fn swift_binary() -> Option<PathBuf> {
@@ -353,6 +363,37 @@ fn restores_each_window_frame_on_the_next_launch() {
     let after = run.wait_for(|report| windows(report).len() == 1);
     assert_eq!(windows(&after)[0]["frame"], placed["frame"]);
     assert_eq!(placed["frame"].as_array().unwrap()[2..], [json!(1020.0), json!(640.0)]);
+}
+
+/// What Fleet's tile and Watcher's inbox post to raise a VCX window, sent here as they send it.
+fn post_focus(session_id: &str) {
+    let script = format!("ObjC.import('Foundation'); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately('com.mr.vcx.focus', undefined, $({{sessionId: '{session_id}'}}), true)");
+    let posted = Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+    assert!(posted.status.success(), "{}", String::from_utf8_lossy(&posted.stderr));
+}
+
+#[test]
+fn raises_the_window_fleet_or_watcher_asks_for() {
+    let Some(mut run) = Run::new("raise") else { return };
+    let (first, second) = (run.folder("first"), run.folder("second"));
+    run.start(&["--cwd", first.to_str().unwrap()]);
+    run.wait_for(|report| windows(report).len() == 1);
+    assert!(run.cli(&["--cwd", second.to_str().unwrap()]).status.success());
+    let report = run.wait_for(|report| windows(report).len() == 2);
+    let wanted = windows(&report).iter().find(|window| window["cwd"] == json!(second)).unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let presence = run.root.join(format!("state/fleet/{}.json", report["pid"]));
+    let in_front = |done: &dyn Fn(&Value) -> bool, what: &str| {
+        let deadline = Instant::now() + WAIT;
+        while !fs::read_to_string(&presence).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|record| done(&record)) {
+            assert!(Instant::now() < deadline, "Fleet never saw {what}");
+            thread::sleep(POLL);
+        }
+    };
+    in_front(&|record| record["sessions"].as_array().is_some_and(|sessions| sessions.len() == 2) && record["sessionId"] != json!(wanted), "the first window in front");
+
+    post_focus(&wanted);
+
+    in_front(&|record| record["sessionId"] == json!(wanted), "the asked window in front");
 }
 
 #[test]
@@ -708,6 +749,7 @@ fn measures_thirteen_windows_in_one_process() {
 /// A headless Swift frontend holding `id` in a window of its own (its `--frontend-handoff-fixture`), as when he
 /// leaves the Swift app with windows open; its recovery entry is what the switch reads.
 fn swift_frontend(worker: &vcx_testkit::SwiftWorker, id: &str) -> Child {
+    keep_build_lock_out();
     let runtime = worker.directory.join(vcx_testkit::RUNTIME);
     fs::create_dir_all(&runtime).unwrap();
     fs::set_permissions(&runtime, fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();

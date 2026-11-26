@@ -2,6 +2,7 @@ pub mod app;
 mod confirm;
 pub mod control;
 pub mod fleet;
+mod focus;
 mod folder;
 mod local;
 mod login;

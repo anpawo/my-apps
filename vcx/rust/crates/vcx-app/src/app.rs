@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
+use crate::{confirm, fleet, focus, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -85,6 +85,8 @@ pub enum AppEvent {
     OpenProject(PathBuf),
     /// He chose Close on window `key` while its agent was at work.
     CloseConfirmed(u64),
+    /// Fleet or Watcher asked for the window of this session.
+    Focus(String),
 }
 
 pub(crate) struct Win {
@@ -198,6 +200,7 @@ pub(crate) struct App {
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
+    worker::keep_build_lock_out();
     let lock = lock(&options.homes)?;
     let (settings, notice) = settings::read(&options.homes.settings());
     let mut event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
@@ -214,6 +217,8 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     let to_loop = proxy.clone();
     control::serve(&options.homes.control(), move |request| drop(to_loop.send_event(AppEvent::Control(request))))?;
     relaunch::listen();
+    let to_focus = proxy.clone();
+    focus::listen(move |id| drop(to_focus.send_event(AppEvent::Focus(id))));
     let pid = std::process::id();
     let started_at = vcx_config::process::start_time(pid as i32).unwrap_or_default();
     let mut app = App {
@@ -423,6 +428,10 @@ impl App {
                 None
             }
             AppEvent::Menu(action) => self.menu(target, action),
+            AppEvent::Focus(id) => {
+                self.bring(&id);
+                None
+            }
             AppEvent::OpenProject(path) => {
                 drop(self.new_session(target, Open { cwd: path.to_string_lossy().into_owned(), focus: true, ..Open::default() }));
                 None
@@ -663,7 +672,7 @@ impl App {
 
     /// Brings up the window of `session_id`, as a click on its task card asks; a windowless app only marks it focused.
     fn bring(&mut self, session_id: &str) {
-        let Some((&key, win)) = self.windows.iter().find(|(_, win)| win.session_id == session_id) else { return };
+        let Some((&key, win)) = self.windows.iter().find(|(_, win)| win.session_id.eq_ignore_ascii_case(session_id)) else { return };
         if !self.windowless {
             win.window.set_minimized(false);
             win.window.set_visible(true);

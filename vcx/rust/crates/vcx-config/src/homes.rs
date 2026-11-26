@@ -103,9 +103,10 @@ impl Homes {
         self.state.join("worker")
     }
 
-    /// The worker's `VCX_CONFIG_HOME` while the Swift worker serves the Rust app: it rewrites `settings.json` whole.
+    /// The worker's and `background.py`'s `VCX_CONFIG_HOME`: his shared settings, as the Swift app hands them, so an
+    /// account one window or `vcx -p` finds rested is rested for all. Each writes under `settings.lock`.
     pub fn worker_config(&self) -> PathBuf {
-        self.config.join("worker")
+        self.shared.clone()
     }
 
     pub fn worker(&self) -> WorkerHomes {
@@ -249,7 +250,7 @@ mod tests {
 
         let names: Vec<(&str, PathBuf)> = homes.worker().environment().iter().map(|(name, path)| (*name, path.to_path_buf())).collect();
 
-        assert_eq!(names, vec![("VCX_CONFIG_HOME", "/x/config/worker".into()), ("VCX_STATE_HOME", "/x/state/worker".into()), ("VCX_RUNTIME_HOME", "/x/state/runtime".into())]);
+        assert_eq!(names, vec![("VCX_CONFIG_HOME", "/x/shared".into()), ("VCX_STATE_HOME", "/x/state/worker".into()), ("VCX_RUNTIME_HOME", "/x/state/runtime".into())]);
     }
 
     #[test]

@@ -109,7 +109,7 @@ fn send(context: &Context, to: &str, from: Option<String>, text: &str, stdin: &m
 }
 
 /// `-p` and its kin run `background.py` as the Swift app runs it, in the worker's folders of the Rust app (as
-/// `vcx-app` starts it): `background.py` rewrites `settings.json` whole, so it never gets his shared one.
+/// `vcx-app` starts it), his shared settings among them.
 pub fn background(context: &Context, arguments: &[String]) -> Result<Process, String> {
     let script = context.background.clone().or_else(|| {
         let executable = std::env::current_exe().ok()?;

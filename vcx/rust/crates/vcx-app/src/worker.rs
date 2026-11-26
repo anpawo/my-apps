@@ -37,6 +37,14 @@ pub fn socket_for(homes: &Homes, session_id: &str) -> PathBuf {
 }
 
 /// Starts the worker of `socket` unless one already answers there. Two launches racing for it start one worker.
+/// `build-stack`'s lock stays with the build that holds it: a worker outlives the app, and two test workers that
+/// inherited the descriptor held the queue for every session (26/11). Removing `BUILD_STACK_FD` alone left it open.
+pub fn keep_build_lock_out() {
+    let Some(fd) = std::env::var("BUILD_STACK_FD").ok().and_then(|fd| fd.parse::<libc::c_int>().ok()) else { return };
+    // SAFETY: F_SETFD on a number only changes that descriptor's flags; an fd that is not open fails harmlessly.
+    unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+}
+
 pub fn ensure(settings: &Settings, homes: &Homes, socket: &Path, cwd: &str) -> Result<Option<Child>, String> {
     if UnixStream::connect(socket).is_ok() {
         return Ok(None);
