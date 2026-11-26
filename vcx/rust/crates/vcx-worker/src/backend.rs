@@ -4,6 +4,7 @@
 use crate::checkpoint::Store;
 use crate::fallback;
 use crate::provider;
+use crate::recall;
 use crate::server::{Action, Backend};
 use crate::session::{self as model, Effect, Session};
 use serde_json::{Value, json};
@@ -50,6 +51,8 @@ pub struct Config {
     pub state_directory: PathBuf,
     /// The rate-limit waits are multiplied by this: 1, or a test's fraction.
     pub retry_scale: f64,
+    /// Where his `~/.claude/ERRORS*.md` are read for the lines recalled with each prompt: a test run's own folder.
+    pub errors_home: PathBuf,
 }
 
 pub struct SessionBackend {
@@ -758,13 +761,24 @@ impl SessionBackend {
     async fn send(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool) -> Result<Object, String> {
         let outgoing = self.session.borrow_mut().begin_send(text, images, draft, generation, retry);
         self.schedule();
-        let Some(outgoing) = outgoing else { return Ok(Object::new()) };
+        let Some(mut outgoing) = outgoing else { return Ok(Object::new()) };
+        let recalled = self.recall(text);
+        if !recalled.is_empty() {
+            if let Some(input) = outgoing.params["input"].as_array_mut() {
+                input.push(json!({"type": "text", "text": recall::note(&recalled)}));
+            }
+        }
         if self.recovery.borrow().is_none() {
             let consumed = generation.unwrap_or(self.session.borrow().draft_generation);
             self.consumed_generation.set(self.consumed_generation.get().max(consumed));
         }
         match self.request(outgoing.method, outgoing.params.clone(), REQUEST_TIMEOUT).await {
             Ok(result) => {
+                if !recalled.is_empty() {
+                    let cwd = PathBuf::from(&self.session.borrow().cwd);
+                    let sections = recalled.iter().filter_map(|rule| Some((rule.clone(), recall::section(rule, &cwd, &self.config.errors_home)?))).collect();
+                    self.session.borrow_mut().recalled(&outgoing.id, &recalled, sections);
+                }
                 self.session.borrow_mut().send_succeeded(&result);
                 let stopping = self.session.borrow().stop_requested;
                 if stopping {
@@ -775,6 +789,12 @@ impl SessionBackend {
         }
         self.schedule();
         Ok(Object::new())
+    }
+
+    /// The Swift `ErrorsRecall`: his ERRORS lines that match the prompt, each sent once per conversation.
+    fn recall(&self, text: &str) -> Vec<String> {
+        let session = self.session.borrow();
+        recall::recall(text, Path::new(&session.cwd), &self.config.errors_home).into_iter().filter(|rule| !session.recalled_rules.contains(rule)).collect()
     }
 
     async fn stop(self: Rc<Self>, source: &str) {

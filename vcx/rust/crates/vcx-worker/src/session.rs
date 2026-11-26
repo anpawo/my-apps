@@ -3,7 +3,9 @@
 
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use crate::recall;
 use vcx_agents::claude_stream::usage_limit;
+use vcx_agents::qwen_text::strip_recall;
 use vcx_agents::{Event, Kind, Stream, TurnStatus};
 use vcx_model::item;
 
@@ -110,6 +112,9 @@ pub struct Session {
     pub auto_resumes: usize,
     /// Codex takes a changed permission mode with the next turn.
     pub mode_override: bool,
+    /// The ERRORS lines recalled for this conversation's prompts, and the heading each sits under.
+    pub recalled_rules: Vec<String>,
+    pub recalled_sections: Object,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -177,7 +182,7 @@ impl Session {
             "repositoryStatus": "", "repositoryChanges": [], "pullRequest": "", "pullRequestURL": "", "hooks": [], "skills": [], "builtinCommands": [],
             "mcp": [], "instructions": [], "activeMode": self.active_mode, "providerLabel": self.provider_label, "models": self.models,
             "modelEfforts": self.model_efforts, "modelDefaultEfforts": self.model_default_efforts, "modelAliases": {}, "planning": self.planning,
-            "skillPaths": {}, "legacyCommandPaths": {}, "recordID": self.record_id, "recalledRules": [], "recent": [], "permissions": permissions,
+            "skillPaths": {}, "legacyCommandPaths": {}, "recordID": self.record_id, "recalledRules": self.recalled_rules, "recalledRuleSections": self.recalled_sections, "recent": [], "permissions": permissions,
             "providerCommands": [], "account": self.account, "nativeSources": [], "archiveClientVersions": {},
             "nativeHistoryPath": self.native_history_path, "archiveService": self.archive_service, "threadID": self.thread_id, "turnID": self.turn_id,
             "effort": self.effort, "defaultEffort": self.default_effort, "usagePercent": self.usage_percent, "contextUsed": self.context_used,
@@ -284,15 +289,64 @@ impl Session {
         self.insert_row(index, "notice", vec![id]);
     }
 
+    /// A prompt comes back with the recalled ERRORS note the worker added: the note goes, its lines stay on the item.
+    fn strip_recalled(&mut self, data: &mut Object) {
+        let Some(Value::Array(content)) = data.get("content").filter(|_| text(data, "type") == Some("userMessage")) else { return };
+        let mut lines = Vec::new();
+        let mut kept = Vec::new();
+        for piece in content {
+            match piece.get("text").and_then(Value::as_str).filter(|text| text.contains(recall::MARKER)) {
+                Some(text) => {
+                    lines.extend(recall::lines(text));
+                    let request = strip_recall(text).trim();
+                    if !request.is_empty() {
+                        let mut piece = piece.clone();
+                        piece["text"] = json!(request);
+                        kept.push(piece);
+                    }
+                }
+                None => kept.push(piece.clone()),
+            }
+        }
+        if lines.is_empty() {
+            return;
+        }
+        data.insert("content".into(), Value::Array(kept));
+        data.insert("recalled".into(), json!(lines));
+        for line in lines {
+            if !self.recalled_rules.contains(&line) {
+                self.recalled_rules.push(line);
+            }
+        }
+    }
+
+    /// The ERRORS lines sent with prompt `id`, with the section each sits under when its file names one.
+    pub fn recalled(&mut self, id: &str, lines: &[String], sections: Vec<(String, String)>) {
+        if let Some(item) = self.items.get(id).cloned() {
+            let mut item = item;
+            item.insert("recalled".into(), json!(lines));
+            self.set_item(id, item);
+        }
+        for line in lines {
+            if !self.recalled_rules.contains(line) {
+                self.recalled_rules.push(line.clone());
+            }
+        }
+        for (rule, section) in sections {
+            self.recalled_sections.insert(rule, json!(section));
+        }
+    }
+
     /// Adds or updates one provider item, grouping tools into the activity row under the last prompt.
     pub fn show(&mut self, source: &Object) {
         let mut data = source.clone();
+        self.strip_recalled(&mut data);
         if text(&data, "type") == Some("agentMessage") && !data.contains_key("provider") {
             data.insert("provider".into(), json!(self.provider_label));
         }
         let (Some(id), Some(kind)) = (text(&data, "id").map(str::to_owned), text(&data, "type").map(str::to_owned)) else { return };
         if let Some(existing) = self.items.get(&id) {
-            for key in ["sentAt", "endedTurn"] {
+            for key in ["sentAt", "endedTurn", "recalled"] {
                 if let Some(value) = existing.get(key).filter(|_| !source.contains_key(key)) {
                     data.insert(key.into(), value.clone());
                 }
