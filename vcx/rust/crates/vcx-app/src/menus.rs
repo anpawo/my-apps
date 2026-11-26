@@ -12,6 +12,7 @@ use objc2_foundation::{MainThreadMarker, NSString};
 pub const FILE: &str = "File";
 /// Swift's ⌘Q item: it closes the front session, never the whole app.
 const CLOSE_SESSION: &str = "Close Session";
+const CLOSE_NOW_KEY: &str = "k";
 /// The application menu holds index 0; the File menu follows it, as in the Swift app.
 const FILE_MENU_INDEX: isize = 1;
 const COMMAND: NSEventModifierFlags = NSEventModifierFlags::Command;
@@ -21,6 +22,8 @@ pub enum MenuAction {
     NewWindow,
     OpenProject,
     CloseWindow,
+    /// Swift's ⌘K: the front session closes at once, its agent at work or not.
+    CloseNow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +48,7 @@ fn selector(action: MenuAction) -> Sel {
         MenuAction::NewWindow => sel!(newWindow:),
         MenuAction::OpenProject => sel!(openProject:),
         MenuAction::CloseWindow => sel!(closeWindow:),
+        MenuAction::CloseNow => sel!(closeNow:),
     }
 }
 
@@ -77,6 +81,12 @@ define_class!(
         #[unsafe(method(closeWindow:))]
         fn close_window(&self, _sender: Option<&AnyObject>) {
             (self.ivars().act)(MenuAction::CloseWindow);
+        }
+
+        // SAFETY: as above.
+        #[unsafe(method(closeNow:))]
+        fn close_now(&self, _sender: Option<&AnyObject>) {
+            (self.ivars().act)(MenuAction::CloseNow);
         }
 
         // SAFETY: `validateMenuItem:` takes the item and returns a BOOL.
@@ -131,18 +141,23 @@ pub fn install(mtm: MainThreadMarker, act: impl Fn(MenuAction) + 'static) {
 }
 
 /// The application menu's Quit item (⌘Q) becomes Close Session, as in the Swift app; the app quits once its last
-/// window closes.
+/// window closes. A second Close Session on ⌘K follows it, which never asks first.
 fn close_session_on_q(bar: &NSMenu, target: &FileMenuTarget) {
     let Some(application) = bar.itemAtIndex(0).and_then(|item| item.submenu()) else { return };
     for index in 0..application.numberOfItems() {
         let Some(item) = application.itemAtIndex(index) else { continue };
         if item.action() == Some(sel!(terminate:)) {
             item.setTitle(&NSString::from_str(CLOSE_SESSION));
-            // SAFETY: `closeWindow:` is a method of `FileMenuTarget`, which the item now targets.
+            // SAFETY: `closeWindow:` and `closeNow:` are methods of `FileMenuTarget`, which both items target.
             unsafe {
                 item.setAction(Some(selector(MenuAction::CloseWindow)));
                 item.setTarget(Some(target));
+                let now = NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(MainThreadMarker::from(target)), &NSString::from_str(CLOSE_SESSION), Some(selector(MenuAction::CloseNow)), &NSString::from_str(CLOSE_NOW_KEY));
+                now.setKeyEquivalentModifierMask(COMMAND);
+                now.setTarget(Some(target));
+                application.insertItem_atIndex(&now, index + 1);
             }
+            return;
         }
     }
 }

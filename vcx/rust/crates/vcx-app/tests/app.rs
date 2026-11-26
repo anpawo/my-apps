@@ -268,8 +268,10 @@ fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_sa
     // SAFETY: the pid is this run's own app, as build-rust.sh --install signals the installed one.
     unsafe { libc::kill(pid as i32, libc::SIGUSR1) };
 
+    // The new image binds a fresh control socket once it runs; its report, which waits on the reopened page, is the
+    // next wait, so a loaded Mac's slow page never eats into the exec's own time.
     let deadline = Instant::now() + WAIT;
-    while fs::metadata(&control).map(|info| info.ino()).ok() == Some(listening) || run.ask(&json!({"report": {}})).is_none() {
+    while fs::metadata(&control).map(|info| info.ino()).ok() == Some(listening) {
         assert!(Instant::now() < deadline, "the app never came back as the new build");
         thread::sleep(POLL);
     }
@@ -612,6 +614,8 @@ fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
     let application = menus[0]["items"].as_array().unwrap();
     let on_q: Vec<&Value> = application.iter().filter(|item| item["key"] == "q").collect();
     assert_eq!(on_q, [&json!({"title": "Close Session", "key": "q", "action": "closeWindow:"})], "{menus}");
+    let on_k: Vec<&Value> = application.iter().filter(|item| item["key"] == "k").collect();
+    assert_eq!(on_k, [&json!({"title": "Close Session", "key": "k", "action": "closeNow:"})], "{menus}");
     assert!(application.iter().all(|item| item["action"] != "terminate:"), "{menus}");
     let file = items("File");
     let file: Vec<(&str, &str)> = file.iter().map(|item| (item["title"].as_str().unwrap(), item["action"].as_str().unwrap())).collect();

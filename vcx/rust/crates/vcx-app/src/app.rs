@@ -621,6 +621,7 @@ impl App {
                 folder::choose(&cwd, move |path| drop(proxy.send_event(AppEvent::OpenProject(path))));
             }
             MenuAction::CloseWindow => return front.and_then(|key| self.ask_close(key)),
+            MenuAction::CloseNow => return front.and_then(|key| self.close_window(key)),
         }
         None
     }
