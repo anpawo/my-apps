@@ -477,10 +477,39 @@
     button.copiedTimer = setTimeout(() => button.classList.remove('copied'), COPIED_MS);
   }
 
+  // ---- Effect: zoom and blur popup. Copy from here ----
+  // Opens or closes the popup and its veil on one clock and one curve. Opening, the popup settles from `from` % of its
+  // size to 100 %, unblurring `blur` px and fading in from 0, in `dur` ms on a slow-start curve (an ease-out jumped to
+  // 20-45 % opacity in two frames). Closing, it grows back, blurs and fades in `out` ms, speeding up as it goes.
+  async function zoomPop(pop, veil, open, { dur = 400, out = 250, from = 108, blur = 8 } = {}) {
+    const shut = { opacity: 0, scale: from / 100, filter: `blur(${blur}px)` }, shown = { opacity: 1, scale: 1, filter: 'blur(0)' };
+    const way = { duration: open ? dur : out, easing: open ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.4,0,1,1)', fill: 'both' };
+    pop.classList.add('open');
+    veil.classList.add('open');
+    const moves = [veil.animate({ opacity: open ? [0, 1] : [1, 0] }, way), pop.animate(open ? [shut, shown] : [shown, shut], way)];
+    // Held for the popup's first paint (its backdrop blur and content), else that paint eats the start of the zoom.
+    if (open) { moves.forEach(m => m.pause()); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); moves.forEach(m => m.play()); }
+    await Promise.all(moves.map(m => m.finished));
+    if (!open) { pop.classList.remove('open'); veil.classList.remove('open'); }
+    moves.forEach(m => m.cancel());
+  }
+  // ---- End of effect ----
+
   function preview(source) {
     const overlay = $('preview');
     overlay.querySelector('img').src = source;
     overlay.hidden = false;
+    zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), true);
+  }
+
+  // Hidden once the popup has shrunk away, so a click during the close does not reach the transcript under it.
+  function closePreview() {
+    const overlay = $('preview');
+    if (overlay.closing) return;
+    overlay.closing = zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), false).then(() => {
+      overlay.hidden = true;
+      overlay.closing = null;
+    });
   }
 
   document.addEventListener('click', event => {
@@ -501,7 +530,7 @@
       if (bubble.classList.contains('open')) unfolded.add(bubble.dataset.fold);
       else unfolded.delete(bubble.dataset.fold);
     } else if (event.target.closest('#preview')) {
-      $('preview').hidden = true;
+      closePreview();
     } else if (event.target.closest('#latest')) {
       transcript.scrollTop = transcript.scrollHeight;
     }
@@ -509,7 +538,7 @@
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !$('preview').hidden) {
       event.preventDefault();
-      $('preview').hidden = true;
+      closePreview();
     }
   }, true);
   // Back to latest shows once the reader has scrolled away from the end.

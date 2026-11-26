@@ -71,9 +71,20 @@ body { display: flex; flex-direction: column; }
 .picture .words { display: flex; flex-direction: column; gap: 4px; }
 .picture .name { font-size: 12px; font-weight: 600; }
 .picture .hint { font-size: 10px; opacity: 0.6; }
-#preview { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgb(0 0 0 / 0.35); cursor: zoom-out; }
+/* A picture's preview is the zoom and blur popup (WT-118), its image on the glass. */
+#preview { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; cursor: zoom-out; }
 #preview[hidden] { display: none; }
-#preview img { max-width: 66.7vw; max-height: 66.7vh; border-radius: 12px; box-shadow: 0 12px 40px rgb(0 0 0 / 0.3); background: var(--page); }
+/* ---- Effect: zoom and blur popup. Copy from here ---- */
+#preview .veil { position: fixed; inset: 0; background: rgb(0 0 0 / var(--dim, .3));
+  -webkit-backdrop-filter: blur(var(--veil-blur, 4px)); backdrop-filter: blur(var(--veil-blur, 4px)); }
+#preview .glass { color: var(--ink, #1c2127); border: 1px solid rgb(255 255 255 / .4);
+  background: color-mix(in srgb, var(--tint, #dce0e5) calc(var(--alpha, .4) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15));
+  backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15)); }
+#preview .veil:not(.open), #preview .glass:not(.open) { visibility: hidden; }
+/* ---- End of effect ---- */
+#preview .glass { position: relative; padding: 8px; border-radius: 16px; box-shadow: 0 12px 40px rgb(0 0 0 / 0.25); }
+#preview img { display: block; max-width: 66.7vw; max-height: 66.7vh; border-radius: 10px; }
 
 .label { margin: 0 0 12px; color: rgb(0 0 0 / 0.6); font-size: 11px; font-weight: 500; }
 .label::first-letter { color: var(--accent); }
@@ -109,11 +120,10 @@ figure.code { border-radius: 10px; background: var(--code); overflow: hidden; }
 figure.code > figcaption { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 12px; color: var(--muted); font-size: 11px; }
 figure.code pre { margin: 0; background: none; }
 figure.code.markdown > .prose { padding: 4px 12px 10px; }
-button.copy { width: 26px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
-button.copy::before { content: "⧉"; font-size: 13px; }
-button.copy:hover { background: rgb(0 0 0 / 0.06); }
-button.copy.copied { color: var(--ready); }
-button.copy.copied::before { content: "✓"; }
+figure.code button.copy { width: 26px; height: 26px; color: var(--muted); }
+figure.code button.copy .done, figure.code button.copy.copied .ready { display: none; }
+figure.code button.copy.copied .done { display: block; }
+figure.code button.copy.copied { color: var(--ready); }
 
 details > summary { list-style: none; cursor: pointer; user-select: none; }
 details > summary::-webkit-details-marker { display: none; }
@@ -157,29 +167,52 @@ details > summary::-webkit-details-marker { display: none; }
 .peer-line::before { content: "↙ "; }
 .peer-line[data-direction="sent"]::before { content: "↗ "; }
 
-#find { position: fixed; top: 10px; right: 24px; z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; border-radius: 10px; background: var(--page); box-shadow: 0 4px 16px rgb(0 0 0 / 0.16); font-size: 12px; }
+#find { position: fixed; top: 10px; right: 24px; z-index: 10; display: flex; align-items: center; gap: 2px; padding: 6px; border-radius: 12px; background: var(--page); box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); font-size: 12px; }
 #find[hidden] { display: none; }
-#find-input { width: 180px; border: 0; outline: 0; background: none; font: inherit; }
-#find-count { min-width: 58px; color: var(--muted); text-align: right; }
-#find button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
-#find button:hover { background: rgb(0 0 0 / 0.06); }
-#find-previous::before { content: "↑"; }
-#find-next::before { content: "↓"; }
-#find-close::before { content: "×"; }
+/* The find field is the search field of the filter lists (WT-030), on the window's white. */
+/* ---- Effect: search field and filter button with value lists. Copy from here ---- */
+#find .ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#find .find { display: flex; align-items: center; width: var(--w, 320px); height: 32px; padding-left: 8px; border-radius: 10px; border: 1px solid #404854;
+  background: rgb(64 72 84 / .3); cursor: text;
+  transition: border-color var(--ring-dur, 150ms) cubic-bezier(.4, 0, .2, 1), box-shadow var(--ring-dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+#find .find:has(input:focus-visible) { border-color: var(--ring, #4c90f0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #4c90f0) 50%, transparent); }
+#find .find .ico { color: #abb3bf; }
+#find .find input { flex: 1; min-width: 0; height: 100%; padding: 4px 10px 4px 6px; border: 0; outline: none; background: none; color: inherit; font: inherit; font-size: 14px; }
+#find .find input::placeholder { color: #abb3bf; }
+#find .find input::-webkit-search-cancel-button { display: none; }
+@media (prefers-reduced-motion: reduce) { #find .find { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+#find .find { --w: 220px; margin-right: 6px; border-color: #c5cbd3; background: rgb(0 0 0 / .04); }
+#find .find .ico, #find .find input::placeholder { color: rgb(28 33 39 / .45); }
+#find .find input { font-size: 13px; }
+#find-count { min-width: 58px; margin-right: 4px; color: var(--muted); text-align: right; }
 ::highlight(vcx-find) { background: rgb(255 230 102); }
 ::highlight(vcx-find-current) { background: rgb(255 158 51); }
 
-#latest { position: fixed; left: 50%; bottom: 150px; z-index: 5; transform: translateX(-50%); padding: 6px 14px; border: 0; border-radius: 14px; background: var(--page); box-shadow: 0 2px 10px rgb(0 0 0 / 0.18); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+/* Back to latest floats just above the footer, whatever the footer holds (a question, the composer's growth). */
+#jump { position: absolute; left: 0; right: 0; bottom: 100%; z-index: 5; display: flex; justify-content: center; pointer-events: none; }
+#latest { margin-bottom: 10px; box-shadow: 0 2px 10px rgb(0 0 0 / 0.14); pointer-events: auto; }
 #latest[hidden] { display: none; }
 
-#question { margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; background: var(--panel); }
+/* A question card follows the text-in-block rule (WT-080): its name on a grey band over a block that holds the rest. */
+/* ---- Effect: text always sits in a block. Copy from here ---- */
+#question.part { overflow: hidden; border: 1px solid rgb(255 255 255 / .12); border-radius: var(--radius, 12px); background: rgb(255 255 255 / .04);
+  transition: border-color var(--dur, 300ms) ease-out, background-color var(--dur, 300ms) ease-out; }
+#question.part > p:first-child { margin: 0; padding: 6px 12px; border-bottom: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .08);
+  font-size: 12px; font-weight: 500; transition: inherit; }
+#question .part-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+#question .part-body p { margin: 0; }
+@media (prefers-reduced-motion: reduce) { #question.part, #question.part > p:first-child { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+/* On the window's white: a hairline and a white fill, the band a faint grey, as the chrome's capability items. */
+#question.part { margin-bottom: 14px; border-color: rgb(0 0 0 / .12); background: #fff; }
+#question.part > p:first-child { border-bottom-color: rgb(0 0 0 / .08); background: rgb(0 0 0 / .04); }
 #question[hidden] { display: none; }
 .question-head { display: flex; align-items: center; gap: 8px; color: rgb(0 0 0 / 0.6); font-size: 11px; font-weight: 600; }
 .question-icon::before { content: "?"; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 5px; background: var(--accent); color: white; font-size: 10px; }
 .question-title { flex: 1; }
-.question-cancel { padding: 2px 6px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.question-cancel:hover { background: rgb(0 0 0 / 0.06); }
-.question-text { margin: 10px 0; font-size: 12px; font-weight: 500; }
+#question .question-cancel { height: 24px; margin: -3px -6px; color: rgb(0 0 0 / 0.6); }
+.question-text { font-size: 12px; font-weight: 500; }
 .options { display: flex; flex-direction: column; gap: 6px; max-height: 276px; overflow-y: auto; }
 .option { display: flex; align-items: baseline; gap: 10px; padding: 8px; border: 0; border-radius: 8px; background: rgb(0 0 0 / 0.04); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .option:hover { background: rgb(0 0 0 / 0.07); }
@@ -188,8 +221,8 @@ details > summary::-webkit-details-marker { display: none; }
 .option .words { display: flex; flex-direction: column; gap: 3px; }
 .option-label { font-size: 12px; font-weight: 500; }
 .option-detail { color: rgb(0 0 0 / 0.6); font-size: 11px; }
-.question-hint { margin: 8px 0 0; color: rgb(0 0 0 / 0.5); font-size: 11px; }
-#question .secret { width: 100%; margin-top: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.question-hint { color: rgb(0 0 0 / 0.5); font-size: 11px; }
+#question .secret { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 
 footer { padding: 6px 24px 14px; }
 #status { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
@@ -213,4 +246,44 @@ footer { padding: 6px 24px 14px; }
   .row.enter { animation: fade 120ms linear; }
   #dot.busy { animation: none; }
   .work > summary .chevron, .work > summary .chevron::before, .action > summary .icon::before, #dot { transition: none; }
+}
+
+/* The page's own buttons (find, Back to latest, a question's Cancel, a code block's copy) are the dashboard's
+   button (WT-033), nested under their parts so the composer's and the chrome's own .b keep their look. */
+/* :where keeps them as light as a bare .b, so the page's own rules (hidden, positions) still win. */
+:where(#find, #jump, #question, figure.code) {
+  /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
+  /* The recon dashboard's button (ui/button.tsx) on its dark theme: 32 px tall, radius 10, 14 px medium, an icon 16 px.
+     Under the pointer its fill steps up; pressed, it sinks 1 px; with the keyboard, a blue ring. Greyed out at half. */
+  .b { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px;
+    border: 1px solid transparent; border-radius: 10px; background-clip: padding-box; font: 500 14px/20px Inter, -apple-system, system-ui, sans-serif;
+    white-space: nowrap; color: #f6f7f9; cursor: pointer; outline: none; user-select: none;
+    transition: all var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+  .b svg { width: 16px; height: 16px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .b.icon { width: 32px; padding: 0; }
+  .b.sm { gap: 4px; padding: 0 10px; border-radius: 8px; font-size: 12.8px; }
+  .b.sm svg { width: 14px; height: 14px; }
+  .b:active { translate: 0 1px; }
+  .b:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+  .b:disabled { opacity: .5; pointer-events: none; }
+  .b-default { background-color: #2d72d2; color: #fff; }
+  .b-default:hover { background-color: rgb(45 114 210 / .8); }
+  .b-outline { border-color: #404854; background-color: rgb(64 72 84 / .3); }
+  .b-outline:hover, .b-outline[aria-expanded=true] { background-color: rgb(64 72 84 / .5); }
+  .b-secondary { background-color: #2f343c; }
+  .b-secondary:hover { background-color: color-mix(in oklch, #2f343c, #f6f7f9 5%); }
+  .b-ghost { background-color: transparent; }
+  .b-ghost:hover, .b-ghost[aria-expanded=true] { background-color: rgb(47 52 60 / .5); }
+  .b-destructive { background-color: rgb(231 106 110 / .2); color: #e76a6e; }
+  .b-destructive:hover { background-color: rgb(231 106 110 / .3); }
+  .b-destructive:focus-visible { border-color: rgb(231 106 110 / .4); box-shadow: 0 0 0 3px rgb(231 106 110 / .4); }
+  .b-link { color: #2d72d2; text-decoration: underline transparent; text-underline-offset: 4px; }
+  .b-link:hover { text-decoration-color: currentColor; }
+  @media (prefers-reduced-motion: reduce) { .b { transition-duration: 1ms; } .b:active { translate: none; } }
+  /* ---- End of effect ---- */
+  /* On the window's white, as the chrome draws it: the ink dark, the outline in light greys. */
+  .b { color: #1c2127; }
+  .b-outline { border-color: #c5cbd3; background-color: #fff; }
+  .b-outline:hover { background-color: #f5f5f5; }
+  .b-ghost:hover { background-color: rgb(0 0 0 / .06); }
 }

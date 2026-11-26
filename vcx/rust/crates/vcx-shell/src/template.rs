@@ -39,6 +39,8 @@ const BUILT_IN: &[(&str, &[u8])] = &[
     ("questions.js", include_bytes!("../../../template/questions.js")),
     ("chrome.css", include_bytes!("../../../template/chrome.css")),
     ("chrome.js", include_bytes!("../../../template/chrome.js")),
+    ("run.css", include_bytes!("../../../template/run.css")),
+    ("run.js", include_bytes!("../../../template/run.js")),
 ];
 
 #[derive(Debug, PartialEq)]

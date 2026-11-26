@@ -89,17 +89,19 @@
     const asked = question();
     panel.hidden = !asked;
     if (!asked) return panel.replaceChildren();
-    const head = make('div', 'question-head');
+    const head = make('p', 'question-head');
     const title = request.questions.length > 1 ? `Question ${step + 1} of ${request.questions.length}` : 'Your answer is needed';
     head.append(make('span', 'question-icon'), make('span', 'question-title', [title, asked.header].filter(Boolean).join(' · ')));
-    const cancel = make('button', 'question-cancel', 'Cancel');
+    const cancel = make('button', 'question-cancel b b-ghost sm', 'Cancel');
     cancel.type = 'button';
     cancel.title = 'Answer nothing and let the agent continue';
     cancel.addEventListener('click', () => answer({ answers: {} }));
     head.append(cancel);
     const options = make('div', 'options');
     options.append(...asked.options.map((choice, index) => option(asked, choice, index)));
-    panel.replaceChildren(head, make('p', 'question-text', asked.question), options);
+    const body = make('div', 'part-body');
+    body.append(make('p', 'question-text', asked.question), options);
+    panel.replaceChildren(head, body);
     panel.dataset.request = request.id;
     if (asked.secret) {
       const field = make('input', 'secret');
@@ -111,10 +113,10 @@
         event.preventDefault();
         reply(field.value);
       });
-      panel.append(field);
+      body.append(field);
       field.focus();
     } else if (asked.multiple) {
-      panel.append(make('p', 'question-hint', 'Numbers toggle choices · Return confirms'));
+      body.append(make('p', 'question-hint', 'Numbers toggle choices · Return confirms'));
     }
   }
 

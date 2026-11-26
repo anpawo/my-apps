@@ -7,6 +7,8 @@ const BLOCKED_TARGET: &str = "#";
 /// A fence longer than three marks exists only to hold nested fences: its content is a Markdown document.
 const PLAIN_FENCE: usize = 3;
 const MARKDOWN_LANGUAGES: [&str; 2] = ["md", "markdown"];
+/// The copy icon, and the check it turns into once copied (the dashboard's button, WT-033).
+const COPY_ICONS: &str = r#"<svg class="ready" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="done" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>"#;
 
 /// The answer lines Marius's replies open and close with, each drawn as its own coloured band.
 const ANSWER_LINES: [(&str, &str, &str); 3] = [("⟶ Next:", "next", "+ Next:"), ("⟶ ", "short", ""), ("✓ Done:", "done", "✓ Done:")];
@@ -73,7 +75,7 @@ fn code_block(kind: &CodeBlockKind<'_>, code: &str, source: &str) -> String {
         (true, true) => "Markdown".to_owned(),
         (true, false) => "Code".to_owned(),
     };
-    let head = format!("<figcaption><span class=\"language\">{label}</span><button type=\"button\" class=\"copy\" aria-label=\"Copy code\" title=\"Copy code\"></button></figcaption>");
+    let head = format!("<figcaption><span class=\"language\">{label}</span><button type=\"button\" class=\"copy b b-ghost icon sm\" aria-label=\"Copy code\" title=\"Copy code\">{COPY_ICONS}</button></figcaption>");
     if markdown {
         return format!("<figure class=\"code markdown\">{head}<div class=\"prose\">{}</div><pre class=\"source\" hidden><code>{}</code></pre></figure>", to_html(code), escape(code));
     }
@@ -153,7 +155,7 @@ mod tests {
     fn gives_a_code_block_its_language_and_a_copy_button() {
         let html = to_html("```sh\necho \"<hi>\"\n```\n\n    indented\n");
 
-        assert!(html.contains("<span class=\"language\">sh</span><button type=\"button\" class=\"copy\""), "{html}");
+        assert!(html.contains("<span class=\"language\">sh</span><button type=\"button\" class=\"copy b b-ghost icon sm\""), "{html}");
         assert!(html.contains("<code class=\"language-sh\">echo &quot;&lt;hi&gt;&quot;\n</code>"), "{html}");
         assert!(html.contains("<span class=\"language\">Code</span>"), "{html}");
     }
