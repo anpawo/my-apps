@@ -639,6 +639,15 @@ fn keeps_the_sheet_480_by_520_and_each_value_inside_its_block(page: &Page) -> Re
     same(&inside, json!(true), "every value inside its block")
 }
 
+fn opens_the_settings_when_the_core_asks(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.deliver(json!({"type": "openSettings"}))?;
+
+    same(&page.dump()?["settings"]["tab"], json!("Session"), "the sheet the core opened")?;
+    same(&page.wait_post("settings")?, json!({"type": "settings"}), "the settings asked of the core")
+}
+
 fn shows_the_sign_in_and_cancels_it(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
     page.deliver(json!({"type": "login", "text": "Complete sign-in in your browser.", "signingIn": true}))?;
@@ -662,7 +671,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 32] = [
+const TESTS: [(&str, Test); 33] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -693,6 +702,7 @@ const TESTS: [(&str, Test); 32] = [
     ("puts a settings command in the composer and closes", puts_a_settings_command_in_the_composer_and_closes),
     ("opens the settings with command comma and closes them on Escape", opens_the_settings_with_command_comma_and_closes_them_on_escape),
     ("keeps the sheet 480 by 520 and each value inside its block", keeps_the_sheet_480_by_520_and_each_value_inside_its_block),
+    ("opens the settings when the core asks", opens_the_settings_when_the_core_asks),
     ("shows the sign-in and cancels it", shows_the_sign_in_and_cancels_it),
     ("dismisses the account status", dismisses_the_account_status),
 ];

@@ -1294,6 +1294,8 @@
     else if (message.type === 'tasks') state.tasks = message.entries || [];
     else if (message.type === 'quota') state.quota = message.lines || [];
     else if (message.type === 'settings') state.settings = message;
+    // A typed /settings: the core asks the page to open the sheet (Swift `showingSettings`).
+    else if (message.type === 'openSettings' && !sheet.open) openSettings();
     else if (message.type === 'login') state.login = message.text ? message : null;
     if (message.meta) {
       state.meta = message.meta;
