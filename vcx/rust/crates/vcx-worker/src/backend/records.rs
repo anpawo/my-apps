@@ -30,6 +30,8 @@ const NATIVE_PREFIX: &str = "native:";
 const NAMESPACED: [&str; 3] = ["claude", "agy", "qwen"];
 const NO_POINTER: &str = "No saved conversation in this folder.";
 const CLAUDE_PROJECTS: &str = ".claude/projects";
+/// my-setup's chats.py deletes a closed session's Claude transcript once chats.sqlite holds it; a resume writes it back.
+const CHATS: &str = "self/my-setup/macos/dream/chats.py";
 
 /// The saved record as the worker holds it: its lock, the leases on its native threads, and where it stands in
 /// being archived. Carried across a live update with its descriptors.
@@ -412,6 +414,10 @@ impl SessionBackend {
             let pointer = records::read_object(&records::resume_pointer(&self.state_path(), &directory));
             id = pointer.as_ref().and_then(|pointer| text(pointer, "threadId")).ok_or(NO_POINTER)?.to_owned();
         }
+        // A bare Claude session ID (vcx --resume <id>) went to Codex, which answered "no rollout found".
+        if !id.contains(':') {
+            self.restore_claude_transcript(&id).await;
+        }
         let projects = vcx_config::homes::home_directory().join(CLAUDE_PROJECTS);
         let claude = std::fs::read_dir(&projects).into_iter().flatten().flatten().any(|project| project.path().join(format!("{id}.jsonl")).is_file());
         if !id.contains(':') && claude {
@@ -421,6 +427,16 @@ impl SessionBackend {
         let profiles: Vec<Account> = settings.candidates(provider).into_iter().filter(|account| account.provider == provider && account.enabled).collect();
         let [profile] = profiles.as_slice() else { return Err(AMBIGUOUS.into()) };
         self.activate_rows(profile, Some(id), None, false).await
+    }
+
+    /// The Swift `restoreClaudeTranscript`, default Claude home only; a test worker never runs his chats.py.
+    pub(super) async fn restore_claude_transcript(&self, id: &str) {
+        if self.config.native.flag.is_some() {
+            return;
+        }
+        let script = vcx_config::homes::home_directory().join(CHATS);
+        let quiet = std::process::Stdio::null;
+        let _ = tokio::process::Command::new("/usr/bin/python3").arg("-I").arg(script).args(["restore", id]).stdin(quiet()).stdout(quiet()).stderr(quiet()).kill_on_drop(true).status().await;
     }
 }
 

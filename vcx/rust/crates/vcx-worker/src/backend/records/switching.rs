@@ -266,6 +266,10 @@ impl SessionBackend {
         self.adopt_choices(&record);
         let resumed = self.resumed(&record, requested)?;
         if self.native_history() && !resumed.source.pending_creation && resumed.source.provider != "qwen" {
+            // Watcher reopens closed sessions, whose Claude transcripts chats.py deletes once chats.sqlite holds them.
+            if resumed.source.provider == "claude" {
+                self.restore_claude_transcript(&resumed.source.thread_id).await;
+            }
             if self.archive(&state).source_files(std::slice::from_ref(&resumed.source)).await?.is_empty() {
                 return Err("The exact saved native history is unavailable.".into());
             }
