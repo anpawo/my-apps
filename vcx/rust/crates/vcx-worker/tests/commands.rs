@@ -93,10 +93,12 @@ fn reports_tokens_usage_repository_catalogs_status_and_help_without_reaching_the
 
     let state = held.replica.state().unwrap();
     let shown = notices(state);
-    for expected in ["Not reported", "The provider has not reported subscription usage yet.", "No repository · not a repo", "No entries reported for hooks.", "No entries reported for skills.", "No entries reported for mcp.", "No entries reported for instructions."] {
+    let repository = meta(state, "repository").as_str().unwrap();
+    let no_repository = format!("{repository} · not a repo");
+    for expected in ["Not reported", "The provider has not reported subscription usage yet.", no_repository.as_str(), "No entries reported for hooks.", "No entries reported for skills.", "No entries reported for mcp.", "No entries reported for instructions."] {
         assert!(shown.contains(&expected.to_owned()), "{expected} not in {shown:?}");
     }
-    let status = format!("Provider: Codex · {}\nMode: Bypass / YOLO\nModel: fixture-model\nTokens: Not reported\nUsage: Not reported\nRepository: No repository · ", meta(state, "account")["name"].as_str().unwrap());
+    let status = format!("Provider: Codex · {}\nMode: Bypass / YOLO\nModel: fixture-model\nTokens: Not reported\nUsage: Not reported\nRepository: {repository} · ", meta(state, "account")["name"].as_str().unwrap());
     assert!(shown.iter().any(|notice| notice.starts_with("Directory: ") && notice.ends_with(&status)), "{shown:?}");
     let help = shown.last().unwrap();
     assert!(help.starts_with("/model · vcx: Choose provider, model, and reasoning effort\n"), "{help}");

@@ -112,6 +112,7 @@ impl SessionBackend {
             "providerChoice": *self.provider_choice.borrow(), "modeChoice": *self.mode_choice.borrow(), "pendingCommand": *self.pending_command.borrow(),
             "accountChoice": *self.account_choice.borrow(), "lastCrash": self.last_crash.get(),
             "pendingActivation": pending_json(&self.pending_activation.borrow()),
+            "usageRead": self.usage_read.get() == self.generation.get(),
         }))
     }
 
@@ -158,8 +159,12 @@ impl SessionBackend {
             last_crash: Cell::new(state["lastCrash"].as_f64()),
             pending_activation: RefCell::new(pending_of(&state["pendingActivation"])),
             detached: Cell::new(0),
+            // Claude's usage, read once per agent, is not read again for the same agent.
+            usage_read: Cell::new(if state["usageRead"] == true { ADOPTED_GENERATION } else { 0 }),
+            repository_reads: Cell::new(0),
         });
         backend.config.connectivity.watch(&backend);
+        backend.refresh_periodically();
         // The probe the previous image ran did not come along: what waited on it waits on this one.
         let (lost, resuming) = {
             let session = backend.session.borrow();

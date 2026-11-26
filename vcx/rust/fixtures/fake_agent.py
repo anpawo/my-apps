@@ -17,6 +17,7 @@ whose answer names the review target.
 instructions, dynamic tool names) and the session files in the agent's own environment.
 `skills/list` and `hooks/list` read `skills/<name>/SKILL.md` and `hooks.json` in its Codex home: `CODEX_HOME`, else
 `.codex` in the test worker's `VCX_RUNTIME_HOME`, never his own; with neither, both lists are empty.
+`fixture:edit:<absolute path>` writes that file and reports it as a fileChange item before the turn's tool.
 """
 import json
 import os
@@ -49,6 +50,7 @@ HELD_TOOL = {'id': 'fixture-held-tool', 'type': 'commandExecution', 'command': '
 PENDING = re.compile(r'fixture:pending:(\S+)')
 PENDING_POLL_SECONDS = 0.02
 HEAVY = re.compile(r'fixture:heavy:(\d+)')
+EDIT = re.compile(r'fixture:edit:(\S+)')
 MEBIBYTE = 1024 * 1024
 OPENED = 'fixture:opened'
 SESSION_FILES = ('FLEET_CONTEXT_FILE', 'VCX_PROGRESS_FILE', 'VCX_TASK_FILE')
@@ -81,13 +83,19 @@ def save(threads):
     os.replace(temporary, HISTORY)
 
 
-def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER):
+def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER, edit=None):
     event('turn/started', {'turn': {'id': turn}}, thread)
     items = []
     if prompt is not None:
         event('item/started', {'item': prompt}, thread)
         event('item/completed', {'item': prompt}, thread)
         items.append(prompt)
+    if edit is not None:
+        os.makedirs(os.path.dirname(edit), exist_ok=True)
+        with open(edit, 'w') as file:
+            file.write('fixture\n')
+        change = {'id': 'fixture-edit', 'type': 'fileChange', 'status': 'completed', 'changes': [{'path': edit, 'kind': 'add'}]}
+        event('item/completed', {'item': change}, thread)
     tool = {'id': 'fixture-tool', 'type': 'commandExecution', 'command': 'echo fixture'}
     if HISTORY:
         tool['id'] = 'fixture-tool-' + turn
@@ -281,7 +289,8 @@ def respond(message):
     elif method == 'turn/start' and held(params):
         threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
     elif method == 'turn/start':
-        threading.Thread(target=run_turn, kwargs={'text': answer_text(params)}, daemon=True).start()
+        edit = EDIT.search(prompt_text(params))
+        threading.Thread(target=run_turn, kwargs={'text': answer_text(params), 'edit': edit and edit.group(1)}, daemon=True).start()
     elif method == 'turn/interrupt':
         awaiting.clear()
         event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})

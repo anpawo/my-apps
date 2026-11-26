@@ -27,6 +27,7 @@ use vcx_config::{Account, Settings, SettingsFile};
 
 pub mod carry;
 mod commands;
+mod refresh;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -100,6 +101,10 @@ pub struct SessionBackend {
     pending_activation: RefCell<Option<(Account, Option<String>)>>,
     /// Work `apply` started on its own (a stop, a fallback, a retry) and that has not ended: an exec would lose it.
     detached: Cell<usize>,
+    /// The agent `generation` whose usage was read on connecting: Claude's is read once per agent.
+    usage_read: Cell<u64>,
+    /// Counts the repository reads started: one that ends after a later one began is dropped as stale.
+    repository_reads: Cell<u64>,
 }
 
 fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
@@ -160,8 +165,11 @@ impl SessionBackend {
             last_crash: Cell::new(None),
             pending_activation: RefCell::default(),
             detached: Cell::new(0),
+            usage_read: Cell::new(0),
+            repository_reads: Cell::new(0),
         });
         backend.config.connectivity.watch(&backend);
+        backend.refresh_periodically();
         let (starting, params) = (Rc::clone(&backend), params.clone());
         tokio::task::spawn_local(async move {
             starting.connect(&params).await;
@@ -191,6 +199,7 @@ impl SessionBackend {
     }
 
     async fn connect(self: &Rc<Self>, params: &Object) {
+        Rc::clone(self).refresh_repository().await;
         if let Err(error) = self.open_agent(params).await {
             let mut session = self.session.borrow_mut();
             session.ready = false;
@@ -728,24 +737,12 @@ impl SessionBackend {
     async fn refresh_catalog(self: &Rc<Self>) {
         let Ok(catalog) = self.request("model/list", json!({"limit": CATALOG_LIMIT}), REQUEST_TIMEOUT).await else { return };
         self.session.borrow_mut().apply_catalog(&object(catalog));
-        self.refresh_usage().await;
+        self.refresh_connection_usage().await;
+        Rc::clone(self).refresh_repository().await;
         self.schedule();
         // Not awaited: Claude's catalog can take its whole timeout, and a prompt resent after a switch does not wait on it.
         let backend = Rc::clone(self);
         tokio::task::spawn_local(async move { backend.refresh_capabilities().await });
-    }
-
-    /// The subscription's limits as the agent reads them; a test's agent has none.
-    async fn refresh_usage(&self) {
-        if self.config.fixture.is_some() {
-            return;
-        }
-        if let Ok(limits) = self.request("account/rateLimits/read", json!({}), REQUEST_TIMEOUT).await {
-            let event = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": limits["rateLimits"]}});
-            if let Inbound::Event(event) = vcx_agents::codex::parse(object(event)) {
-                self.session.borrow_mut().event(&event);
-            }
-        }
     }
 
     /// The Swift `refreshCapabilities`: the lists the agent reports, and the instruction files and Claude hooks vcx
@@ -856,6 +853,8 @@ impl SessionBackend {
                         let _ = backend.send(fallback::KEEP_GOING_DROPPED, &[], None, None, false).await;
                     });
                 }
+                Effect::Rest(reset) => self.rest_current(reset),
+                Effect::RefreshRepository => self.detach(Rc::clone(self).refresh_repository()),
             }
         }
         let idle = !self.session.borrow().busy && !self.transferring.get();
@@ -1073,18 +1072,34 @@ impl SessionBackend {
             }
             "moveDirectory" => {
                 let path = text(&params, "path").filter(|path| path.starts_with('/') && Path::new(path).is_dir()).ok_or("Directory does not exist.")?;
-                self.session.borrow_mut().cwd = path.to_owned();
+                let moved = self.session.borrow().cwd != path;
+                if moved {
+                    let mut session = self.session.borrow_mut();
+                    session.cwd = path.to_owned();
+                    session.clear_repository();
+                    drop(session);
+                    self.detach(Rc::clone(&self).refresh_repository());
+                }
                 Object::new()
             }
             "refreshCatalog" => {
                 self.refresh_catalog().await;
                 Object::new()
             }
+            "refreshUsage" => {
+                self.refresh_usage(params.get("force").and_then(Value::as_bool).unwrap_or(true)).await;
+                Object::new()
+            }
+            "refreshRepository" => {
+                Rc::clone(&self).refresh_repository().await;
+                Object::new()
+            }
+            // The Swift `refreshCapabilities` reads the repository first.
             "refreshCapabilities" => {
+                Rc::clone(&self).refresh_repository().await;
                 self.refresh_capabilities().await;
                 Object::new()
             }
-            "refreshUsage" | "refreshRepository" => Object::new(),
             "switchThread" => {
                 let thread = text(&params, "id").map(str::to_owned);
                 let success = match thread {

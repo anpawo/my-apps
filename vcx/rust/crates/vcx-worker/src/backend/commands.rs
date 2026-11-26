@@ -24,7 +24,6 @@ const QWEN_SETTINGS: [&str; 4] = ["url", "proxy", "model", "host"];
 const CHANGING: &str = "A connection change is already in progress.";
 const NOT_REPORTED: &str = "Not reported";
 /// What Swift shows for a folder outside any repository, until the worker reads repositories.
-const NO_REPOSITORY: &str = "No repository";
 const HELP_KEYS: &str = "\nType / to search. ↑/↓ select. Tab completes. Return completes the highlighted command; the next Return runs it. Escape dismisses the popup. Shift+Return adds a line. /vcx:<command> explicitly selects vcx commands.";
 
 const APP_COMMANDS: [(&str, &str); 39] = [
@@ -576,11 +575,16 @@ impl SessionBackend {
                 if session.context.is_empty() { tokens.to_owned() } else { format!("{tokens}\n{}", session.context) }
             }
             "/usage" => {
-                self.refresh_usage().await;
+                self.refresh_usage(true).await;
                 let usage = self.session.borrow().usage.clone();
                 if usage.is_empty() { "The provider has not reported subscription usage yet.".to_owned() } else { usage }
             }
-            "/repo" => format!("{NO_REPOSITORY} · not a repo"),
+            "/repo" => {
+                Rc::clone(self).refresh_repository().await;
+                let session = self.session.borrow();
+                let label = if session.branch.is_empty() { "not a repo".to_owned() } else if session.repository_status.is_empty() { format!("@{}", session.branch) } else { format!("@{} - {}", session.branch, session.repository_status) };
+                std::iter::once(format!("{} · {label}", session.repository)).chain(session.repository_changes.iter().cloned()).collect::<Vec<_>>().join("\n")
+            }
             "/status" => self.status_text(),
             _ => help(&self.session.borrow().provider),
         };
@@ -594,7 +598,7 @@ impl SessionBackend {
         let tokens = if session.tokens.is_empty() { NOT_REPORTED } else { &session.tokens };
         let usage = if session.usage.is_empty() { NOT_REPORTED } else { &session.usage };
         let account = session.account["name"].as_str().unwrap_or_default();
-        format!("Directory: {}\nProvider: {} · {account}\nMode: {mode}\nModel: {}\nTokens: {tokens}\nUsage: {usage}\nRepository: {NO_REPOSITORY} · ", session.cwd, session.provider_label, session.model)
+        format!("Directory: {}\nProvider: {} · {account}\nMode: {mode}\nModel: {}\nTokens: {tokens}\nUsage: {usage}\nRepository: {} · {}", session.cwd, session.provider_label, session.model, session.repository, session.branch)
     }
 
     /// `/compact` and `/review` (uncommitted changes, or the instructions given): Codex's own requests, Claude's own

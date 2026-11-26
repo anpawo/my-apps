@@ -7,6 +7,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use crate::capabilities::{self, Capabilities};
 use crate::{fleet, question, recall};
+use crate::{repository, usage};
 use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::qwen_text::strip_recall;
 use vcx_agents::{Event, Kind, Stream, TurnStatus};
@@ -65,6 +66,10 @@ pub enum Effect {
     Offline(&'static str),
     /// A step stopped because it waited on a request sent while the network was down: the agent is told to go on.
     KeepGoing,
+    /// A Codex window is used up: the account rests until then (seconds since 1970), as the Swift `updateUsage` marks it.
+    Rest(f64),
+    /// A turn edited a file in another folder: the footer names it.
+    RefreshRepository,
 }
 
 /// A prompt on its way: the row is already shown, the request not yet answered.
@@ -144,6 +149,21 @@ pub struct Session {
     pub retry_stopped: bool,
     /// The command palette's and the sidebar's lists.
     pub capabilities: Capabilities,
+    /// The last rate limits reported, drawn again as their reset countdown moves.
+    pub last_rate: Object,
+    /// When the usage endpoint was last read, in seconds since 1970.
+    pub last_usage_refresh: f64,
+    pub repository: String,
+    pub branch: String,
+    pub repository_status: String,
+    pub repository_changes: Vec<String>,
+    pub repository_directory: Option<String>,
+    pub pull_request: String,
+    pub pull_request_url: String,
+    /// The folder of the last file a turn edited, which the footer adds to the project's name.
+    pub edited_folder: Option<String>,
+    /// The files the running turn edited.
+    turn_edits: Vec<String>,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -220,6 +240,7 @@ impl Session {
             status: "Connecting…".into(),
             tokens: "Not reported".into(),
             usage_loading: true,
+            repository: "Checking…".into(),
             record_id: new_id(),
             active_mode: "bypass".into(),
             ..Self::default()
@@ -240,8 +261,8 @@ impl Session {
             "cwd": self.cwd, "conversationDirectory": self.conversation_directory, "stateDirectory": self.state_directory,
             "model": self.model, "status": self.status, "ready": self.ready, "busy": self.busy, "needsAttention": self.needs_attention,
             "backgroundTasks": self.background_tasks, "changing": self.changing, "activeActions": self.active_actions, "context": self.context,
-            "usage": self.usage, "usageLoading": self.usage_loading, "tokens": self.tokens, "repository": "", "branch": "",
-            "repositoryStatus": "", "repositoryChanges": [], "pullRequest": "", "pullRequestURL": "", "hooks": self.capabilities.hooks,
+            "usage": self.usage, "usageLoading": self.usage_loading, "tokens": self.tokens, "repository": self.repository, "branch": self.branch,
+            "repositoryStatus": self.repository_status, "repositoryChanges": self.repository_changes, "pullRequest": self.pull_request, "pullRequestURL": self.pull_request_url, "hooks": self.capabilities.hooks,
             "skills": self.capabilities.skills, "builtinCommands": self.capabilities.builtin_commands, "mcp": self.capabilities.mcp,
             "instructions": self.capabilities.instructions, "activeMode": self.active_mode, "providerLabel": self.provider_label, "models": self.models,
             "modelEfforts": self.model_efforts, "modelDefaultEfforts": self.model_default_efforts, "modelAliases": self.model_aliases, "planning": self.planning,
@@ -250,7 +271,7 @@ impl Session {
             "providerCommands": self.capabilities.provider_commands, "account": self.account, "nativeSources": [], "archiveClientVersions": {},
             "nativeHistoryPath": self.native_history_path, "archiveService": self.archive_service, "threadID": self.thread_id, "turnID": self.turn_id,
             "effort": self.effort, "defaultEffort": self.default_effort, "usagePercent": self.usage_percent, "contextUsed": self.context_used,
-            "contextLimit": self.context_limit, "repositoryDirectory": null, "conversationName": self.conversation_name,
+            "contextLimit": self.context_limit, "repositoryDirectory": self.repository_directory, "conversationName": self.conversation_name,
         });
         let Value::Object(object) = value else { unreachable!("a JSON object literal") };
         object
@@ -701,6 +722,7 @@ impl Session {
                 if !started {
                     let id = text(item, "id").unwrap_or_default().to_owned();
                     self.deltas.retain(|(item, _)| *item != id);
+                    self.note_edits(item);
                 }
             }
             Kind::Delta { item_id, delta, stream } => {
@@ -725,6 +747,7 @@ impl Session {
                 self.retry_attempt = None;
                 self.resume_when_back = false;
                 self.turn_completed(status, error.as_deref(), restarting);
+                effects.extend(self.edited_elsewhere());
                 if restarting {
                     effects.push(Effect::KeepGoing);
                 }
@@ -761,7 +784,7 @@ impl Session {
                 }
             }
             Kind::RequestResolved { request_id } => self.permissions.retain(|permission| permission.rpc_id.to_string() != request_id.to_string()),
-            Kind::RateLimits { limits } => self.rate_limits(limits),
+            Kind::RateLimits { limits } => effects.extend(self.rate_limits(limits)),
             Kind::Other if method == "vcx/error" => {
                 self.clear_retry_notice();
                 self.notice(error_message(params));
@@ -821,26 +844,74 @@ impl Session {
         .into();
     }
 
-    fn rate_limits(&mut self, limits: &Object) {
+    /// The Swift `updateUsage`; a Codex window used up rests its account.
+    pub fn rate_limits(&mut self, limits: &Object) -> Option<Effect> {
+        let now = crate::fallback::now();
+        self.last_rate = limits.clone();
+        self.redraw_usage(now);
+        usage::exhausted_reset(limits, now).filter(|_| self.provider == "codex").map(Effect::Rest)
+    }
+
+    /// The Swift `refreshUsage` gate: whether the usage endpoint is read now. Claude's answers HTTP 429 when polled, so
+    /// an unasked refresh only redraws its countdown; the others' is read at most once a minute unless asked.
+    pub fn begin_usage_refresh(&mut self, force: bool, now: f64) -> bool {
+        if self.provider == "claude" && !force {
+            if !self.last_rate.is_empty() {
+                self.redraw_usage(now);
+            }
+            return false;
+        }
+        if !self.ready || self.changing || !(force || now - self.last_usage_refresh >= usage::REFRESH_INTERVAL) {
+            return false;
+        }
+        self.last_usage_refresh = now;
+        self.usage_loading = true;
+        true
+    }
+
+    /// The usage line again from the last report, its countdown moved to `now`.
+    pub fn redraw_usage(&mut self, now: f64) {
         self.usage_loading = false;
-        let windows: Vec<&Object> = ["primary", "secondary"].iter().filter_map(|key| limits.get(*key).and_then(Value::as_object)).collect();
-        self.usage_percent = windows.iter().filter_map(|window| window.get("usedPercent").and_then(Value::as_f64)).reduce(f64::max);
-        self.usage = windows
-            .iter()
-            .filter_map(|window| {
-                let used = window.get("usedPercent").and_then(Value::as_f64)?;
-                let minutes = window.get("windowDurationMins").and_then(Value::as_i64).unwrap_or_default();
-                let label = match minutes {
-                    10_080 => "wk".to_owned(),
-                    300 => "usage".to_owned(),
-                    m if m >= 1440 && m % 1440 == 0 => format!("{}d", m / 1440),
-                    m if m >= 60 && m % 60 == 0 => format!("{}h", m / 60),
-                    m => format!("{m}m"),
-                };
-                Some(format!("{}% {label}", used.round() as i64))
-            })
-            .collect::<Vec<_>>()
-            .join(" - ");
+        self.usage_percent = usage::percent(&self.last_rate);
+        self.usage = usage::line(&self.last_rate, now);
+    }
+
+    fn note_edits(&mut self, item: &Object) {
+        match text(item, "type") {
+            Some("commandExecution") => self.turn_edits.extend(text(item, "command").and_then(repository::edited_path)),
+            Some("fileChange") => {
+                let changes = item.get("changes").and_then(Value::as_array).into_iter().flatten();
+                self.turn_edits.extend(changes.filter_map(|change| change.get("path").and_then(Value::as_str)).map(str::to_owned));
+            }
+            _ => {}
+        }
+    }
+
+    /// The footer is read again when the turn's last edit is in another folder than the one before.
+    fn edited_elsewhere(&mut self) -> Option<Effect> {
+        let path = std::mem::take(&mut self.turn_edits).pop()?;
+        let folder = std::path::Path::new(&path).parent().map_or_else(String::new, |folder| folder.to_string_lossy().into_owned());
+        (self.edited_folder.as_ref() != Some(&folder)).then(|| {
+            self.edited_folder = Some(folder);
+            Effect::RefreshRepository
+        })
+    }
+
+    pub fn apply_repository(&mut self, footer: &repository::Footer) {
+        self.repository_directory = footer.directory.clone();
+        self.repository = footer.repository.clone();
+        self.branch = footer.branch.clone();
+        self.repository_status = footer.status.clone();
+        self.repository_changes = footer.changes.clone();
+    }
+
+    /// A moved session shows no repository until its new folder is read.
+    pub fn clear_repository(&mut self) {
+        self.repository_directory = None;
+        self.branch.clear();
+        self.repository_status.clear();
+        self.repository_changes.clear();
+        self.pull_request.clear();
     }
 
     /// An adapter's agent stopped: on purpose (`ended`), or crashed, with why and its log's last error line, to restart.
@@ -1446,5 +1517,54 @@ mod tests {
 
         assert_eq!(texts(&session), ["Codex reported an error.", "Codex reported an error."]);
         assert_eq!(session.status, "Ended");
+    }
+
+    #[test]
+    fn a_used_up_codex_window_rests_the_account_and_a_claude_one_does_not() {
+        let reset = 4_000_000_000.0;
+        let limits = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {"primary": {"usedPercent": 100.0, "windowDurationMins": 300, "resetsAt": reset}}}});
+        let mut session = opened();
+
+        let rested = session.event(&event(limits.clone()));
+        session.provider = "claude".into();
+        let kept = session.event(&event(limits));
+
+        assert_eq!(rested, [Effect::Rest(reset)]);
+        assert!(kept.is_empty());
+        assert!(session.usage.starts_with("100% usage - reset "), "{}", session.usage);
+        assert!(!session.usage_loading);
+    }
+
+    #[test]
+    fn a_periodic_refresh_reads_codex_usage_once_a_minute_and_never_polls_claude() {
+        let now = 1_000_000.0;
+        let mut codex = opened();
+        let mut claude = opened();
+        claude.provider = "claude".into();
+        claude.last_rate = json!({"primary": {"usedPercent": 5.0, "windowDurationMins": 300, "resetsAt": now + 120.0}}).as_object().unwrap().clone();
+
+        let codex_reads = [codex.begin_usage_refresh(false, now), codex.begin_usage_refresh(false, now + 59.0), codex.begin_usage_refresh(false, now + 60.0), codex.begin_usage_refresh(true, now + 61.0)];
+        let claude_reads = [claude.begin_usage_refresh(false, now), claude.begin_usage_refresh(false, now + 600.0), claude.begin_usage_refresh(true, now + 601.0)];
+
+        assert_eq!(codex_reads, [true, false, true, true]);
+        assert_eq!(claude_reads, [false, false, true]);
+        assert_eq!(claude.usage, "5% usage - reset now");
+    }
+
+    #[test]
+    fn a_turn_whose_last_edit_is_in_another_folder_reads_the_repository_again() {
+        let completed = json!({"method": "turn/completed", "params": {"threadId": "T", "turn": {"id": "U", "status": "completed"}}});
+        let edit = |path: &str| json!({"method": "item/completed", "params": {"threadId": "T", "item": {"id": path, "type": "commandExecution", "command": format!("Edit\n{}", json!({"file_path": path}))}}});
+        let mut session = opened();
+
+        session.event(&event(edit("/work/a/one.txt")));
+        let moved = session.event(&event(completed.clone()));
+        session.event(&event(edit("/work/a/two.txt")));
+        let same = session.event(&event(completed.clone()));
+        let unedited = session.event(&event(completed));
+
+        assert_eq!(moved, [Effect::RefreshRepository]);
+        assert!(same.is_empty() && unedited.is_empty());
+        assert_eq!(session.edited_folder.as_deref(), Some("/work/a"));
     }
 }

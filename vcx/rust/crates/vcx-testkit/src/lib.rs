@@ -222,9 +222,10 @@ fn isolate(command: &mut Command, directory: &Path) {
         .env("VCX_STATE_HOME", directory.join("state"));
 }
 
+/// Until the socket answers: its file appears at `bind`, a moment before the worker listens on it.
 fn wait_for_socket(socket: &Path, failure: &str) {
     let deadline = Instant::now() + SOCKET_WAIT;
-    while !socket.exists() {
+    while serves(socket).is_none() {
         assert!(Instant::now() < deadline, "{failure}");
         std::thread::sleep(POLL);
     }

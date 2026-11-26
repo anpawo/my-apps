@@ -17,9 +17,11 @@ pub mod instructions;
 pub mod provider;
 pub mod question;
 pub mod recall;
+pub mod repository;
 pub mod server;
 pub mod session;
 pub mod swap;
+pub mod usage;
 
 use backend::{Config, SessionBackend};
 use checkpoint::Store;
