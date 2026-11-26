@@ -4,23 +4,30 @@
 
 use crate::Object;
 use crate::rpc::MAX_LINE_BYTES;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::rc::Rc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::unix::pipe;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 const STOP_GRACE: Duration = Duration::from_secs(2);
 /// An agent log is cut back to its end past this size, as `agentLog` keeps it.
 const LOG_LIMIT: u64 = 1024 * 1024;
 const LOG_TAIL: u64 = 4096;
 const ERROR_LINE_CHARS: usize = 300;
+const READ_CHUNK: usize = 64 * 1024;
 
 /// How a process is started: the whole environment is given (none is inherited) when `environment` is set.
 pub struct Launch<'a> {
@@ -41,11 +48,84 @@ pub enum Line {
     Exited { crash: Object, log_tail: String },
 }
 
+/// The agent's process: started by this image, or inherited from the image that exec'ed this one.
+pub(crate) enum Process {
+    Spawned(Child),
+    Adopted { pid: i32, reaping: Option<JoinHandle<Option<ExitStatus>>> },
+}
+
+impl Process {
+    /// How it ended. Asked again after a timeout, it goes on waiting.
+    pub(crate) async fn wait(&mut self) -> Option<ExitStatus> {
+        match self {
+            Self::Spawned(child) => child.wait().await.ok(),
+            Self::Adopted { pid, reaping } => {
+                let pid = *pid;
+                reaping.get_or_insert_with(|| tokio::task::spawn_blocking(move || reap(pid))).await.ok().flatten()
+            }
+        }
+    }
+}
+
+/// Tokio cannot watch a child it did not start: a thread waits for it.
+fn reap(pid: i32) -> Option<ExitStatus> {
+    let mut status = 0;
+    loop {
+        // SAFETY: `waitpid` writes one int; the pid is a child this process kept through its exec.
+        let reaped = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if reaped == pid {
+            return Some(ExitStatus::from_raw(status));
+        }
+        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return None;
+        }
+    }
+}
+
+/// An agent a previous image of this process froze: its pid, its two pipes and the bytes of its unfinished line.
+pub(crate) struct Kept {
+    pub pid: i32,
+    pub pipes: (RawFd, RawFd),
+    pub leftover: Vec<u8>,
+    pub stdin: pipe::Sender,
+    pub stdout: pipe::Receiver,
+}
+
+/// The two pipes a frozen state names.
+pub(crate) fn descriptors(state: &Value) -> Vec<RawFd> {
+    ["input", "output"].iter().filter_map(|key| state[*key].as_i64().and_then(|value| RawFd::try_from(value).ok())).collect()
+}
+
+/// Takes over the agent a frozen state names. Its descriptors are taken over whether or not this succeeds: on an
+/// error they are closed, and the agent ends on its closed pipes.
+pub(crate) fn keep(state: &Value) -> io::Result<Kept> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "Invalid adopted agent.");
+    let number = |key: &str| state[key].as_i64().and_then(|value| i32::try_from(value).ok()).filter(|value| *value > libc::STDERR_FILENO);
+    let (input, output) = (number("input").ok_or_else(invalid)?, number("output").ok_or_else(invalid)?);
+    // SAFETY: the previous image left these two descriptors open for this one alone, and nothing else here owns them.
+    let (stdin, stdout) = unsafe { (OwnedFd::from_raw_fd(input), OwnedFd::from_raw_fd(output)) };
+    for descriptor in [input, output] {
+        // SAFETY: both descriptors are open; a later exec must not hand them to a child by accident.
+        unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    let pid = number("pid").ok_or_else(invalid)?;
+    let leftover = state["leftover"].as_str().and_then(|text| BASE64.decode(text).ok()).ok_or_else(invalid)?;
+    Ok(Kept { pid, pipes: (input, output), leftover, stdin: pipe::Sender::from_owned_fd(stdin)?, stdout: pipe::Receiver::from_owned_fd(stdout)? })
+}
+
 struct Inner {
     writer: RefCell<Option<mpsc::UnboundedSender<Vec<u8>>>>,
     group: Option<i32>,
     closed: Cell<bool>,
     exited: Cell<bool>,
+    /// The agent's stdin and stdout as this process holds them.
+    pipes: (RawFd, RawFd),
+    /// Bytes read from the agent that are no whole line yet. Here and not in the reader task, so a freeze sees them.
+    unparsed: RefCell<Vec<u8>>,
+    /// Lines handed to the writer that are not in the agent's pipe yet.
+    unwritten: Rc<Cell<usize>>,
+    /// The agent's stderr and where this run starts in it.
+    log: Option<(PathBuf, u64)>,
 }
 
 #[derive(Clone)]
@@ -73,20 +153,58 @@ impl Lines {
         let mut child = command.spawn()?;
         let (stdin, stdout) = (child.stdin.take().expect("piped stdin"), child.stdout.take().expect("piped stdout"));
         let pid = child.id().and_then(|pid| i32::try_from(pid).ok());
-        let (writer, queue) = mpsc::unbounded_channel();
-        let inner = Rc::new(Inner { writer: RefCell::new(Some(writer)), group: pid, closed: Cell::new(false), exited: Cell::new(false) });
-        let (lines, incoming) = mpsc::unbounded_channel();
+        let pipes = (stdin.as_raw_fd(), stdout.as_raw_fd());
         let log = log.map(|(_, start)| (launch.log.unwrap().to_path_buf(), start));
-        tokio::task::spawn_local(write(stdin, queue));
-        tokio::task::spawn_local(read(Rc::clone(&inner), stdout, child, lines, log));
-        Ok((Self { inner, pid }, incoming))
+        Ok(Self::start(pid, pipes, Vec::new(), log, stdin, stdout, Process::Spawned(child)))
+    }
+
+    fn start(pid: Option<i32>, pipes: (RawFd, RawFd), unparsed: Vec<u8>, log: Option<(PathBuf, u64)>, stdin: impl AsyncWrite + Unpin + 'static, stdout: impl AsyncRead + Unpin + 'static, process: Process) -> (Self, mpsc::UnboundedReceiver<Line>) {
+        let (writer, queue) = mpsc::unbounded_channel();
+        let inner = Rc::new(Inner {
+            writer: RefCell::new(Some(writer)),
+            group: pid,
+            closed: Cell::new(false),
+            exited: Cell::new(false),
+            pipes,
+            unparsed: RefCell::new(unparsed),
+            unwritten: Rc::default(),
+            log,
+        });
+        let (lines, incoming) = mpsc::unbounded_channel();
+        tokio::task::spawn_local(write(Rc::clone(&inner.unwritten), stdin, queue));
+        tokio::task::spawn_local(read(Rc::clone(&inner), stdout, process, lines));
+        (Self { inner, pid }, incoming)
+    }
+
+    /// What another image of this process needs to go on with the agent, or `None` once it stopped or while a line
+    /// waits for its place in the pipe. Nothing changes here, so the caller either execs before anything else runs,
+    /// or goes on as if it had not asked.
+    pub fn freeze(&self) -> Option<Value> {
+        let inner = &self.inner;
+        let (pid, (input, output)) = (inner.group?, inner.pipes);
+        if inner.closed.get() || inner.unwritten.get() > 0 {
+            return None;
+        }
+        let (log, log_start) = inner.log.as_ref().map(|(path, start)| (path.to_string_lossy().into_owned(), *start)).unzip();
+        Some(json!({"pid": pid, "input": input, "output": output, "leftover": BASE64.encode(&*inner.unparsed.borrow()), "log": log, "logStart": log_start}))
+    }
+
+    /// Goes on with an agent a previous image of this process froze, as `keep` takes it over.
+    pub fn adopt(state: &Value) -> io::Result<(Self, mpsc::UnboundedReceiver<Line>)> {
+        let kept = keep(state)?;
+        let log = state["log"].as_str().map(|path| (PathBuf::from(path), state["logStart"].as_u64().unwrap_or(0)));
+        Ok(Self::start(Some(kept.pid), kept.pipes, kept.leftover, log, kept.stdin, kept.stdout, Process::Adopted { pid: kept.pid, reaping: None }))
     }
 
     pub fn send(&self, message: &Object) -> Result<(), String> {
         let mut line = serde_json::to_vec(message).map_err(|error| error.to_string())?;
         line.push(b'\n');
         let writer = self.inner.writer.borrow();
-        if writer.as_ref().is_some_and(|writer| writer.send(line).is_ok()) { Ok(()) } else { Err("The agent is not running.".into()) }
+        if !writer.as_ref().is_some_and(|writer| writer.send(line).is_ok()) {
+            return Err("The agent is not running.".into());
+        }
+        self.inner.unwritten.set(self.inner.unwritten.get() + 1);
+        Ok(())
     }
 
     pub fn is_running(&self) -> bool {
@@ -171,51 +289,76 @@ pub fn crash(code: Option<i32>, signal: Option<i32>, tail: &str, log: Option<&Pa
     crash
 }
 
-async fn write(mut stdin: ChildStdin, mut queue: mpsc::UnboundedReceiver<Vec<u8>>) {
+async fn write(unwritten: Rc<Cell<usize>>, mut stdin: impl AsyncWrite + Unpin, mut queue: mpsc::UnboundedReceiver<Vec<u8>>) {
     while let Some(line) = queue.recv().await {
         if stdin.write_all(&line).await.is_err() || stdin.flush().await.is_err() {
             return;
         }
+        unwritten.set(unwritten.get() - 1);
     }
 }
 
-async fn read(inner: Rc<Inner>, stdout: ChildStdout, mut child: Child, lines: mpsc::UnboundedSender<Line>, log: Option<(PathBuf, u64)>) {
-    let mut reader = BufReader::new(stdout);
-    let mut line = Vec::new();
+fn deliver(lines: &mpsc::UnboundedSender<Line>, text: &[u8]) {
+    if text.iter().all(u8::is_ascii_whitespace) {
+        return;
+    }
+    let _ = lines.send(match serde_json::from_slice::<Value>(text) {
+        Ok(Value::Object(message)) => Line::Message(message),
+        _ => Line::Invalid(String::from_utf8_lossy(text).into_owned()),
+    });
+}
+
+/// Hands on every whole line received and keeps the unfinished one.
+fn deliver_lines(inner: &Inner, lines: &mpsc::UnboundedSender<Line>) {
+    let mut received = std::mem::take(&mut *inner.unparsed.borrow_mut());
+    let mut start = 0;
+    while let Some(length) = received[start..].iter().position(|byte| *byte == b'\n') {
+        deliver(lines, &received[start..start + length]);
+        start += length + 1;
+    }
+    received.drain(..start);
+    *inner.unparsed.borrow_mut() = received;
+}
+
+async fn read(inner: Rc<Inner>, mut stdout: impl AsyncRead + Unpin, mut process: Process, lines: mpsc::UnboundedSender<Line>) {
+    let mut chunk = vec![0; READ_CHUNK];
+    // An adopted agent may come with whole lines its previous reader had not parsed.
+    let mut ended_a_line = true;
     loop {
-        line.clear();
-        match (&mut reader).take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) if line.last() != Some(&b'\n') && line.len() > MAX_LINE_BYTES => {
-                let _ = lines.send(Line::Failed("The agent sent a line over the size limit.".into()));
+        if ended_a_line {
+            deliver_lines(&inner, &lines);
+        }
+        if inner.unparsed.borrow().len() > MAX_LINE_BYTES {
+            let _ = lines.send(Line::Failed("The agent sent a line over the size limit.".into()));
+            break;
+        }
+        match stdout.read(&mut chunk).await {
+            Ok(0) => {
+                let last = std::mem::take(&mut *inner.unparsed.borrow_mut());
+                deliver(&lines, &last);
                 break;
             }
-            Ok(_) => {}
+            Ok(count) => {
+                ended_a_line = chunk[..count].contains(&b'\n');
+                inner.unparsed.borrow_mut().extend_from_slice(&chunk[..count]);
+            }
+            Err(_) => break,
         }
-        let text = line.strip_suffix(b"\n").unwrap_or(&line);
-        if text.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
-        let _ = lines.send(match serde_json::from_slice::<Value>(text) {
-            Ok(Value::Object(message)) => Line::Message(message),
-            _ => Line::Invalid(String::from_utf8_lossy(text).into_owned()),
-        });
     }
     inner.closed.set(true);
     inner.writer.borrow_mut().take();
-    let status = match tokio::time::timeout(STOP_GRACE, child.wait()).await {
-        Ok(status) => status.ok(),
+    let status = match tokio::time::timeout(STOP_GRACE, process.wait()).await {
+        Ok(status) => status,
         Err(_) => {
             if let Some(group) = inner.group {
                 unsafe { libc::kill(-group, libc::SIGKILL) };
             }
-            child.wait().await.ok()
+            process.wait().await
         }
     };
     inner.exited.set(true);
-    use std::os::unix::process::ExitStatusExt;
     let (code, signal) = status.map_or((None, None), |status| (status.code(), status.signal()));
-    let tail = log.as_ref().map(|(path, start)| log_tail(path, *start)).unwrap_or_default();
-    let crash = crash(code, signal, &tail, log.as_ref().map(|(path, _)| path.as_path()));
+    let tail = inner.log.as_ref().map(|(path, start)| log_tail(path, *start)).unwrap_or_default();
+    let crash = crash(code, signal, &tail, inner.log.as_ref().map(|(path, _)| path.as_path()));
     let _ = lines.send(Line::Exited { crash, log_tail: tail });
 }

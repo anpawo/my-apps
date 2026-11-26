@@ -54,13 +54,19 @@ impl Connection {
         }
     }
 
-    /// What a newer image of the worker needs to keep the agent, or `None` when it cannot be carried over now. Only
-    /// the Codex connection is carried: the adapters hold a turn's state the next image could not rebuild.
+    /// What a newer image of the worker needs to keep the agent, or `None` when it cannot be carried over now. Codex
+    /// is carried at any time and Claude between two turns, as the Swift worker carries them; agy and Qwen never.
     pub fn freeze(&self) -> Option<Value> {
         match self {
             Self::Codex(agent) => agent.freeze().map(|agent| json!({"kind": "codex", "agent": agent})),
+            Self::Claude(claude) => claude.freeze(),
             _ => None,
         }
+    }
+
+    /// Whether `adopt` knows the provider of a frozen connection.
+    pub fn adoptable(state: &Value) -> bool {
+        matches!(state["kind"].as_str(), Some("codex" | "claude"))
     }
 
     /// The descriptors a frozen connection names: its worker keeps them open across the exec.
@@ -68,11 +74,14 @@ impl Connection {
         Agent::descriptors(&state["agent"])
     }
 
-    pub fn adopt(state: &Value) -> std::io::Result<(Self, tokio::sync::mpsc::UnboundedReceiver<crate::rpc::Incoming>)> {
-        if state["kind"] != "codex" {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "This agent connection cannot be adopted."));
+    /// `environment` is what this image gives the agents it starts: Claude's next process gets it, the frozen state
+    /// carries none.
+    pub fn adopt(state: &Value, environment: Option<Vec<(String, String)>>) -> std::io::Result<(Self, tokio::sync::mpsc::UnboundedReceiver<crate::rpc::Incoming>)> {
+        match state["kind"].as_str() {
+            Some("codex") => Agent::adopt(&state["agent"]).map(|(agent, incoming)| (Self::Codex(agent), incoming)),
+            Some("claude") => ClaudeConnection::adopt(state, environment).map(|(claude, incoming)| (Self::Claude(claude), incoming)),
+            _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "This agent connection cannot be adopted.")),
         }
-        Agent::adopt(&state["agent"]).map(|(agent, incoming)| (Self::Codex(agent), incoming))
     }
 
     pub fn is_closed(&self) -> bool {

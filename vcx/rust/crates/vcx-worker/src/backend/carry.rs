@@ -2,6 +2,7 @@
 //! the runtime the next image rebuilds from that. The agent stays the same process, on the same pipes.
 
 use super::{Config, SessionBackend};
+use crate::provider;
 use crate::session::Session;
 use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
@@ -32,11 +33,28 @@ fn pending_json(pending: &Option<(Account, Option<String>)>) -> Value {
     })
 }
 
-fn pending_of(state: &Value) -> Option<(Account, Option<String>)> {
-    let account = &state["account"];
+fn account_of(account: &Value) -> Option<Account> {
     let text = |key: &str| account[key].as_str().map(str::to_owned);
-    let account = Account { id: text("id")?, name: text("name").unwrap_or_default(), provider: text("provider")?, home: text("home"), enabled: account["enabled"].as_bool().unwrap_or(true) };
-    Some((account, state["resume"].as_str().map(str::to_owned)))
+    Some(Account { id: text("id")?, name: text("name").unwrap_or_default(), provider: text("provider")?, home: text("home"), enabled: account["enabled"].as_bool().unwrap_or(true) })
+}
+
+fn pending_of(state: &Value) -> Option<(Account, Option<String>)> {
+    Some((account_of(&state["account"])?, state["resume"].as_str().map(str::to_owned)))
+}
+
+/// What the session's account gives the agents it starts, as `provider::connect` builds it. An adopted Claude gets
+/// it for its next process: without one, that process would inherit the worker's own, metered keys included.
+fn environment_of(session: &Session) -> Result<Vec<(String, String)>, String> {
+    let account = account_of(&session.account).ok_or("The adopted session names no account.")?;
+    Ok(provider::environment(&account, &vcx_config::homes::home_directory(), &session.fleet_context_file))
+}
+
+/// Closes the pipes of an agent that is not adopted after all: it ends on them.
+fn release(state: &Value) {
+    for descriptor in descriptors(state) {
+        // SAFETY: the previous image left these descriptors open for this one alone, and nothing here took them.
+        unsafe { libc::close(descriptor) };
+    }
 }
 
 fn session_of(state: &Value) -> Result<Session, String> {
@@ -46,11 +64,14 @@ fn session_of(state: &Value) -> Result<Session, String> {
 /// Whether this image could adopt `state`, told without the descriptors it names: the check a leaving image asks
 /// of the next one before it execs.
 pub fn check(state: &Value) -> Result<(), String> {
-    session_of(state)?;
-    if state["agent"].is_null() || state["agent"]["kind"] == "codex" {
+    let session = session_of(state)?;
+    if state["agent"].is_null() {
         return Ok(());
     }
-    Err("This agent connection cannot be adopted.".into())
+    if !Connection::adoptable(&state["agent"]) {
+        return Err("This agent connection cannot be adopted.".into());
+    }
+    environment_of(&session).map(drop)
 }
 
 /// The descriptors a frozen session's agent goes on with.
@@ -70,8 +91,8 @@ impl SessionBackend {
     }
 
     /// `None` while the session starts, changes its connection or has work of its own under way, while the agent's
-    /// messages wait to be applied, or while the agent cannot be frozen (a request in flight, a provider other than
-    /// Codex).
+    /// messages wait to be applied, or while the agent cannot be frozen (a request in flight, a Claude turn under
+    /// way, agy or Qwen).
     pub(super) fn frozen(&self) -> Option<Value> {
         let waiting = self.incoming.borrow().as_ref().is_some_and(|incoming| !incoming.borrow().is_empty());
         let moving = self.transferring.get() || self.detached.get() > 0 || self.session.borrow().changing;
@@ -79,6 +100,8 @@ impl SessionBackend {
             return None;
         }
         let agent = match self.agent.borrow().as_ref() {
+            // Only Codex's lines need no memory of the turn they belong to.
+            Some(agent) if !agent.is_closed() && !matches!(agent, Connection::Codex(_)) && self.session.borrow().busy => return None,
             Some(agent) if !agent.is_closed() => agent.freeze()?,
             // An agent that left is not carried: the session goes on as it is here, disconnected.
             _ => Value::Null,
@@ -95,19 +118,18 @@ impl SessionBackend {
     /// The runtime of a session a previous image froze. The agent's descriptors are taken over whether or not this
     /// succeeds: on an error the agent is stopped.
     pub fn adopt(id: &str, state: &Value, config: Rc<Config>) -> Result<Rc<Self>, String> {
-        let connection = match &state["agent"] {
-            Value::Null => None,
-            frozen => Some(Connection::adopt(frozen).map_err(|error| error.to_string())?),
-        };
-        let mut session = session_of(state).inspect_err(|_| {
-            if let Some((agent, _)) = &connection {
-                agent.close();
-            }
-        })?;
+        let mut session = session_of(state).inspect_err(|_| release(state))?;
         // An image from before the session files froze none: its next agent gets one.
         if session.fleet_context_file.is_empty() {
             session.fleet_context_file = crate::fleet::create();
         }
+        let connection = match &state["agent"] {
+            Value::Null => None,
+            frozen => {
+                let environment = environment_of(&session).inspect_err(|_| release(state))?;
+                Some(Connection::adopt(frozen, Some(environment)).map_err(|error| error.to_string())?)
+            }
+        };
         let text = |key: &str| state[key].as_str().map(str::to_owned);
         let (agent, incoming) = connection.map(|(agent, incoming)| (agent, Rc::new(RefCell::new(incoming)))).unzip();
         let backend = Rc::new(Self {
@@ -189,11 +211,23 @@ mod tests {
     }
 
     #[test]
-    fn a_frozen_agent_of_another_provider_is_refused_before_the_exec() {
+    fn a_frozen_agent_of_a_provider_that_is_not_carried_is_refused_before_the_exec() {
         let session = serde_json::to_value(Session::new("/work", "/state")).unwrap();
+
+        let carried = ["codex", "claude"].map(|kind| check(&json!({"session": session, "agent": {"kind": kind}})));
+        let refused = check(&json!({"session": session, "agent": {"kind": "agy"}}));
+
+        assert_eq!(carried, [Ok(()), Ok(())]);
+        assert!(refused.is_err());
+    }
+
+    #[test]
+    fn a_frozen_agent_whose_session_names_no_account_is_refused_before_the_exec() {
+        let mut session = serde_json::to_value(Session::new("/work", "/state")).unwrap();
+        session["account"] = json!({});
 
         let checked = check(&json!({"session": session, "agent": {"kind": "claude"}}));
 
-        assert!(checked.is_err());
+        assert_eq!(checked, Err("The adopted session names no account.".to_owned()));
     }
 }

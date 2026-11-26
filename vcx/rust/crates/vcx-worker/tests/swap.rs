@@ -1,12 +1,12 @@
 //! A live update under a streaming agent (`src/swap.rs`): SIGUSR1 makes the worker continue in a new image of
 //! itself. The agent must be the same process and nothing it wrote may be lost or doubled; the frontend is told,
-//! loses its connection, and finds the session again with its sequence.
+//! loses its connection, and finds the session again with its sequence. Claude is kept between two turns.
 
 use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Instant;
 use vcx_conformance::Target;
-use vcx_conformance::peer::{Held, Peer, WAIT, prompt, request_for};
+use vcx_conformance::peer::{Held, Peer, WAIT, answered, prompt, request_for};
 use vcx_model::SessionState;
 use vcx_proto::{AttachRequest, Event, Hello};
 use vcx_testkit::RustWorker;
@@ -25,6 +25,17 @@ fn worker(name: &str) -> RustWorker {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/swap_agent.py");
     let command = ["/usr/bin/python3".to_owned(), "-I".to_owned(), agent.to_string_lossy().into_owned()];
     RustWorker::start_provider(Path::new(env!("CARGO_BIN_EXE_vcx-worker")), name, "codex", &command, &json!({}))
+}
+
+/// A Claude that plays its recorded turn once: the catalog request, then one prompt.
+fn claude_worker(name: &str) -> RustWorker {
+    let streams = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/streams");
+    let command = ["/usr/bin/python3".into(), "-I".into(), streams.join("replay.py").to_string_lossy().into_owned(), streams.join("claude-turn.jsonl").to_string_lossy().into_owned()];
+    RustWorker::start_provider(Path::new(env!("CARGO_BIN_EXE_vcx-worker")), name, "claude", &command, &json!({}))
+}
+
+fn catalog_read(state: &SessionState) -> bool {
+    state.meta.get("ready") == Some(&Value::Bool(true)) && state.meta.get("models").and_then(Value::as_array).is_some_and(|models| !models.is_empty())
 }
 
 fn target(worker: &RustWorker) -> Target {
@@ -137,4 +148,25 @@ fn an_adopted_session_runs_its_next_turn_on_the_same_agent() {
     let agent = text.split(':').next().unwrap();
     assert_eq!(text, whole_answer(agent));
     assert_ne!(hello(&target).unwrap().instance_id, before.instance_id, "the worker runs in its new image");
+}
+
+#[test]
+fn an_update_between_two_claude_turns_keeps_claude_for_the_next_one() {
+    let worker = claude_worker("claude");
+    let target = target(&worker);
+    let before = hello(&target).unwrap();
+    let mut held = Held::open(&target);
+    // The catalog comes from Claude's process: it runs, and the first exchange of its recording is behind it.
+    held.follow(catalog_read);
+
+    let after = swapped(&target, &before);
+    let mut again = Held::attach(Peer::greeted(&target), &AttachRequest { existing_only: true, ..request_for(&target, held.id()) });
+    again.lease.perform(&again.peer.client, "send", prompt("Run the recorded turn.")).expect("the adopted session takes the prompt");
+    again.follow(answered);
+
+    assert_eq!(after.pid, before.pid, "the worker is the same process");
+    let state = again.replica.state().unwrap();
+    assert_eq!(state.meta.get("providerLabel"), Some(&json!("Claude")));
+    // A Claude started anew would play its recording from the catalog request, and never answer the prompt.
+    assert!(again.turn_kinds().iter().any(|kind| kind == "assistant"), "{:?}", again.turn_kinds());
 }

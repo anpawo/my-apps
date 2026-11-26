@@ -43,10 +43,14 @@ pub struct ClaudeOptions {
     pub profile: Option<PathBuf>,
 }
 
+type Reading = Rc<RefCell<mpsc::UnboundedReceiver<Line>>>;
+
 pub struct ClaudeConnection {
     stream: RefCell<ClaudeStream>,
     options: ClaudeOptions,
     process: RefCell<Option<Lines>>,
+    /// What the process printed and `read` has not taken yet. Here and not in the reader task, so a freeze sees it.
+    lines: RefCell<Option<Reading>>,
     /// Which process a reader belongs to: the lines and the end of a replaced process are dropped.
     generation: Cell<u64>,
     waiting: RefCell<HashMap<String, oneshot::Sender<Result<Object, String>>>>,
@@ -72,12 +76,17 @@ impl ClaudeConnection {
         if options.command.is_none() {
             signed_in(options.environment.as_deref()).await?;
         }
-        let (events, incoming) = mpsc::unbounded_channel();
         let stream = ClaudeStream::new(&options.cwd, &options.mode, options.paths.clone());
+        Ok(Self::new(options, stream))
+    }
+
+    fn new(options: ClaudeOptions, stream: ClaudeStream) -> (Rc<Self>, mpsc::UnboundedReceiver<Incoming>) {
+        let (events, incoming) = mpsc::unbounded_channel();
         let connection = Rc::new(Self {
             stream: RefCell::new(stream),
             options,
             process: RefCell::new(None),
+            lines: RefCell::new(None),
             generation: Cell::new(0),
             waiting: RefCell::default(),
             events,
@@ -88,7 +97,69 @@ impl ClaudeConnection {
             first_event: Cell::new(0),
             stop_watch: Cell::new(0),
         });
+        (connection, incoming)
+    }
+
+    /// What another image of the worker needs to go on with this conversation and its process, or `None` while a
+    /// prompt, a permission or a control request is in flight: the next image could not rebuild a turn. The
+    /// environment stays out of it: it may hold his secrets, and the next image gives its agents the same one.
+    pub fn freeze(&self) -> Option<Value> {
+        if self.closed.get() || !self.waiting.borrow().is_empty() || !self.stream.borrow().idle() {
+            return None;
+        }
+        let agent = match self.process.borrow().as_ref() {
+            Some(process) => {
+                let unread = self.lines.borrow().as_ref().is_some_and(|lines| !lines.borrow().is_empty());
+                process.freeze().filter(|_| !unread)?
+            }
+            None => Value::Null,
+        };
+        let options = &self.options;
+        let path = |path: &Option<PathBuf>| path.as_ref().map(|path| path.to_string_lossy().into_owned());
+        Some(json!({
+            "kind": "claude", "agent": agent, "stream": self.stream.borrow().frozen(), "resumed": self.resumed.get(),
+            "developerInstructions": *self.developer_instructions.borrow(), "history": *self.history.borrow(),
+            "command": options.command, "cwd": options.cwd, "mode": options.mode, "log": path(&options.log), "settings": path(&options.settings), "profile": path(&options.profile),
+        }))
+    }
+
+    /// Goes on with a connection a previous image of the worker froze, its process included. The process's pipes are
+    /// taken over whether or not this succeeds: on an error the process is stopped.
+    pub fn adopt(state: &Value, environment: Option<Vec<(String, String)>>) -> std::io::Result<(Rc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        let process = match &state["agent"] {
+            Value::Null => None,
+            agent => Some(Lines::adopt(agent)?),
+        };
+        let text = |key: &str| state[key].as_str().map(str::to_owned);
+        let path = |key: &str| state[key].as_str().map(PathBuf::from);
+        let restored = ClaudeStream::adopted(&state["stream"]).zip(text("cwd")).zip(text("mode"));
+        let Some(((stream, cwd), mode)) = restored else {
+            if let Some((process, _)) = &process {
+                process.close(libc::SIGTERM);
+            }
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid adopted Claude connection."));
+        };
+        let command = serde_json::from_value(state["command"].clone()).ok();
+        let options = ClaudeOptions { command, cwd, mode, environment, log: path("log"), settings: path("settings"), paths: stream.paths.clone(), profile: path("profile") };
+        let (connection, incoming) = Self::new(options, stream);
+        connection.resumed.set(state["resumed"] == true);
+        *connection.developer_instructions.borrow_mut() = text("developerInstructions").unwrap_or_default();
+        *connection.history.borrow_mut() = text("history").unwrap_or_default();
+        if let Some((process, lines)) = process {
+            connection.follow(process, lines);
+        }
         Ok((connection, incoming))
+    }
+
+    /// Reads `process` as the one this connection talks to, and says which reader that makes.
+    fn follow(self: &Rc<Self>, process: Lines, lines: mpsc::UnboundedReceiver<Line>) -> u64 {
+        let generation = self.generation.get() + 1;
+        self.generation.set(generation);
+        let lines = Rc::new(RefCell::new(lines));
+        *self.process.borrow_mut() = Some(process);
+        *self.lines.borrow_mut() = Some(Rc::clone(&lines));
+        tokio::task::spawn_local(Rc::clone(self).read(lines, generation));
+        generation
     }
 
     pub fn thread(&self) -> String {
@@ -152,11 +223,8 @@ impl ClaudeConnection {
         let cwd = self.stream.borrow().initial_directory.clone();
         let launch = Launch { command: &arguments, cwd: Path::new(&cwd), environment: self.options.environment.as_deref(), log: self.options.log.as_deref() };
         let (process, lines) = Lines::spawn(launch).map_err(|error| failure(format!("Cannot start Claude: {error}")))?;
-        let generation = self.generation.get() + 1;
-        self.generation.set(generation);
         self.emit("vcx/launch", json!({"arguments": arguments, "pid": process.pid}));
-        *self.process.borrow_mut() = Some(process);
-        tokio::task::spawn_local(Rc::clone(self).read(lines, generation));
+        let generation = self.follow(process, lines);
         if self.options.command.is_none() {
             tokio::task::spawn_local(Rc::clone(self).remote_control(generation));
         }
@@ -167,8 +235,8 @@ impl ClaudeConnection {
         !self.closed.get() && self.generation.get() == generation
     }
 
-    async fn read(self: Rc<Self>, mut lines: mpsc::UnboundedReceiver<Line>, generation: u64) {
-        while let Some(line) = lines.recv().await {
+    async fn read(self: Rc<Self>, lines: Reading, generation: u64) {
+        while let Some(line) = std::future::poll_fn(|context| lines.borrow_mut().poll_recv(context)).await {
             if !self.current(generation) {
                 return;
             }

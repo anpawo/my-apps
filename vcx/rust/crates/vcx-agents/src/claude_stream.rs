@@ -45,6 +45,16 @@ impl ClaudePaths {
             added,
         }
     }
+
+    fn frozen(&self) -> Value {
+        let text = |path: &PathBuf| path.to_string_lossy().into_owned();
+        json!({"config": text(&self.config), "sessions": text(&self.sessions), "attachments": text(&self.attachments), "added": self.added})
+    }
+
+    fn adopted(state: &Value) -> Option<Self> {
+        let path = |key: &str| state[key].as_str().map(PathBuf::from);
+        Some(Self { config: path("config")?, sessions: path("sessions")?, attachments: path("attachments")?, added: serde_json::from_value(state["added"].clone()).ok()? })
+    }
 }
 
 pub struct ClaudeStream {
@@ -133,6 +143,31 @@ impl ClaudeStream {
             out.push(self.event("turn/started", object(json!({"turn": {"id": self.turn}}))));
         }
         (line, out)
+    }
+
+    /// Nothing of a turn is held here: no prompt waits for its result, no permission for its answer.
+    pub fn idle(&self) -> bool {
+        self.pending_users.is_empty() && self.controls.is_empty() && !self.sending_now
+    }
+
+    /// What outlives a turn, for another image of the worker to go on from.
+    pub fn frozen(&self) -> Value {
+        json!({
+            "thread": self.thread, "model": self.model, "cwd": self.cwd, "initialDirectory": self.initial_directory, "turn": self.turn, "mode": self.mode,
+            "metadata": self.metadata, "servedModel": self.served_model, "paths": self.paths.frozen(),
+        })
+    }
+
+    pub fn adopted(state: &Value) -> Option<Self> {
+        let text = |key: &str| state[key].as_str().map(str::to_owned);
+        let mut stream = Self::new(&text("initialDirectory")?, &text("mode")?, ClaudePaths::adopted(&state["paths"])?);
+        stream.thread = text("thread")?;
+        stream.model = text("model")?;
+        stream.cwd = text("cwd")?;
+        stream.turn = text("turn").unwrap_or_default();
+        stream.metadata = state["metadata"].as_object().cloned();
+        stream.served_model = text("servedModel");
+        Some(stream)
     }
 
     /// The process was killed by a watch: what it held is gone.
