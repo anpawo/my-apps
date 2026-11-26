@@ -532,13 +532,13 @@ fn escape(page: &Page) -> Result<(), String> {
     page.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))").map(drop)
 }
 
-/// What the core answers a `settings` post with: Swift `Settings` and what the session runs in the background.
+/// What the core answers a `settings` post with: vcx-config's `Settings::page`, plus what the session runs in the background.
 fn settings() -> Value {
     json!({"type": "settings", "home": "/Users/demo", "account": "Work Claude", "routeAccount": "Work Claude", "rateLimitRetries": [30, 90], "fallbacks": ["Default Codex"],
-        "accounts": [{"id": "claude-work", "name": "Work Claude", "provider": "claude", "enabled": true, "home": "~/.claude-work"},
-            {"id": "codex-default", "name": "Default Codex", "provider": "codex", "enabled": false}],
-        "limits": {"claude-work": 1_000_000_000, "codex-default": 4_102_444_800_u64},
-        "qwen": {"host": "pc", "url": "http://pc.local:11434/api/chat", "proxy": "", "model": "qwen3.5-9b-abl"}})
+        "provider": "claude", "mode": "bypass",
+        "accounts": [{"id": "claude-work", "name": "Work Claude", "provider": "claude", "enabled": true, "home": "~/.claude-work", "availableAfter": null},
+            {"id": "codex-default", "name": "Default Codex", "provider": "codex", "enabled": false, "home": null, "availableAfter": 4_102_444_800_u64}],
+        "qwen": {"host": "pc", "url": "http://pc.local:11434/api/chat", "proxy": "", "model": "qwen3.5-9b-abl", "wake": false}})
 }
 
 fn tab(page: &Page, name: &str) -> Result<Value, String> {

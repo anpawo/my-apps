@@ -1157,7 +1157,7 @@
     for (const account of (known && known.accounts) || []) {
       facts.push(fact(account.name, `${capitalized(account.provider)} · ${account.enabled ? 'enabled' : 'disabled'}`, '/account ', account.enabled ? 'green' : ''));
       if (account.home) facts.push(fact('Profile', account.home, `/profile ${account.provider} `));
-      const reset = ((known.limits || {})[account.id] || 0) * MS_PER_SECOND;
+      const reset = (account.availableAfter || 0) * MS_PER_SECOND;
       if (reset > clock()) facts.push(fact('Available after', new Date(reset).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }), '/usage', 'orange'));
     }
     facts.push(fact('Add account', 'Claude or Codex', '/login '), fact('Import profile', 'Existing account folder', '/profile '));
