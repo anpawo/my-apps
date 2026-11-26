@@ -5,7 +5,7 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, folder, local, login, metrics, requests, sheet, tasks};
+use crate::{fleet, folder, local, login, metrics, quota, requests, sheet, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -72,6 +72,8 @@ pub enum AppEvent {
     Chosen(u64, PathBuf),
     /// The sign-in panel's new text.
     Login(Value),
+    /// The quota popover's lines, read off the main thread.
+    Quota(Value),
 }
 
 pub(crate) struct Win {
@@ -159,6 +161,10 @@ pub(crate) struct App {
     notice: Option<String>,
     pub(crate) login: Option<login::Running>,
     login_message: Value,
+    /// The last quota read and when it was made.
+    quota: Option<(Instant, Value)>,
+    /// The windows waiting for the quota read under way.
+    quota_waiting: Option<Vec<u64>>,
     _lock: File,
 }
 
@@ -198,6 +204,8 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         notice,
         login: None,
         login_message: Value::Null,
+        quota: None,
+        quota_waiting: None,
         _lock: lock,
     };
     event_loop.run(move |event, target, flow| {
@@ -350,6 +358,15 @@ impl App {
                 self.show_login(message);
                 None
             }
+            AppEvent::Quota(message) => {
+                for key in self.quota_waiting.take().unwrap_or_default() {
+                    if let Some(win) = self.windows.get(&key) {
+                        win.pane.to_page(&message);
+                    }
+                }
+                self.quota = Some((Instant::now(), message));
+                None
+            }
             AppEvent::Chosen(key, path) => {
                 if let Some(win) = self.windows.get(&key) {
                     win.pane.tell(Message::Act { action: "command", params: json!({"text": folder::command(&path)}) });
@@ -396,6 +413,27 @@ impl App {
                 }
                 Err(problem) => win.pane.note(problem),
             },
+            // A check reads none of his accounts: the popover stays empty.
+            Note::Quota if self.windowless => win.pane.to_page(&quota::message(&[])),
+            Note::Quota => {
+                // A stale read shows until the new one arrives, as the Swift popover shows its cache.
+                if let Some((at, message)) = &self.quota {
+                    win.pane.to_page(message);
+                    if at.elapsed() < quota::CACHE_LIFE {
+                        return;
+                    }
+                }
+                if let Some(waiting) = &mut self.quota_waiting {
+                    return waiting.push(key);
+                }
+                self.quota_waiting = Some(vec![key]);
+                let (settings, proxy) = (self.homes.shared_settings().load().unwrap_or_default(), self.proxy.clone());
+                thread::spawn(move || {
+                    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
+                    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64());
+                    drop(proxy.send_event(AppEvent::Quota(quota::message(&quota::read(&settings, &home, now)))));
+                });
+            }
             Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading | Note::Local(_) => {}
         }
     }

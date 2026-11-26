@@ -2470,12 +2470,15 @@ name = "vcx-app"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "jiff",
  "libc",
  "objc2-app-kit",
  "objc2-foundation",
  "serde_json",
  "tao",
+ "tokio",
  "uuid",
+ "vcx-agents",
  "vcx-cli",
  "vcx-config",
  "vcx-model",

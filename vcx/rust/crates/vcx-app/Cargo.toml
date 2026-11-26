@@ -11,12 +11,15 @@ path = "src/main.rs"
 
 [dependencies]
 block2.workspace = true
+jiff = "0.2"
 libc.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSSavePanel", "block2"] }
 objc2-foundation = { workspace = true, features = ["NSURL"] }
 serde_json.workspace = true
 tao.workspace = true
+tokio = { version = "1", features = ["rt", "time"] }
 uuid.workspace = true
+vcx-agents = { path = "../vcx-agents" }
 vcx-cli = { path = "../vcx-cli" }
 vcx-config = { path = "../vcx-config" }
 vcx-model.workspace = true

@@ -5,6 +5,7 @@ mod folder;
 mod local;
 mod login;
 pub mod metrics;
+mod quota;
 mod requests;
 pub mod settings;
 mod sheet;

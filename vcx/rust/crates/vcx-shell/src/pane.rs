@@ -61,6 +61,8 @@ pub enum Note {
     ChooseDirectory,
     /// The Settings sheet opened: it asks for his accounts and what the session runs on.
     Settings,
+    /// The quota popover opened: it asks for every agent's quota.
+    Quota,
     /// A command the app runs, as typed: `/login claude`, `/window ~/projects`.
     Local(String),
     Closed(String),
@@ -262,7 +264,7 @@ impl Pane {
             FromPage::Title { text } => vec![Note::Title(text)],
             FromPage::Focus { id } => vec![Note::Focus(id)],
             FromPage::ChooseDirectory => vec![Note::ChooseDirectory],
-            FromPage::Quota => Vec::new(),
+            FromPage::Quota => vec![Note::Quota],
             FromPage::Settings => vec![Note::Settings],
         }
     }
