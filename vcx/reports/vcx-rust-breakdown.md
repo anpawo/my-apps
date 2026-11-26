@@ -227,3 +227,11 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   every 100 ms) until that session closes; receipts stay behind, as on the Swift worker. Not run: a swap between
   two different builds (the tests exec the same binary), and the Rust app through a swap (nothing sends SIGUSR1
   yet: neither `build-rust.sh --install` nor the app).
+- 26/11/2026, observed: the conformance suite reaches three bounds it could not (`crates/vcx-conformance/src/bounds.rs`,
+  30 cases, green against the Swift worker and the Rust worker). With an agent that leaves `turn/start` unanswered
+  (`fixture:pending`), a frontend with 64 requests under way is refused a 65th as `busy`, and a session with 64
+  actions under way, sent by two frontends of 32 each, refuses one more as `busy` while that frontend's `list` is
+  answered; in both the refused action spends no sequence. After three answers of 11 MiB (`fixture:heavy`), a second
+  frontend's attach is refused as `snapshotTooLarge` and the first keeps its lease and still acts. Since `a5f8a78`
+  (Rust app) `build-rust.sh --install` sends SIGUSR1 to the bundle's workers. Not reached: 8 pending controls and
+  256 sessions.
