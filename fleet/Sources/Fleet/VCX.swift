@@ -233,31 +233,48 @@ enum VCX {
 
     // A question in a VCX window waited for Fleet's next tick (5 s ± 50 %), though VCX writes it
     // within 0.5 s (asked 2026-11-11): its folder is watched, and a new `waiting` refreshes now.
-    private static var watcher: DispatchSourceFileSystemObject?
-    private static var checking = false
+    // VCX Rust's folder too; it exists only once that app has run, so it is armed when it appears.
+    private static var watchers: [String: DispatchSourceFileSystemObject] = [:]
+    private static var checking: Set<String> = []
     private static var waitingIn: [String: Int] = [:]
     private static var stamps: [String: Date] = [:]
+    static var missingFolderRetry: TimeInterval = 10
 
     static func onNewWaiting(_ action: @escaping @MainActor () -> Void) {
-        let fd = open(root + "/fleet", O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
-        source.setEventHandler {
+        for folder in [root + "/fleet", rustRoot + "/fleet"] { watchWaiting(folder, action) }
+    }
+
+    static func watchWaiting(_ folder: String, _ action: @escaping @MainActor () -> Void) {
+        let fd = open(folder, O_EVTONLY)
+        guard fd >= 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + missingFolderRetry) {
+                MainActor.assumeIsolated { watchWaiting(folder, action) }
+            }
+            return
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: .main)
+        source.setEventHandler { [weak source] in
             MainActor.assumeIsolated {
+                guard let source else { return }
+                if source.data.contains(.delete) || source.data.contains(.rename) {
+                    source.cancel()
+                    watchers[folder] = nil
+                    return watchWaiting(folder, action)
+                }
                 // Streaming windows rewrite their record four times a second.
-                guard !checking else { return }
-                checking = true
+                guard !checking.contains(folder) else { return }
+                checking.insert(folder)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     MainActor.assumeIsolated {
-                        checking = false
-                        if newlyWaiting(in: root + "/fleet") { action() }
+                        checking.remove(folder)
+                        if newlyWaiting(in: folder) { action() }
                     }
                 }
             }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
-        watcher = source
+        watchers[folder] = source
     }
 
     /// Whether a record in `dir` holds more `waiting` sessions than at the last call; only files
@@ -269,9 +286,9 @@ enum VCX {
         for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where name.hasSuffix(".json") {
             let path = dir + "/" + name
             let stamp = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
-            var count = waitingIn[name] ?? 0
-            if stamp != stamps[name], let data = FileManager.default.contents(atPath: path) {
-                stamps[name] = stamp
+            var count = waitingIn[path] ?? 0
+            if stamp != stamps[path], let data = FileManager.default.contents(atPath: path) {
+                stamps[path] = stamp
                 count = 0
                 var from = data.startIndex
                 while let hit = data.range(of: marker, in: from..<data.endIndex) {
@@ -279,11 +296,13 @@ enum VCX {
                     from = hit.upperBound
                 }
             }
-            if count > waitingIn[name] ?? 0 { rose = true }
-            counts[name] = count
+            if count > waitingIn[path] ?? 0 { rose = true }
+            counts[path] = count
         }
-        waitingIn = counts
-        stamps = stamps.filter { counts[$0.key] != nil }
+        // Each watched folder keeps its own counts: the Swift and the Rust app's records are read apart.
+        let inDir = { (key: String) in key.hasPrefix(dir + "/") }
+        waitingIn = waitingIn.filter { !inDir($0.key) }.merging(counts) { $1 }
+        stamps = stamps.filter { !inDir($0.key) || counts[$0.key] != nil }
         return rose
     }
 }

@@ -1151,6 +1151,21 @@ enum SelfCheck {
         expect(VCX.newlyWaiting(in: dir), false, "one already waiting does not refresh again")
         write(["waiting", "waiting"], at: 4)
         expect(VCX.newlyWaiting(in: dir), true, "a second window waiting in the same process does")
+
+        let rust = dir + "-rust"
+        defer { try? FileManager.default.removeItem(atPath: rust) }
+        var raised = false
+        let retry = VCX.missingFolderRetry
+        VCX.missingFolderRetry = 0.1
+        defer { VCX.missingFolderRetry = retry }
+        VCX.watchWaiting(rust) { raised = true }
+        try? FileManager.default.createDirectory(atPath: rust, withIntermediateDirectories: true)
+        RunLoop.main.run(until: Date() + 0.5)
+        try? #"{"sessions":[{"state":"waiting"}]}"#.write(toFile: rust + "/1.json", atomically: true, encoding: .utf8)
+        let deadline = Date() + 3
+        while !raised && Date() < deadline { RunLoop.main.run(until: Date() + 0.1) }
+        expect(raised, true, "VCX Rust: a session waiting in a fleet folder made after Fleet started refreshes at once")
+        expect(VCX.newlyWaiting(in: dir), false, "VCX Rust: its folder's counts leave the Swift app's untouched")
     }
 
     private static func freshSession(_ expect: (Int, Int, String) -> Void) {
