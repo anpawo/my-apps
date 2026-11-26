@@ -1,0 +1,23 @@
+/* Editing a code block (codeedit.js). Its pencil is the copy button's ghost icon button (WT-033); the editor is the
+   text area that grows (WT-035), copied between its markers and given the code block's light look and monospace
+   font. The block's lighter fill and accent border while it is edited follow the Swift `CodeBlock`. */
+figure.code button.edit { width: 26px; height: 26px; margin-left: auto; color: var(--muted); }
+figure.code button.run ~ button.edit { margin-left: 0; }
+figure.code button.edit .done, figure.code button.edit.editing .ready { display: none; }
+figure.code button.edit.editing .done { display: block; }
+figure.code { transition: background-color 250ms ease-out, box-shadow 250ms ease-out; }
+figure.code.editing { background: rgb(0 0 0 / .02); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+@media (prefers-reduced-motion: reduce) { figure.code { transition-duration: 1ms; } }
+
+/* ---- Effect: text area that grows. Copy from here ---- */
+/* The recon dashboard's text area (ui/textarea.tsx): 64 px at least, radius 10, a faint fill and a grey border, its
+   focus the same blue ring as the fields. It is as tall as its text, and its height eases to each new line. */
+figure.code .edit-area { display: block; width: 100%; min-height: 64px; padding: 8px 10px; border: 1px solid #404854; border-radius: 10px; resize: none; overflow: hidden;
+  background: rgb(64 72 84 / .3); color: #f6f7f9; font: 14px/20px Inter, -apple-system, system-ui, sans-serif; outline: none;
+  transition: height var(--grow, 200ms) ease-out, border-color 150ms cubic-bezier(.4, 0, .2, 1), box-shadow 150ms cubic-bezier(.4, 0, .2, 1); }
+figure.code .edit-area:focus-visible { border-color: var(--ring, #4c90f0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #4c90f0) 50%, transparent); }
+@media (prefers-reduced-motion: reduce) { figure.code .edit-area { transition-duration: 1ms; } }
+/* ---- End of effect ---- */
+/* On the code block's grey, as the composer draws it: light greys, dark ink, the code's monospace. */
+figure.code .edit-area { width: calc(100% - 16px); margin: 6px 8px 8px; border-color: #c5cbd3; background: rgb(255 255 255 / .6); color: var(--ink);
+  font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }

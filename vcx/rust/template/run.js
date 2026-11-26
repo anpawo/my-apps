@@ -49,7 +49,9 @@
       play.type = 'button';
       play.title = 'Run in VCX: the output shows above the composer, a password stays in VCX';
       play.ariaLabel = 'Run command';
-      caption.querySelector('button.copy')?.before(play) ?? caption.append(play);
+      const copy = caption.querySelector('button.copy');
+      if (copy) copy.before(play);
+      else caption.append(play);
     }
     for (const code of document.querySelectorAll('#rows .prose code:not(pre code):not(.run-link)')) {
       if (!code.textContent.trimStart().startsWith('sudo ')) continue;

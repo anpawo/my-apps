@@ -721,9 +721,139 @@ fn opens_the_panel_from_an_inline_sudo_command_only(page: &Page) -> Result<(), S
     check(page.eval("[...document.querySelectorAll('#rows figure.code')].map(figure => Boolean(figure.querySelector('button.run')))")? == json!([true, false]), "a block to paste got a Run button")
 }
 
+/// An answer as markdown.rs draws it: a shell block, a block to paste and a Markdown block.
+const EDITABLE_REPLY: &str = "<figure class=\"code\"><figcaption><span class=\"language\">bash</span><button type=\"button\" class=\"copy b b-ghost icon sm\"></button></figcaption><pre><code class=\"language-bash\">ls -la\n</code></pre></figure><figure class=\"code\"><figcaption><span class=\"language\">Code</span><button type=\"button\" class=\"copy b b-ghost icon sm\"></button></figcaption><pre><code>Dear Bas,\n</code></pre></figure><figure class=\"code markdown\"><figcaption><span class=\"language\">Markdown</span><button type=\"button\" class=\"copy b b-ghost icon sm\"></button></figcaption><div class=\"prose\"><p>Plan</p></div><pre class=\"source\" hidden><code>Plan\n</code></pre></figure>";
+
+/// Each code block of the transcript: its label, the code it shows, its buttons and whether its editor is open.
+const CODE_BLOCKS: &str = "[...document.querySelectorAll('#rows figure.code')].map(figure => ({ label: figure.querySelector('.language').textContent, code: figure.querySelector('pre code').textContent, buttons: [...figure.querySelectorAll('figcaption button')].map(button => button.classList[0]), editing: Boolean(figure.querySelector('.edit-area')) }))";
+
+/// The code block to paste, second in `EDITABLE_REPLY`.
+const LETTER: &str = "#rows figure.code:nth-of-type(2)";
+
+fn answer_row(id: &str, html: &str) -> Value {
+    json!({"id": id, "kind": "assistant", "items": [{"id": format!("{id}-item"), "type": "agentMessage", "html": html, "provider": "Claude", "endedTurn": true}]})
+}
+
+impl Page {
+    fn show_answer(&self) -> Result<(), String> {
+        self.deliver(full(json!({"ready": true}), json!([user_row("R1", "Draft it", json!([])), answer_row("R2", EDITABLE_REPLY)])))?;
+        self.wait("the pencils", |page| page.eval("document.querySelectorAll('#rows button.edit').length").ok() == Some(json!(2)))
+    }
+
+    /// Opens the editor of the block `figure` names with a real click, and puts the caret at the end of its text.
+    fn edit(&self, figure: &str) -> Result<(), String> {
+        self.eval(&format!("document.querySelector({figure:?}).scrollIntoView({{ block: 'start' }})"))?;
+        self.click(&format!("{figure} button.edit"))?;
+        self.wait("the editor to take the focus", |page| page.eval("document.activeElement.className").ok() == Some(json!("edit-area")))?;
+        self.eval("(area => area.setSelectionRange(area.value.length, area.value.length))(document.activeElement)").map(drop)
+    }
+
+    fn blocks(&self) -> Result<Value, String> {
+        self.eval(CODE_BLOCKS)
+    }
+
+    /// The code blocks once `done` takes them: a key lands after a script sent at the same time.
+    fn until_blocks(&self, what: &str, done: impl Fn(&Value) -> bool) -> Result<Value, String> {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let blocks = self.blocks()?;
+            if done(&blocks) {
+                return Ok(blocks);
+            }
+            if Instant::now() > deadline {
+                return Err(format!("{what}: the code blocks are {blocks}"));
+            }
+            spin();
+        }
+    }
+}
+
+fn edits_a_code_block_in_place_and_copy_takes_the_edited_version(page: &Page) -> Result<(), String> {
+    page.show_answer()?;
+    let before = page.blocks()?;
+
+    page.edit(LETTER)?;
+    let opened = page.eval(&format!("document.querySelector({LETTER:?}).querySelector('.edit-area').value"))?;
+    page.keys(" hi")?;
+    let typing = page.until_blocks("the typed text", |blocks| blocks[1]["code"] == "Dear Bas, hi")?;
+    page.press(Key::Escape, NONE)?;
+    let done = page.until_blocks("Escape", |blocks| blocks[1]["editing"] == false)?;
+    page.click(&format!("{LETTER} button.copy"))?;
+    let copied = page.next("copy")?;
+
+    let buttons: Vec<Value> = before.as_array().unwrap().iter().map(|block| block["buttons"].clone()).collect();
+    check(buttons == vec![json!(["run", "edit", "copy"]), json!(["edit", "copy"]), json!(["copy"])], format!("the buttons are {buttons:?}"))?;
+    check(opened == "Dear Bas," && typing[1]["editing"] == true && typing[1]["label"] == "Code · edited", format!("opened on {opened}, while typing {typing}"))?;
+    check(done[1] == json!({"label": "Code · edited", "code": "Dear Bas, hi", "buttons": ["edit", "copy"], "editing": false}), format!("after Escape {done}"))?;
+    check(copied["text"] == "Dear Bas, hi", format!("copied {copied}"))
+}
+
+fn sends_an_edited_block_once_with_the_next_prompt_in_swift_words(page: &Page) -> Result<(), String> {
+    page.show_answer()?;
+    page.edit(LETTER)?;
+    page.keys(" hi")?;
+
+    page.click("#input")?;
+    page.wait("the editor to close on a click away", |page| page.eval("document.querySelector('.edit-area') === null").ok() == Some(json!(true)))?;
+    page.eval("document.getElementById('input').focus()")?;
+    page.keys("ok")?;
+    page.press(Key::Return, NONE)?;
+    let first = page.next("send")?;
+    page.keys("again")?;
+    page.press(Key::Return, NONE)?;
+    let second = page.next("send")?;
+    page.deliver(full(json!({"ready": true}), json!([])))?;
+    page.show_answer()?;
+    let redrawn = page.blocks()?;
+
+    check(first["text"] == "I edited your code block. My version:\n```\nDear Bas, hi\n```\n\nok", format!("first sent {first}"))?;
+    check(second["text"] == "again", format!("the edit went twice: {second}"))?;
+    check(redrawn[1]["label"] == "Code · edited" && redrawn[1]["code"] == "Dear Bas, hi", format!("a block drawn again lost its edit: {redrawn}"))
+}
+
+fn fences_a_block_holding_a_fence_with_four_backticks_and_sends_each_edit_in_order(page: &Page) -> Result<(), String> {
+    let replace = |text: &str| format!("(area => {{ area.value = {}; area.dispatchEvent(new Event('input')); }})(document.activeElement)", json!(text));
+    page.show_answer()?;
+    page.edit(LETTER)?;
+    page.eval(&replace("x ```"))?;
+    page.press(Key::Escape, NONE)?;
+    page.edit("#rows figure.code:nth-of-type(1)")?;
+    page.eval(&replace("ls"))?;
+    page.press(Key::Escape, NONE)?;
+
+    let command = page.eval("vcxCodeEdits.attach('/status')")?;
+    page.eval("document.getElementById('input').focus()")?;
+    page.keys("go")?;
+    page.press(Key::Return, NONE)?;
+    let sent = page.next("send")?;
+
+    check(command == "/status", format!("a command took the edits: {command}"))?;
+    let expected = "I edited your code block. My version:\n````\nx ```\n````\n\nI edited your code block. My version:\n```\nls\n```\n\ngo";
+    check(sent["text"] == expected, format!("sent {sent}"))
+}
+
+fn sends_nothing_for_a_block_edited_back_to_its_original(page: &Page) -> Result<(), String> {
+    page.show_answer()?;
+    page.edit(LETTER)?;
+    page.keys(" hi")?;
+    for _ in 0..3 {
+        page.press(Key::Delete, NONE)?;
+    }
+    let back = page.until_blocks("the third Delete", |blocks| blocks[1]["code"] == "Dear Bas,\n")?;
+    page.press(Key::Escape, NONE)?;
+
+    page.eval("document.getElementById('input').focus()")?;
+    page.keys("ok")?;
+    page.press(Key::Return, NONE)?;
+    let sent = page.next("send")?;
+
+    check(back[1]["label"] == "Code", format!("still marked edited: {back}"))?;
+    check(sent["text"] == "ok", format!("sent {sent}"))
+}
+
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 29] = [
+const TESTS: [(&str, Test); 33] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
@@ -753,6 +883,10 @@ const TESTS: [(&str, Test); 29] = [
     ("sends a password line to the run only and masks the field", sends_a_password_line_to_the_run_only_and_masks_the_field),
     ("shows the exit status and closes on Escape once finished", shows_the_exit_status_and_closes_on_escape_once_finished),
     ("opens the panel from an inline sudo command only", opens_the_panel_from_an_inline_sudo_command_only),
+    ("edits a code block in place and copy takes the edited version", edits_a_code_block_in_place_and_copy_takes_the_edited_version),
+    ("sends an edited block once with the next prompt in Swift's words", sends_an_edited_block_once_with_the_next_prompt_in_swift_words),
+    ("fences a block holding a fence with four backticks and sends each edit in order", fences_a_block_holding_a_fence_with_four_backticks_and_sends_each_edit_in_order),
+    ("sends nothing for a block edited back to its original", sends_nothing_for_a_block_edited_back_to_its_original),
 ];
 
 fn main() -> ExitCode {

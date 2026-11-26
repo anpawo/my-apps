@@ -571,8 +571,9 @@
     // An open question card (questions.js) takes the typed text as its answer instead of a new message.
     const answered = Boolean(window.vcxQuestions?.open && text && images.length === 0 && window.vcxQuestions.reply(text));
     if (!answered) {
-      post({ type: 'send', text, images, draft: pieces(), generation });
-      prepareFlight(text, images);
+      const sending = window.vcxCodeEdits?.attach(text) ?? text;
+      post({ type: 'send', text: sending, images, draft: pieces(), generation });
+      prepareFlight(sending, images);
     }
     clearTimeout(saveTimer);
     saveTimer = 0;
