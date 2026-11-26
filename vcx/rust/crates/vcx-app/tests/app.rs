@@ -543,6 +543,9 @@ fn lists_its_windows_and_publishes_them_to_fleet_under_its_own_folder() {
     let record: Value = serde_json::from_str(&fs::read_to_string(&presence).unwrap()).unwrap();
     assert_eq!((record["sessionId"].as_str(), record["state"].as_str(), record["cwd"].as_str()), (Some(id.as_str()), Some("ready"), folder.to_str()));
     assert!(record["windowId"].as_i64().is_some_and(|number| number > 0), "Fleet raises the window by its number: {record}");
+    let snapshot = PathBuf::from(record["snapshotPath"].as_str().unwrap_or_default());
+    let worker_state = snapshot.parent().and_then(Path::parent).filter(|native| native.ends_with("native")).and_then(Path::parent);
+    assert!(worker_state.is_some_and(|state| state.join("conversations.sqlite").is_file()), "Fleet reads the project from the worker's saved conversation: {record}");
     let line = text(&listed);
     assert!(line.contains(&id[..8]) && line.contains("list me please") && line.contains(folder.to_str().unwrap()), "{line}");
 }

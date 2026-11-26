@@ -34,13 +34,37 @@ fn session(pid: u32, started_at: u64, window: &Window, now: f64) -> Value {
         "state": if window.summary.is_some() { summary.state } else { "fresh" },
         "preview": preview, "updatedAt": now,
     });
-    let optional = [("prompt", summary.prompt.map(Value::from)), ("lastPromptAt", summary.last_prompt_at.map(Value::from)), ("context", summary.context.map(Value::from)), ("threadId", summary.thread_id.map(Value::from)), ("windowId", window.window_number.map(Value::from))];
+    let snapshot = snapshot_path(&summary).map(Value::from);
+    let optional = [("prompt", summary.prompt.map(Value::from)), ("lastPromptAt", summary.last_prompt_at.map(Value::from)), ("context", summary.context.map(Value::from)), ("threadId", summary.thread_id.map(Value::from)), ("snapshotPath", snapshot), ("windowId", window.window_number.map(Value::from))];
     for (key, field) in optional {
         if let Some(field) = field {
             value[key] = field;
         }
     }
     value
+}
+
+/// The worker's saved conversation (Swift `Session.snapshotURL`): `<state>/native/<folder digest>/<record>.json`, where
+/// Fleet reads which project the session works on.
+fn snapshot_path(summary: &Summary) -> Option<String> {
+    let (state, folder, record) = (summary.state_directory.as_ref()?, summary.conversation_directory.as_ref()?, summary.record_id.as_ref()?);
+    let stem: String = sha256(folder.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..POINTER_DIGITS].to_owned();
+    Some(Path::new(state).join("native").join(stem).join(format!("{record}.json")).to_string_lossy().into_owned())
+}
+
+/// The folder digest's length in hex digits (Swift `Session.pointer`'s `prefix(24)`).
+const POINTER_DIGITS: usize = 24;
+const SHA256_BYTES: usize = 32;
+
+unsafe extern "C" {
+    fn CC_SHA256(data: *const std::ffi::c_void, len: u32, md: *mut u8) -> *mut u8;
+}
+
+fn sha256(data: &[u8]) -> [u8; SHA256_BYTES] {
+    let mut digest = [0; SHA256_BYTES];
+    // SAFETY: CommonCrypto reads `len` bytes of `data` and writes 32 into `digest`; a folder path is far under 4 GB.
+    unsafe { CC_SHA256(data.as_ptr().cast(), data.len() as u32, digest.as_mut_ptr()) };
+    digest
 }
 
 /// Writes this process's record, or removes it when no window is left.
@@ -77,6 +101,17 @@ mod tests {
         assert_eq!(focused["sessions"].as_array().unwrap().len(), 2);
         assert_eq!((&focused["windowId"], &focused["prompt"], &focused["pid"]), (&json!(7), &json!("build it"), &json!(1)));
         assert_eq!(record(1, 2, &[], None), None);
+    }
+
+    #[test]
+    fn points_fleet_at_the_conversation_snapshot_the_swift_app_would_name() {
+        let saved = Summary { state_directory: Some("/s".into()), conversation_directory: Some("abc".into()), record_id: Some("R".into()), ..summary("ready", "go") };
+        let windows = [Window { session_id: "A", cwd: "/p", summary: Some(&saved), window_number: None }, Window { session_id: "B", cwd: "/q", summary: None, window_number: None }];
+
+        let listed = record(1, 2, &windows, Some("A")).unwrap();
+
+        assert_eq!(listed["snapshotPath"], "/s/native/ba7816bf8f01cfea414140de/R.json");
+        assert_eq!(listed["sessions"][1].get("snapshotPath"), None);
     }
 
     #[test]

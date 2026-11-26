@@ -29,6 +29,9 @@ pub struct Summary {
     pub context: Option<String>,
     pub thread_id: Option<String>,
     pub record_id: Option<String>,
+    /// The worker's state folder and the folder the conversation is filed under: with `record_id`, where its snapshot is.
+    pub state_directory: Option<String>,
+    pub conversation_directory: Option<String>,
     /// Where the agent writes what it waits on ($VCX_PROGRESS_FILE).
     pub progress_file: Option<String>,
     /// Where the agent writes the task it works on ($VCX_TASK_FILE).
@@ -75,6 +78,8 @@ pub fn of(state: &SessionState) -> Summary {
         context: text(meta, "fleetContext").filter(|context| !context.is_empty()),
         thread_id: text(meta, "threadID").filter(|thread| !thread.is_empty()),
         record_id: text(meta, "recordID").filter(|record| !record.is_empty()),
+        state_directory: text(meta, "stateDirectory").filter(|folder| !folder.is_empty()),
+        conversation_directory: text(meta, "conversationDirectory").filter(|folder| !folder.is_empty()),
         progress_file: text(meta, "progressFile").filter(|file| !file.is_empty()),
         task_file: text(meta, "taskFile").filter(|file| !file.is_empty()),
         task_state: task_state(state, waiting || flag("needsAttention"), flag("busy") || flag("changing") || background > 0),
