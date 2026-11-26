@@ -39,6 +39,12 @@ if $install && ! { named worker && named app; } && { named worker || named app; 
     exit 1
 fi
 
+# An ad-hoc signature changes with every build, and Screen Recording and Accessibility grants are pinned to it: the
+# Swift build's identity (build.sh) when the keychain holds it, under a minute's alarm against a keychain prompt.
+identity=-
+[[ "$(security find-identity -v -p codesigning)" != *"Shot Self-Signed"* ]] || identity="Shot Self-Signed"
+sign() { perl -e 'alarm 60; exec @ARGV' codesign --force --sign "$identity" "$1"; }
+
 # Cargo unifies features across the packages it is given: a worker built without the app is another binary (syn and
 # bitflags features differ), which would recompile shared crates and replace an unchanged part. Both packages are
 # always given, and --bin picks what is built.
@@ -56,7 +62,7 @@ if (( ${#binaries[@]} )); then
     fi
     if named worker; then
         cp rust/target/release/vcx-worker "$app/Contents/MacOS/vcx-worker"
-        codesign --force --sign - "$app/Contents/MacOS/vcx-worker"
+        sign "$app/Contents/MacOS/vcx-worker"
         # The worker runs these from ../Resources on each use, so a change to them alone needs no signal.
         for script in cleanup.py trace_archive.py conversation_archive.py; do
             cp "$script" "$app/Contents/Resources/$script"
@@ -93,7 +99,7 @@ PLIST
     # Python leaves byte code beside a script it ran from the bundle: sealed in, it would break the next install's seal.
     find "$app" -name __pycache__ -type d -prune -exec rm -rf {} +
     touch "$app"
-    codesign --force --sign - "$app"
+    sign "$app"
 fi
 $install || exit 0
 
