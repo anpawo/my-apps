@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
@@ -61,6 +61,8 @@ impl Run {
         // VCX_RUST_APP points the checks at an installed bundle's binary instead of the one just built.
         let mut command = Command::new(std::env::var_os("VCX_RUST_APP").unwrap_or_else(|| env!("CARGO_BIN_EXE_vcx-rust").into()));
         command.envs(vcx_config::Homes::under(&self.root).environment());
+        // His own update state stays out of the checks.
+        command.env("VCX_UPDATE_STATE", self.root.join("update"));
         // The test may itself run in an agent's window: the app must not take it for the caller.
         command.env_remove("CLAUDE_CODE_SESSION_ID").env_remove("VCX_THREAD_ID");
         command
@@ -244,6 +246,29 @@ fn runs_its_sessions_on_the_rust_worker_and_finds_them_again_after_a_crash() {
 }
 
 #[test]
+fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_same_session() {
+    let Some(mut run) = Run::new("relaunch") else { return };
+    let folder = run.folder("relaunch");
+    run.start(&["--cwd", folder.to_str().unwrap(), "before the update"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let control = vcx_config::Homes::under(&run.root).control();
+    let listening = fs::metadata(&control).unwrap().ino();
+    let pid = run.app.as_ref().unwrap().id();
+
+    // SAFETY: the pid is this run's own app, as build-rust.sh --install signals the installed one.
+    unsafe { libc::kill(pid as i32, libc::SIGUSR1) };
+
+    let deadline = Instant::now() + WAIT;
+    while fs::metadata(&control).map(|info| info.ino()).ok() == Some(listening) || run.ask(&json!({"report": {}})).is_none() {
+        assert!(Instant::now() < deadline, "the app never came back as the new build");
+        thread::sleep(POLL);
+    }
+    let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    assert_eq!(after["pid"], json!(pid));
+    assert_eq!(windows(&after)[0]["sessionId"], windows(&before)[0]["sessionId"]);
+}
+
+#[test]
 fn keeps_its_window_through_a_live_update_of_the_rust_worker() {
     let Some(worker) = rust_worker() else {
         return eprintln!("skipped: no Rust worker; build it with cargo build -p vcx-worker");
@@ -407,6 +432,41 @@ fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_go
     let hidden = until(&|shown| shown.is_empty());
 
     assert!(shown.contains("min left"), "{shown}");
+    assert_eq!(hidden, "");
+}
+
+/// The status bar's updating chip, read in the page; empty while none shows.
+const UPDATE_CHIP: &str = "document.querySelector('[data-chip=update]')?.textContent ?? ''";
+
+#[test]
+fn shows_the_update_being_built_in_every_window_and_hides_it_once_the_build_ends() {
+    let Some(mut run) = Run::new("update") else { return };
+    let folder = run.folder("update");
+    let state = run.root.join("update");
+    fs::create_dir_all(&state).unwrap();
+    run.start(&["--cwd", folder.to_str().unwrap()]);
+    let report = run.wait_for(|report| windows(report).len() == 1);
+    let id = windows(&report)[0]["sessionId"].as_str().unwrap().to_owned();
+    let chip = || -> String { serde_json::from_str(run.ask(&json!({"evaluate": {"to": id, "script": UPDATE_CHIP}})).unwrap()["result"].as_str().unwrap()).unwrap() };
+    let until = |done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let shown = chip();
+            if done(&shown) {
+                return shown;
+            }
+            assert!(Instant::now() < deadline, "the updating chip stayed at {shown:?}");
+            thread::sleep(POLL);
+        }
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+    fs::write(state.join("building"), format!("{now}\tfix: the task bar\n")).unwrap();
+    let shown = until(&|shown| !shown.is_empty());
+    fs::remove_file(state.join("building")).unwrap();
+    let hidden = until(&|shown| shown.is_empty());
+
+    assert!(shown.contains("fix: the task bar"), "{shown}");
     assert_eq!(hidden, "");
 }
 

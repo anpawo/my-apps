@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, requests, sheet, takeover, tasks};
+use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -192,6 +192,8 @@ pub(crate) struct App {
     /// The windows waiting for the quota read under way.
     quota_waiting: Option<Vec<u64>>,
     refreshed_at: Instant,
+    /// The updating chip every window shows.
+    update_shown: Value,
     _lock: File,
 }
 
@@ -211,6 +213,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     menus::install(mtm, move |action| drop(to_menu.send_event(AppEvent::Menu(action))));
     let to_loop = proxy.clone();
     control::serve(&options.homes.control(), move |request| drop(to_loop.send_event(AppEvent::Control(request))))?;
+    relaunch::listen();
     let pid = std::process::id();
     let started_at = vcx_config::process::start_time(pid as i32).unwrap_or_default();
     let mut app = App {
@@ -237,6 +240,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         quota: None,
         quota_waiting: None,
         refreshed_at: Instant::now(),
+        update_shown: Value::Null,
         _lock: lock,
     };
     event_loop.run(move |event, target, flow| {
@@ -411,7 +415,11 @@ impl App {
             AppEvent::Tasks => {
                 self.show_tasks();
                 self.show_progress();
+                self.show_update();
                 self.refresh_on_screen();
+                if relaunch::requested() {
+                    self.relaunch();
+                }
                 None
             }
             AppEvent::Menu(action) => self.menu(target, action),
@@ -472,6 +480,9 @@ impl App {
                 }
                 self.show_tasks();
                 self.show_progress();
+                if let Some(win) = self.windows.get(&key).filter(|_| self.update_shown["words"].as_str().is_some_and(|words| !words.is_empty())) {
+                    win.pane.to_page(&self.update_shown);
+                }
             }
             Note::Title(text) => win.window.set_title(&text),
             Note::Focus(id) => self.bring(&id),
@@ -621,6 +632,19 @@ impl App {
         }
     }
 
+    /// The build `auto-update.sh` has under way, in every window's updating chip (Swift `UpdateBuild`).
+    fn show_update(&mut self) {
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64());
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
+        let message = update::message(update::read(&update::folder(&home), now).as_ref(), now);
+        if message != self.update_shown {
+            for win in self.windows.values() {
+                win.pane.to_page(&message);
+            }
+            self.update_shown = message;
+        }
+    }
+
     /// Reads every window's task file and gives each page the list that changed for it.
     fn show_tasks(&mut self) {
         let entries: Vec<tasks::Entry> = self.windows.values().filter_map(|win| {
@@ -707,6 +731,16 @@ impl App {
             thread::sleep(delay);
             let _ = proxy.send_event(event);
         });
+    }
+
+    /// A new build was installed: the windows are saved and the app becomes that build, which reopens them.
+    fn relaunch(&mut self) {
+        self.save_now();
+        let problem = relaunch::exec(self.windowless);
+        eprintln!("vcx-rust: {problem}");
+        for win in self.windows.values_mut() {
+            win.pane.note(format!("Automatic update paused: {problem}"));
+        }
     }
 
     fn save_now(&self) {

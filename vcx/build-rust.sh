@@ -49,10 +49,14 @@ if [[ "${1:-}" == "--install" ]]; then
     echo "installed $installed"
     # A Rust worker running from the bundle updates itself in place: on SIGUSR1 it execs the build now at its path,
     # keeping its sessions. Only this bundle's workers: the Swift app's are never signalled.
+    # The app itself, on the same signal, saves its windows and execs the new build, which reopens them.
     worker="$installed/Contents/MacOS/vcx-worker"
+    frontend="$installed/Contents/MacOS/vcx-rust"
     ps -axo pid=,comm= | while read -r pid comm; do
         if [[ "$comm" == "$worker" ]]; then
             kill -USR1 "$pid" && echo "updating worker $pid"
+        elif [[ "$comm" == "$frontend" ]]; then
+            kill -USR1 "$pid" && echo "updating app $pid"
         fi
     done
 fi
