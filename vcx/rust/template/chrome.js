@@ -1175,13 +1175,14 @@
     ];
   }
 
+  // A described block (WT-055's Descriptions tick).
   function job(title, status, detail) {
-    const block = make('div', 'fact job');
+    const block = make('div', 'fact described');
     const words = make('span', 'val f-blue');
     words.append(make('span', '', status));
     const dd = make('dd');
     dd.append(words);
-    block.append(make('dt', '', title), dd, make('p', 'detail', detail));
+    block.append(make('dt', '', title), dd, make('dd', 'about', detail));
     return block;
   }
 
@@ -1200,6 +1201,7 @@
     ];
   }
 
+  // The keyboard shortcuts (WT-121).
   function shortcutRows() {
     return SHORTCUTS.map(([keys, action]) => {
       const row = make('div', 'key');
