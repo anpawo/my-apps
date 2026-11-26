@@ -802,6 +802,19 @@
     const text = event.clipboardData && event.clipboardData.getData('text/plain');
     if (text) document.execCommand('insertText', false, text);
   });
+  // Image data dragged in with no file (a picture from a browser) reaches the page, not the core, which takes file paths
+  // only: it becomes a picture chip, as a pasted image does (Swift's composer takes .png and .tiff drags).
+  const draggedImages = event => [...((event.dataTransfer && event.dataTransfer.files) || [])].filter(file => file.type.startsWith('image/'));
+  addEventListener('dragover', event => {
+    if (event.dataTransfer && [...event.dataTransfer.types].includes('Files')) event.preventDefault();
+  });
+  addEventListener('drop', event => {
+    const images = draggedImages(event);
+    if (!images.length) return;
+    event.preventDefault();
+    images.forEach(attachImage);
+    input.focus();
+  });
   // A click on a blank spot focuses the composer; a click that selected text keeps its selection.
   document.addEventListener('click', event => {
     const blank = [document.body, document.documentElement, $('transcript'), $('rows'), form, form.parentElement].includes(event.target);

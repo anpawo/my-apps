@@ -648,6 +648,20 @@ fn pastes_an_image_through_the_core_and_shows_it_in_its_chip(page: &Page) -> Res
     check(state["chips"] == json!(["Image #1 · shot.png"]) && state["previews"] == 1, format!("{state}"))
 }
 
+// A drag of image data with no file reaches the page itself (wry hands the core file paths only); the drop here is made
+// in the page, so the system pasteboard and a real drag are not exercised.
+fn makes_a_chip_of_image_data_dropped_with_no_file(page: &Page) -> Result<(), String> {
+    let script = format!("(() => {{ const data = new DataTransfer(); data.items.add(new File([Uint8Array.from(atob({PNG:?}), c => c.charCodeAt(0))], 'dragged.png', {{ type: 'image/png' }})); const event = new DragEvent('drop', {{ dataTransfer: data, bubbles: true, cancelable: true }}); document.getElementById('transcript').dispatchEvent(event); return event.defaultPrevented; }})()");
+
+    let taken = page.eval(&script)?;
+
+    let image = page.next("image")?;
+    check(taken == json!(true) && image["data"] == PNG && image["name"] == "dragged.png", format!("taken {taken}, posted {image}"))?;
+    page.deliver(json!({"type": "attach", "items": [{"kind": "image", "id": image["id"], "path": "/attachments/dragged.png"}]}))?;
+    let state = page.value("[Image #1]")?;
+    check(state["chips"] == json!(["Image #1 · dragged.png"]), format!("{state}"))
+}
+
 fn flies_the_sent_message_into_its_new_bubble_only(page: &Page) -> Result<(), String> {
     page.deliver(full(json!({"ready": true}), json!([user_row("R1", "Send this", json!([]))])))?;
     page.keys("Send this")?;
@@ -899,7 +913,7 @@ fn sends_nothing_for_a_block_edited_back_to_its_original(page: &Page) -> Result<
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 36] = [
+const TESTS: [(&str, Test); 37] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
@@ -925,6 +939,7 @@ const TESTS: [(&str, Test); 36] = [
     ("keeps the draft of the session and takes only newer ones", keeps_the_draft_of_the_session_and_takes_only_newer_ones),
     ("attaches dropped files, folders and images as chips", attaches_dropped_files_folders_and_images_as_chips),
     ("pastes an image through the core and shows it in its chip", pastes_an_image_through_the_core_and_shows_it_in_its_chip),
+    ("makes a chip of image data dropped with no file", makes_a_chip_of_image_data_dropped_with_no_file),
     ("flies the sent message into its new bubble only", flies_the_sent_message_into_its_new_bubble_only),
     ("keeps marked text, paste, undo and focus together", keeps_marked_text_paste_undo_and_focus_together),
     ("/attach asks the core for the picture instead of sending the command", attach_asks_the_core_for_the_picture_instead_of_sending_the_command),
