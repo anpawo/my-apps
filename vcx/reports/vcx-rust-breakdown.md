@@ -65,7 +65,7 @@ input for checks, the application menu, open and save panels, drag and drop.
 | 3 | Composer: chips, long-paste, `/` palette, Edit menu, undo | the M9 and M11 harness extended; paste tested page-side with a synthetic `ClipboardEvent` (a real paste would read his clipboard) | open |
 | 4 | The app: many windows in one process, starts workers itself, own bundle id, own Fleet namespace; the Swift recovery-list fix | a 13-window run measuring threads, memory and patch delay; a cold Swift launch while Rust holds a session | open |
 | 5 | Conformance suite, then the Rust worker with the Codex adapter, then Claude, Qwen, agy | the same suite green against both workers; the Swift frontend attached to a Rust worker | open |
-| 6 | Rust-to-Rust live update, cutover, Swift retired | a swap under a streaming agent: same agent pid, no byte lost, failed adoption rolls back | live update built and tested (Outcomes, 26/11); cutover and retiring Swift open, on his word |
+| 6 | Rust-to-Rust live update, cutover, Swift retired | a swap under a streaming agent: same agent pid, no byte lost, failed adoption rolls back | live update built and tested, the kept Swift release published (Outcomes, 26/11); cutover and retiring Swift once the list in Outcomes is green |
 
 ## Evidence: measured on this Mac
 
@@ -235,3 +235,25 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   frontend's attach is refused as `snapshotTooLarge` and the first keeps its lease and still acts. Since `a5f8a78`
   (Rust app) `build-rust.sh --install` sends SIGUSR1 to the bundle's workers. Not reached: 8 pending controls and
   256 sessions.
+- 26/11/2026, decided by Marius (typed in the `Rust app` session): "the swift app can be pushed in the release, once
+  and for all but then deleted the second the rust app works. at least locally. as I said, one release of the swift
+  app"; on the sources: "delete them from the repo too but they should be in the history, right ? and a release about
+  it too, right ?"; and "yes" to publishing that release now. Earlier the same day, in the sweep session: the Rust
+  worker "needs to wait until fully functional".
+- 26/11/2026, observed: the kept Swift release is published,
+  https://github.com/anpawo/my-apps/releases/tag/vcx-swift-final (`Vibe.Code.X-0.2.0.zip`, the file the release
+  workflow built from `92a827e`). `.github/workflows/release.yml` deletes only `build-` releases since `b45a2ce`:
+  the run on `10a1be1` replaced the build release before it and left `vcx-swift-final`. The `cx` name is gone from
+  the code (`8a1ebcc`, `deeaee8`, another session); on that main the workspace run is green
+  (`cargo test --locked --workspace` in `rust/`, `deeaee8`: 535 passed, 0 failed, 1 ignored, a measure). The run
+  before, on `552fc0a`, had `crates/vcx-shell/tests/windowless.rs` fail once (`the shell ended with exit status: 1`)
+  and pass 3 times of 3 alone; its cause was not looked for.
+- 26/11/2026, proposed by this session and agreed with `Rust app`, not yet done: the list that says the Rust app
+  works, after which the Swift app goes with no trial week. (1) The workspace run and the 30 conformance cases
+  green on main. (2) `Rust worker`'s list of differences from the Swift `Session` empty (`rust/PROGRESS.md`), and
+  the Rust worker the default of VCX Rust. (3) The `vcx` command, the opener and his hotkey start `VCX Rust.app`.
+  (4) His open Swift windows reopened in VCX Rust by `takeOver` (`92a827e`) once the Swift app has quit; the Swift
+  recovery entry stays, so a Swift relaunch would take a window back. Then, in this order: `vcx-swift-final`
+  refreshed from the last commit that holds the Swift sources (it predates the rename), the installed
+  `Vibe Code X.app` removed (`Rust app`), and the Swift sources, `build.py` and the `mac.vcx-update` job removed
+  from the repo in one commit that can be reverted.
