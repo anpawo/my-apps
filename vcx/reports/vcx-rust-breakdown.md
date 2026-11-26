@@ -255,5 +255,5 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   (4) His open Swift windows reopened in VCX Rust by `takeOver` (`92a827e`) once the Swift app has quit; the Swift
   recovery entry stays, so a Swift relaunch would take a window back. Then, in this order: `vcx-swift-final`
   refreshed from the last commit that holds the Swift sources (it predates the rename), the installed
-  `Vibe Code X.app` removed (`Rust app`), and the Swift sources, `build.py` and the `mac.vcx-update` job removed
-  from the repo in one commit that can be reverted.
+  `Vibe Code X.app` removed (`Rust app`), and the Swift sources, `build.sh`, `install-native.py`, `auto-update.sh` and
+  the `mac.vcx-update` job removed from the repo in one commit that can be reverted.
