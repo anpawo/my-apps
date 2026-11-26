@@ -502,6 +502,14 @@
     zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), true);
   }
 
+  // The Swift `/preview`: the last picture of the conversation, false when there is none (the core says so).
+  function previewLast() {
+    const pictures = list.querySelectorAll('button.picture[data-src]');
+    if (!pictures.length) return false;
+    preview(pictures[pictures.length - 1].dataset.src);
+    return true;
+  }
+
   // Hidden once the popup has shrunk away, so a click during the close does not reach the transcript under it.
   function closePreview() {
     const overlay = $('preview');
@@ -546,6 +554,6 @@
     $('latest').hidden = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
   }, { passive: true });
 
-  window.vcx = { receive, restyle, post };
+  window.vcx = { receive, restyle, post, previewLast };
   post({ type: 'ready', contract: CONTRACT });
 })();

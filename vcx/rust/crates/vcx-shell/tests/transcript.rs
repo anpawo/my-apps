@@ -234,11 +234,18 @@ fn shows_a_pasted_picture_served_by_the_core_and_previews_it(page: &Page) -> Res
     page.press(Key::Escape, NONE)?;
     page.eval(FINISH_MOTION)?;
     let closed = page.eval("document.getElementById('preview').hidden")?;
+    let last = page.eval("vcx.previewLast()")?;
+    page.eval(FINISH_MOTION)?;
+    let reopened = page.eval("!document.getElementById('preview').hidden")?;
+    page.show(json!({"rows": [{"id": "R2", "kind": "user", "items": [{"id": "u2", "type": "userMessage", "text": "no picture"}]}]}))?;
+    let none = page.eval("vcx.previewLast()")?;
 
     check(drawn[0]["text"] == "Image #1\nClick to preview" && drawn[1]["text"].as_str().is_some_and(|text| text.contains("Image #2")), format!("the pictures read {drawn}"))?;
     check(drawn[1]["loaded"] == -1, "a picture with no file shows its placeholder")?;
     check(opened["shown"] == true && opened["glass"] == true && opened["src"].as_str().is_some_and(|src| src.starts_with("vcx://image/")), format!("the preview is {opened}"))?;
-    check(closed == true, "Escape closes the preview")
+    check(closed == true, "Escape closes the preview")?;
+    check(last == true && reopened == true, format!("/preview opened the last picture: {last}, shown: {reopened}"))?;
+    check(none == false, "/preview finds no picture in a conversation without one")
 }
 
 fn draws_a_waiting_prompt_and_a_message_from_another_window(page: &Page) -> Result<(), String> {
