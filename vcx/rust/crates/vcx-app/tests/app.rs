@@ -681,7 +681,8 @@ fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
     let on_q: Vec<&Value> = application.iter().filter(|item| item["key"] == "q").collect();
     assert_eq!(on_q, [&json!({"title": "Close Session", "key": "q", "action": "closeWindow:"})], "{menus}");
     let on_k: Vec<&Value> = application.iter().filter(|item| item["key"] == "k").collect();
-    assert_eq!(on_k, [&json!({"title": "Close Session", "key": "k", "action": "closeNow:"})], "{menus}");
+    assert_eq!(on_k, [&json!({"title": "Close Session", "key": "k", "action": "closeNow:", "hidden": true})], "{menus}");
+    assert_eq!(application[0], json!({"title": "About VCX Rust", "key": "", "action": "orderFrontStandardAboutPanel:"}), "{menus}");
     assert!(application.iter().all(|item| item["action"] != "terminate:"), "{menus}");
     let file = items("File");
     let file: Vec<(&str, &str)> = file.iter().map(|item| (item["title"].as_str().unwrap(), item["action"].as_str().unwrap())).collect();

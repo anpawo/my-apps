@@ -13,6 +13,7 @@ pub const FILE: &str = "File";
 /// Swift's ⌘Q item: it closes the front session, never the whole app.
 const CLOSE_SESSION: &str = "Close Session";
 const CLOSE_NOW_KEY: &str = "k";
+const ABOUT: &str = "About VCX Rust";
 /// The application menu holds index 0; the File menu follows it, as in the Swift app.
 const FILE_MENU_INDEX: isize = 1;
 const COMMAND: NSEventModifierFlags = NSEventModifierFlags::Command;
@@ -137,6 +138,7 @@ pub fn install(mtm: MainThreadMarker, act: impl Fn(MenuAction) + 'static) {
     }
     bar.insertItem_atIndex(&holder, FILE_MENU_INDEX.min(bar.numberOfItems()));
     close_session_on_q(&bar, &target);
+    about_first(&bar, mtm);
     TARGET.with(|slot| *slot.borrow_mut() = Some(target));
 }
 
@@ -155,11 +157,27 @@ fn close_session_on_q(bar: &NSMenu, target: &FileMenuTarget) {
                 let now = NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(MainThreadMarker::from(target)), &NSString::from_str(CLOSE_SESSION), Some(selector(MenuAction::CloseNow)), &NSString::from_str(CLOSE_NOW_KEY));
                 now.setKeyEquivalentModifierMask(COMMAND);
                 now.setTarget(Some(target));
+                // Out of sight as in Swift: the key alone closes at once, the menu offers the asking ⌘Q.
+                now.setHidden(true);
+                now.setAllowsKeyEquivalentWhenHidden(true);
                 application.insertItem_atIndex(&now, index + 1);
             }
             return;
         }
     }
+}
+
+/// The application menu opens on About, the standard panel with the bundle's name, version and icon, as in Swift.
+fn about_first(bar: &NSMenu, mtm: MainThreadMarker) {
+    let Some(application) = bar.itemAtIndex(0).and_then(|item| item.submenu()) else { return };
+    let title = NSString::from_str(ABOUT);
+    if application.itemWithTitle(&title).is_some() {
+        return;
+    }
+    // SAFETY: no target: the action goes up the responder chain to NSApplication, which answers it.
+    let about = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &title, Some(sel!(orderFrontStandardAboutPanel:)), &NSString::from_str("")) };
+    application.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), 0);
+    application.insertItem_atIndex(&about, 0);
 }
 
 /// The menu bar as titles, keys and actions, for the app's report.
@@ -168,7 +186,11 @@ pub fn outline(mtm: MainThreadMarker) -> serde_json::Value {
     let items = |menu: &NSMenu| -> Vec<serde_json::Value> {
         (0..menu.numberOfItems()).filter_map(|index| menu.itemAtIndex(index)).filter(|item| !item.isSeparatorItem()).map(|item| {
             let action = item.action().map(|action| action.name().to_string_lossy().into_owned());
-            serde_json::json!({"title": item.title().to_string(), "key": item.keyEquivalent().to_string(), "action": action})
+            let mut described = serde_json::json!({"title": item.title().to_string(), "key": item.keyEquivalent().to_string(), "action": action});
+            if item.isHidden() {
+                described["hidden"] = serde_json::Value::Bool(true);
+            }
+            described
         }).collect()
     };
     (0..bar.numberOfItems()).filter_map(|index| bar.itemAtIndex(index)).map(|holder| {
