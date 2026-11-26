@@ -347,6 +347,40 @@ fn runs_a_command_offered_in_the_run_panel_and_shows_its_output_and_exit_code() 
     assert_eq!(panel.trim_end(), "Done \u{b7} exit 0|vcx-run-ok");
 }
 
+/// The status bar's progress chip, read in the page; empty while none shows.
+const PROGRESS_CHIP: &str = "document.querySelector('[data-chip=progress]')?.textContent ?? ''";
+
+#[test]
+fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_goes() {
+    let Some(mut run) = Run::new("progress") else { return };
+    let folder = run.folder("progress");
+    run.start(&["--cwd", folder.to_str().unwrap(), "wait for something"]);
+    let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["progressFile"].is_string() && drew_turns(&windows(report)[0], 1));
+    let (id, file) = (windows(&report)[0]["sessionId"].as_str().unwrap().to_owned(), PathBuf::from(windows(&report)[0]["progressFile"].as_str().unwrap()));
+    let chip = || -> String { serde_json::from_str(run.ask(&json!({"evaluate": {"to": id, "script": PROGRESS_CHIP}})).unwrap()["result"].as_str().unwrap()).unwrap() };
+    let until = |done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let shown = chip();
+            if done(&shown) {
+                return shown;
+            }
+            assert!(Instant::now() < deadline, "the progress chip stayed at {shown:?}");
+            thread::sleep(POLL);
+        }
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+
+    fs::write(&file, format!("Fetching weights\t{now}\t600\n")).unwrap();
+    let shown = until(&|shown| shown.contains("Fetching weights"));
+    fs::remove_file(&file).unwrap();
+    let hidden = until(&|shown| shown.is_empty());
+
+    assert!(shown.contains("min left"), "{shown}");
+    assert_eq!(hidden, "");
+}
+
 #[test]
 fn says_no_window_is_open_when_no_app_runs() {
     let Some(run) = Run::new("none") else { return };

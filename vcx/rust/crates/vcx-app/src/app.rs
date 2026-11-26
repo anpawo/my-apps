@@ -5,7 +5,8 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, folder, local, login, metrics, quota, requests, sheet, tasks};
+use crate::menus::MenuAction;
+use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, requests, sheet, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -76,6 +77,12 @@ pub enum AppEvent {
     Quota(Value),
     /// Whether window `key`'s page had a picture to preview.
     Previewed(u64, bool),
+    /// A File menu item chosen.
+    Menu(MenuAction),
+    /// The folder picked in the Open Project panel.
+    OpenProject(PathBuf),
+    /// He chose Close on window `key` while its agent was at work.
+    CloseConfirmed(u64),
 }
 
 pub(crate) struct Win {
@@ -92,6 +99,9 @@ pub(crate) struct Win {
     titlebar: f64,
     /// The task bar message the page has, so an unchanged list is not sent again.
     tasks_shown: Value,
+    /// The progress line the page has, and the file sizes read for its rate.
+    progress_shown: Value,
+    progress_samples: Vec<(f64, f64)>,
 }
 
 struct Spec {
@@ -179,8 +189,11 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         event_loop.set_activate_ignoring_other_apps(false);
     }
     // The Edit menu is what carries ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z to the web view.
-    vcx_shell::menu::install(objc2_foundation::MainThreadMarker::new().ok_or("VCX Rust runs on the main thread.")?);
+    let mtm = objc2_foundation::MainThreadMarker::new().ok_or("VCX Rust runs on the main thread.")?;
+    vcx_shell::menu::install(mtm);
     let proxy = event_loop.create_proxy();
+    let to_menu = proxy.clone();
+    menus::install(mtm, move |action| drop(to_menu.send_event(AppEvent::Menu(action))));
     let to_loop = proxy.clone();
     control::serve(&options.homes.control(), move |request| drop(to_loop.send_event(AppEvent::Control(request))))?;
     let pid = std::process::id();
@@ -313,7 +326,7 @@ impl App {
             pane.note(notice.clone());
         }
         self.keys.insert(window.id(), key);
-        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null });
+        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new() });
         self.schedule_publish();
     }
 
@@ -354,8 +367,15 @@ impl App {
             }
             AppEvent::Tasks => {
                 self.show_tasks();
+                self.show_progress();
                 None
             }
+            AppEvent::Menu(action) => self.menu(target, action),
+            AppEvent::OpenProject(path) => {
+                drop(self.new_session(target, Open { cwd: path.to_string_lossy().into_owned(), focus: true, ..Open::default() }));
+                None
+            }
+            AppEvent::CloseConfirmed(key) => self.close_window(key),
             AppEvent::Previewed(key, false) => {
                 if let Some(win) = self.windows.get_mut(&key) {
                     win.pane.note(local::NO_PICTURE.into());
@@ -399,13 +419,15 @@ impl App {
                 eprintln!("vcx-rust: {reason}");
                 self.drop_window(key, false);
             }
-            // The page has just been given the whole state: it gets the task bar again.
+            // The page has just been given the whole state: it gets the task bar and the progress line again.
             Note::Shown(_) => {
                 win.tasks_shown = Value::Null;
+                win.progress_shown = Value::Null;
                 if local::shown(&self.login_message) {
                     win.pane.to_page(&self.login_message);
                 }
                 self.show_tasks();
+                self.show_progress();
             }
             Note::Title(text) => win.window.set_title(&text),
             Note::Focus(id) => self.bring(&id),
@@ -454,6 +476,38 @@ impl App {
         self.login_message = message;
     }
 
+    /// Closes window `key`, asking first while its agent or a background task still runs (Swift `windowShouldClose`).
+    fn ask_close(&mut self, key: u64) -> Option<i32> {
+        let win = self.windows.get(&key)?;
+        let work = win.summary.as_ref().and_then(|summary| confirm::running_work(summary.busy, summary.background_tasks as usize));
+        let Some(work) = work.filter(|_| !self.windowless) else { return self.close_window(key) };
+        let folder = std::path::Path::new(&win.cwd).file_name().map_or_else(|| win.cwd.clone(), |name| name.to_string_lossy().into_owned());
+        let proxy = self.proxy.clone();
+        confirm::ask(&win.window, &confirm::close_title(&folder), &work, confirm::CLOSE_BUTTON, move |close| {
+            if close {
+                drop(proxy.send_event(AppEvent::CloseConfirmed(key)));
+            }
+        });
+        None
+    }
+
+    /// The File menu (Swift `newWindow`, `openProject`, and `performClose:` on the front window).
+    fn menu(&mut self, target: &EventLoopWindowTarget<AppEvent>, action: MenuAction) -> Option<i32> {
+        let front = self.focused.filter(|key| self.windows.contains_key(key));
+        let cwd = front.map_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".into()), |key| self.windows[&key].cwd.clone());
+        match action {
+            MenuAction::NewWindow => drop(self.new_session(target, Open { cwd, focus: true, ..Open::default() })),
+            // A check never opens a panel.
+            MenuAction::OpenProject if self.windowless => {}
+            MenuAction::OpenProject => {
+                let proxy = self.proxy.clone();
+                folder::choose(&cwd, move |path| drop(proxy.send_event(AppEvent::OpenProject(path))));
+            }
+            MenuAction::CloseWindow => return front.and_then(|key| self.ask_close(key)),
+        }
+        None
+    }
+
     /// Ends the window's session; the app's exit code once its last window closed.
     pub(crate) fn close_window(&mut self, key: u64) -> Option<i32> {
         self.drop_window(key, true);
@@ -483,7 +537,7 @@ impl App {
     fn window_event(&mut self, id: WindowId, event: WindowEvent) -> Option<i32> {
         let key = *self.keys.get(&id)?;
         match event {
-            WindowEvent::CloseRequested => return self.close_window(key),
+            WindowEvent::CloseRequested => return self.ask_close(key),
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => self.schedule_save(),
             WindowEvent::Focused(true) => {
                 self.focused = Some(key);
@@ -492,6 +546,23 @@ impl App {
             _ => {}
         }
         None
+    }
+
+    /// Reads what each window's agent waits on ($VCX_PROGRESS_FILE) and gives the page the line that changed.
+    fn show_progress(&mut self) {
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64());
+        for win in self.windows.values_mut() {
+            let file = win.summary.as_ref().and_then(|summary| summary.progress_file.clone());
+            let read = file.and_then(|file| progress::read(std::path::Path::new(&file), now, &mut win.progress_samples));
+            if read.is_none() {
+                win.progress_samples.clear();
+            }
+            let message = progress::message(read.as_ref());
+            if message != win.progress_shown {
+                win.pane.to_page(&message);
+                win.progress_shown = message;
+            }
+        }
     }
 
     /// Reads every window's task file and gives each page the list that changed for it.
@@ -637,7 +708,7 @@ fn describe(win: &Win, page: Option<Value>) -> Value {
     json!({
         "sessionId": win.session_id, "socket": win.socket, "cwd": win.cwd, "recordID": win.record_id,
         "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(),
-        "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
+        "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "progressFile": summary.progress_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
         "name": vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
         "page": page.unwrap_or(Value::Null),
     })

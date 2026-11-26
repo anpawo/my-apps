@@ -1,10 +1,13 @@
 pub mod app;
+mod confirm;
 pub mod control;
 pub mod fleet;
 mod folder;
 mod local;
 mod login;
+mod menus;
 pub mod metrics;
+mod progress;
 mod quota;
 mod requests;
 pub mod settings;

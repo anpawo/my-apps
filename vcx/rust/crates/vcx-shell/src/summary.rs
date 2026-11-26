@@ -17,6 +17,9 @@ pub struct Summary {
     pub state: &'static str,
     /// Ready for a message from another window: nothing runs and nothing changes.
     pub idle: bool,
+    /// What a close or quit warns about (Swift `runningWork`): a turn under way, and background tasks still running.
+    pub busy: bool,
+    pub background_tasks: u64,
     pub prompt: Option<String>,
     pub last_prompt_at: Option<f64>,
     pub context: Option<String>,
@@ -59,6 +62,8 @@ pub fn of(state: &SessionState) -> Summary {
         cwd: text(meta, "cwd").unwrap_or_default(),
         state: fleet_state,
         idle: flag("ready") && !flag("busy") && !flag("changing"),
+        busy: flag("busy"),
+        background_tasks: background,
         prompt: prompt.map(|prompt| clipped(&prompt)),
         last_prompt_at: user_items.last().and_then(|item| item.get("sentAt")).and_then(Value::as_f64),
         context: text(meta, "fleetContext").filter(|context| !context.is_empty()),
@@ -156,6 +161,17 @@ mod tests {
 
         assert_eq!((asking.state, running.state), ("waiting", "working"));
         assert!(!running.idle);
+    }
+
+    #[test]
+    fn counts_the_work_a_close_would_cut_short() {
+        let pending = state(json!({"ready": true, "busy": false, "backgroundTasks": 2, "rows": []}));
+        let running = state(json!({"ready": true, "busy": true, "rows": []}));
+
+        let (pending, running) = (of(&pending), of(&running));
+
+        assert_eq!((pending.busy, pending.background_tasks, pending.state), (false, 2, "pending"));
+        assert_eq!((running.busy, running.background_tasks), (true, 0));
     }
 
     #[test]
