@@ -43,6 +43,10 @@ pub enum Effect {
     Limit(Object),
     /// A server rate limit failed the turn: the same account retries it after a wait.
     RateLimited,
+    /// The agent stopped on its own (why, its last error line, its log): it is restarted on its conversation.
+    Crashed(Object),
+    /// Claude could not find the conversation it was asked to resume: a new one takes the recent messages.
+    ResumeFailed,
 }
 
 /// A prompt on its way: the row is already shown, the request not yet answered.
@@ -457,7 +461,8 @@ impl Session {
             Kind::RequestResolved { request_id } => self.permissions.retain(|permission| permission.rpc_id.to_string() != request_id.to_string()),
             Kind::RateLimits { limits } => self.rate_limits(limits),
             Kind::Other if method == "cx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
-            Kind::Other if method == "cx/disconnected" => self.agent_stopped(params),
+            Kind::Other if method == "cx/disconnected" => effects.extend(self.agent_stopped(params)),
+            Kind::Other if method == "cx/resumeFailed" => effects.push(Effect::ResumeFailed),
             Kind::Other => {}
         }
         effects
@@ -520,29 +525,29 @@ impl Session {
             .join(" - ");
     }
 
-    /// An adapter's agent stopped: on purpose (`ended`), or with why and its log's last error line.
-    pub fn agent_stopped(&mut self, params: &Object) {
+    /// An adapter's agent stopped: on purpose (`ended`), or crashed, with why and its log's last error line, to restart.
+    pub fn agent_stopped(&mut self, params: &Object) -> Vec<Effect> {
         let ended = params.get("ended") == Some(&Value::Bool(true));
-        let mut message = text(params, "message").unwrap_or("The agent disconnected.").to_owned();
-        if let Some(reason) = text(params, "reason") {
-            message = format!("{} stopped ({reason}). {message}", self.provider_label);
+        if params.contains_key("reason") && !ended {
+            self.lost(false);
+            return vec![Effect::Crashed(params.clone())];
         }
+        let mut message = text(params, "message").unwrap_or("The agent disconnected.").to_owned();
         if let Some(line) = text(params, "line") {
             message = format!("{message} Last error: {line}");
         }
-        self.disconnected(&message, ended);
-        if let Some(log) = text(params, "log") {
-            if let Some(item) = self.rows.last().and_then(|row| row.items.first()).cloned() {
-                if let Some(data) = self.items.get_mut(&item) {
-                    data.insert("link".into(), json!(log));
-                }
-            }
-        }
+        self.notice_linked(&message, text(params, "log"));
+        self.lost(ended);
+        Vec::new()
     }
 
     /// The agent ended: the session cannot work until it is reopened.
     pub fn disconnected(&mut self, reason: &str, ended: bool) {
         self.notice(reason);
+        self.lost(ended);
+    }
+
+    fn lost(&mut self, ended: bool) {
         self.needs_attention = !ended;
         self.ready = false;
         self.busy = false;

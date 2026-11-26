@@ -14,6 +14,8 @@ use vcx_testkit::RustWorker;
 
 const QWEN_PROMPT: &str = "Run the shell command `echo vcx` once, then reply with the single word: done.";
 const HANDOFF: &str = "Context from this conversation";
+/// A Claude that, the first time, exits as Claude does on a conversation it cannot find, then replays a recorded turn.
+const FAILS_TO_RESUME_ONCE: &str = "import os, sys\nflag = sys.argv[1]\nif not os.path.exists(flag):\n    open(flag, 'w').close()\n    sys.stderr.write('No conversation found with session ID: fixture\\n')\n    sys.exit(1)\nos.execv('/usr/bin/python3', ['/usr/bin/python3', '-I'] + sys.argv[2:])\n";
 
 fn fixture() -> Vec<String> {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/fake_agent.py").canonicalize().unwrap();
@@ -113,17 +115,54 @@ fn asks_for_approval_when_his_mode_is_ask_and_after_perms_ask() {
 }
 
 #[test]
-fn keeps_a_crashed_agents_stderr_and_names_its_last_error() {
+fn restarts_a_crashed_agent_once_and_names_its_last_error_from_its_log() {
     let worker = codex("crash", json!({}));
     let mut held = held(&worker);
 
     send(&mut held, "fixture:crash");
-    held.follow(noticed("Last error: fatal: fixture crashed"));
+    held.follow(noticed("Codex stopped (exited with status 3). Restarted it, context kept. Last error: fatal: fixture crashed"));
+    held.follow(|state| meta(state, "ready") == &json!(true));
+    held.turn("still there?");
+    send(&mut held, "fixture:crash");
+    held.follow(noticed("It stopped twice in 5 minutes, so VCX did not restart it."));
 
     let state = held.replica.state().unwrap();
     let log = PathBuf::from(meta(state, "stateDirectory").as_str().unwrap()).join("logs").join(format!("{}.log", meta(state, "recordID").as_str().unwrap()));
     assert!(std::fs::read_to_string(&log).unwrap().contains("fatal: fixture crashed"), "{}", log.display());
     let notice = state.rows.iter().rev().find(|row| row.kind == "notice").unwrap();
     assert_eq!(state.items[&notice.items[0]]["link"], json!(log.to_string_lossy()));
+    assert_eq!(meta(state, "ready"), &json!(false));
 }
 
+#[test]
+fn starts_a_new_claude_conversation_when_the_saved_one_cannot_be_resumed() {
+    let flag = std::env::temp_dir().join(format!("vcx-resume-failed-{}", std::process::id()));
+    let _ = std::fs::remove_file(&flag);
+    let streams = common::streams();
+    let command: Vec<String> = ["/usr/bin/python3", "-I", "-c", FAILS_TO_RESUME_ONCE].into_iter().map(str::to_owned)
+        .chain([flag.clone(), streams.join("replay.py"), streams.join("claude-turn.jsonl")].map(|path| path.to_string_lossy().into_owned())).collect();
+    let worker = RustWorker::start_provider(Path::new(env!("CARGO_BIN_EXE_vcx-worker")), "resume-failed", "claude", &command, &json!({}));
+    let mut held = Held::open(&Target { socket: worker.socket.clone(), directory: worker.directory.clone(), pid: worker.pid() });
+
+    held.follow(noticed("Claude could not resume this conversation, so a new one started."));
+    held.follow(|state| meta(state, "ready") == &json!(true));
+
+    assert!(flag.exists(), "the first Claude ran and failed");
+    let _ = std::fs::remove_file(&flag);
+}
+
+#[test]
+fn uses_the_account_named_by_account_and_reconnects_on_request() {
+    let accounts = json!({"accounts": [{"id": "codex-a", "name": "A", "provider": "codex"}, {"id": "codex-b", "name": "B", "provider": "codex"}]});
+    let worker = codex("account", accounts);
+    let mut held = held(&worker);
+
+    held.lease.perform(&held.peer.client, "command", json!({"text": "/account B"})).expect("the worker uses account B");
+    held.follow(|state| meta(state, "account")["id"] == "codex-b" && meta(state, "ready") == &json!(true));
+    held.lease.perform(&held.peer.client, "command", json!({"text": "/reconnect"})).expect("the worker reconnects");
+    held.follow(noticed("Reconnected to Codex: reconnect requested. Context kept."));
+
+    let state = held.replica.state().unwrap();
+    assert!(notices(state).contains(&"Connected to Codex: account changed.".to_owned()), "{:?}", notices(state));
+    assert_eq!(meta(state, "account")["id"], "codex-b");
+}

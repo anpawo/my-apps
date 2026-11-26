@@ -32,6 +32,9 @@ const INTERRUPTING_ACTIONS: [&str; 3] = ["answer", "stop", "checkpoint"];
 const CLAUDE_SETTINGS: &str = "claude-settings.json";
 const MODE_TIMEOUT: Duration = Duration::from_secs(20);
 const PROVIDER_CHOICES: [&str; 5] = ["auto", "claude", "codex", "qwen", "agy"];
+/// An agent that stops twice within this many seconds is left to the user.
+const CRASH_WINDOW: f64 = 300.0;
+const IDLE_ONLY: &str = "Stop the current response before changing session settings.";
 
 /// How sessions start their agent.
 pub struct Config {
@@ -74,6 +77,10 @@ pub struct SessionBackend {
     transferring: Cell<bool>,
     /// A `/provider` asked during a turn, run once it ends.
     pending_command: RefCell<Option<String>>,
+    /// The account `/account` chose, tried first among its provider's.
+    account_choice: RefCell<Option<String>>,
+    /// When the agent last stopped on its own, in seconds since 1970.
+    last_crash: Cell<Option<f64>>,
 }
 
 fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
@@ -128,6 +135,8 @@ impl SessionBackend {
             mode_choice: RefCell::default(),
             transferring: Cell::new(false),
             pending_command: RefCell::default(),
+            account_choice: RefCell::default(),
+            last_crash: Cell::new(None),
         });
         let (starting, params) = (Rc::clone(&backend), params.clone());
         tokio::task::spawn_local(async move {
@@ -275,40 +284,55 @@ impl SessionBackend {
 
     /// Moves the conversation to `account`'s agent on a new thread, handed the recent messages, as the Swift
     /// `activate` does with `keepRows`; `reason` is told when one is given.
-    async fn activate(self: &Rc<Self>, account: &Account, reason: Option<&str>) -> Result<(), String> {
+    async fn activate(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>) -> Result<(), String> {
         if self.session.borrow().changing {
             return Err("A connection change is already in progress.".into());
         }
         self.session.borrow_mut().changing = true;
         self.schedule();
-        let result = self.switch_to(account, reason).await;
+        let result = self.switch_to(account, resume, reason).await;
         self.session.borrow_mut().changing = false;
         self.schedule();
         result
     }
 
-    async fn switch_to(self: &Rc<Self>, account: &Account, reason: Option<&str>) -> Result<(), String> {
+    async fn switch_to(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>) -> Result<(), String> {
         let settings = self.settings();
         let (agent, incoming) = self.start_agent(account, &settings).await?;
         let previous = self.session.borrow().account["id"].clone();
         self.session.borrow_mut().flush();
-        let handoff = fallback::handoff_context(&self.session.borrow());
+        // A resumed provider thread already holds the conversation; Qwen keeps none of its own.
+        let handoff = if resume.is_none() || account.provider == "qwen" { fallback::handoff_context(&self.session.borrow()) } else { String::new() };
         self.install(account, agent, incoming, self.preferred_mode(&settings));
         self.session.borrow_mut().injected_context = handoff;
-        if let Err(error) = self.open(None, true).await {
+        if let Err(error) = self.open(resume.as_deref(), true).await {
             self.session.borrow_mut().ready = false;
             return Err(error);
         }
+        let switched = previous != json!(account.id);
         let mut session = self.session.borrow_mut();
-        if previous != json!(account.id) {
+        if switched {
             session.effort = None;
         }
         if let Some(reason) = reason {
-            let passed = if session.injected_context.is_empty() { "" } else { " Recent messages are passed to it as context." };
-            let message = format!("Connected to {}: {reason}.{passed}", session.provider_label);
+            let kept = if !session.injected_context.is_empty() { " Recent messages are passed to it as context." } else if resume.is_some() { " Context kept." } else { "" };
+            let message = format!("{} {}: {reason}.{kept}", if switched { "Connected to" } else { "Reconnected to" }, session.provider_label);
             session.notice(&message);
         }
         Ok(())
+    }
+
+    /// His accounts of the session's provider that are not resting, the one `/account` chose first.
+    fn available(&self, settings: &Settings) -> Vec<Account> {
+        let choice = self.provider_choice.borrow().clone().unwrap_or_else(|| settings.default_provider());
+        let mut accounts = settings.available(&choice, fallback::now());
+        if let Some(chosen) = self.account_choice.borrow().as_ref() {
+            if let Some(index) = accounts.iter().position(|account| &account.id == chosen) {
+                let account = accounts.remove(index);
+                accounts.insert(0, account);
+            }
+        }
+        accounts
     }
 
     /// The account is not tried again before `reset` (seconds since 1970); his other sessions read it too.
@@ -325,10 +349,9 @@ impl SessionBackend {
     /// rested and the next is tried. `false` when none is available.
     async fn activate_available(self: &Rc<Self>) -> Result<bool, String> {
         let settings = self.settings();
-        let choice = self.provider_choice.borrow().clone().unwrap_or_else(|| settings.default_provider());
         let mut failure = None;
-        for next in settings.available(&choice, fallback::now()) {
-            match self.activate(&next, None).await {
+        for next in self.available(&settings) {
+            match self.activate(&next, None, None).await {
                 Ok(()) => return Ok(true),
                 Err(error) if usage_limit(&object(json!({"error": error}))) => {
                     self.rest(&next.id, fallback::now() + fallback::LIMIT_PAUSE);
@@ -403,6 +426,126 @@ impl SessionBackend {
         let _ = Rc::clone(&self).send(fallback::KEEP_GOING, &[], None, None, false).await;
     }
 
+    fn current_account(&self) -> Account {
+        let session = self.session.borrow();
+        let id = session.account["id"].as_str().unwrap_or_default().to_owned();
+        let provider = session.provider.clone();
+        drop(session);
+        self.settings().candidates(&provider).into_iter().find(|account| account.id == id).unwrap_or_else(|| provider::choose(&Settings::default(), Some(&provider), None, fallback::now()))
+    }
+
+    /// The Swift `restartAfterCrash`: an agent that stopped on its own is restarted once on its conversation; a second
+    /// stop within five minutes is left to the user.
+    async fn restart_after_crash(self: Rc<Self>, params: Object) {
+        let label = self.session.borrow().provider_label.clone();
+        let stopped = format!("{label} stopped ({}).", text(&params, "reason").unwrap_or_default());
+        let line = text(&params, "line").map(|line| format!(" Last error: {line}")).unwrap_or_default();
+        let log = text(&params, "log");
+        let now = fallback::now();
+        if self.last_crash.get().is_some_and(|last| now - last < CRASH_WINDOW) {
+            self.notice_linked(&format!("{stopped} It stopped twice in 5 minutes, so VCX did not restart it. Use /reconnect to try again.{line}"), log);
+            return;
+        }
+        self.last_crash.set(Some(now));
+        let thread = self.session.borrow().thread_id.clone();
+        match self.activate(&self.current_account(), thread, None).await {
+            Ok(()) => {
+                self.session.borrow_mut().needs_attention = false;
+                self.refresh_catalog().await;
+                self.notice_linked(&format!("{stopped} Restarted it, context kept.{line}"), log);
+            }
+            Err(error) => self.notice_linked(&format!("{stopped} Restarting it failed: {error}{line}"), log),
+        }
+    }
+
+    fn notice_linked(self: &Rc<Self>, message: &str, link: Option<&str>) {
+        self.session.borrow_mut().notice_linked(message, link);
+        self.schedule();
+    }
+
+    /// Claude exits when it cannot find the conversation it was asked to resume; a new one receives the recent messages
+    /// and the prompt it was given.
+    async fn resume_failed(self: Rc<Self>) {
+        let input = {
+            let session = self.session.borrow();
+            session.pending_input.clone().filter(|_| session.busy)
+        };
+        if let Err(error) = self.activate(&self.current_account(), None, None).await {
+            self.notice_linked(&format!("Claude could not resume this conversation: {error}"), None);
+            return;
+        }
+        self.refresh_catalog().await;
+        let passed = if self.session.borrow().injected_context.is_empty() { "" } else { " Recent messages are passed to it as context." };
+        self.notice_linked(&format!("Claude could not resume this conversation, so a new one started.{passed}"), None);
+        if let Some((text, images)) = input {
+            let _ = Rc::clone(&self).send(&text, &images, None, None, true).await;
+        }
+    }
+
+    /// The Swift `reconnect`: the running account on its conversation, unless another is chosen, disabled or resting.
+    async fn reconnect(self: &Rc<Self>, reason: &str) -> Result<(), String> {
+        let settings = self.settings();
+        let available = self.available(&settings);
+        let Some(fallback) = available.first().cloned() else {
+            if let Some(agent) = self.agent.borrow_mut().take() {
+                agent.close();
+            }
+            let mut session = self.session.borrow_mut();
+            session.ready = false;
+            session.status = "No available account".into();
+            return Err("No enabled account is available for the selected provider. Use /account or /provider.".into());
+        };
+        let current = self.current_account();
+        let thread = self.session.borrow().thread_id.clone();
+        let auto = self.provider_choice.borrow().as_deref() == Some("auto");
+        let mut target = (current.clone(), thread.clone());
+        if !auto && fallback.id != current.id {
+            target = (fallback.clone(), None);
+        }
+        let chosen = self.account_choice.borrow().clone();
+        if settings.account(&target.0.id).is_some_and(|latest| !latest.enabled && chosen.as_ref() != Some(&latest.id)) {
+            target = (fallback.clone(), None);
+        }
+        if !available.iter().any(|account| account.id == target.0.id) {
+            target = (fallback, None);
+        }
+        self.activate(&target.0, target.1, Some(reason)).await?;
+        self.refresh_catalog().await;
+        Ok(())
+    }
+
+    /// `/account <id or name>` uses it; `/account enable|disable <id>` and `/account rename <id> <name>` change his settings.
+    async fn change_account(self: &Rc<Self>, argument: &str) -> Result<(), String> {
+        let args: Vec<&str> = argument.splitn(3, ' ').collect();
+        let operation = if ["enable", "disable", "rename"].contains(&args[0]) { args[0] } else { "use" };
+        let id = if operation == "use" { argument } else { args.get(1).copied().unwrap_or_default() };
+        let settings = self.settings();
+        let account = settings.accounts().into_iter().find(|account| account.id == id || account.name.eq_ignore_ascii_case(id)).ok_or("Choose an account from /account.")?;
+        let changed = match operation {
+            "use" => {
+                *self.provider_choice.borrow_mut() = Some(account.provider.clone());
+                *self.account_choice.borrow_mut() = Some(account.id.clone());
+                return self.reconnect("account changed").await;
+            }
+            "rename" => {
+                let name = args.get(2).filter(|name| !name.is_empty()).ok_or("Use /account rename <id> <name>.")?.to_string();
+                SettingsFile::new(&self.config.settings).update(|settings| {
+                    settings.set_account_name(&account.id, &name);
+                })
+            }
+            _ => SettingsFile::new(&self.config.settings).update(|settings| {
+                settings.set_account_enabled(&account.id, operation == "enable");
+            }),
+        };
+        changed?;
+        self.reconnect("account settings changed").await
+    }
+
+    fn idle(&self) -> Result<(), String> {
+        let session = self.session.borrow();
+        if session.busy || session.changing { Err(IDLE_ONLY.into()) } else { Ok(()) }
+    }
+
     /// The provider thread to reopen: the checkpoint's, or a bare thread id the frontend named.
     fn resume_target(&self, params: &Object) -> Option<String> {
         let saved = self.recovery.borrow().as_ref().and_then(|state| text(state, "threadID")).map(str::to_owned);
@@ -427,7 +570,7 @@ impl SessionBackend {
             return Err("The agent did not resume the exact requested native conversation.".into());
         }
         let mut history = Vec::new();
-        if resume.is_some() {
+        if resume.is_some() && !keep_rows {
             let mut cursor: Option<String> = None;
             loop {
                 let mut page = json!({"threadId": id, "limit": TURNS_PAGE, "sortDirection": "asc", "itemsView": "full"});
@@ -473,12 +616,13 @@ impl SessionBackend {
                         // Codex's stderr goes to the log; the adapters read theirs and say why themselves.
                         let log = self.log_path();
                         let line = last_error_line(&log_tail(&log, self.log_start.get()));
-                        let mut stopped = object(json!({"message": reason, "log": log.to_string_lossy()}));
+                        let why = reason.trim_end_matches('.').trim_start_matches("The agent ");
+                        let mut stopped = object(json!({"message": reason, "reason": why, "log": log.to_string_lossy()}));
                         if let Some(line) = line {
                             stopped.insert("line".into(), json!(line));
                         }
-                        self.session.borrow_mut().agent_stopped(&stopped);
-                        self.schedule();
+                        let effects = self.session.borrow_mut().agent_stopped(&stopped);
+                        self.run_effects(effects);
                     }
                     return;
                 }
@@ -496,6 +640,10 @@ impl SessionBackend {
             }
             Inbound::Response { .. } => Vec::new(),
         };
+        self.run_effects(effects);
+    }
+
+    fn run_effects(self: &Rc<Self>, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
                 Effect::Decline { id, method } => {
@@ -512,6 +660,12 @@ impl SessionBackend {
                 }
                 Effect::RateLimited => {
                     tokio::task::spawn_local(Rc::clone(self).retry_rate_limit());
+                }
+                Effect::Crashed(params) => {
+                    tokio::task::spawn_local(Rc::clone(self).restart_after_crash(params));
+                }
+                Effect::ResumeFailed => {
+                    tokio::task::spawn_local(Rc::clone(self).resume_failed());
                 }
             }
         }
@@ -740,6 +894,14 @@ impl SessionBackend {
             "/new" | "/clear" => self.open(None, false).await?,
             "/provider" | "/model" if !argument.is_empty() => Rc::clone(&self).change_provider(argument).await?,
             "/perms" if !argument.is_empty() => self.change_mode(argument).await?,
+            "/account" if !argument.is_empty() => {
+                self.idle()?;
+                self.change_account(argument).await?
+            }
+            "/reconnect" => {
+                self.idle()?;
+                self.reconnect(&format!("{} requested", verb.trim_start_matches('/'))).await?
+            }
             // Anything else is the agent's own command or skill: it reads the text as typed.
             _ => return Rc::clone(&self).send(text, &[], None, None, false).await,
         }
@@ -786,7 +948,7 @@ impl SessionBackend {
             return self.set_model(argument, None).await;
         }
         let settings = self.settings();
-        let candidates = if choice == "auto" { settings.available(choice, fallback::now()) } else { settings.candidates(choice).into_iter().filter(|account| account.provider == choice).collect() };
+        let candidates = if choice == "auto" { self.available(&settings) } else { settings.candidates(choice).into_iter().filter(|account| account.provider == choice).collect() };
         let next = candidates.into_iter().next().ok_or_else(|| format!("No enabled account is available for {choice}. Enable one with /account or add one with /login."))?;
         let previous = self.provider_choice.replace(Some(choice.to_owned()));
         let (current, ready) = {
@@ -794,7 +956,7 @@ impl SessionBackend {
             (session.account["id"].clone(), session.ready)
         };
         if current != json!(next.id) || !ready {
-            if let Err(error) = self.activate(&next, Some("provider changed")).await {
+            if let Err(error) = self.activate(&next, None, Some("provider changed")).await {
                 *self.provider_choice.borrow_mut() = previous;
                 return Err(error);
             }
@@ -811,9 +973,7 @@ impl SessionBackend {
 
     /// `/perms`: Codex takes the mode with its next turn, the adapters at once.
     async fn change_mode(&self, argument: &str) -> Result<(), String> {
-        if self.session.borrow().busy || self.session.borrow().changing {
-            return Err("Stop the current response before changing session settings.".into());
-        }
+        self.idle()?;
         let mode = match argument {
             "bypass" | "yolo" => "bypass",
             "ask" => "ask",
