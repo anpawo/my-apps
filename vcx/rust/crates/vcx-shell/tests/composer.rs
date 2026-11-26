@@ -27,11 +27,14 @@ use std::cell::RefCell;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tao::dpi::LogicalSize;
 use tao::event_loop::{EventLoop, EventLoopBuilder};
 use tao::window::{Window, WindowBuilder};
 use wry::{BackgroundThrottlingPolicy, WebView, WebViewBuilder, WebViewExtMacOS};
 
 const TEMPLATE_FOLDER: &str = "VCX_COMPOSER_TEMPLATE";
+/// The Swift window's own size: smaller, the session panel and the task bar cover the composer.
+const WINDOW_SIZE: LogicalSize<f64> = LogicalSize { width: 980.0, height: 720.0 };
 const WAIT: Duration = Duration::from_secs(10);
 /// How long an absence is watched before it counts: the page answers a key within a few milliseconds.
 const QUIET: Duration = Duration::from_millis(400);
@@ -107,7 +110,7 @@ fn check(condition: bool, what: impl Into<String>) -> Result<(), String> {
 
 impl Page {
     fn open(mtm: MainThreadMarker, event_loop: &EventLoop<()>) -> Page {
-        let window = WindowBuilder::new().with_title("VCX composer test").with_visible(false).build(event_loop).unwrap();
+        let window = WindowBuilder::new().with_title("VCX composer test").with_inner_size(WINDOW_SIZE).with_visible(false).build(event_loop).unwrap();
         // A folder named here is tested in place of the built-in template: the tree's page files hold other sessions' work in flight.
         let folder = std::env::var_os(TEMPLATE_FOLDER).map(std::path::PathBuf::from);
         let (store, problem) = template::Store::open(folder.as_deref());
