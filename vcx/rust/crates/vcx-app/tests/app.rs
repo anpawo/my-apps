@@ -326,6 +326,34 @@ const SCROLLED_PX: f64 = 2000.0;
 const SCROLL_TOP: &str = "document.getElementById('transcript')";
 const SCROLL_ROOM: &str = "(t => t.scrollHeight - t.clientHeight)(document.getElementById('transcript'))";
 
+#[test]
+fn stays_on_its_build_with_every_window_when_the_new_build_cannot_start() {
+    let Some(mut run) = Run::new("preflight") else { return };
+    let folder = run.folder("preflight");
+    let image = run.root.join("bin/vcx-rust");
+    fs::create_dir_all(image.parent().unwrap()).unwrap();
+    fs::copy(run.command().get_program(), &image).unwrap();
+    // The app execs the binary at its own path: this copy is the one the install below replaces.
+    let command = run.command();
+    let child = Command::new(&image).envs(command.get_envs().filter_map(|(name, value)| Some((name, value?)))).env_remove("CLAUDE_CODE_SESSION_ID").env_remove("VCX_THREAD_ID").args(["--windowless", "--cwd", folder.to_str().unwrap(), "before a broken build"]).stdin(Stdio::null()).stdout(Stdio::null()).spawn().unwrap();
+    run.app = Some(child);
+    run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let control = vcx_config::Homes::under(&run.root).control();
+    let listening = fs::metadata(&control).unwrap().ino();
+    // Replaced as an install replaces it: a new file renamed over the old one.
+    let broken = run.root.join("bin/broken");
+    fs::write(&broken, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&broken, fs::Permissions::from_mode(EXECUTABLE)).unwrap();
+    fs::rename(&broken, &image).unwrap();
+
+    // SAFETY: the pid is this run's own app, as build-rust.sh --install signals the installed one.
+    unsafe { libc::kill(run.app.as_ref().unwrap().id() as i32, libc::SIGUSR1) };
+
+    let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["page"]["notice"].as_str().is_some_and(|notice| notice.starts_with("Automatic update paused")));
+    assert_eq!(windows(&report)[0]["page"]["notice"], json!("Automatic update paused: The new build does not start: exit status: 1."));
+    assert_eq!(fs::metadata(&control).unwrap().ino(), listening, "the app left its build");
+}
+
 /// A second launch in the same moment, at its most eager: takes the state folder's lock whenever it is free and holds
 /// it long enough for the relaunched image to find it taken; writes how many times it got it.
 const LOCK_PROBE: &str = "import fcntl, sys, time
@@ -943,7 +971,15 @@ fn keeps_a_window_whose_worker_cannot_save_its_session_and_says_why() {
 /// What the Dock's Quit and a logout send: a quit Apple event, which AppKit turns into `terminate:`.
 fn send_quit_event(pid: u32) {
     let script = format!("ObjC.import('AppKit'); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}); app.isNil() ? 'unlisted' : String(app.terminate)");
-    let sent = Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+    // Under load the app answers its socket before it is listed as a running application, which the Dock needs too.
+    let deadline = Instant::now() + WAIT;
+    let sent = loop {
+        let sent = Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+        if String::from_utf8_lossy(&sent.stdout).trim() != "unlisted" || Instant::now() > deadline {
+            break sent;
+        }
+        thread::sleep(POLL);
+    };
     assert_eq!(String::from_utf8_lossy(&sent.stdout).trim(), "true", "the quit event was not sent: {}", String::from_utf8_lossy(&sent.stderr));
 }
 

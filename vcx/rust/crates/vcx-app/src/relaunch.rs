@@ -8,12 +8,19 @@ use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// The state folder's lock goes through the exec, open and held, under this name. Closed by the exec and taken again,
 /// it was still held for a few milliseconds after the new image asked for it (3.8 and 6.3 ms measured under load, no
 /// other process holding it): the new image quit as if another app ran, and every window stayed closed.
 pub const LOCK_VARIABLE: &str = "VCX_RUST_APP_LOCK_FD";
+
+/// How long the new build has to answer `--version` before the app stays on its current one (Swift `preflight`).
+const PREFLIGHT_WAIT: Duration = Duration::from_secs(10);
+const PREFLIGHT_POLL: Duration = Duration::from_millis(20);
 
 static ASKED: AtomicBool = AtomicBool::new(false);
 
@@ -39,6 +46,9 @@ pub fn exec(windowless: bool, lock: &File) -> String {
         Ok(image) => image,
         Err(error) => return format!("Cannot find the installed build: {error}."),
     };
+    if let Err(problem) = preflight(&image) {
+        return problem;
+    }
     let Ok(program) = CString::new(image.as_os_str().as_bytes()) else { return "The app's path holds a NUL byte.".into() };
     let mut arguments = vec![program.clone()];
     if windowless {
@@ -62,6 +72,24 @@ pub fn exec(windowless: bool, lock: &File) -> String {
     // SAFETY: as above; the lock stays this image's.
     unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) };
     format!("Cannot start {}: {error}.", image.display())
+}
+
+/// The new build must start before this one gives way: an exec into one that cannot would close every window.
+fn preflight(image: &Path) -> Result<(), String> {
+    let mut check = Command::new(image).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|error| format!("The new build does not start: {error}."))?;
+    let deadline = Instant::now() + PREFLIGHT_WAIT;
+    loop {
+        match check.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => return Err(format!("The new build does not start: {status}.")),
+            Ok(None) if Instant::now() < deadline => thread::sleep(PREFLIGHT_POLL),
+            _ => {
+                let _ = check.kill();
+                let _ = check.wait();
+                return Err(format!("The new build did not answer within {} s.", PREFLIGHT_WAIT.as_secs()));
+            }
+        }
+    }
 }
 
 /// The lock the previous image handed over, still held, when this image is its relaunch and the descriptor is the
