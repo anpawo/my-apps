@@ -12,6 +12,7 @@ mod quota;
 mod requests;
 pub mod settings;
 mod sheet;
+pub mod takeover;
 pub mod tasks;
 pub mod windows;
 pub mod worker;

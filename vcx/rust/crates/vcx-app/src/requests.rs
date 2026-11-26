@@ -1,10 +1,11 @@
 //! What the control socket asks of the running app: open a window, pass a message from another window's agent, move a
-//! session to another folder, place a window, report, quit, and in a windowless check run a page script.
+//! session to another folder, place a window, report, quit, take over the Swift app's windows at the switch, and in a windowless check run a
+//! page script.
 
 use crate::app::{App, AppEvent, Open, Queued};
 use crate::control::Request;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event_loop::EventLoopWindowTarget;
@@ -31,6 +32,8 @@ pub(crate) fn handle(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, re
         self::close(app, close)
     } else if let Some(place) = body.get("frame") {
         frame(app, place)
+    } else if let Some(take) = body.get("takeOver") {
+        take_over(app, target, take)
     } else if let Some(evaluate) = body.get("evaluate") {
         match page(app, evaluate) {
             Ok(key) => {
@@ -64,6 +67,20 @@ fn open(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, open: &Value) -
 }
 
 /// The window `key` names: an id, an id prefix, or a name, matching one window only.
+/// At the switch from the Swift app: its windows whose frontend is gone reopen here (`from`: its recovery folder).
+fn take_over(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, take: &Value) -> Result<Value, String> {
+    let home = std::env::var_os("HOME").map_or_else(|| "/".into(), PathBuf::from);
+    let folder = take["from"].as_str().map_or_else(|| crate::takeover::default_folder(&home), PathBuf::from);
+    let mut taken = Vec::new();
+    for entry in crate::takeover::pending(&folder)? {
+        let cwd = entry.cwd.clone();
+        if let Some(session_id) = app.adopt(target, entry) {
+            taken.push(json!({"sessionId": session_id, "cwd": cwd}));
+        }
+    }
+    Ok(json!({"taken": taken}))
+}
+
 /// Only a windowless app, a check's, runs a script it is handed: a page he works in takes none from outside.
 fn page(app: &App, evaluate: &Value) -> Result<u64, String> {
     if !app.windowless {

@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, requests, sheet, tasks};
+use crate::{confirm, fleet, folder, local, login, menus, metrics, progress, quota, requests, sheet, takeover, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -136,6 +136,10 @@ fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
         reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false }, start_worker: false });
     }
     reopened
+}
+
+fn answers(socket: &std::path::Path) -> bool {
+    vcx_proto::Client::connect(socket, |_| {}).and_then(|client| client.hello()).is_ok()
 }
 
 pub(crate) struct Queued {
@@ -272,12 +276,39 @@ impl App {
     /// Reopens the windows of the last run, and any session its workers still hold that no frontend shows.
     fn restore(&mut self, target: &EventLoopWindowTarget<AppEvent>) {
         let saved = windows::read(&self.homes.windows());
-        for reopen in plan(&saved, &worker::running(&self.homes)) {
+        for mut reopen in plan(&saved, &worker::running(&self.homes)) {
+            // A window taken from the Swift app keeps its worker's socket, which `running` does not list: still answering,
+            // it is live; gone, the cold reopen runs on one of the app's own, never in the Swift app's folders.
+            if reopen.start_worker && !reopen.spec.socket.starts_with(self.homes.runtime()) {
+                if answers(&reopen.spec.socket) {
+                    reopen.start_worker = false;
+                    reopen.spec.request.resume = None;
+                    reopen.spec.request.existing_only = true;
+                } else {
+                    reopen.spec.socket = worker::socket_for(&self.homes, &reopen.spec.request.session_id);
+                }
+            }
             if reopen.start_worker {
                 self.start_worker(&reopen.spec.socket, &reopen.spec.request.cwd);
             }
             self.open_window(target, reopen.spec);
         }
+    }
+
+    /// Reopens a window the Swift app left (`takeover`): on its live worker and session, or, that worker gone, cold
+    /// from its saved conversation in a new session of the app's own. The session id it runs as, none when skipped.
+    pub(crate) fn adopt(&mut self, target: &EventLoopWindowTarget<AppEvent>, entry: takeover::Entry) -> Option<String> {
+        if self.windows.values().any(|win| win.session_id == entry.session_id) {
+            return None;
+        }
+        if answers(&entry.socket) {
+            let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: None, existing_only: true };
+            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false });
+            self.schedule_save();
+            return Some(entry.session_id);
+        }
+        let resume = entry.record_id.map(|record| format!("native:{record}"))?;
+        Some(self.new_session(target, Open { cwd: entry.cwd, resume: Some(resume), ..Open::default() }))
     }
 
     pub(crate) fn new_session(&mut self, target: &EventLoopWindowTarget<AppEvent>, open: Open) -> String {

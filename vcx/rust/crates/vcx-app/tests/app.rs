@@ -554,3 +554,53 @@ fn measures_thirteen_windows_in_one_process() {
     println!("thirteen windows: {:#}", json!({"metrics": report["metrics"], "delays": report["delays"]}));
     assert!(report["metrics"]["webContent"]["processes"].as_u64().unwrap() >= THIRTEEN as u64, "{:#}", report["metrics"]);
 }
+
+/// A headless Swift frontend holding `id` in a window of its own (its `--frontend-handoff-fixture`), as when he
+/// leaves the Swift app with windows open; its recovery entry is what the switch reads.
+fn swift_frontend(worker: &vcx_testkit::SwiftWorker, id: &str) -> Child {
+    let runtime = worker.directory.join(vcx_testkit::RUNTIME);
+    fs::create_dir_all(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
+    let ticket = runtime.join(format!("{}.restore.json", vcx_testkit::session_id()));
+    let windows = json!({"windows": [{"cwd": worker.directory, "sessionId": id, "socket": worker.socket, "windowState": {}}]});
+    fs::write(&ticket, windows.to_string()).unwrap();
+    fs::set_permissions(&ticket, fs::Permissions::from_mode(0o600)).unwrap();
+    worker.app().args(["--frontend-handoff-fixture", ticket.to_str().unwrap(), "success"]).stdin(Stdio::null()).spawn().unwrap()
+}
+
+#[test]
+fn takes_over_a_window_the_swift_app_left_and_keeps_it_on_that_worker_after_a_relaunch() {
+    let Some(worker) = vcx_testkit::SwiftWorker::start("takeover-app") else {
+        return eprintln!("skipped: no Swift VCX binary (VCX_SWIFT_BINARY or the installed app)");
+    };
+    let id = vcx_testkit::session_id();
+    let request = vcx_proto::AttachRequest { session_id: id.clone(), cwd: worker.directory.to_string_lossy().into_owned(), prompt: "left in the swift app".into(), ..Default::default() };
+    let client = Client::connect(&worker.socket, |_| {}).unwrap();
+    client.hello().unwrap();
+    client.attach(&request).unwrap();
+    drop(client);
+    let mut frontend = swift_frontend(&worker, &id);
+    let entry = worker.directory.join(vcx_testkit::RUNTIME).join("recovery").join(format!("{id}.window.json"));
+    let deadline = Instant::now() + WAIT;
+    let owner = || serde_json::from_slice::<Value>(&fs::read(&entry).ok()?).ok().map(|listed| listed["ownerPID"].clone());
+    while owner() != Some(json!(frontend.id())) {
+        assert!(Instant::now() < deadline, "the Swift frontend never listed its window for recovery");
+        thread::sleep(POLL);
+    }
+    frontend.kill().unwrap();
+    frontend.wait().unwrap();
+    let mut run = Run::new("takeover").unwrap();
+    run.start(&[]);
+
+    let taken = run.ask(&json!({"takeOver": {"from": entry.parent().unwrap()}})).unwrap();
+
+    let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    run.kill_app();
+    run.start(&[]);
+    let relaunched = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    assert_eq!(taken, json!({"taken": [{"sessionId": id, "cwd": worker.directory}]}));
+    for window in [&windows(&after)[0], &windows(&relaunched)[0]] {
+        assert_eq!((&window["sessionId"], &window["socket"]), (&json!(id), &json!(worker.socket)));
+    }
+    assert!(run.worker_pids().is_empty(), "the app started a worker of its own for a session the Swift worker holds");
+}
