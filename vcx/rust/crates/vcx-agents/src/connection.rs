@@ -54,6 +54,22 @@ impl Connection {
         }
     }
 
+    /// What a newer image of the worker needs to keep the agent, or `None` when it cannot be carried over now. Only
+    /// the Codex connection is carried: the adapters hold a turn's state the next image could not rebuild.
+    pub fn freeze(&self) -> Option<Value> {
+        match self {
+            Self::Codex(agent) => agent.freeze().map(|agent| json!({"kind": "codex", "agent": agent})),
+            _ => None,
+        }
+    }
+
+    pub fn adopt(state: &Value) -> std::io::Result<(Self, tokio::sync::mpsc::UnboundedReceiver<crate::rpc::Incoming>)> {
+        if state["kind"] != "codex" {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "This agent connection cannot be adopted."));
+        }
+        Agent::adopt(&state["agent"]).map(|(agent, incoming)| (Self::Codex(agent), incoming))
+    }
+
     pub fn is_closed(&self) -> bool {
         match self {
             Self::Codex(agent) => agent.is_closed(),
