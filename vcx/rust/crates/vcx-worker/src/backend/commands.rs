@@ -234,8 +234,20 @@ impl SessionBackend {
             }
             "/new" | "/clear" => {
                 self.idle()?;
-                self.new_conversation("No enabled account available.").await.map(|()| None)
+                self.switch_thread(None, true).await;
+                Ok(None)
             }
+            "/resume" if argument.is_empty() => {
+                self.idle()?;
+                self.refresh_catalog().await;
+                Ok(Some("/resume ".into()))
+            }
+            "/resume" => {
+                self.idle()?;
+                self.switch_thread(Some(argument), true).await;
+                Ok(None)
+            }
+            "/fork" => self.fork().await.map(|()| None),
             "/reconnect" => {
                 self.idle()?;
                 let name = original.rsplit(':').next().unwrap_or_default().trim_matches('/');
@@ -256,7 +268,7 @@ impl SessionBackend {
                 self.session.borrow_mut().notice(&format!("{verb} is listed from {catalog} but is not implemented in vcx. It was not sent to the model. Use /help for available vcx actions."));
                 Ok(None)
             }
-            // `/fork`, `/resume <id>` and skills are not the worker's yet: the agent reads them as typed.
+            // Skills that are not the worker's yet: the agent reads them as typed.
             _ => Rc::clone(self).send(text, &[], None, None, false).await.map(|_| None),
         }
     }
@@ -422,21 +434,35 @@ impl SessionBackend {
         }
     }
 
-    /// A new conversation under a new record, on the first available account; the old one is kept if it fails.
-    async fn new_conversation(self: &Rc<Self>, no_account: &str) -> Result<(), String> {
-        let next = self.available(&self.settings()).into_iter().next().ok_or(no_account)?;
-        let previous = {
+    /// A new conversation under a new record in `folder`, on the first available account; the old record is
+    /// archived once it opens, and kept if it fails.
+    async fn new_conversation(self: &Rc<Self>, folder: &str) -> Result<(), String> {
+        self.recover_incomplete_archive().await?;
+        let previous = self.begin_record_transition()?;
+        {
             let mut session = self.session.borrow_mut();
-            let record = std::mem::replace(&mut session.record_id, uuid::Uuid::new_v4().to_string().to_uppercase());
-            (record, session.thread_id.take(), session.native_history_path.take())
-        };
-        if let Err(error) = self.activate_rows(&next, None, None, false).await {
-            let mut session = self.session.borrow_mut();
-            (session.record_id, session.thread_id, session.native_history_path) = previous;
-            return Err(error);
+            session.cwd = folder.to_owned();
+            session.conversation_directory = folder.to_owned();
         }
-        self.refresh_catalog().await;
-        Ok(())
+        let opened = match self.available(&self.settings()).into_iter().next() {
+            Some(next) => self.activate_rows(&next, None, None, false).await,
+            None => Err("No enabled account is available.".into()),
+        };
+        match opened {
+            Ok(()) => {
+                self.archive_retired(previous).await;
+                self.refresh_catalog().await;
+                Ok(())
+            }
+            Err(error) if self.closed.get() => {
+                self.discard(previous);
+                Err(error)
+            }
+            Err(error) => {
+                self.rollback(previous);
+                Err(error)
+            }
+        }
     }
 
     /// The Swift `changeDirectory`: the conversation starts over in the folder.
@@ -452,12 +478,7 @@ impl SessionBackend {
         if !path.is_dir() {
             return Err("Directory does not exist.".into());
         }
-        {
-            let mut session = self.session.borrow_mut();
-            session.cwd = path.to_string_lossy().into_owned();
-            session.conversation_directory = session.cwd.clone();
-        }
-        if let Err(error) = self.new_conversation("No enabled account is available.").await {
+        if let Err(error) = self.new_conversation(&path.to_string_lossy()).await {
             let mut session = self.session.borrow_mut();
             (session.cwd, session.conversation_directory) = previous;
             drop(session);

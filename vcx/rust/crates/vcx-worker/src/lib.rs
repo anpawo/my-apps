@@ -6,6 +6,7 @@
 // The metadata object a frontend reads is one `json!` literal of about sixty keys.
 #![recursion_limit = "256"]
 
+pub mod archive;
 pub mod backend;
 pub mod capabilities;
 pub mod channel;
@@ -20,6 +21,7 @@ pub mod project;
 pub mod provider;
 pub mod question;
 pub mod recall;
+pub mod records;
 pub mod repository;
 pub mod server;
 pub mod session;
@@ -128,7 +130,9 @@ async fn serve(options: Options) -> i32 {
     let home = homes.runtime;
     let retry_scale = if options.test { TEST_RETRY_SCALE } else { 1.0 };
     let errors_home = if options.test { home.clone() } else { vcx_config::homes::home_directory() };
-    let state_directory = if options.test { home.join("test-state") } else { home.join("state") };
+    // His worker saves conversations where the Swift app does, so either can resume the other's.
+    let state_directory = if options.test { home.join("test-state") } else { homes.state.clone() };
+    let native = if options.test { archive::Native::test(&home, &state_directory) } else { archive::Native::production(&state_directory) };
     let probe = if options.test { connectivity::Probe::Flag(home.join(TEST_OFFLINE_FLAG)) } else { connectivity::Probe::Internet };
     let connectivity = connectivity::Connectivity::new(probe, retry_scale);
     let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
@@ -139,7 +143,7 @@ async fn serve(options: Options) -> i32 {
         None if options.test => Vec::new(),
         None => project::ROUTER.map(str::to_owned).to_vec(),
     };
-    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router, cleanup: disk_cleanup });
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router, cleanup: disk_cleanup, native });
     let starting = Rc::clone(&config);
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&starting)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();

@@ -137,6 +137,9 @@ fn a_send_applies_the_mode_set_in_settings_and_leaves_a_limited_account_for_the_
     assert!(noticed("Permission mode changed to Ask for approval.")(state), "{:?}", notices(state));
     assert!(noticed("Connected to Codex: switched to B.")(state), "{:?}", notices(state));
     assert_eq!(user_rows(state), 1);
+    let switched = state.rows.iter().position(|row| row.items.iter().any(|id| state.items.get(id).and_then(|item| item.get("text")?.as_str()).is_some_and(|text| text.contains("switched to B"))));
+    let prompt = state.rows.iter().position(|row| row.kind == "user");
+    assert!(prompt < switched, "the prompt shows before the account switch, as in Swift");
 }
 
 #[test]

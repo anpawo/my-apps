@@ -62,6 +62,19 @@ fn stop_ends_a_turn_the_agent_holds_open() {
 }
 
 #[test]
+fn a_command_cut_short_by_a_stop_shows_as_failed() {
+    let worker = worker("hold-command");
+    let mut held = Held::open(&target(&worker));
+    held.lease.perform(&held.peer.client, "send", prompt("fixture:hold")).unwrap();
+    held.follow(|state| busy(state) && state.items.contains_key("fixture-held-tool"));
+
+    held.lease.perform(&held.peer.client, "stop", json!({})).unwrap();
+    held.follow(|state| !busy(state));
+
+    assert_eq!(held.replica.state().unwrap().items["fixture-held-tool"]["status"], "failed");
+}
+
+#[test]
 fn an_accepted_approval_lets_the_held_turn_finish() {
     let worker = worker("approve");
     let mut held = Held::open(&target(&worker));

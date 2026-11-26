@@ -28,10 +28,13 @@ use vcx_config::{Account, Settings, SettingsFile};
 
 pub mod carry;
 mod commands;
+mod records;
 mod refresh;
 mod route;
 mod upkeep;
 mod sending;
+
+use sending::Prepared;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -71,6 +74,8 @@ pub struct Config {
     pub router: Vec<String>,
     /// cleanup.py, run when it exists: the bundle's, or a test's own in its runtime home.
     pub cleanup: Option<PathBuf>,
+    /// Where saved conversations keep their native history, and for a test worker whether they keep any.
+    pub native: crate::archive::Native,
 }
 
 pub struct SessionBackend {
@@ -118,6 +123,8 @@ pub struct SessionBackend {
     project_guess: RefCell<Option<route::Guess>>,
     /// The wait before the draft's project is asked, cancelled by the next keystroke.
     guess_delay: RefCell<Option<tokio::task::JoinHandle<()>>>,
+    /// The saved record: its lock, its native leases and its archive.
+    records: RefCell<records::Records>,
 }
 
 fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
@@ -153,6 +160,7 @@ impl SessionBackend {
                 session.set_draft(draft.clone(), state.get("draftGeneration").and_then(Value::as_i64).unwrap_or(0));
             }
         }
+        let native = config.native.enabled();
         let backend = Rc::new(Self {
             id,
             config,
@@ -183,6 +191,7 @@ impl SessionBackend {
             repository_reads: Cell::new(0),
             project_guess: RefCell::default(),
             guess_delay: RefCell::default(),
+            records: RefCell::new(records::Records::new(native)),
         });
         backend.config.connectivity.watch(&backend);
         backend.refresh_periodically();
@@ -220,7 +229,7 @@ impl SessionBackend {
             let mut session = self.session.borrow_mut();
             session.ready = false;
             session.usage_loading = false;
-            session.status = error.clone();
+            session.status = "Connection failed".into();
             session.notice(&error);
             return;
         }
@@ -253,6 +262,9 @@ impl SessionBackend {
     }
 
     async fn open_agent(self: &Rc<Self>, params: &Object) -> Result<(), String> {
+        if let Some(named) = self.named_resume(params) {
+            return self.resume_named(&named).await;
+        }
         let settings = self.settings();
         let saved = self.recovery.borrow().as_ref().and_then(|state| text(state, "accountID")).map(str::to_owned);
         let account = provider::choose(&settings, self.config.provider.as_deref(), saved.as_deref(), fallback::now());
@@ -262,16 +274,7 @@ impl SessionBackend {
         let opened = async {
             let (agent, incoming) = self.start_agent(&account, &settings).await?;
             self.install(&account, agent, incoming, self.preferred_mode(&settings));
-            match &resume {
-                Some(thread) => {
-                    if let Err(error) = self.open(Some(thread), false).await {
-                        self.session.borrow_mut().notice(&format!("Could not reopen the saved conversation ({error}); a new one was started."));
-                        self.open(None, false).await?;
-                    }
-                }
-                None => self.open(None, false).await?,
-            }
-            Ok::<(), String>(())
+            self.open(resume.as_deref(), false).await
         };
         let result = opened.await;
         if let Err(error) = &result {
@@ -318,6 +321,7 @@ impl SessionBackend {
 
     /// Makes `agent` the session's: the one before is closed and its events no longer count.
     fn install(self: &Rc<Self>, account: &Account, agent: Connection, incoming: mpsc::UnboundedReceiver<Incoming>, mode: String) {
+        self.records.borrow_mut().group = records::agent_group(&agent);
         if let Some(previous) = self.agent.replace(Some(agent)) {
             previous.close();
         }
@@ -358,13 +362,19 @@ impl SessionBackend {
         if self.session.borrow().changing {
             return Err("A connection change is already in progress.".into());
         }
+        self.before_activation(account, resume.as_deref())?;
         self.session.borrow_mut().changing = true;
         self.schedule();
-        let result = self.switch_to(account, resume.clone(), reason, keep_rows).await;
+        let result = async {
+            self.recover_incomplete_archive().await?;
+            self.switch_to(account, resume.clone(), reason, keep_rows).await
+        };
+        let result = result.await;
         self.session.borrow_mut().changing = false;
         match &result {
             Ok(()) => {
                 *self.pending_activation.borrow_mut() = None;
+                self.activated();
                 self.session.borrow_mut().lost_connection = false;
             }
             Err(error) => self.activation_failed(account, resume, error),
@@ -580,6 +590,11 @@ impl SessionBackend {
 
     /// The Swift `reconnect`: the running account on its conversation, unless another is chosen, disabled or resting.
     async fn reconnect(self: &Rc<Self>, reason: &str) -> Result<(), String> {
+        if let Some(id) = self.pending_restore() {
+            self.restore(&id, None, Some(reason)).await?;
+            self.refresh_catalog().await;
+            return Ok(());
+        }
         let settings = self.settings();
         let available = self.available(&settings);
         let Some(fallback) = available.first().cloned() else {
@@ -747,12 +762,13 @@ impl SessionBackend {
             fleet::clear(&self.session.borrow().fleet_context_file);
         }
         self.session.borrow_mut().opened(&result, &history, keep_rows);
-        Ok(())
+        self.thread_opened(resume)
     }
 
     async fn refresh_catalog(self: &Rc<Self>) {
         let Ok(catalog) = self.request("model/list", json!({"limit": CATALOG_LIMIT}), REQUEST_TIMEOUT).await else { return };
         self.session.borrow_mut().apply_catalog(&object(catalog));
+        self.refresh_recent().await;
         if self.session.borrow().context_limit.is_none() {
             self.refresh_context_limit().await;
         }
@@ -909,6 +925,7 @@ impl SessionBackend {
             return;
         }
         self.save_checkpoint_noticing();
+        self.save_if_changed();
         let patch = self.session.borrow_mut().take_patch();
         let on_change = self.on_change.borrow().clone();
         if let (Some(patch), Some(on_change)) = (patch, on_change) {
@@ -961,7 +978,8 @@ impl SessionBackend {
 
     /// `send`, for a skill also with its piece, its prompt showing the skill as it was typed.
     async fn send_as(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool, skill: Option<Skill>) -> Result<Object, String> {
-        if !retry && !self.prepare_turn().await {
+        let prepared = if retry { Prepared::Ready } else { self.prepare_turn().await };
+        if matches!(prepared, Prepared::Refused) {
             self.schedule();
             return Ok(Object::new());
         }
@@ -969,6 +987,13 @@ impl SessionBackend {
         let outgoing = self.session.borrow_mut().begin_send(text, images, draft, generation, retry);
         self.schedule();
         let Some(mut outgoing) = outgoing else { return Ok(Object::new()) };
+        if let Prepared::Switch(next) = &prepared {
+            if let Err(error) = self.switch_for_turn(next, &mut outgoing).await {
+                self.session.borrow_mut().send_failed(&outgoing, &error);
+                self.schedule();
+                return Ok(Object::new());
+            }
+        }
         if let Some(skill) = skill {
             if let (Some(piece), Some(input)) = (skill.piece, outgoing.params["input"].as_array_mut()) {
                 input.push(piece);
@@ -1000,6 +1025,7 @@ impl SessionBackend {
                     self.session.borrow_mut().recalled(&outgoing.id, &recalled, sections);
                 }
                 self.session.borrow_mut().send_succeeded(&result);
+                self.prompt_delivered();
                 let stopping = self.session.borrow().stop_requested;
                 if stopping {
                     Rc::clone(&self).stop("Stop command").await;
@@ -1134,18 +1160,16 @@ impl SessionBackend {
                 Object::new()
             }
             "switchThread" => {
-                let thread = text(&params, "id").map(str::to_owned);
-                let success = match thread {
-                    Some(thread) => self.open(Some(&thread), false).await.is_ok(),
-                    None => self.open(None, false).await.is_ok(),
-                };
+                let success = self.switch_thread(text(&params, "id"), params.get("fromCommand").and_then(Value::as_bool).unwrap_or(false)).await;
                 object(json!({"success": success}))
             }
             "close" => {
+                self.prepare_for_close()?;
                 let busy = self.session.borrow().busy;
                 if busy {
                     Rc::clone(&self).stop("Close Session").await;
                 }
+                self.archive_for_close().await?;
                 self.config.store.remove(&self.id).map_err(|error| error.to_string())?;
                 self.close();
                 return Ok(Object::new());
@@ -1234,9 +1258,11 @@ impl Backend for SessionBackend {
     }
 
     fn close(&self) {
-        if self.closed.replace(true) {
+        if self.closed.get() {
             return;
         }
+        self.release_records();
+        self.closed.set(true);
         self.on_change.borrow_mut().take();
         if let Some(agent) = self.agent.borrow_mut().take() {
             agent.close();

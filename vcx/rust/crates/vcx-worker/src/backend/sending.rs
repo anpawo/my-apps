@@ -2,49 +2,55 @@
 //! now", and a queued prompt taken back.
 
 use super::{REQUEST_TIMEOUT, SessionBackend, text};
-use crate::session::SendNow;
+use crate::session::{Outgoing, SendNow};
 use serde_json::{Value, json};
 use std::rc::Rc;
 use std::time::Duration;
+use vcx_config::Account;
 
 /// Claude answers its queue controls at once; a longer wait means the prompt already went.
 const QUEUE_TIMEOUT: Duration = Duration::from_secs(5);
 
+pub(super) enum Prepared {
+    /// The prompt must not go.
+    Refused,
+    Ready,
+    /// The current account is limited: the prompt shows, then the conversation moves to this one.
+    Switch(Account),
+}
+
 impl SessionBackend {
     /// Before a new turn: a mode changed in Settings is applied, and a limited account hands the conversation to the
-    /// next available one. `false` when the prompt must not go.
-    pub(super) async fn prepare_turn(self: &Rc<Self>) -> bool {
+    /// next available one, which the send switches to once its prompt shows.
+    pub(super) async fn prepare_turn(self: &Rc<Self>) -> Prepared {
         let idle = {
             let session = self.session.borrow();
             session.ready && !session.busy && !session.changing
         };
         if !idle {
-            return true;
+            return Prepared::Ready;
         }
         let settings = self.settings();
         let preferred = self.preferred_mode(&settings);
         if self.session.borrow().active_mode != preferred {
             self.switch_mode(&preferred).await;
             if !self.session.borrow().ready {
-                return false;
+                return Prepared::Refused;
             }
         }
         let Some(next) = self.available(&settings).into_iter().next() else {
             self.session.borrow_mut().notice("All enabled accounts have reached their limits. Check Settings or wait for a reset.");
-            return false;
+            return Prepared::Refused;
         };
-        if self.session.borrow().account["id"] == json!(next.id) {
-            return true;
-        }
-        if let Err(error) = self.activate(&next, None, Some(&format!("switched to {}", next.name))).await {
-            let mut session = self.session.borrow_mut();
-            session.needs_attention = true;
-            session.status = "Send failed".into();
-            session.notice(&format!("Prompt was not sent: {error}"));
-            return false;
-        }
+        if self.session.borrow().account["id"] == json!(next.id) { Prepared::Ready } else { Prepared::Switch(next) }
+    }
+
+    /// The account `prepare_turn` chose, switched to once the prompt shows in the chat, as Swift does.
+    pub(super) async fn switch_for_turn(self: &Rc<Self>, next: &Account, outgoing: &mut Outgoing) -> Result<(), String> {
+        self.activate(next, None, Some(&format!("switched to {}", next.name))).await?;
         self.refresh_catalog().await;
-        true
+        self.session.borrow_mut().resume_send(outgoing);
+        Ok(())
     }
 
     /// The Swift `sendWaitingNow`: Claude takes the queued prompt in itself; another agent's turn is interrupted and

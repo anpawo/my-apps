@@ -208,7 +208,8 @@ fn refuses_a_new_conversation_during_a_turn_and_starts_one_after_it() {
     command(&mut held, "/stop");
     held.follow(|state| meta(state, "busy") == &json!(false));
     command(&mut held, "/clear");
-    held.follow(|state| meta(state, "recordID") != &record && meta(state, "ready") == &json!(true));
+    // The new record id shows before its agent opens, as in Swift; the switch is over once `changing` clears.
+    held.follow(|state| meta(state, "recordID") != &record && meta(state, "ready") == &json!(true) && meta(state, "changing") == &json!(false));
 
     assert_eq!(user_rows(held.replica.state().unwrap()), 0, "the new conversation starts empty");
 }

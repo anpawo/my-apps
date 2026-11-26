@@ -6,6 +6,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use crate::capabilities::{self, Capabilities};
+use crate::records::NativeSource;
 use crate::{draft, fleet, project, question, recall};
 use crate::{repository, usage};
 use vcx_agents::directory::shell_directory;
@@ -15,6 +16,9 @@ use vcx_agents::{Event, Kind, Stream, TurnStatus};
 use vcx_model::item;
 
 pub type Object = serde_json::Map<String, Value>;
+
+mod records;
+pub use records::Choices;
 
 /// Tool output kept in the session; the complete output stays in the provider's history.
 const MAX_OUTPUT_CHARS: usize = 16_384;
@@ -92,6 +96,8 @@ pub struct Outgoing {
     pub params: Value,
     was_busy: bool,
     saved_draft: Vec<Value>,
+    /// What the prompt row shows, kept to rebuild `params` once an account switch behind the row is done.
+    content: Vec<Value>,
 }
 
 // Serialized whole for a live update (`swap.rs`); a field the frozen image did not have starts at its default.
@@ -174,6 +180,11 @@ pub struct Session {
     pub pull_request_url: String,
     /// The folder of the last file a turn edited, which the footer adds to the project's name.
     pub edited_folder: Option<String>,
+    /// The conversations `/resume` lists: `{id, title, backendID}`.
+    pub recent: Vec<Value>,
+    /// The provider threads the record owns.
+    pub native_sources: Vec<NativeSource>,
+    pub archive_client_versions: Object,
     /// The files the running turn edited.
     turn_edits: Vec<String>,
     /// Prompts, agent events and notices go to the trace in `state_directory`: a worker's sessions, never a test's model.
@@ -283,8 +294,8 @@ impl Session {
             "instructions": self.capabilities.instructions, "activeMode": self.active_mode, "providerLabel": self.provider_label, "models": self.models,
             "modelEfforts": self.model_efforts, "modelDefaultEfforts": self.model_default_efforts, "modelAliases": self.model_aliases, "planning": self.planning,
             "skillPaths": self.capabilities.skill_paths, "legacyCommandPaths": self.capabilities.legacy_command_paths, "recordID": self.record_id, "fleetContext": fleet::context(&self.fleet_context_file),
-            "progressFile": fleet::progress_path(&self.fleet_context_file), "taskFile": fleet::task_path(&self.fleet_context_file), "recalledRules": self.recalled_rules, "recalledRuleSections": self.recalled_sections, "recent": [], "permissions": permissions,
-            "providerCommands": self.capabilities.provider_commands, "account": self.account, "nativeSources": [], "archiveClientVersions": {},
+            "progressFile": fleet::progress_path(&self.fleet_context_file), "taskFile": fleet::task_path(&self.fleet_context_file), "recalledRules": self.recalled_rules, "recalledRuleSections": self.recalled_sections, "recent": self.recent, "permissions": permissions,
+            "providerCommands": self.capabilities.provider_commands, "account": self.account, "nativeSources": self.native_sources, "archiveClientVersions": self.archive_client_versions,
             "nativeHistoryPath": self.native_history_path, "archiveService": self.archive_service, "threadID": self.thread_id, "turnID": self.turn_id,
             "effort": self.effort, "defaultEffort": self.default_effort, "usagePercent": self.usage_percent, "contextUsed": self.context_used,
             "contextLimit": self.context_limit, "repositoryDirectory": self.repository_directory, "conversationName": self.conversation_name,
@@ -852,7 +863,14 @@ impl Session {
         self.turn_id = None;
         self.busy = false;
         self.stop_requested = false;
-        self.active_actions.clear();
+        // Codex sends no item/completed for a command its stopped turn cut short; Claude reports it failed.
+        let running = std::mem::take(&mut self.active_actions);
+        for id in running.into_iter().filter(|_| *status != TurnStatus::Completed) {
+            if let Some(data) = self.items.get_mut(&id).filter(|data| data.get("status").and_then(Value::as_str) == Some("inProgress")) {
+                data.insert("status".into(), json!("failed"));
+                self.dirty_items.insert(id);
+            }
+        }
         if *status == TurnStatus::Completed {
             let last = self.rows.iter().rev().find(|row| row.kind == "assistant" || row.kind == "user");
             if let Some(item) = last.filter(|row| row.kind == "assistant").and_then(|row| row.items.last()).cloned() {
@@ -1181,14 +1199,27 @@ impl Session {
             }
             None => Some((text.to_owned(), images.to_vec())),
         };
-        if !self.injected_context.is_empty() {
-            content.insert(0, json!({"type": "text", "text": self.injected_context}));
-        }
         self.busy = true;
         self.stop_requested = false;
         self.stop_source = None;
         self.needs_attention = false;
         self.status = if was_busy { "Sending guidance…" } else { "Working…" }.into();
+        let params = self.turn_params(&id, content.clone(), was_busy);
+        Some(Outgoing { id, method: if was_busy { "turn/steer" } else { "turn/start" }, params, was_busy, saved_draft, content })
+    }
+
+    /// The Swift `sendWith` after `activate(nextAccount, keepRows: true)`: the prompt already in the chat goes to the
+    /// account just switched to, on its thread and with its model.
+    pub fn resume_send(&mut self, outgoing: &mut Outgoing) {
+        self.busy = true;
+        self.status = "Working…".into();
+        outgoing.params = self.turn_params(&outgoing.id, outgoing.content.clone(), outgoing.was_busy);
+    }
+
+    fn turn_params(&self, id: &str, mut content: Vec<Value>, was_busy: bool) -> Value {
+        if !self.injected_context.is_empty() {
+            content.insert(0, json!({"type": "text", "text": self.injected_context}));
+        }
         let mut params = json!({"threadId": self.thread_id.clone().unwrap_or_default(), "input": content, "clientUserMessageId": id});
         if was_busy {
             params["expectedTurnId"] = json!(self.turn_id);
@@ -1208,7 +1239,7 @@ impl Session {
                 }
             }
         }
-        Some(Outgoing { id, method: if was_busy { "turn/steer" } else { "turn/start" }, params, was_busy, saved_draft })
+        params
     }
 
     pub fn send_succeeded(&mut self, result: &Value) {

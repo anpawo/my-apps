@@ -1,6 +1,7 @@
 //! A session carried across the exec of a live update (`swap.rs`): what the leaving image writes down of it, and
 //! the runtime the next image rebuilds from that. The agent stays the same process, on the same pipes.
 
+use super::records::Records;
 use super::{Config, SessionBackend};
 use crate::provider;
 use crate::session::Session;
@@ -76,7 +77,9 @@ pub fn check(state: &Value) -> Result<(), String> {
 
 /// The descriptors a frozen session's agent goes on with.
 pub fn descriptors(state: &Value) -> Vec<RawFd> {
-    Connection::descriptors(&state["agent"])
+    let mut descriptors = Connection::descriptors(&state["agent"]);
+    descriptors.extend(Records::descriptors(&state["records"]));
+    descriptors
 }
 
 impl SessionBackend {
@@ -112,7 +115,7 @@ impl SessionBackend {
             "providerChoice": *self.provider_choice.borrow(), "modeChoice": *self.mode_choice.borrow(), "pendingCommand": *self.pending_command.borrow(),
             "accountChoice": *self.account_choice.borrow(), "lastCrash": self.last_crash.get(),
             "pendingActivation": pending_json(&self.pending_activation.borrow()),
-            "usageRead": self.usage_read.get() == self.generation.get(),
+            "usageRead": self.usage_read.get() == self.generation.get(), "records": self.records.borrow().frozen()?,
         }))
     }
 
@@ -133,6 +136,7 @@ impl SessionBackend {
         };
         let text = |key: &str| state[key].as_str().map(str::to_owned);
         let (agent, incoming) = connection.map(|(agent, incoming)| (agent, Rc::new(RefCell::new(incoming)))).unzip();
+        let records = Records::adopt(&state["records"], &state["agent"], config.native.enabled());
         let backend = Rc::new(Self {
             id: id.to_owned(),
             config,
@@ -164,6 +168,7 @@ impl SessionBackend {
             repository_reads: Cell::new(0),
             project_guess: RefCell::default(),
             guess_delay: RefCell::default(),
+            records: RefCell::new(records),
         });
         backend.config.connectivity.watch(&backend);
         backend.refresh_periodically();
