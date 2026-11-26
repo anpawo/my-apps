@@ -316,6 +316,7 @@ impl App {
     /// Reopens the windows of the last run, and any session its workers still hold that no frontend shows.
     fn restore(&mut self, target: &EventLoopWindowTarget<AppEvent>) {
         let saved = windows::read(&self.homes.windows());
+        let first = self.next;
         for mut reopen in plan(&saved, &worker::running(&self.homes)) {
             // A window taken from the Swift app keeps its worker's socket, which `running` does not list: still answering,
             // it is live; gone, the cold reopen runs on one of the app's own, never in the Swift app's folders.
@@ -332,6 +333,10 @@ impl App {
                 self.start_worker(&reopen.spec.socket, &reopen.spec.request.cwd);
             }
             self.open_window(target, reopen.spec);
+        }
+        if !self.windowless {
+            let reopened: Vec<&tao::window::Window> = (first..self.next).filter_map(|key| self.windows.get(&key)).map(|win| &win.window).collect();
+            placement::stack(&reopened);
         }
         self.return_to_desktops();
     }
@@ -825,7 +830,13 @@ impl App {
     }
 
     fn save_now(&self) {
-        let saved: Vec<Saved> = self.windows.values().map(|win| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win) }).collect();
+        let mut wins: Vec<&Win> = self.windows.values().collect();
+        // Front to back, so the next launch stacks them again as they were (Swift `orderedWindows`).
+        if let (false, Some(mtm)) = (self.windowless, objc2_foundation::MainThreadMarker::new()) {
+            let order = placement::front_to_back(mtm);
+            wins.sort_by_key(|win| placement::rank(&order, desktops::window_number(&win.window)));
+        }
+        let saved: Vec<Saved> = wins.into_iter().map(|win| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win) }).collect();
         if let Err(problem) = windows::write(&self.homes.windows(), &saved) {
             eprintln!("vcx-rust: {problem}");
         }

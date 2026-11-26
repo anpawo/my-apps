@@ -58,6 +58,27 @@ pub fn show(window: &Window, mtm: MainThreadMarker, place: bool, focus: bool) {
     }
 }
 
+/// The app's window numbers from front to back, as AppKit stacks them.
+pub fn front_to_back(mtm: MainThreadMarker) -> Vec<isize> {
+    NSApplication::sharedApplication(mtm).orderedWindows().iter().map(|window| window.windowNumber()).collect()
+}
+
+/// Where the window numbered `number` stands in `order`, front first; one not listed (on no screen) after all others.
+pub fn rank(order: &[isize], number: isize) -> usize {
+    order.iter().position(|listed| *listed == number).unwrap_or(order.len())
+}
+
+/// Stacks windows just reopened as listed, front first, with the front one key: each opens hidden and in turn, so
+/// their order on screen would otherwise follow whether the app was active.
+pub fn stack(windows: &[&Window]) {
+    for window in windows.iter().rev().filter_map(|window| ns_window(window)) {
+        window.orderFront(None);
+    }
+    if let Some(front) = windows.first().and_then(|window| ns_window(window)) {
+        front.makeKeyWindow();
+    }
+}
+
 /// The Dock tile reads the bundle's icon from the running app: the Dock's own cache outlives rebuilds (Swift
 /// `main.swift`: it served an old icon for weeks). Nothing happens outside the bundle.
 pub fn show_icon(mtm: MainThreadMarker) {
@@ -98,5 +119,14 @@ mod tests {
         let frame = new_frame(screen);
 
         assert_eq!((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height), (-1475.0, 47.0, 1438.0, 851.0));
+    }
+
+    #[test]
+    fn ranks_a_window_by_its_place_in_the_stack_and_one_off_screen_last() {
+        let order = [41, 7, 12];
+
+        let ranks: Vec<usize> = [12, 41, 99, 7].iter().map(|number| rank(&order, *number)).collect();
+
+        assert_eq!(ranks, [2, 0, 3, 1]);
     }
 }
