@@ -21,6 +21,10 @@ harness = false
 name = "chrome"
 harness = false
 
+[[test]]
+name = "transcript"
+harness = false
+
 [dependencies]
 block2.workspace = true
 objc2.workspace = true

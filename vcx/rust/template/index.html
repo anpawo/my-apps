@@ -7,6 +7,7 @@
 <title>VCX</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="chart.css">
+<link rel="stylesheet" href="composer.css">
 <link rel="stylesheet" href="chrome.css">
 </head>
 <body>
@@ -14,9 +15,19 @@
   <p id="empty">A clear space to build.</p>
   <div id="rows" aria-live="polite"></div>
 </main>
+<div id="find" role="search" hidden>
+  <input id="find-input" type="search" placeholder="Find" aria-label="Find in the transcript" autocomplete="off" spellcheck="false">
+  <span id="find-count" aria-live="polite"></span>
+  <button type="button" id="find-previous" aria-label="Previous match" title="Previous match (⇧↩)"></button>
+  <button type="button" id="find-next" aria-label="Next match" title="Next match (↩)"></button>
+  <button type="button" id="find-close" aria-label="Close find" title="Close (Escape)"></button>
+</div>
+<button type="button" id="latest" hidden>Back to latest</button>
+<div id="preview" role="dialog" aria-label="Picture preview" hidden><img alt="Preview"></div>
 <footer>
   <div id="status"><span id="dot"></span><span id="status-text">Starting</span></div>
   <p id="notice" role="status" hidden></p>
+  <section id="question" aria-live="polite" hidden></section>
   <form id="composer">
     <textarea id="input" rows="1" placeholder="Ask anything · / commands…" aria-label="Message"></textarea>
     <button type="button" id="stop" aria-label="Stop" hidden></button>
@@ -24,7 +35,10 @@
   </form>
   <div id="chips"></div>
 </footer>
+<script src="composer.js"></script>
 <script src="chart.js"></script>
+<script src="find.js"></script>
+<script src="questions.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 </body>

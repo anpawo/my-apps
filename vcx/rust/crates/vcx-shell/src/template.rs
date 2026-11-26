@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
+use crate::chart;
+use vcx_model::assets;
 use vcx_model::view::CONTRACT_VERSION;
 use wry::http::{Response, StatusCode, header};
 
@@ -22,11 +24,21 @@ const MAX_BYTES: u64 = 16 * 1024 * 1024;
 /// An editor saves a file in several writes; one reload follows the last of them.
 const SETTLE: Duration = Duration::from_millis(120);
 
-const BUILT_IN: [(&str, &[u8]); 4] = [
+/// Pictures larger than this are not served: a thumbnail of a huge file would stall the page.
+const MAX_PICTURE_BYTES: u64 = 64 * 1024 * 1024;
+const IMAGE_HOST: &str = "image";
+
+const BUILT_IN: &[(&str, &[u8])] = &[
     (MANIFEST, include_bytes!("../../../template/manifest.json")),
     (ENTRY, include_bytes!("../../../template/index.html")),
     ("style.css", include_bytes!("../../../template/style.css")),
     ("app.js", include_bytes!("../../../template/app.js")),
+    ("composer.css", include_bytes!("../../../template/composer.css")),
+    ("composer.js", include_bytes!("../../../template/composer.js")),
+    ("find.js", include_bytes!("../../../template/find.js")),
+    ("questions.js", include_bytes!("../../../template/questions.js")),
+    ("chrome.css", include_bytes!("../../../template/chrome.css")),
+    ("chrome.js", include_bytes!("../../../template/chrome.js")),
 ];
 
 #[derive(Debug, PartialEq)]
@@ -45,7 +57,7 @@ pub enum Change {
 
 impl Template {
     pub fn built_in() -> Self {
-        let files = BUILT_IN.iter().map(|(name, bytes)| ((*name).to_owned(), bytes.to_vec())).collect();
+        let files = BUILT_IN.iter().chain(chart::BUILT_IN.iter()).map(|(name, bytes)| ((*name).to_owned(), bytes.to_vec())).collect();
         Self::checked(files).expect("the built-in template is valid")
     }
 
@@ -156,6 +168,11 @@ impl Store {
     }
 
     pub fn respond(&self, host: Option<&str>, path: &str) -> Response<Cow<'static, [u8]>> {
+        match host {
+            Some(chart::HOST) => return chart::respond(path),
+            Some(IMAGE_HOST) => return picture(path),
+            _ => {}
+        }
         let name = path.trim_start_matches('/');
         let template = self.current();
         let file = if host == Some(HOST) { template.files.get(name) } else { None };
@@ -168,6 +185,17 @@ impl Store {
     }
 }
 
+/// A picture the user attached, by the name a view gave it: the page cannot ask for a file by its path.
+fn picture(path: &str) -> Response<Cow<'static, [u8]>> {
+    let file = assets::image_path(path.trim_start_matches('/'));
+    let bytes = file.as_deref().filter(|file| fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_PICTURE_BYTES)).and_then(|file| fs::read(file).ok());
+    let (status, mime, body) = match (bytes, file) {
+        (Some(bytes), Some(file)) => (StatusCode::OK, mime(&file.to_string_lossy().to_ascii_lowercase()), bytes),
+        _ => (StatusCode::NOT_FOUND, "text/plain; charset=utf-8", b"No such picture.".to_vec()),
+    };
+    Response::builder().status(status).header(header::CONTENT_TYPE, mime).header(header::CACHE_CONTROL, "no-store").body(Cow::Owned(body)).expect("a response built from constant headers")
+}
+
 fn mime(name: &str) -> &'static str {
     match name.rsplit('.').next() {
         Some("html") => "text/html; charset=utf-8",
@@ -176,6 +204,11 @@ fn mime(name: &str) -> &'static str {
         Some("json") => "application/json",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("heic") => "image/heic",
+        Some("tif" | "tiff") => "image/tiff",
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     }
@@ -245,6 +278,31 @@ mod tests {
 
         assert_eq!(other_host.status(), StatusCode::NOT_FOUND);
         assert_eq!(unknown_file.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn serves_a_picture_only_under_the_name_a_view_gave_it() {
+        let folder = Folder::copy_of_built_in("picture");
+        let file = folder.0.join("shot.png");
+        fs::write(&file, b"png bytes").unwrap();
+        let (store, _) = Store::open(None);
+        let id = assets::image(&file.to_string_lossy());
+
+        let named = store.respond(Some("image"), &format!("/{id}"));
+        let by_path = store.respond(Some("image"), &file.to_string_lossy());
+
+        assert_eq!((named.status(), named.headers()[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "image/png"));
+        assert_eq!(named.body().as_ref(), b"png bytes");
+        assert_eq!(by_path.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn serves_the_chart_files_in_the_built_in_template() {
+        let (store, _) = Store::open(None);
+
+        let response = store.respond(Some("template"), "/chart/kit.js");
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]
