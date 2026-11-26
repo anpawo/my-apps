@@ -57,13 +57,26 @@ enum VCX {
             }
             return session(record, pid: pid, startedAt: bsd.pbi_start_tvsec, path: path).map { [$0] } ?? []
         }
+        let rust = NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx.rust")
+            .filter { $0.activationPolicy != .prohibited }.map(\.processIdentifier)
         var unique: [String: Session] = [:]
-        for session in found {
+        for session in found + rustSessions(folder: rustRoot + "/fleet", pids: rust) {
             if let previous = unique[session.id], previous.proc.startedAt > session.proc.startedAt ||
                 (previous.proc.startedAt == session.proc.startedAt && previous.proc.pid > session.proc.pid) { continue }
             unique[session.id] = session
         }
         return Array(unique.values)
+    }
+
+    /// VCX Rust (vcx-app `fleet.rs`): one record per app process in its own state folder, in the Swift app's shape.
+    static var rustRoot: String { NSHomeDirectory() + "/.local/state/vcx-rust" }
+
+    static func rustSessions(folder: String, pids: [pid_t]) -> [Session] {
+        pids.flatMap { pid -> [Session] in
+            guard let bsd = ProcessScanner.bsdInfo(pid) else { return [] }
+            let file = folder + "/\(pid).json"
+            return object(file).map { sessions($0, pid: pid, startedAt: bsd.pbi_start_tvsec, path: file) } ?? []
+        }
     }
 
     static func sessions(_ record: [String: Any], pid: pid_t, startedAt: UInt64, path: String) -> [Session] {

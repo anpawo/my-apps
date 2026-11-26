@@ -132,6 +132,7 @@ enum ProcessScanner {
     /// gathering cwd or CPU for anything.
     static func anyClaudeRunning() -> Bool {
         if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx").isEmpty { return true }
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx.rust").isEmpty { return true }
         for pid in allPIDs() where pid > 0 {
             if kind(pid) != nil { return true }
         }
@@ -344,7 +345,7 @@ enum ProcessScanner {
     /// on any polling path.
     static func hostApplication(of pid: pid_t,
                                 parents: [pid_t: pid_t]? = nil) -> NSRunningApplicationBox? {
-        if let app = NSRunningApplicationBox.app(forPID: pid), app.app.bundleIdentifier == "com.mr.vcx" { return app }
+        if let app = NSRunningApplicationBox.app(forPID: pid), ["com.mr.vcx", "com.mr.vcx.rust"].contains(app.app.bundleIdentifier) { return app }
         let parents = parents ?? parentMap()
         var current = pid
         for _ in 0..<12 {

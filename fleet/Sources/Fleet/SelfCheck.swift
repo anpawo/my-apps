@@ -165,6 +165,23 @@ enum SelfCheck {
         first["sessionId"] = "invalid"
         expect(VCX.sessions(["sessions": [first]], pid: 42, startedAt: 100, path: "/tmp/vcx.json").isEmpty, true,
                "VCX rejects invalid runtime identities in aggregate presence records")
+        do {
+            // A VCX Rust process's record, as vcx-app's fleet.rs writes it, in a folder of its own.
+            let folder = NSTemporaryDirectory() + "fleet-vcx-rust-\(getpid())"
+            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(atPath: folder) }
+            let me = getpid(), started = ProcessScanner.bsdInfo(me)!.pbi_start_tvsec
+            let window = #"{"pid":\#(me),"startedAt":\#(started),"sessionId":"6f1b7e9c-2c1d-4a8e-9b70-3d5c4e2a1f00","cwd":"/tmp","state":"ready","prompt":"Port the code edit","preview":[{"kind":"user","text":"Port the code edit"}],"updatedAt":1.5,"windowId":7}"#
+            let body = String(window.dropLast()) + #","sessions":["# + window + "]}"
+            try? Data(body.utf8).write(to: URL(fileURLWithPath: folder + "/\(me).json"))
+            let rust = VCX.rustSessions(folder: folder, pids: [me])
+            expect(rust.count == 1 && rust.first?.proc.pid == me && rust.first?.runtimeSessionID == "6f1b7e9c-2c1d-4a8e-9b70-3d5c4e2a1f00"
+                   && rust.first?.runtimeWindowID == 7 && rust.first?.state == .ready, true,
+                   "VCX Rust: a window of the Rust app is a session Fleet can focus by its runtime id")
+            try? Data(body.replacingOccurrences(of: "\(started)", with: "\(started - 1)").utf8).write(to: URL(fileURLWithPath: folder + "/\(me).json"))
+            expect(VCX.rustSessions(folder: folder, pids: [me]).isEmpty, true,
+                   "VCX Rust: a record left by an earlier process with this pid shows no window")
+        }
         record["state"] = "invalid"
         expect(read() == nil, true, "VCX: an unknown bridge state is rejected")
         record["state"] = "ready"; record["cwd"] = "relative"
