@@ -30,6 +30,7 @@ pub mod carry;
 mod commands;
 mod refresh;
 mod route;
+mod upkeep;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -66,6 +67,8 @@ pub struct Config {
     pub connectivity: Rc<Connectivity>,
     /// The project router's command: Haiku through `claude`, a test's agent, or none (no routing).
     pub router: Vec<String>,
+    /// cleanup.py, run when it exists: the bundle's, or a test's own in its runtime home.
+    pub cleanup: Option<PathBuf>,
 }
 
 pub struct SessionBackend {
@@ -135,6 +138,7 @@ impl SessionBackend {
         let cwd = recovery.as_ref().and_then(|state| text(state, "conversationDirectory")).or_else(|| text(params, "cwd")).unwrap_or("/").to_owned();
         let mut session = Session::new(&cwd, &config.state_directory.to_string_lossy());
         session.fleet_context_file = fleet::create();
+        session.tracing = true;
         let mut window_state = json!({});
         let mut consumed = -1;
         if let Some(state) = &recovery {
@@ -716,7 +720,7 @@ impl SessionBackend {
             params["excludeTurns"] = json!(true);
         }
         let method = if resume.is_some() { "thread/resume" } else { "thread/start" };
-        let result = object(self.request(method, params, REQUEST_TIMEOUT).await?);
+        let result = self.open_thread(method, params).await?;
         let id = result.get("thread").and_then(|thread| thread.get("id")).and_then(Value::as_str).ok_or_else(|| format!("{} did not return a conversation.", self.session.borrow().provider_label))?.to_owned();
         if resume.is_some_and(|thread| thread.rsplit(':').next().map(str::to_lowercase) != id.rsplit(':').next().map(str::to_lowercase)) {
             return Err("The agent did not resume the exact requested native conversation.".into());
@@ -815,6 +819,7 @@ impl SessionBackend {
     }
 
     fn apply(self: &Rc<Self>, message: Inbound) {
+        self.trace_inbound(&message);
         let effects = match &message {
             Inbound::Event(event) => self.session.borrow_mut().event(event),
             Inbound::Request { id, method, params } => self.session.borrow_mut().request(id.clone(), method, params),
@@ -824,6 +829,7 @@ impl SessionBackend {
             }
             Inbound::Response { .. } => Vec::new(),
         };
+        self.after_inbound(&message, &effects);
         self.run_effects(effects);
     }
 
@@ -1055,6 +1061,7 @@ impl SessionBackend {
                 let Some(images) = images else { return Err("Invalid message payload.".into()) };
                 let skill = self.skill(text);
                 if text.starts_with('/') && images.is_empty() && skill.is_none() {
+                    self.session.borrow().trace_prompt(text, 0, false);
                     return Box::pin(Rc::clone(&self).run("command", object(json!({"text": text})))).await;
                 }
                 let draft = params.get("draft").and_then(Value::as_array).cloned();
@@ -1198,6 +1205,7 @@ impl Backend for SessionBackend {
             agent.close();
         }
         fleet::remove(&self.session.borrow().fleet_context_file);
+        self.upkeep_on_close();
         self.started.send_replace(true);
     }
 

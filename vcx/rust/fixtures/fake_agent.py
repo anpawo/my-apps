@@ -22,6 +22,8 @@ instructions, dynamic tool names) and the session files in the agent's own envir
 with the JSON of the turn's `cwd` and its whole input text.
 Started with `--route` (the worker's test router, in Haiku's place), it reads the question after `-p`, prints the
 folder the first `fixture:route:<folder>` in it names, or `none`, and exits.
+A `routing-timeout` file in the test worker's `VCX_RUNTIME_HOME` fails the next thread/start or thread/resume once, as
+Codex's workspace routing does when it times out, and is removed.
 """
 import json
 import os
@@ -60,6 +62,8 @@ ECHO = 'fixture:echo'
 ROUTE = re.compile(r'fixture:route:(\S+)')
 MEBIBYTE = 1024 * 1024
 OPENED = 'fixture:opened'
+ROUTING_TIMEOUT_FLAG = 'routing-timeout'
+ROUTING_TIMEOUT_ERROR = {'code': -32603, 'message': 'workspace routing discovery timed out'}
 SESSION_FILES = ('FLEET_CONTEXT_FILE', 'VCX_PROGRESS_FILE', 'VCX_TASK_FILE')
 opened = {}
 output_lock = threading.Lock()
@@ -279,8 +283,20 @@ def answer_with_history(message):
     return RESULTS.get(method, {}), None
 
 
+def routing_timed_out():
+    runtime = os.environ.get('VCX_RUNTIME_HOME')
+    flag = os.path.join(runtime, ROUTING_TIMEOUT_FLAG) if runtime else None
+    if not flag or not os.path.exists(flag):
+        return False
+    os.remove(flag)
+    return True
+
+
 def respond(message):
     method = message['method']
+    if method in ('thread/start', 'thread/resume') and routing_timed_out():
+        send({'id': message['id'], 'error': ROUTING_TIMEOUT_ERROR})
+        return
     if method in HOME_LISTS:
         send({'id': message['id'], 'result': HOME_LISTS[method](message.get('params') or {})})
         return

@@ -165,6 +165,8 @@ pub struct Session {
     pub edited_folder: Option<String>,
     /// The files the running turn edited.
     turn_edits: Vec<String>,
+    /// Prompts, agent events and notices go to the trace in `state_directory`: a worker's sessions, never a test's model.
+    pub tracing: bool,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -363,8 +365,28 @@ impl Session {
         self.notice_linked(message, None);
     }
 
+    /// The Swift `trace`: one line of the trace log, with the session's record, thread and folder.
+    pub fn trace(&self, kind: &str, mut data: Value) {
+        if !self.tracing {
+            return;
+        }
+        if let Some(fields) = data.as_object_mut() {
+            fields.insert("record".into(), json!(self.record_id));
+            if let Some(thread) = &self.thread_id {
+                fields.insert("thread".into(), json!(thread));
+            }
+            fields.insert("cwd".into(), json!(self.cwd));
+        }
+        crate::trace::write(Path::new(&self.state_directory), kind, data);
+    }
+
+    pub fn trace_prompt(&self, text: &str, images: usize, retry: bool) {
+        self.trace("prompt", json!({"text": text, "images": images, "retry": retry, "ready": self.ready, "busy": self.busy}));
+    }
+
     /// A notice that opens `link` (an agent's log) when clicked.
     pub fn notice_linked(&mut self, message: &str, link: Option<&str>) {
+        self.trace("notice", json!({"text": message}));
         let id = new_id();
         let mut data = json!({"id": id, "type": "notice", "text": message});
         if let Some(link) = link {
@@ -377,6 +399,7 @@ impl Session {
 
     /// One notice says the agent retries, updated in place until the agent makes progress again.
     fn retry_notice(&mut self, message: &str) {
+        self.trace("notice", json!({"text": message}));
         let retry = self.rows.iter().rev().filter_map(|row| row.items.first()).find(|id| self.is_retry(id)).cloned();
         match retry.and_then(|id| Some((self.items.get(&id)?.clone(), id))) {
             Some((mut item, id)) => {
@@ -847,6 +870,13 @@ impl Session {
         .into();
     }
 
+    fn instruction_sources(&mut self, result: &Object) {
+        let sources: Vec<String> = result.get("instructionSources").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        if !sources.is_empty() {
+            self.capabilities.instructions = sources;
+        }
+    }
+
     /// The Swift `updateUsage`; a Codex window used up rests its account.
     pub fn rate_limits(&mut self, limits: &Object) -> Option<Effect> {
         let now = crate::fallback::now();
@@ -1028,6 +1058,7 @@ impl Session {
         self.context.clear();
         self.context_used = None;
         self.context_limit = if self.provider == "claude" { self.remembered_window(&self.model) } else { None };
+        self.instruction_sources(result);
         for turn in history.iter().filter_map(Value::as_object) {
             self.group = None;
             for item in turn.get("items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object) {
@@ -1078,6 +1109,7 @@ impl Session {
     /// Shows a prompt and builds its request, or tells why it cannot go (`None`, with a notice when the user must know).
     /// A `retry` sends a prompt already shown again, to a fallback account: no new row, the draft untouched.
     pub fn begin_send(&mut self, text: &str, images: &[String], expected_draft: Option<Vec<Value>>, expected_generation: Option<i64>, retry: bool) -> Option<Outgoing> {
+        self.trace_prompt(text, images.len(), retry);
         if !self.ready || self.changing {
             if !self.ready {
                 self.notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.");

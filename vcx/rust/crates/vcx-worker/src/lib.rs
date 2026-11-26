@@ -10,6 +10,7 @@ pub mod backend;
 pub mod capabilities;
 pub mod channel;
 pub mod checkpoint;
+pub mod cleanup;
 pub mod connectivity;
 pub mod fallback;
 pub mod fleet;
@@ -22,6 +23,7 @@ pub mod repository;
 pub mod server;
 pub mod session;
 pub mod swap;
+pub mod trace;
 pub mod usage;
 
 use backend::{Config, SessionBackend};
@@ -129,13 +131,14 @@ async fn serve(options: Options) -> i32 {
     let probe = if options.test { connectivity::Probe::Flag(home.join(TEST_OFFLINE_FLAG)) } else { connectivity::Probe::Internet };
     let connectivity = connectivity::Connectivity::new(probe, retry_scale);
     let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
+    let disk_cleanup = cleanup::script(options.test.then_some(home.as_path()));
     // A test routes through its fixture agent, never Haiku; one with no agent command routes nowhere.
     let router = match &options.fixture {
         Some(fixture) => fixture.iter().cloned().chain(std::iter::once(TEST_ROUTER_FLAG.to_owned())).collect(),
         None if options.test => Vec::new(),
         None => project::ROUTER.map(str::to_owned).to_vec(),
     };
-    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router });
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router, cleanup: disk_cleanup });
     let starting = Rc::clone(&config);
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&starting)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();
