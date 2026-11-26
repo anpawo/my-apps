@@ -264,6 +264,11 @@ fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_sa
     let control = vcx_config::Homes::under(&run.root).control();
     let listening = fs::metadata(&control).unwrap().ino();
     let pid = run.app.as_ref().unwrap().id();
+    let taken = run.root.join("probe.taken");
+    let mut probe = Command::new("/usr/bin/python3").args(["-c", LOCK_PROBE]).arg(vcx_config::Homes::under(&run.root).lock()).arg(&taken).spawn().unwrap();
+    while !taken.exists() {
+        thread::sleep(POLL);
+    }
 
     // SAFETY: the pid is this run's own app, as build-rust.sh --install signals the installed one.
     unsafe { libc::kill(pid as i32, libc::SIGUSR1) };
@@ -276,9 +281,30 @@ fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_sa
         thread::sleep(POLL);
     }
     let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let _ = probe.kill();
+    let _ = probe.wait();
     assert_eq!(after["pid"], json!(pid));
     assert_eq!(windows(&after)[0]["sessionId"], windows(&before)[0]["sessionId"]);
+    assert_eq!(fs::read_to_string(&taken).unwrap(), "0", "another process took the state folder's lock during the relaunch");
 }
+
+/// A second launch in the same moment, at its most eager: takes the state folder's lock whenever it is free and holds
+/// it long enough for the relaunched image to find it taken; writes how many times it got it.
+const LOCK_PROBE: &str = "import fcntl, sys, time
+lock, taken = open(sys.argv[1], 'a'), sys.argv[2]
+got = 0
+open(taken, 'w').write('0')
+while True:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        time.sleep(0.0005)
+        continue
+    got += 1
+    open(taken, 'w').write(str(got))
+    time.sleep(0.05)
+    fcntl.flock(lock, fcntl.LOCK_UN)
+";
 
 #[test]
 fn keeps_its_window_through_a_live_update_of_the_rust_worker() {

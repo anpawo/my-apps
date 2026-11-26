@@ -201,7 +201,7 @@ pub(crate) struct App {
     refreshed_at: Instant,
     /// The updating chip every window shows.
     update_shown: Value,
-    _lock: File,
+    lock: File,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -253,7 +253,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         quota_waiting: None,
         refreshed_at: Instant::now(),
         update_shown: Value::Null,
-        _lock: lock,
+        lock,
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -272,6 +272,13 @@ pub fn run(options: Options) -> Result<Infallible, String> {
 /// One app per state folder: the lock is held for the life of the process and dropped by the kernel with it.
 fn lock(homes: &Homes) -> Result<File, String> {
     vcx_config::private_folder(&homes.state)?;
+    // A relaunch's lock is the same open file, already held: taking it again succeeds at once.
+    if let Some(file) = relaunch::inherited_lock(&homes.lock()) {
+        // SAFETY: the descriptor is open for as long as `file` lives; LOCK_NB never blocks.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(file);
+        }
+    }
     let file = OpenOptions::new().create(true).truncate(false).write(true).open(homes.lock()).map_err(|error| format!("Cannot lock {}: {error}.", homes.lock().display()))?;
     // SAFETY: the descriptor is open for as long as `file` lives; LOCK_NB never blocks.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
@@ -800,7 +807,7 @@ impl App {
     /// A new build was installed: the windows are saved and the app becomes that build, which reopens them.
     fn relaunch(&mut self) {
         self.save_now();
-        let problem = relaunch::exec(self.windowless);
+        let problem = relaunch::exec(self.windowless, &self.lock);
         eprintln!("vcx-rust: {problem}");
         for win in self.windows.values_mut() {
             win.pane.note(format!("Automatic update paused: {problem}"));
