@@ -1,0 +1,41 @@
+#!/bin/sh
+# vcx launcher: VCX Rust
+# Put at ~/.local/bin/vcx by vcx/rust/launchers/switch.sh --to rust; `switch.sh --to swift` puts the Swift one back.
+app="$HOME/Applications/VCX Rust.app"
+binary="$app/Contents/MacOS/vcx-rust"
+terminal="$HOME/self/my-apps/vcx"
+background=-g
+for argument in "$@"; do
+  case "$argument" in
+    --focus) background= ;;
+    -p|--print|--headless|--ensure-qwen) exec "$binary" "$@" ;;
+  esac
+done
+case "$1" in
+  --terminal)
+    shift
+    if [ ! -x "$terminal/.venv/bin/python" ]; then
+      python3 -m venv "$terminal/.venv" || exit 1
+      "$terminal/.venv/bin/python" -m pip install -r "$terminal/requirements.txt" || exit 1
+    fi
+    exec "$terminal/.venv/bin/python" "$terminal/terminal.py" "$@"
+    ;;
+  ''|--cwd|-C|--resume|-r|--focus|--) ;;
+  # Every other flag is a command the binary answers here (--sessions, --send…), or refuses with its reason.
+  -*) exec "$binary" "$@" ;;
+esac
+# A window goes through open, so the app never runs as the caller's child: an app already running takes the request
+# over its control socket and the process open started leaves. open starts it in /: a relative folder given here is
+# made absolute from the caller's.
+folder= words=
+for argument in "$@"; do
+  if [ -n "$folder" ]; then
+    case "$argument" in /*|~*) ;; *) argument="$PWD/$argument" ;; esac
+    folder=
+  elif [ -z "$words" ]; then
+    case "$argument" in --cwd|-C) folder=1 ;; --) words=1 ;; esac
+  fi
+  set -- "$@" "$argument"
+  shift
+done
+exec /usr/bin/open -n $background -a "$app" --args --cwd "$PWD" "$@"

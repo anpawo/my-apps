@@ -88,6 +88,18 @@ func menuItem(_ app: AXUIElement, cmdChar: String) -> AXUIElement? {
     return nil
 }
 
+/// A new VCX window through the `vcx` command, so ⌥⌘J starts whichever app `vcx/rust/launchers/switch.sh` put
+/// behind it. In `/`, the folder the app was opened in before (the opener runs there under launchd); the command
+/// opens the installed path, never one LaunchServices picks by bundle id (a stale copy on 2026-11-04).
+func vcxWindow() -> Process {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/vcx")
+    task.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
+    task.arguments = ["--focus"]
+    task.standardOutput = FileHandle.nullDevice
+    return task
+}
+
 let args = CommandLine.arguments
 
 if args.contains("--selftest") { MainActor.assumeIsolated { exit(SelfCheck.run() == 0 ? 0 : 1) } }
@@ -155,13 +167,9 @@ final class App: NSObject, NSApplicationDelegate {
                 config.createsNewApplicationInstance = true
                 NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Ghostty.app"), configuration: config)
             }),
-            // The installed path, as the vcx launcher uses: by bundle id, LaunchServices picked a stale
-            // `.VCX-font-previous` copy on 2026-11-04 and four sessions started on an old build.
             (kVK_ANSI_J, cmdKey | optionKey, "⌥⌘J", {
-                let config = NSWorkspace.OpenConfiguration()
-                config.createsNewApplicationInstance = true
-                config.arguments = ["--focus"]
-                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: NSHomeDirectory() + "/Applications/Vibe Code X.app"), configuration: config)
+                let task = vcxWindow()
+                do { try task.run() } catch { NSLog("opener: vcx not started: \(error)") }
             }),
             // Launches One Text, or unhides and brings up the running one (its close button only hides it).
             (kVK_ANSI_O, cmdKey | optionKey, "⌥⌘O", {

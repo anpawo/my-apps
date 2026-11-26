@@ -28,6 +28,10 @@ enum SelfCheck {
         expect(top("zzz"), [], "no match, no row")
         expect(top("  "), [], "nothing typed, nothing shown")
 
+        let vcx = vcxWindow()
+        expect([vcx.executableURL?.path, vcx.currentDirectoryURL?.path] + (vcx.arguments ?? []),
+               [NSHomeDirectory() + "/.local/bin/vcx", "/", "--focus"], "⌥⌘J opens a VCX window through the vcx command, in /")
+
         _ = NSApplication.shared
         let opener = Opener()
         opener.apps = apps
