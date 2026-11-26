@@ -26,6 +26,12 @@ pub fn close_title(folder: &str) -> String {
     format!("Close {folder}?")
 }
 
+/// Whether a sheet (a close or quit question) waits on `window`.
+pub fn asking(window: &tao::window::Window) -> bool {
+    // SAFETY: tao hands the NSWindow it owns for as long as `window` lives, which outlasts this call.
+    unsafe { (window.ns_window() as *const NSWindow).as_ref() }.is_some_and(|ns_window| ns_window.attachedSheet().is_some())
+}
+
 /// Shows the alert as a sheet on `window` without blocking the event loop; `then(true)` once `button` is chosen.
 pub fn ask(window: &tao::window::Window, title: &str, detail: &str, button: &str, then: impl FnOnce(bool) + 'static) {
     let Some(mtm) = MainThreadMarker::new() else {

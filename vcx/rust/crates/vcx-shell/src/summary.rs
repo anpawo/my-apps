@@ -20,6 +20,10 @@ pub struct Summary {
     /// What a close or quit warns about (Swift `runningWork`): a turn under way, and background tasks still running.
     pub busy: bool,
     pub background_tasks: u64,
+    /// The composer holds text or a picture not sent yet, as last checkpointed to the worker.
+    pub draft: bool,
+    /// A permission the agent asked for waits on his answer.
+    pub deciding: bool,
     pub prompt: Option<String>,
     pub last_prompt_at: Option<f64>,
     pub context: Option<String>,
@@ -64,6 +68,8 @@ pub fn of(state: &SessionState) -> Summary {
         idle: flag("ready") && !flag("busy") && !flag("changing"),
         busy: flag("busy"),
         background_tasks: background,
+        draft: state.draft.iter().any(|part| part.get("type").and_then(Value::as_str) != Some("text") || part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty())),
+        deciding: waiting,
         prompt: prompt.map(|prompt| clipped(&prompt)),
         last_prompt_at: user_items.last().and_then(|item| item.get("sentAt")).and_then(Value::as_f64),
         context: text(meta, "fleetContext").filter(|context| !context.is_empty()),
@@ -172,6 +178,24 @@ mod tests {
 
         assert_eq!((pending.busy, pending.background_tasks, pending.state), (false, 2, "pending"));
         assert_eq!((running.busy, running.background_tasks), (true, 0));
+    }
+
+    #[test]
+    fn counts_a_draft_only_when_it_holds_text_or_a_picture() {
+        let drafts = [json!([{"type": "text", "text": "unsent"}]), json!([{"type": "localImage", "path": "/tmp/p.png"}]), json!([{"type": "text", "text": ""}]), json!([])];
+
+        let held: Vec<bool> = drafts.into_iter().map(|draft| of(&state(json!({"ready": true, "draft": draft, "rows": []}))).draft).collect();
+
+        assert_eq!(held, [true, true, false, false]);
+    }
+
+    #[test]
+    fn says_a_decision_waits_while_a_permission_is_asked() {
+        let (asking, free) = (state(json!({"ready": true, "permissions": [{"id": "P"}], "rows": []})), state(json!({"ready": true, "rows": []})));
+
+        let (asking, free) = (of(&asking), of(&free));
+
+        assert_eq!((asking.deciding, free.deciding), (true, false));
     }
 
     #[test]

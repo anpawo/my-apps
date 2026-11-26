@@ -770,7 +770,8 @@ fn ends_its_sessions_and_clears_its_list_when_asked_to_quit() {
     assert!(!run.root.join("state/control.sock").exists());
 }
 
-/// A worker that holds its sessions and refuses to close any, as one that cannot save the conversation does.
+/// A worker that holds its sessions in state `{state}` and refuses to close any, as one that cannot save the
+/// conversation does.
 const REFUSING_WORKER: &str = r#"#!/usr/bin/python3
 import json, os, socket, sys, threading
 path = sys.argv[sys.argv.index('--runtime-worker') + 1]
@@ -783,7 +784,7 @@ def answer(request):
     if method == 'hello':
         return {'result': {'protocol': 1, 'build': 'refusing', 'pid': os.getpid()}}
     if method == 'attach':
-        return {'result': {'sessionId': params['sessionId'], 'lease': 'L', 'revision': 1, 'state': {'cwd': params['cwd'], 'ready': True}}}
+        return {'result': {'sessionId': params['sessionId'], 'lease': 'L', 'revision': 1, 'state': {'cwd': params['cwd'], 'ready': True, **json.loads(sys.argv[-1])}}}
     if method == 'perform' and params.get('action') == 'close':
         return {'error': {'code': 'actionFailed', 'message': 'Could not save the current conversation.'}}
     return {'result': {}}
@@ -795,14 +796,49 @@ while True:
     threading.Thread(target=serve, args=(server.accept()[0],), daemon=True).start()
 "#;
 
-#[test]
-fn keeps_a_window_whose_worker_cannot_save_its_session_and_says_why() {
-    let script = PathBuf::from(format!("/tmp/vcx-rust-{}-refusing.py", std::process::id()));
+/// The app on a refusing worker whose sessions hold `state`, started on one window.
+fn on_refusing_worker(name: &str, state: Value) -> (Run, PathBuf) {
+    let script = PathBuf::from(format!("/tmp/vcx-rust-{}-{name}.py", std::process::id()));
     fs::write(&script, REFUSING_WORKER).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(EXECUTABLE)).unwrap();
-    let mut run = Run::on("refusing", &script);
-    let folder = run.folder("refusing");
+    let mut run = Run::on(name, &script);
+    let mut settings: Value = serde_json::from_str(&fs::read_to_string(run.root.join("config/settings.json")).unwrap()).unwrap();
+    settings["workerArguments"] = json!([state.to_string()]);
+    fs::write(run.root.join("config/settings.json"), settings.to_string()).unwrap();
+    let folder = run.folder(name);
     run.start(&["--cwd", folder.to_str().unwrap()]);
+    (run, script)
+}
+
+#[test]
+fn refuses_to_close_the_callers_own_window_or_one_holding_a_draft() {
+    let (run, script) = on_refusing_worker("draft", json!({"threadID": "codex:T", "draft": [{"type": "text", "text": "unsent"}]}));
+    let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["threadId"] == "codex:T");
+    let id = windows(&report)[0]["sessionId"].clone();
+
+    let own = run.ask(&json!({"close": {"to": id, "threads": ["codex:T"]}})).unwrap();
+    let drafted = run.ask(&json!({"close": {"to": id}})).unwrap();
+
+    let _ = fs::remove_file(&script);
+    assert!(own["error"].as_str().unwrap().ends_with("stays open: it is the calling session."), "{own}");
+    assert!(drafted["error"].as_str().unwrap().ends_with("stays open: the composer holds a draft."), "{drafted}");
+    assert_eq!(windows(&run.report().unwrap()).len(), 1);
+}
+
+#[test]
+fn refuses_to_close_a_window_whose_agent_waits_on_a_permission() {
+    let (run, script) = on_refusing_worker("permission", json!({"permissions": [{"id": "P"}]}));
+    let report = run.wait_for(|report| windows(report).len() == 1);
+
+    let asked = run.ask(&json!({"close": {"to": windows(&report)[0]["sessionId"]}})).unwrap();
+
+    let _ = fs::remove_file(&script);
+    assert!(asked["error"].as_str().unwrap().ends_with("stays open: a decision is pending."), "{asked}");
+}
+
+#[test]
+fn keeps_a_window_whose_worker_cannot_save_its_session_and_says_why() {
+    let (run, script) = on_refusing_worker("refusing", json!({}));
     let report = run.wait_for(|report| windows(report).len() == 1);
     let id = windows(&report)[0]["sessionId"].clone();
 

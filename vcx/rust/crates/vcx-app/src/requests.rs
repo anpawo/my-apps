@@ -192,16 +192,34 @@ fn set_model(app: &mut App, change: &Value) -> Result<Value, String> {
     Ok(json!({"sessionId": win.session_id, "name": name(win), "requested": words.join(" ")}))
 }
 
-/// Closes an idle window, its conversation saved by the worker; a busy one is left to finish.
+/// Closes an idle window, its conversation saved by the worker; one with something to lose stays (Swift
+/// `CloseControl`), as does the caller's own.
 fn close(app: &mut App, close: &Value) -> Result<Value, String> {
     let key = addressed(app, &close["to"], close)?;
     let win = &app.windows[&key];
-    if !win.summary.as_ref().is_some_and(|summary| summary.idle) {
-        return Err(format!("{} is busy: close it once its turn ends.", name(win)));
+    if let Some(reason) = keeps_open(win, caller(app, close) == Some(key)) {
+        return Err(format!("{} stays open: {reason}.", name(win)));
     }
     let closed = name(win);
     let _ = app.close_window(key);
     Ok(json!({"closed": true, "name": closed}))
+}
+
+fn keeps_open(win: &crate::app::Win, own: bool) -> Option<&'static str> {
+    let summary = win.summary.as_ref();
+    if own {
+        Some("it is the calling session")
+    } else if !summary.is_some_and(|summary| summary.idle) {
+        Some("its turn is not over, or it is reconnecting")
+    } else if summary.is_some_and(|summary| summary.background_tasks > 0) {
+        Some("background work is running")
+    } else if summary.is_some_and(|summary| summary.draft) {
+        Some("the composer holds a draft")
+    } else if summary.is_some_and(|summary| summary.deciding) || crate::confirm::asking(&win.window) {
+        Some("a decision is pending")
+    } else {
+        None
+    }
 }
 
 fn frame(app: &mut App, place: &Value) -> Result<Value, String> {
