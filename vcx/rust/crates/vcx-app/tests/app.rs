@@ -292,7 +292,7 @@ fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_sa
 }
 
 #[test]
-fn keeps_where_its_transcript_was_scrolled_through_a_live_update() {
+fn keeps_its_scroll_details_and_composer_selection_through_a_live_update() {
     let Some(mut run) = Run::new("scrolled") else { return };
     let folder = run.folder("scrolled");
     run.start(&["--cwd", folder.to_str().unwrap(), "fixture:heavy:1"]);
@@ -301,6 +301,10 @@ fn keeps_where_its_transcript_was_scrolled_through_a_live_update() {
     let room = number(SCROLL_ROOM);
     assert!(room > SCROLLED_PX * 2.0, "the transcript does not scroll far enough: {room} px");
     let scrolled = number(&format!("{SCROLL_TOP}.scrollTop = {SCROLLED_PX}"));
+    assert_eq!(number(KEPT_DRAFT), 1.0, "the details or the draft did not take");
+    // The composer saves its draft to the worker a moment after the last edit.
+    thread::sleep(DRAFT_SETTLE);
+    number("(i => i.setSelectionRange(5, 9))(document.getElementById('input'))");
     let control = vcx_config::Homes::under(&run.root).control();
     let listening = fs::metadata(&control).unwrap().ino();
 
@@ -319,12 +323,18 @@ fn keeps_where_its_transcript_was_scrolled_through_a_live_update() {
         top = number(&format!("{SCROLL_TOP}.scrollTop"));
     }
     assert!((top - scrolled).abs() <= 1.0, "scrolled to {scrolled} px before the update, {top} px after");
+    let kept: String = serde_json::from_str(run.ask(&json!({"evaluate": {"to": id, "script": KEPT_STATE}})).unwrap()["result"].as_str().unwrap()).unwrap();
+    assert_eq!(kept, r#"[true,"keep this draft",5,9]"#);
 }
 
 /// Far enough down the transcript to be neither at its top nor at its end.
 const SCROLLED_PX: f64 = 2000.0;
 const SCROLL_TOP: &str = "document.getElementById('transcript')";
 const SCROLL_ROOM: &str = "(t => t.scrollHeight - t.clientHeight)(document.getElementById('transcript'))";
+/// Turns details on and types a draft; 1 once both took.
+const KEPT_DRAFT: &str = "(() => { const input = document.getElementById('input'); input.focus(); document.execCommand('insertText', false, 'keep this draft'); vcx.toggleDetails(); return Number(vcx.details && input.value === 'keep this draft') })()";
+const KEPT_STATE: &str = "(i => JSON.stringify([vcx.details, i.value, i.selectionStart, i.selectionEnd]))(document.getElementById('input'))";
+const DRAFT_SETTLE: Duration = Duration::from_secs(1);
 
 #[test]
 fn stays_on_its_build_with_every_window_when_the_new_build_cannot_start() {

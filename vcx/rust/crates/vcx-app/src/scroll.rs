@@ -1,27 +1,36 @@
-//! Where a window's transcript was scrolled, kept across a live update (Swift `RuntimeUpdate` saved the scroll and
-//! the exchange at the top edge): the page is read for the row at its top edge and how far that row sits above it,
-//! and the new image's page is scrolled so the same row sits there again once it is drawn.
+//! Where a window's transcript was scrolled, kept across a live update with its details toggle and composer selection
+//! (Swift `RuntimeUpdate` saved the scroll and the exchange at the top edge): the page is read for the row at its top
+//! edge and how far that row sits above it, and the new image's page is scrolled so the same row sits there again
+//! once it is drawn.
 
 use serde_json::Value;
 
-/// The page's anchor: `{pinned}` at the end, `{row, offset}` for the row at the top edge, `{top}` with no row.
+/// The page's anchor: `{pinned}` at the end, `{row, offset}` for the row at the top edge, `{top}` with no row; with
+/// whether details are on and the composer's selection, which Swift kept too (`RuntimeUpdate.state`).
 pub const READ: &str = r#"(() => {
   const t = document.getElementById('transcript');
   if (!t) return null;
-  if (t.scrollHeight - t.scrollTop - t.clientHeight < 2) return { pinned: true };
+  const input = document.getElementById('input');
+  const kept = { details: Boolean(window.vcx && vcx.details), selection: input ? [input.selectionStart, input.selectionEnd] : [0, 0] };
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 2) return { ...kept, pinned: true };
   const top = t.getBoundingClientRect().top;
   // A sticky row (a turn's heading) sits at the top edge wherever the transcript is scrolled.
   const row = [...t.querySelectorAll('[data-row]')].find(node => getComputedStyle(node).position !== 'sticky' && node.getBoundingClientRect().bottom > top);
-  return row ? { row: row.dataset.row, offset: row.getBoundingClientRect().top - top } : { top: t.scrollTop };
+  return { ...kept, ...(row ? { row: row.dataset.row, offset: row.getBoundingClientRect().top - top } : { top: t.scrollTop }) };
 })()"#;
 
-/// Scrolls the page back to `anchor`; the script answers `false` while the anchor's row is not drawn yet, or the
-/// transcript below it is still too short for the row to sit where it did.
+/// Puts the page back as `anchor` says; the script answers `false` while the anchor's row is not drawn yet, or the
+/// transcript below it is still too short for the row to sit where it did. The selection is set when the draft, which
+/// comes with the same state as the rows, holds it.
 pub fn restore(anchor: &Value) -> String {
     format!(
         r#"((a) => {{
   const t = document.getElementById('transcript');
   if (!t) return false;
+  if (a.details && window.vcx && !vcx.details) vcx.toggleDetails();
+  const input = document.getElementById('input');
+  const [start, end] = a.selection || [0, 0];
+  if (input && end <= input.value.length) input.setSelectionRange(start, end);
   if (a.pinned) {{ t.scrollTop = t.scrollHeight; return true; }}
   if (a.row === undefined) {{ t.scrollTop = a.top; return true; }}
   const row = [...t.querySelectorAll('[data-row]')].find(node => node.dataset.row === a.row);

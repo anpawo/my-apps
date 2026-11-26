@@ -564,5 +564,7 @@
   }
 
   window.vcx = { receive, restyle, post, previewLast, toggleDetails };
+  // Read by the app before a live update, which turns details back on in the new page.
+  Object.defineProperty(window.vcx, 'details', { get: () => detailsOn });
   post({ type: 'ready', contract: CONTRACT });
 })();
