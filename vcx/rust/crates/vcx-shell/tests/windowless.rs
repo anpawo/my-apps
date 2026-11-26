@@ -90,7 +90,7 @@ fn draws_a_saved_session_in_a_window_that_is_never_shown() {
     // Tool activity folds into one closed block that shows its count, as the Swift WorkBlock.
     assert!(report["html"].as_str().unwrap().contains(r#"<span class="count">3 actions</span>"#));
     assert_eq!(report["status"], "Ready");
-    assert_eq!(report["chips"][0], "vcx");
+    assert_eq!(report["chips"][0], "~/projects/vcx", "the folder chip comes first");
     let html = report["html"].as_str().unwrap();
     assert!(html.contains("<table>") && !html.contains("<script>alert"), "the answer's Markdown is drawn and its raw HTML is not");
     let widest = report["viewport"][0].as_i64().unwrap();

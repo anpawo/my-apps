@@ -1,16 +1,11 @@
 //! Fleet presence in the app's own state folder (`<state>/fleet/<pid>.json`), in the record shape the Swift app writes
-//! (`FleetPresence.swift`), so Fleet can read it once pointed there; `--sessions` lists windows from it.
+//! (`FleetPresence.swift`), so Fleet can read it once pointed there; `vcx_cli::fleet::list` reads it for `--sessions`.
 
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use vcx_shell::summary::Summary;
-
-/// A window with no task label is named by its first prompt's first words, at most this long.
-const NAME_CHARS: usize = 24;
-const NAME_WORDS: usize = 3;
-const UNNAMED: &str = "VCX session";
 
 pub struct Window<'a> {
     pub session_id: &'a str,
@@ -59,76 +54,11 @@ pub fn publish(folder: &Path, pid: u32, record: Option<Value>) -> Result<(), Str
     vcx_config::write_private(&file, record.to_string().as_bytes())
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Listed {
-    pub id: String,
-    pub state: String,
-    pub cwd: String,
-    pub name: String,
-}
-
-/// The windows of every live app process, as `--sessions` lists them.
-pub fn list(folder: &Path) -> Vec<Listed> {
-    let Ok(entries) = fs::read_dir(folder) else { return Vec::new() };
-    let mut found = Vec::new();
-    for entry in entries.flatten() {
-        let Some(root) = fs::read_to_string(entry.path()).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
-        let (Some(pid), started) = (root["pid"].as_i64(), root["startedAt"].as_u64()) else { continue };
-        if !alive(pid, started) {
-            continue;
-        }
-        for session in root["sessions"].as_array().into_iter().flatten() {
-            let text = |key: &str| session[key].as_str().unwrap_or_default().to_owned();
-            let name = name(session["context"].as_str(), session["prompt"].as_str());
-            found.push(Listed { id: text("sessionId"), state: text("state"), cwd: text("cwd"), name });
-        }
-    }
-    found.sort_by(|a, b| a.id.cmp(&b.id));
-    found
-}
-
-/// A pid handed to another process after a reboot is not that window: its start time must match too.
-pub fn alive(pid: i64, started_at: Option<u64>) -> bool {
-    match (i32::try_from(pid).ok().and_then(start_time), started_at) {
-        (Some(start), Some(expected)) => start == expected,
-        (Some(_), None) => true,
-        (None, _) => false,
-    }
-}
-
-pub fn start_time(pid: i32) -> Option<u64> {
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-    // SAFETY: `info` is a writable proc_bsdinfo of the size given.
-    let read = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
-    (read == size).then_some(info.pbi_start_tvsec)
-}
-
-/// The window's name, as `--send` matches it: its task label's first words, else its first prompt's.
-pub fn name(context: Option<&str>, prompt: Option<&str>) -> String {
-    let words = |text: &str, limit: usize| {
-        let mut name = String::new();
-        for word in text.split_whitespace().take(NAME_WORDS) {
-            if !name.is_empty() && name.len() + 1 + word.len() > limit {
-                break;
-            }
-            if !name.is_empty() {
-                name.push(' ');
-            }
-            name.push_str(word);
-        }
-        name
-    };
-    match (context.map(|context| words(context, usize::MAX)).filter(|name| !name.is_empty()), prompt) {
-        (Some(label), _) => label,
-        (None, Some(prompt)) if !prompt.trim().is_empty() => words(prompt, NAME_CHARS),
-        _ => UNNAMED.to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vcx_cli::fleet::{Listed, list};
+    use vcx_config::process::start_time;
 
     fn summary(state: &'static str, prompt: &str) -> Summary {
         Summary { state, prompt: Some(prompt.into()), cwd: "/p".into(), ..Summary::default() }
@@ -150,14 +80,6 @@ mod tests {
     }
 
     #[test]
-    fn names_a_window_by_its_task_label_else_by_its_first_prompt() {
-        assert_eq!(name(Some("Rust app slice four"), Some("hello")), "Rust app slice");
-        assert_eq!(name(None, Some("rebuild the whole thing in rust today")), "rebuild the whole");
-        assert_eq!(name(None, Some("internationalization considerations everywhere")), "internationalization");
-        assert_eq!(name(Some(""), None), UNNAMED);
-    }
-
-    #[test]
     fn lists_only_the_windows_of_a_live_process() {
         let folder = std::env::temp_dir().join(format!("vcx-app-fleet-{}", std::process::id()));
         let me = std::process::id();
@@ -171,7 +93,7 @@ mod tests {
         let after_close = list(&folder);
 
         fs::remove_dir_all(&folder).unwrap();
-        assert_eq!(listed, [Listed { id: "A".into(), state: "fresh".into(), cwd: "/p".into(), name: UNNAMED.into() }]);
+        assert_eq!(listed, [Listed { id: "A".into(), provider: "codex".into(), state: "fresh".into(), cwd: "/p".into(), name: "VCX session".into() }]);
         assert_eq!(after_close, []);
     }
 }

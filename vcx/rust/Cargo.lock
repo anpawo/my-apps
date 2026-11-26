@@ -2473,6 +2473,7 @@ dependencies = [
  "serde_json",
  "tao",
  "uuid",
+ "vcx-cli",
  "vcx-config",
  "vcx-model",
  "vcx-proto",

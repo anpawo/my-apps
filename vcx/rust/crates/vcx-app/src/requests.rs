@@ -3,7 +3,6 @@
 
 use crate::app::{App, AppEvent, Open, Queued};
 use crate::control::Request;
-use crate::fleet;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -87,7 +86,7 @@ fn caller(app: &App, request: &Value) -> Option<u64> {
 
 fn name(win: &crate::app::Win) -> String {
     let summary = win.summary.as_ref();
-    fleet::name(summary.and_then(|summary| summary.context.as_deref()), summary.and_then(|summary| summary.prompt.as_deref()))
+    vcx_cli::fleet::name(summary.and_then(|summary| summary.context.as_deref()), summary.and_then(|summary| summary.prompt.as_deref()))
 }
 
 fn provider(win: &crate::app::Win) -> &'static str {
@@ -138,7 +137,7 @@ fn set_dir(app: &mut App, change: &Value) -> Result<Value, String> {
     let key = addressed(app, &change["to"], change)?;
     let win = &app.windows[&key];
     win.pane.tell(Message::Act { action: "moveDirectory", params: json!({"path": path}) });
-    Ok(json!({"sessionId": win.session_id, "requested": path}))
+    Ok(json!({"sessionId": win.session_id, "name": name(win), "requested": path}))
 }
 
 /// Asks for `/model <provider> [model] [effort]`, as the Swift app does: the worker checks the catalog, and a busy
@@ -152,7 +151,7 @@ fn set_model(app: &mut App, change: &Value) -> Result<Value, String> {
     }
     let words: Vec<&str> = ["/model", provider].into_iter().chain(["model", "effort"].iter().filter_map(|key| change[key].as_str())).collect();
     win.pane.tell(Message::Act { action: "command", params: json!({"text": words.join(" ")}) });
-    Ok(json!({"sessionId": win.session_id, "requested": words.join(" ")}))
+    Ok(json!({"sessionId": win.session_id, "name": name(win), "requested": words.join(" ")}))
 }
 
 /// Closes an idle window, its conversation saved by the worker; a busy one is left to finish.
@@ -162,8 +161,9 @@ fn close(app: &mut App, close: &Value) -> Result<Value, String> {
     if !win.summary.as_ref().is_some_and(|summary| summary.idle) {
         return Err(format!("{} is busy: close it once its turn ends.", name(win)));
     }
+    let closed = name(win);
     app.drop_window(key, true);
-    Ok(json!({"closed": true}))
+    Ok(json!({"closed": true, "name": closed}))
 }
 
 fn frame(app: &mut App, place: &Value) -> Result<Value, String> {

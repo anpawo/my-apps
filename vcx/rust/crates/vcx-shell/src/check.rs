@@ -19,7 +19,7 @@ pub const DUMP: &str = r#"(() => {
   background: getComputedStyle(document.body).backgroundColor,
   status: document.getElementById('status-text')?.textContent ?? null,
   notice: document.getElementById('notice')?.hidden === false ? document.getElementById('notice').textContent : null,
-  chips: [...document.querySelectorAll('.chip')].map(chip => chip.textContent),
+  chips: [...document.querySelectorAll('#chips [data-chip]')].map(chip => chip.textContent),
   chrome: window.vcxChrome?.dump?.() ?? null,
   rows: [...document.querySelectorAll('[data-row]')].map(row => {
     const box = row.getBoundingClientRect();

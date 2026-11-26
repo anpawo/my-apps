@@ -43,7 +43,7 @@ struct App {
     proxy: EventLoopProxy<UserEvent>,
     /// Where a check clicks once the text it typed is in the composer.
     send_button: Option<(f64, f64)>,
-    _window: Window,
+    window: Window,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -64,7 +64,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     if let Some(check) = &options.check {
         after(check.timeout, &proxy, UserEvent::CheckTimeout);
     }
-    let mut app = App { pane, check: options.check.map(Check::new), proxy, send_button: None, _window: window };
+    let mut app = App { pane, check: options.check.map(Check::new), proxy, send_button: None, window };
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
         let exit = match event {
@@ -161,7 +161,8 @@ impl App {
                 eprintln!("vcx-shell: {reason}");
                 return Some(if self.check.is_some() { EXIT_FAILED } else { 0 });
             }
-            Note::Arrived { .. } | Note::Summary(_) => {}
+            Note::Title(text) => self.window.set_title(&text),
+            Note::Arrived { .. } | Note::Summary(_) | Note::Focus(_) => {}
         }
         None
     }

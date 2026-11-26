@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-use vcx_app::control;
+use vcx_cli::control;
 use vcx_proto::Client;
 
 const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
@@ -287,7 +287,7 @@ fn lists_its_windows_and_publishes_them_to_fleet_under_its_own_folder() {
     let record: Value = serde_json::from_str(&fs::read_to_string(&presence).unwrap()).unwrap();
     assert_eq!((record["sessionId"].as_str(), record["state"].as_str(), record["cwd"].as_str()), (Some(id.as_str()), Some("ready"), folder.to_str()));
     let line = text(&listed);
-    assert!(line.contains(&id) && line.contains("list me please") && line.contains(folder.to_str().unwrap()), "{line}");
+    assert!(line.contains(&id[..8]) && line.contains("list me please") && line.contains(folder.to_str().unwrap()), "{line}");
 }
 
 #[test]
@@ -334,6 +334,26 @@ fn moves_a_window_to_another_folder() {
         assert!(Instant::now() < deadline, "the new folder was never saved");
         thread::sleep(POLL);
     }
+}
+
+#[test]
+fn shows_each_window_its_task_and_marks_its_own_card_current() {
+    let Some(mut run) = Run::new("tasks") else { return };
+    let folder = run.folder("tasked");
+    run.start(&["--cwd", folder.to_str().unwrap(), "give me a task"]);
+    let report = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1) && windows(report)[0]["taskFile"].is_string());
+    let task_file = PathBuf::from(windows(&report)[0]["taskFile"].as_str().unwrap());
+    // A worker with no Fleet folder handed in gives the session a temporary one of its own (Swift `Session.fleetContextFile`).
+    let own = task_file.parent().and_then(Path::file_name).is_some_and(|folder| folder.to_string_lossy().starts_with("vcx-fleet-"));
+    assert!(own && !task_file.exists(), "{} is not this session's own new task file", task_file.display());
+
+    fs::write(&task_file, "Add a task bar to VCX\n").unwrap();
+
+    let report = run.wait_for(|report| windows(report)[0]["page"]["tasks"].as_array().is_some_and(|cards| !cards.is_empty()));
+    fs::remove_file(&task_file).unwrap();
+    let card = &windows(&report)[0]["page"]["tasks"][0];
+    assert!(card["text"].as_str().unwrap().contains("Add a task bar to VCX"), "{card}");
+    assert_eq!((card["state"].as_str(), card["current"].as_bool()), (Some("question"), Some(true)), "an answer without his Done line waits on him");
 }
 
 #[test]

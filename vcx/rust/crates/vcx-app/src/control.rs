@@ -12,7 +12,6 @@ use std::time::Duration;
 
 /// A report reads every window's page, so it may take a while with many windows.
 const ANSWER_WAIT: Duration = Duration::from_secs(60);
-const CLIENT_WAIT: Duration = Duration::from_secs(90);
 const MAX_REQUEST_BYTES: u64 = 1_048_576;
 
 pub struct Request {
@@ -57,19 +56,10 @@ fn answer(stream: UnixStream, deliver: &dyn Fn(Request)) {
     let _ = stream.write_all(format!("{reply}\n").as_bytes());
 }
 
-/// Asks the running app; `None` when no app answers on the socket.
-pub fn ask(socket: &Path, body: &Value) -> Option<Value> {
-    let mut stream = UnixStream::connect(socket).ok()?;
-    stream.set_read_timeout(Some(CLIENT_WAIT)).ok()?;
-    stream.write_all(format!("{body}\n").as_bytes()).ok()?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).ok()?;
-    serde_json::from_str(&line).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vcx_cli::control::ask;
 
     #[test]
     fn carries_a_request_to_the_app_and_its_answer_back() {

@@ -3,18 +3,20 @@
 
 use crate::bridge::{self, FromPage};
 use crate::chart;
+use crate::composer;
 use crate::progress::{self, Progress};
 use crate::session::{self, Message, Output, Source};
 use crate::summary::Summary;
 use crate::template::{self, Change, Store};
 use serde_json::{Value, json};
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tao::window::Window;
 use vcx_model::view::CONTRACT_VERSION;
-use wry::{BackgroundThrottlingPolicy, WebView, WebViewBuilder};
+use wry::{BackgroundThrottlingPolicy, DragDropEvent, WebView, WebViewBuilder};
 
 /// How long a freshly loaded page has to report ready before the last template that worked comes back.
 const READY_WAIT: Duration = Duration::from_secs(3);
@@ -48,6 +50,10 @@ pub enum Note {
     Edited,
     /// The page is loading again: what it drew before no longer counts.
     Reloading,
+    /// The page names the window: the window's title.
+    Title(String),
+    /// A click on another session's task card: bring that window up.
+    Focus(String),
     Closed(String),
 }
 
@@ -75,6 +81,8 @@ pub struct Pane {
     progress_file: Option<PathBuf>,
     /// The progress message the page has, so an unchanged read is not sent again.
     progress_shown: Value,
+    /// The session's working folder: where an `@` word looks and what a dropped file is named from.
+    cwd: PathBuf,
     /// The progress ticker runs while this lives.
     _alive: Arc<()>,
     _watcher: Option<notify::RecommendedWatcher>,
@@ -102,7 +110,7 @@ impl Pane {
         tick_progress(Arc::downgrade(&alive), emit.clone());
         let pane = Self {
             webview, store, session: Some(session), emit, load: 0, ready: false, styles: 0, notice, quiet: options.quiet, feeds,
-            progress: Progress::default(), progress_file: None, progress_shown: Value::Null, _alive: alive, _watcher: watcher,
+            progress: Progress::default(), progress_file: None, progress_shown: Value::Null, cwd: PathBuf::new(), _alive: alive, _watcher: watcher,
         };
         pane.after_ready_wait();
         Ok(pane)
@@ -159,6 +167,7 @@ impl Pane {
             Output::Settled(serial) => vec![Note::Settled(serial)],
             Output::Arrived { serial, at } => vec![Note::Arrived { serial, at }],
             Output::Summary(summary) => {
+                self.cwd = PathBuf::from(&summary.cwd);
                 if let Some(file) = &summary.progress_file {
                     self.progress_file = Some(PathBuf::from(file));
                 }
@@ -175,8 +184,13 @@ impl Pane {
                 Vec::new()
             }
             FromPage::Ready { contract } => self.fall_back(&format!("The template's page speaks contract {contract}; this build speaks contract {CONTRACT_VERSION}.")),
-            FromPage::Send { text } => {
-                self.tell(Message::Act { action: "send", params: json!({"text": text, "images": []}) });
+            FromPage::Send { text, images, draft, generation } => {
+                let mut params = json!({"text": text, "images": images});
+                if let (Some(draft), Some(generation)) = (draft, generation) {
+                    params["draft"] = draft;
+                    params["generation"] = json!(generation);
+                }
+                self.tell(Message::Act { action: "send", params });
                 vec![Note::Sent]
             }
             FromPage::Stop => {
@@ -200,6 +214,34 @@ impl Pane {
                 }
                 Vec::new()
             }
+            FromPage::Composer(message) => {
+                match message["type"].as_str() {
+                    Some("draft") => self.tell(Message::Act { action: "checkpoint", params: json!({"draft": message["draft"], "generation": message["generation"]}) }),
+                    Some("sendNow") => self.tell(Message::Act { action: "sendNow", params: json!({}) }),
+                    // `files`, `image` and `dropped` read or write the disk: off the main thread, back as a script.
+                    _ => {
+                        let (emit, cwd) = (self.emit.clone(), self.cwd.clone());
+                        thread::spawn(move || {
+                            if let Some(reply) = composer::answer(&message, &cwd, &composer::attachments_folder()) {
+                                emit(PaneEvent::Script(bridge::deliver(&reply)));
+                            }
+                        });
+                    }
+                }
+                Vec::new()
+            }
+            FromPage::Command { text } => {
+                self.tell(Message::Act { action: "command", params: json!({"text": text}) });
+                Vec::new()
+            }
+            FromPage::Refresh { action } => {
+                self.tell(Message::Act { action, params: json!({}) });
+                Vec::new()
+            }
+            // The window's own business, wired by Rust app: its title, another window, the quota sheet, the folder panel.
+            FromPage::Title { text } => vec![Note::Title(text)],
+            FromPage::Focus { id } => vec![Note::Focus(id)],
+            FromPage::Quota | FromPage::ChooseDirectory => Vec::new(),
         }
     }
 
@@ -331,12 +373,28 @@ fn tick_progress(alive: Weak<()>, emit: Emit) {
 fn web_view(window: &Window, store: &Arc<Store>, emit: &Emit) -> Result<WebView, String> {
     let files = store.clone();
     let from_page = emit.clone();
+    let dropped = emit.clone();
+    // Files dragged over the window are the composer's: WebKit would put their URL in the text or open them.
+    let carrying_files = Cell::new(false);
     WebViewBuilder::new()
         .with_custom_protocol(template::SCHEME.into(), move |_, request| files.respond(request.uri().host(), request.uri().path()))
         .with_ipc_handler(move |request| {
             if bridge::is_template(&request.uri().to_string()) {
                 from_page(PaneEvent::FromPage(request.into_body()));
             }
+        })
+        .with_drag_drop_handler(move |event| match event {
+            DragDropEvent::Enter { paths, .. } => {
+                carrying_files.set(!paths.is_empty());
+                carrying_files.get()
+            }
+            DragDropEvent::Over { .. } => carrying_files.get(),
+            DragDropEvent::Drop { paths, .. } if carrying_files.replace(false) => {
+                let paths: Vec<String> = paths.iter().map(|path| path.to_string_lossy().into_owned()).collect();
+                dropped(PaneEvent::FromPage(json!({"type": "dropped", "paths": paths}).to_string()));
+                true
+            }
+            _ => carrying_files.replace(false),
         })
         .with_navigation_handler(|url| bridge::may_load(&url))
         // A window that is covered or on another desktop keeps following its session at full speed.

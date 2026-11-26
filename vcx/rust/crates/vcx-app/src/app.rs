@@ -5,7 +5,7 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, metrics, requests};
+use crate::{fleet, metrics, requests, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -45,6 +45,7 @@ const PAGE_REPORT: &str = r#"(() => JSON.stringify({
   status: document.getElementById('status-text')?.textContent ?? null,
   notice: document.getElementById('notice')?.hidden === false ? document.getElementById('notice').textContent : null,
   rows: [...document.querySelectorAll('[data-row]')].map(row => ({ kind: row.dataset.kind, text: row.innerText })),
+  tasks: [...document.querySelectorAll('#tasks .card:not([data-ghost])')].map(card => ({ text: card.textContent, state: card.dataset.state, current: card.hasAttribute('aria-current') })),
 }))()"#;
 
 pub struct Options {
@@ -54,13 +55,7 @@ pub struct Options {
     pub open: Option<Open>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Open {
-    pub cwd: String,
-    pub prompt: String,
-    pub resume: Option<String>,
-    pub focus: bool,
-}
+pub use vcx_cli::Open;
 
 pub enum AppEvent {
     Pane(u64, PaneEvent),
@@ -69,6 +64,8 @@ pub enum AppEvent {
     Save,
     Publish,
     ReportDue(u64),
+    /// Time to read the task files again.
+    Tasks,
 }
 
 pub(crate) struct Win {
@@ -83,6 +80,8 @@ pub(crate) struct Win {
     arrived: BTreeMap<u64, Instant>,
     /// Logical height of the title bar, read while tao still measures the content (see `frame`).
     titlebar: f64,
+    /// The task bar message the page has, so an unchanged list is not sent again.
+    tasks_shown: Value,
 }
 
 struct Spec {
@@ -169,7 +168,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     let to_loop = proxy.clone();
     control::serve(&options.homes.control(), move |request| drop(to_loop.send_event(AppEvent::Control(request))))?;
     let pid = std::process::id();
-    let started_at = fleet::start_time(pid as i32).unwrap_or_default();
+    let started_at = vcx_config::process::start_time(pid as i32).unwrap_or_default();
     let mut app = App {
         homes: options.homes,
         settings,
@@ -228,6 +227,12 @@ impl App {
             None => {}
         }
         self.save_now();
+        let proxy = self.proxy.clone();
+        thread::spawn(move || {
+            while proxy.send_event(AppEvent::Tasks).is_ok() {
+                thread::sleep(tasks::TICK);
+            }
+        });
         None
     }
 
@@ -288,7 +293,7 @@ impl App {
             pane.note(notice.clone());
         }
         self.keys.insert(window.id(), key);
-        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar });
+        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null });
         self.schedule_publish();
     }
 
@@ -323,6 +328,10 @@ impl App {
                 self.finish_report();
                 None
             }
+            AppEvent::Tasks => {
+                self.show_tasks();
+                None
+            }
         }
     }
 
@@ -340,7 +349,14 @@ impl App {
                 eprintln!("vcx-rust: {reason}");
                 self.drop_window(key, false);
             }
-            Note::Shown(_) | Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading => {}
+            // The page has just been given the whole state: it gets the task bar again.
+            Note::Shown(_) => {
+                win.tasks_shown = Value::Null;
+                self.show_tasks();
+            }
+            Note::Title(text) => win.window.set_title(&text),
+            Note::Focus(id) => self.bring(&id),
+            Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading => {}
         }
     }
 
@@ -381,6 +397,34 @@ impl App {
             _ => {}
         }
         None
+    }
+
+    /// Reads every window's task file and gives each page the list that changed for it.
+    fn show_tasks(&mut self) {
+        let entries: Vec<tasks::Entry> = self.windows.values().filter_map(|win| {
+            let summary = win.summary.as_ref()?;
+            let task = tasks::task(std::path::Path::new(summary.task_file.as_ref()?))?;
+            Some(tasks::Entry { id: win.session_id.clone(), group: tasks::group(&win.cwd), task, state: summary.task_state })
+        }).collect();
+        for win in self.windows.values_mut() {
+            let message = tasks::message(&entries, &win.session_id);
+            if message != win.tasks_shown {
+                win.pane.to_page(&message);
+                win.tasks_shown = message;
+            }
+        }
+    }
+
+    /// Brings up the window of `session_id`, as a click on its task card asks; a windowless app only marks it focused.
+    fn bring(&mut self, session_id: &str) {
+        let Some((&key, win)) = self.windows.iter().find(|(_, win)| win.session_id == session_id) else { return };
+        if !self.windowless {
+            win.window.set_minimized(false);
+            win.window.set_visible(true);
+            win.window.set_focus();
+        }
+        self.focused = Some(key);
+        self.schedule_publish();
     }
 
     /// Takes a window away. `end` also ends its session, as closing it does; a session taken by another frontend
@@ -498,8 +542,8 @@ fn describe(win: &Win, page: Option<Value>) -> Value {
     json!({
         "sessionId": win.session_id, "socket": win.socket, "cwd": win.cwd, "recordID": win.record_id,
         "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(),
-        "state": summary.state, "idle": summary.idle, "prompt": summary.prompt, "threadId": summary.thread_id,
-        "name": fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
+        "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
+        "name": vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
         "page": page.unwrap_or(Value::Null),
     })
 }
