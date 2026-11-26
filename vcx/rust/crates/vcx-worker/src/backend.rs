@@ -1,10 +1,14 @@
 //! A session's runtime, ported from the Swift `SessionBackend`: it owns the agent process, feeds its events to the
 //! session, runs the frontend's actions, publishes patches and keeps the checkpoint.
 
+use crate::capabilities::{self, Skill};
 use crate::checkpoint::Store;
 use crate::connectivity::Connectivity;
 use crate::fallback;
+use crate::fleet;
+use crate::instructions;
 use crate::provider;
+use crate::question;
 use crate::recall;
 use crate::server::{Action, Backend};
 use crate::session::{self as model, Effect, Session};
@@ -16,11 +20,13 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::process::{last_error_line, log_tail};
+use vcx_agents::capabilities::{self as agent_capabilities, Provider};
 use vcx_agents::rpc::METHOD_NOT_FOUND;
 use vcx_agents::{AgentError, Connection, Inbound, Incoming};
 use vcx_config::{Account, Settings, SettingsFile};
 
 pub mod carry;
+mod commands;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -31,11 +37,10 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_WINDOW_STATE_BYTES: usize = 65_536;
 const TURNS_PAGE: u64 = 50;
 const CATALOG_LIMIT: u64 = 100;
-const FRONTEND_COMMANDS: [&str; 7] = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit"];
 const INTERRUPTING_ACTIONS: [&str; 3] = ["answer", "stop", "checkpoint"];
 const CLAUDE_SETTINGS: &str = "claude-settings.json";
-const MODE_TIMEOUT: Duration = Duration::from_secs(20);
-const PROVIDER_CHOICES: [&str; 5] = ["auto", "claude", "codex", "qwen", "agy"];
+const SKILLS_TIMEOUT: Duration = Duration::from_secs(15);
+const CLAUDE_CATALOG_TIMEOUT: Duration = Duration::from_secs(25);
 /// An agent that stops twice within this many seconds is left to the user.
 const CRASH_WINDOW: f64 = 300.0;
 const IDLE_ONLY: &str = "Stop the current response before changing session settings.";
@@ -116,6 +121,7 @@ impl SessionBackend {
         let recovery = params.get("recovery").and_then(Value::as_object).cloned().or(saved);
         let cwd = recovery.as_ref().and_then(|state| text(state, "conversationDirectory")).or_else(|| text(params, "cwd")).unwrap_or("/").to_owned();
         let mut session = Session::new(&cwd, &config.state_directory.to_string_lossy());
+        session.fleet_context_file = fleet::create();
         let mut window_state = json!({});
         let mut consumed = -1;
         if let Some(state) = &recovery {
@@ -251,12 +257,15 @@ impl SessionBackend {
 
     /// Starts `account`'s agent, greeted when it is Codex; the running one is left alone until this succeeds.
     async fn start_agent(&self, account: &Account, settings: &Settings) -> Result<(Connection, mpsc::UnboundedReceiver<Incoming>), String> {
-        let cwd = self.session.borrow().cwd.clone();
+        let (cwd, fleet) = {
+            let session = self.session.borrow();
+            (session.cwd.clone(), session.fleet_context_file.clone())
+        };
         let log = self.log_path();
         self.log_start.set(std::fs::metadata(&log).map_or(0, |meta| meta.len()));
         let mode = self.preferred_mode(settings);
         let claude_settings = self.config.settings.join(CLAUDE_SETTINGS);
-        let start = provider::Start { account, settings, mode: &mode, log, claude_settings, fixture: self.config.fixture.clone(), cwd: &cwd };
+        let start = provider::Start { account, settings, mode: &mode, log, claude_settings, fixture: self.config.fixture.clone(), cwd: &cwd, fleet: &fleet };
         let (agent, incoming) = provider::connect(start).await?;
         // Only Codex is a JSON-RPC server to greet and to ask for its sign-in; the adapters answer the rest themselves.
         if matches!(agent, Connection::Codex(_)) {
@@ -297,6 +306,9 @@ impl SessionBackend {
         session.provider_label = provider::label(&account.provider);
         session.model = session.provider_label.clone();
         session.account = json!({"id": account.id, "name": account.name, "provider": account.provider});
+        if let Some(home) = &account.home {
+            session.account["home"] = json!(home);
+        }
         session.active_mode = mode;
         session.mode_override = false;
         session.ready = false;
@@ -304,6 +316,7 @@ impl SessionBackend {
         session.turn_id = None;
         session.permissions.clear();
         session.active_actions.clear();
+        session.capabilities = Default::default();
         session.usage.clear();
         session.usage_loading = true;
         session.status = format!("Connecting to {}…", session.provider_label);
@@ -312,12 +325,17 @@ impl SessionBackend {
     /// Moves the conversation to `account`'s agent on a new thread, handed the recent messages, as the Swift
     /// `activate` does with `keepRows`; `reason` is told when one is given.
     async fn activate(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>) -> Result<(), String> {
+        self.activate_rows(account, resume, reason, true).await
+    }
+
+    /// `activate`, or with `keep_rows` false a conversation that starts over, as `/new` and `/dir` open one.
+    async fn activate_rows(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>, keep_rows: bool) -> Result<(), String> {
         if self.session.borrow().changing {
             return Err("A connection change is already in progress.".into());
         }
         self.session.borrow_mut().changing = true;
         self.schedule();
-        let result = self.switch_to(account, resume.clone(), reason).await;
+        let result = self.switch_to(account, resume.clone(), reason, keep_rows).await;
         self.session.borrow_mut().changing = false;
         match &result {
             Ok(()) => {
@@ -343,16 +361,16 @@ impl SessionBackend {
         }
     }
 
-    async fn switch_to(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>) -> Result<(), String> {
+    async fn switch_to(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>, keep_rows: bool) -> Result<(), String> {
         let settings = self.settings();
         let (agent, incoming) = self.start_agent(account, &settings).await?;
         let previous = self.session.borrow().account["id"].clone();
         self.session.borrow_mut().flush();
         // A resumed provider thread already holds the conversation; Qwen keeps none of its own.
-        let handoff = if resume.is_none() || account.provider == "qwen" { fallback::handoff_context(&self.session.borrow()) } else { String::new() };
+        let handoff = if keep_rows && (resume.is_none() || account.provider == "qwen") { fallback::handoff_context(&self.session.borrow()) } else { String::new() };
         self.install(account, agent, incoming, self.preferred_mode(&settings));
         self.session.borrow_mut().injected_context = handoff;
-        if let Err(error) = self.open(resume.as_deref(), true).await {
+        if let Err(error) = self.open(resume.as_deref(), keep_rows).await {
             self.session.borrow_mut().ready = false;
             return Err(error);
         }
@@ -669,6 +687,11 @@ impl SessionBackend {
             (session.cwd.clone(), session.active_mode.clone())
         };
         let mut params = json!({"cwd": cwd, "approvalPolicy": model::approval_policy(&mode), "sandbox": model::sandbox(&mode)});
+        let account = self.current_account();
+        params["developerInstructions"] = json!(instructions::developer_instructions(&account, &cwd, &vcx_config::homes::home_directory()));
+        if account.provider == "codex" && resume.is_none() {
+            params["dynamicTools"] = json!([question::tool()]);
+        }
         if let Some(thread) = resume {
             params["threadId"] = json!(thread);
             params["excludeTurns"] = json!(true);
@@ -695,6 +718,9 @@ impl SessionBackend {
                 }
             }
         }
+        if !keep_rows {
+            fleet::clear(&self.session.borrow().fleet_context_file);
+        }
         self.session.borrow_mut().opened(&result, &history, keep_rows);
         Ok(())
     }
@@ -702,12 +728,53 @@ impl SessionBackend {
     async fn refresh_catalog(self: &Rc<Self>) {
         let Ok(catalog) = self.request("model/list", json!({"limit": CATALOG_LIMIT}), REQUEST_TIMEOUT).await else { return };
         self.session.borrow_mut().apply_catalog(&object(catalog));
-        if self.config.fixture.is_none() {
-            if let Ok(limits) = self.request("account/rateLimits/read", json!({}), REQUEST_TIMEOUT).await {
-                let event = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": limits["rateLimits"]}});
-                if let Inbound::Event(event) = vcx_agents::codex::parse(object(event)) {
-                    self.session.borrow_mut().event(&event);
+        self.refresh_usage().await;
+        self.schedule();
+        // Not awaited: Claude's catalog can take its whole timeout, and a prompt resent after a switch does not wait on it.
+        let backend = Rc::clone(self);
+        tokio::task::spawn_local(async move { backend.refresh_capabilities().await });
+    }
+
+    /// The subscription's limits as the agent reads them; a test's agent has none.
+    async fn refresh_usage(&self) {
+        if self.config.fixture.is_some() {
+            return;
+        }
+        if let Ok(limits) = self.request("account/rateLimits/read", json!({}), REQUEST_TIMEOUT).await {
+            let event = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": limits["rateLimits"]}});
+            if let Inbound::Event(event) = vcx_agents::codex::parse(object(event)) {
+                self.session.borrow_mut().event(&event);
+            }
+        }
+    }
+
+    /// The Swift `refreshCapabilities`: the lists the agent reports, and the instruction files and Claude hooks vcx
+    /// reads from his folders; a reply from an agent since replaced is dropped.
+    async fn refresh_capabilities(self: &Rc<Self>) {
+        let Ok(agent) = self.agent() else { return };
+        let generation = self.generation.get();
+        let (provider, cwd, thread) = {
+            let session = self.session.borrow();
+            (session.provider.clone(), session.cwd.clone(), session.thread_id.clone().unwrap_or_default())
+        };
+        let Some(kind) = Provider::named(&provider) else { return };
+        let home = &self.config.errors_home;
+        let base = capabilities::provider_home(&self.current_account(), home);
+        let local = capabilities::Local::read(kind, &base, home, Path::new(&cwd), &[self.config.settings.join(CLAUDE_SETTINGS)]);
+        if kind == Provider::Claude {
+            // A recorded Claude takes only the requests of its recording; its lists come with the catalog it sends itself.
+            let catalog = if self.config.fixture.is_some() { Ok(json!({})) } else { self.request("vcx/catalog", json!({}), CLAUDE_CATALOG_TIMEOUT).await };
+            if self.generation.get() == generation {
+                let mut session = self.session.borrow_mut();
+                if let Some(mode) = session.capabilities.claude(local, catalog) {
+                    session.active_mode = mode;
                 }
+            }
+        } else if let Ok(catalog) = agent_capabilities::catalog(&agent, kind, &cwd, &thread).await {
+            // The catalog keeps only the skills' names; the palette needs their files and descriptions too.
+            let listed = if kind == Provider::Codex { self.request("skills/list", json!({"cwds": [cwd]}), SKILLS_TIMEOUT).await.ok() } else { None };
+            if self.generation.get() == generation {
+                self.session.borrow_mut().capabilities.agent(kind, local, catalog, listed.as_ref());
             }
         }
         self.schedule();
@@ -756,6 +823,11 @@ impl SessionBackend {
     fn run_effects(self: &Rc<Self>, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::Respond { id, result } => {
+                    if let Ok(agent) = self.agent() {
+                        let _ = agent.respond(&id, result);
+                    }
+                }
                 Effect::Decline { id, method } => {
                     if let Ok(agent) = self.agent() {
                         let _ = agent.reject(&id, METHOD_NOT_FOUND, &format!("vcx does not support {method}"));
@@ -863,9 +935,20 @@ impl SessionBackend {
     }
 
     async fn send(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool) -> Result<Object, String> {
+        self.send_as(text, images, draft, generation, retry, None).await
+    }
+
+    /// `send`, for a skill also with its piece, its prompt showing the skill as it was typed.
+    async fn send_as(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool, skill: Option<Skill>) -> Result<Object, String> {
         let outgoing = self.session.borrow_mut().begin_send(text, images, draft, generation, retry);
         self.schedule();
         let Some(mut outgoing) = outgoing else { return Ok(Object::new()) };
+        if let Some(skill) = skill {
+            if let (Some(piece), Some(input)) = (skill.piece, outgoing.params["input"].as_array_mut()) {
+                input.push(piece);
+            }
+            self.session.borrow_mut().show_typed(&outgoing.id, &skill.shown);
+        }
         let recalled = self.recall(text);
         if !recalled.is_empty() {
             if let Some(input) = outgoing.params["input"].as_array_mut() {
@@ -951,12 +1034,16 @@ impl SessionBackend {
                 let (Some(text), Some(Value::Array(images))) = (text(&params, "text"), params.get("images")) else { return Err("Invalid message payload.".into()) };
                 let images: Option<Vec<String>> = images.iter().map(|image| image.as_str().map(str::to_owned)).collect();
                 let Some(images) = images else { return Err("Invalid message payload.".into()) };
-                if text.starts_with('/') && images.is_empty() {
+                let skill = self.skill(text);
+                if text.starts_with('/') && images.is_empty() && skill.is_none() {
                     return Box::pin(Rc::clone(&self).run("command", object(json!({"text": text})))).await;
                 }
                 let draft = params.get("draft").and_then(Value::as_array).cloned();
                 let generation = params.get("generation").and_then(Value::as_i64);
-                Rc::clone(&self).send(text, &images, draft, generation, false).await?
+                match skill {
+                    Some(skill) => Rc::clone(&self).send_as(&skill.text.clone(), &images, draft, generation, false, Some(skill)).await?,
+                    None => Rc::clone(&self).send(text, &images, draft, generation, false).await?,
+                }
             }
             "stop" => {
                 Rc::clone(&self).stop(text(&params, "source").unwrap_or("Stop command")).await;
@@ -972,7 +1059,8 @@ impl SessionBackend {
                     return Err("This approval is no longer pending.".into());
                 };
                 let permission = self.session.borrow_mut().take_permission(rpc_id, method).ok_or("This approval is no longer pending.")?;
-                if let Err(error) = self.agent()?.respond(&permission.rpc_id, Value::Object(result.clone())) {
+                let answer = if permission.params.get(question::MARKER) == Some(&json!(true)) { question::answer(&permission.params, result) } else { Value::Object(result.clone()) };
+                if let Err(error) = self.agent()?.respond(&permission.rpc_id, answer) {
                     self.session.borrow_mut().notice(&format!("Could not send your answer: {error}"));
                 }
                 Object::new()
@@ -992,7 +1080,11 @@ impl SessionBackend {
                 self.refresh_catalog().await;
                 Object::new()
             }
-            "refreshUsage" | "refreshRepository" | "refreshCapabilities" => Object::new(),
+            "refreshCapabilities" => {
+                self.refresh_capabilities().await;
+                Object::new()
+            }
+            "refreshUsage" | "refreshRepository" => Object::new(),
             "switchThread" => {
                 let thread = text(&params, "id").map(str::to_owned);
                 let success = match thread {
@@ -1016,30 +1108,10 @@ impl SessionBackend {
         Ok(result)
     }
 
-    async fn command(self: Rc<Self>, text: &str) -> Result<Object, String> {
-        let token = text.split_whitespace().next().unwrap_or_default().to_lowercase();
-        let verb = format!("/{}", token.rsplit(':').next().unwrap_or_default().trim_matches('/'));
-        let argument = text.split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim());
-        if FRONTEND_COMMANDS.contains(&verb.as_str()) {
-            return Err("This command belongs to the frontend.".into());
-        }
-        match verb.as_str() {
-            "/stop" => Rc::clone(&self).stop("Stop command").await,
-            "/new" | "/clear" => self.open(None, false).await?,
-            "/provider" | "/model" if !argument.is_empty() => Rc::clone(&self).change_provider(argument).await?,
-            "/perms" if !argument.is_empty() => self.change_mode(argument).await?,
-            "/account" if !argument.is_empty() => {
-                self.idle()?;
-                self.change_account(argument).await?
-            }
-            "/reconnect" => {
-                self.idle()?;
-                self.reconnect(&format!("{} requested", verb.trim_start_matches('/'))).await?
-            }
-            // Anything else is the agent's own command or skill: it reads the text as typed.
-            _ => return Rc::clone(&self).send(text, &[], None, None, false).await,
-        }
-        Ok(Object::new())
+    /// The skill or Claude command `text` names, as the agent takes it.
+    fn skill(&self, text: &str) -> Option<Skill> {
+        let session = self.session.borrow();
+        session.capabilities.skill(&session.provider, text)
     }
 
     async fn set_model(&self, model: &str, effort: Option<&str>) -> Result<(), String> {
@@ -1050,79 +1122,27 @@ impl SessionBackend {
             let session = self.session.borrow();
             session.effort.clone().or_else(|| session.default_effort.clone())
         });
+        self.change_model(model, effort).await
+    }
+
+    /// The Swift `changeModel`: no `effort` is the model's default.
+    async fn change_model(&self, model: &str, effort: Option<String>) -> Result<(), String> {
+        if !self.session.borrow().models.iter().any(|known| known == model) {
+            return Err("Unknown model. Choose one from the model menu.".into());
+        }
         let allowed = effort.as_ref().is_none_or(|effort| self.session.borrow().model_efforts.get(model).and_then(Value::as_array).is_some_and(|efforts| efforts.iter().any(|known| known == effort)));
         if !allowed {
             return Err("Reasoning effort is unavailable for this model.".into());
         }
-        let thread = self.session.borrow().thread_id.clone().ok_or("No conversation is open.")?;
-        self.request("thread/resume", json!({"threadId": thread, "model": model}), REQUEST_TIMEOUT).await?;
+        let (thread, cwd) = {
+            let session = self.session.borrow();
+            (session.thread_id.clone().ok_or("No conversation is open.")?, session.cwd.clone())
+        };
+        let instructions = instructions::developer_instructions(&self.current_account(), &cwd, &vcx_config::homes::home_directory());
+        self.request("thread/resume", json!({"threadId": thread, "model": model, "developerInstructions": instructions}), REQUEST_TIMEOUT).await?;
         let mut session = self.session.borrow_mut();
         session.model = model.to_owned();
         session.effort = effort;
-        Ok(())
-    }
-
-    /// `/provider <provider> [model]` or `/model <model>`, as the Swift `command` runs them: during a turn the
-    /// change waits for it to end; a provider other than the running one takes the conversation over.
-    async fn change_provider(self: Rc<Self>, argument: &str) -> Result<(), String> {
-        if self.session.borrow().changing {
-            return Err("A connection change is already in progress.".into());
-        }
-        let args: Vec<&str> = argument.split_whitespace().collect();
-        if self.session.borrow().busy || self.transferring.get() {
-            *self.pending_command.borrow_mut() = Some(format!("/model {argument}"));
-            self.session.borrow_mut().notice(&format!("Model change queued: {} applies when the current turn ends.", args.join(" ")));
-            return Ok(());
-        }
-        let choice = args[0];
-        if !PROVIDER_CHOICES.contains(&choice) {
-            if !self.session.borrow().ready {
-                return Err("Reconnect before changing models.".into());
-            }
-            return self.set_model(argument, None).await;
-        }
-        let settings = self.settings();
-        let candidates = if choice == "auto" { self.available(&settings) } else { settings.candidates(choice).into_iter().filter(|account| account.provider == choice).collect() };
-        let next = candidates.into_iter().next().ok_or_else(|| format!("No enabled account is available for {choice}. Enable one with /account or add one with /login."))?;
-        let previous = self.provider_choice.replace(Some(choice.to_owned()));
-        let (current, ready) = {
-            let session = self.session.borrow();
-            (session.account["id"].clone(), session.ready)
-        };
-        if current != json!(next.id) || !ready {
-            if let Err(error) = self.activate(&next, None, Some("provider changed")).await {
-                *self.provider_choice.borrow_mut() = previous;
-                return Err(error);
-            }
-            self.refresh_catalog().await;
-        }
-        if choice != "auto" && settings.limit(&next.id).is_some_and(|reset| reset > fallback::now()) {
-            self.rest(&next.id, 0.0);
-        }
-        match args.get(1) {
-            Some(model) => self.set_model(model, args.get(2).copied()).await,
-            None => Ok(()),
-        }
-    }
-
-    /// `/perms`: Codex takes the mode with its next turn, the adapters at once.
-    async fn change_mode(&self, argument: &str) -> Result<(), String> {
-        self.idle()?;
-        let mode = match argument {
-            "bypass" | "yolo" => "bypass",
-            "ask" => "ask",
-            _ => return Err("Use /perms bypass or /perms ask.".into()),
-        };
-        *self.mode_choice.borrow_mut() = Some(mode.to_owned());
-        let codex = self.session.borrow().provider == "codex";
-        if !codex {
-            self.request("vcx/mode", json!({"mode": mode}), MODE_TIMEOUT).await?;
-        }
-        let mut session = self.session.borrow_mut();
-        session.mode_override |= codex;
-        session.active_mode = mode.to_owned();
-        let label = if mode == "bypass" { "Bypass / YOLO" } else { "Ask for approval" };
-        session.notice(&format!("Permission mode changed to {label}."));
         Ok(())
     }
 }
@@ -1146,6 +1166,7 @@ impl Backend for SessionBackend {
         if let Some(agent) = self.agent.borrow_mut().take() {
             agent.close();
         }
+        fleet::remove(&self.session.borrow().fleet_context_file);
         self.started.send_replace(true);
     }
 

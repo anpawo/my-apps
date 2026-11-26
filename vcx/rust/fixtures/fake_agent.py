@@ -10,6 +10,13 @@ it on a server rate limit; `fixture:crash` writes an error to stderr and exits. 
 the turn/start request unanswered until a file exists at that path, then answers it and runs the turn as usual;
 `fixture:heavy:<MiB>` answers with an agentMessage that many mebibytes long. `fixture:dropped` fails the turn as a
 dropped connection does; `fixture:apiretry` holds the turn as `fixture:hold` does after announcing an API retry.
+`fixture:question` (one question, `pick`) and `fixture:twoquestions` (`first`, `second`) hold the turn on a question and
+answer with the answers received. `thread/compact/start` reports the thread compacted; `review/start` runs a turn
+whose answer names the review target.
+`fixture:opened` answers with the JSON of what the last thread/start or thread/resume was given (developer
+instructions, dynamic tool names) and the session files in the agent's own environment.
+`skills/list` and `hooks/list` read `skills/<name>/SKILL.md` and `hooks.json` in its Codex home: `CODEX_HOME`, else
+`.codex` in the test worker's `VCX_RUNTIME_HOME`, never his own; with neither, both lists are empty.
 """
 import json
 import os
@@ -26,6 +33,8 @@ HISTORY = sys.argv[sys.argv.index('--history') + 1] if '--history' in sys.argv e
 HOLD = 'fixture:hold'
 APPROVE = 'fixture:approve'
 APPROVAL_ID = 7301
+QUESTION = 'fixture:question'
+TWO_QUESTIONS = 'fixture:twoquestions'
 LIMIT = 'fixture:limit'
 RATE_LIMIT = 'fixture:ratelimit'
 CRASH = 'fixture:crash'
@@ -41,6 +50,9 @@ PENDING = re.compile(r'fixture:pending:(\S+)')
 PENDING_POLL_SECONDS = 0.02
 HEAVY = re.compile(r'fixture:heavy:(\d+)')
 MEBIBYTE = 1024 * 1024
+OPENED = 'fixture:opened'
+SESSION_FILES = ('FLEET_CONTEXT_FILE', 'VCX_PROGRESS_FILE', 'VCX_TASK_FILE')
+opened = {}
 output_lock = threading.Lock()
 awaiting = {}
 
@@ -102,13 +114,17 @@ def prompt_text(params):
 
 
 def answer_text(params):
+    if OPENED in prompt_text(params):
+        tools = [tool.get('name') for tool in opened.get('dynamicTools') or []]
+        environment = {key: os.environ.get(key) for key in SESSION_FILES}
+        return json.dumps({'developerInstructions': opened.get('developerInstructions'), 'dynamicTools': tools, 'environment': environment})
     heavy = HEAVY.search(prompt_text(params))
     return 'x' * (int(heavy.group(1)) * MEBIBYTE) if heavy else ANSWER
 
 
 def held(params):
     text = prompt_text(params)
-    return HOLD in text or APPROVE in text or API_RETRY in text
+    return any(marker in text for marker in (HOLD, APPROVE, API_RETRY, QUESTION, TWO_QUESTIONS))
 
 
 def failure(params):
@@ -142,14 +158,21 @@ def open_turn(thread, turn, params):
         awaiting[APPROVAL_ID] = (thread, turn)
         request = {'threadId': thread, 'turnId': turn, 'itemId': HELD_TOOL['id'], 'command': HELD_TOOL['command']}
         send({'id': APPROVAL_ID, 'method': 'item/commandExecution/requestApproval', 'params': request})
+    asked = ['first', 'second'] if TWO_QUESTIONS in prompt_text(params) else ['pick'] if QUESTION in prompt_text(params) else []
+    if asked:
+        awaiting[APPROVAL_ID] = (thread, turn)
+        questions = [{'id': id, 'header': id, 'question': 'Which ' + id + '?', 'options': None} for id in asked]
+        send({'id': APPROVAL_ID, 'method': 'item/tool/requestUserInput', 'params': {'threadId': thread, 'turnId': turn, 'itemId': HELD_TOOL['id'], 'questions': questions}})
 
 
 def answered(message):
     thread, turn = awaiting.pop(message['id'])
-    accepted = (message.get('result') or {}).get('decision') == 'accept'
+    result = message.get('result') or {}
+    accepted = result.get('decision') == 'accept' or 'answers' in result
     tool = {**HELD_TOOL, 'status': 'completed' if accepted else 'declined', 'exitCode': 0 if accepted else None}
     event('item/completed', {'item': tool}, thread)
-    answer = {'id': 'fixture-held-answer', 'type': 'agentMessage', 'text': 'approved' if accepted else 'declined'}
+    text = 'answers ' + json.dumps(result['answers'], sort_keys=True) if 'answers' in result else 'approved' if accepted else 'declined'
+    answer = {'id': 'fixture-held-answer', 'type': 'agentMessage', 'text': text}
     event('item/completed', {'item': answer}, thread)
     event('turn/completed', {'turn': {'id': turn, 'status': 'completed'}}, thread)
 
@@ -164,6 +187,41 @@ RESULTS = {
     'turn/start': {'turn': {'id': TURN}},
 }
 RESULTS['thread/resume'] = RESULTS['thread/start']
+
+
+def codex_home():
+    if os.environ.get('CODEX_HOME'):
+        return os.environ['CODEX_HOME']
+    runtime = os.environ.get('VCX_RUNTIME_HOME')
+    return os.path.join(runtime, '.codex') if runtime else None
+
+
+def skills_list(params):
+    root = os.path.join(codex_home() or '', 'skills')
+    skills = []
+    for name in sorted(os.listdir(root)) if codex_home() and os.path.isdir(root) else []:
+        path = os.path.join(root, name, 'SKILL.md')
+        if not os.path.isfile(path):
+            continue
+        with open(path) as file:
+            parts = file.read().split('---')
+        header = parts[1] if len(parts) > 2 else ''
+        fields = dict(line.split(':', 1) for line in header.splitlines() if ':' in line)
+        skills.append({'name': fields.get('name', name).strip(), 'description': fields.get('description', '').strip(), 'path': path, 'enabled': True})
+    return {'data': [{'cwd': cwd, 'skills': skills, 'errors': []} for cwd in params.get('cwds', [])]}
+
+
+def hooks_list(params):
+    path = os.path.join(codex_home() or '', 'hooks.json')
+    events = {}
+    if codex_home() and os.path.isfile(path):
+        with open(path) as file:
+            events = json.load(file).get('hooks', {})
+    hooks = [{**hook, 'eventName': event, 'matcher': group.get('matcher')} for event, groups in events.items() for group in groups for hook in group.get('hooks', [])]
+    return {'data': [{'hooks': hooks}]}
+
+
+HOME_LISTS = {'skills/list': skills_list, 'hooks/list': hooks_list}
 
 
 def policy(result, params):
@@ -203,6 +261,12 @@ def answer_with_history(message):
 
 def respond(message):
     method = message['method']
+    if method in HOME_LISTS:
+        send({'id': message['id'], 'result': HOME_LISTS[method](message.get('params') or {})})
+        return
+    if method in ('thread/start', 'thread/resume'):
+        opened.clear()
+        opened.update(message.get('params') or {})
     if HISTORY:
         result, error = answer_with_history(message)
         send({'id': message['id'], 'error': error} if error else {'id': message['id'], 'result': result})
@@ -221,6 +285,10 @@ def respond(message):
     elif method == 'turn/interrupt':
         awaiting.clear()
         event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})
+    elif method == 'thread/compact/start':
+        event('thread/compacted', {})
+    elif method == 'review/start':
+        threading.Thread(target=run_turn, kwargs={'text': 'Review of ' + json.dumps(params.get('target'), sort_keys=True)}, daemon=True).start()
 
 
 def respond_once_present(path, message):

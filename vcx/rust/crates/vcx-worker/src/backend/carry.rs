@@ -99,11 +99,15 @@ impl SessionBackend {
             Value::Null => None,
             frozen => Some(Connection::adopt(frozen).map_err(|error| error.to_string())?),
         };
-        let session = session_of(state).inspect_err(|_| {
+        let mut session = session_of(state).inspect_err(|_| {
             if let Some((agent, _)) = &connection {
                 agent.close();
             }
         })?;
+        // An image from before the session files froze none: its next agent gets one.
+        if session.fleet_context_file.is_empty() {
+            session.fleet_context_file = crate::fleet::create();
+        }
         let text = |key: &str| state[key].as_str().map(str::to_owned);
         let (agent, incoming) = connection.map(|(agent, incoming)| (agent, Rc::new(RefCell::new(incoming)))).unzip();
         let backend = Rc::new(Self {

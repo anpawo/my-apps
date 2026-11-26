@@ -2,6 +2,7 @@
 //! account, else the first available one for his default provider, each started with the environment
 //! `agentEnvironment` gives it.
 
+use crate::fleet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -55,16 +56,23 @@ fn profile(account: &Account, home: &Path) -> Option<String> {
     account.home.clone().filter(|profile| !(account.provider == "claude" && Path::new(profile) == default_claude))
 }
 
-pub fn environment(account: &Account, home: &Path) -> Vec<(String, String)> {
-    let mut environment: Vec<(String, String)> = std::env::vars()
+/// The agent's environment; `fleet` is its session's Fleet file.
+pub fn environment(account: &Account, home: &Path, fleet: &str) -> Vec<(String, String)> {
+    environment_from(std::env::vars().collect(), account, home, fleet)
+}
+
+/// `inherited` is the worker's own environment: a Fleet file there belongs to another session.
+fn environment_from(inherited: Vec<(String, String)>, account: &Account, home: &Path, fleet: &str) -> Vec<(String, String)> {
+    let inherited_path: String = inherited.iter().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone()).unwrap_or_default();
+    let mut environment: Vec<(String, String)> = inherited
+        .into_iter()
         .filter(|(key, _)| !key.starts_with("CLAUDE") && !UNSET.contains(&key.as_str()) && !METERED_KEYS.contains(&key.as_str()))
-        .filter(|(key, _)| key != "PATH")
+        .filter(|(key, _)| key != "PATH" && !fleet::VARIABLES.contains(&key.as_str()))
         .collect();
     let queue = home.join(BUILD_QUEUE);
-    let inherited = std::env::var("PATH").unwrap_or_default();
     let fixed = std::iter::once(home.join(".local/bin").to_string_lossy().into_owned()).chain(FIXED_PATH.map(str::to_owned));
     let mut path: Vec<String> = Vec::new();
-    for entry in queue.is_dir().then(|| queue.to_string_lossy().into_owned()).into_iter().chain(inherited.split(':').map(str::to_owned)).chain(fixed) {
+    for entry in queue.is_dir().then(|| queue.to_string_lossy().into_owned()).into_iter().chain(inherited_path.split(':').map(str::to_owned)).chain(fixed) {
         if !entry.is_empty() && !path.contains(&entry) {
             path.push(entry);
         }
@@ -73,18 +81,20 @@ pub fn environment(account: &Account, home: &Path) -> Vec<(String, String)> {
     if let Some(profile) = profile(account, home) {
         environment.push((if account.provider == "claude" { "CLAUDE_CONFIG_DIR" } else { "CODEX_HOME" }.into(), profile));
     }
+    environment.extend(fleet::variables(fleet));
     environment
 }
 
-/// `codex app-server` under `env`, with the environment the other agents get: only names are removed and PATH and
-/// CODEX_HOME set on its command line, since any process can read another's arguments.
-fn codex_command(environment: &[(String, String)]) -> Vec<String> {
+/// `program` (`codex app-server`, or a test's agent) under `env`, with the environment the other agents get: only names
+/// are removed and PATH, CODEX_HOME and the session's files set on its command line, since any process can read
+/// another's arguments.
+fn codex_command(environment: &[(String, String)], program: Vec<String>) -> Vec<String> {
     let mut command = vec!["/usr/bin/env".to_owned()];
     for (key, _) in std::env::vars().filter(|(key, _)| !environment.iter().any(|(kept, _)| kept == key)) {
         command.extend(["-u".to_owned(), key]);
     }
-    command.extend(environment.iter().filter(|(key, _)| key == "PATH" || key == "CODEX_HOME").map(|(key, value)| format!("{key}={value}")));
-    command.extend(CODEX.map(str::to_owned));
+    command.extend(environment.iter().filter(|(key, _)| key == "PATH" || key == "CODEX_HOME" || fleet::VARIABLES.contains(&key.as_str())).map(|(key, value)| format!("{key}={value}")));
+    command.extend(program);
     command
 }
 
@@ -122,12 +132,14 @@ pub struct Start<'a> {
     /// A test's agent in place of the provider's command; Qwen has none, it speaks HTTP.
     pub fixture: Option<Vec<String>>,
     pub cwd: &'a str,
+    /// The session's Fleet file, beside which its progress and task files sit.
+    pub fleet: &'a str,
 }
 
 pub async fn connect(start: Start<'_>) -> Result<(Connection, UnboundedReceiver<Incoming>), String> {
     let failed = |error: AgentError| error.message;
     let home = vcx_config::homes::home_directory();
-    let environment = environment(start.account, &home);
+    let environment = environment(start.account, &home, start.fleet);
     let cwd = start.cwd.to_owned();
     match start.account.provider.as_str() {
         "claude" => {
@@ -149,7 +161,7 @@ pub async fn connect(start: Start<'_>) -> Result<(Connection, UnboundedReceiver<
             Ok((Connection::Qwen(qwen), incoming))
         }
         _ => {
-            let command = start.fixture.unwrap_or_else(|| codex_command(&environment));
+            let command = codex_command(&environment, start.fixture.unwrap_or_else(|| CODEX.map(str::to_owned).into()));
             let log = open_log(&start.log).map_err(|error| format!("Cannot open the agent log: {error}"))?;
             let (agent, incoming) = Agent::spawn(&command, Path::new(&start.cwd), Stdio::from(log)).map_err(|error| format!("Cannot start the agent: {error}"))?;
             Ok((Connection::Codex(agent), incoming))
@@ -200,7 +212,7 @@ mod tests {
         let home = Path::new("/Users/fixture");
         let account = Account { id: "claude-default".into(), name: "Default Claude".into(), provider: "claude".into(), home: Some("/Users/fixture/.claude".into()), enabled: true };
 
-        let environment = environment(&account, home);
+        let environment = environment(&account, home, "");
 
         assert!(environment.iter().all(|(key, _)| !METERED_KEYS.contains(&key.as_str()) && key != "CLAUDE_CONFIG_DIR"));
         assert!(environment.iter().any(|(key, value)| key == "PATH" && value.split(':').any(|entry| entry == "/usr/bin")));
@@ -210,9 +222,38 @@ mod tests {
     fn gives_a_codex_profile_its_own_home() {
         let account = Account { id: "codex-work".into(), name: "Work".into(), provider: "codex".into(), home: Some("/tmp/codex-work".into()), enabled: true };
 
-        let environment = environment(&account, Path::new("/Users/fixture"));
+        let environment = environment(&account, Path::new("/Users/fixture"), "");
 
         assert!(environment.contains(&("CODEX_HOME".into(), "/tmp/codex-work".into())));
+    }
+
+    fn codex_account() -> Account {
+        Account { id: "codex-default".into(), name: "Default Codex".into(), provider: "codex".into(), home: None, enabled: true }
+    }
+
+    fn named<'a>(environment: &'a [(String, String)], key: &str) -> Vec<&'a str> {
+        environment.iter().filter(|(name, _)| name == key).map(|(_, value)| value.as_str()).collect()
+    }
+
+    #[test]
+    fn an_agents_fleet_progress_and_task_files_are_its_own_sessions_never_inherited_ones() {
+        let inherited = [("FLEET_CONTEXT_FILE", "/tmp/other/task.context"), ("VCX_PROGRESS_FILE", "/tmp/other/task.progress"), ("VCX_TASK_FILE", "/tmp/other/task.goal"), ("PATH", "/usr/bin")].map(|(key, value)| (key.to_owned(), value.to_owned()));
+
+        let own = environment_from(inherited.to_vec(), &codex_account(), Path::new("/Users/fixture"), "/tmp/fleet-a/task.context");
+        let none = environment_from(inherited.to_vec(), &codex_account(), Path::new("/Users/fixture"), "");
+
+        assert_eq!(fleet::VARIABLES.map(|key| named(&own, key)), [vec!["/tmp/fleet-a/task.context"], vec!["/tmp/fleet-a/task.progress"], vec!["/tmp/fleet-a/task.goal"]]);
+        assert!(fleet::VARIABLES.iter().all(|key| named(&none, key).is_empty()));
+    }
+
+    #[test]
+    fn codex_gets_the_session_files_on_its_command_line_and_runs_the_given_agent() {
+        let environment = environment(&codex_account(), Path::new("/Users/fixture"), "/tmp/fleet-a/task.context");
+
+        let command = codex_command(&environment, vec!["/usr/bin/python3".into(), "agent.py".into()]);
+
+        assert!(command.contains(&"VCX_TASK_FILE=/tmp/fleet-a/task.goal".to_owned()), "{command:?}");
+        assert_eq!(command[command.len() - 2..], ["/usr/bin/python3", "agent.py"]);
     }
 
     #[test]

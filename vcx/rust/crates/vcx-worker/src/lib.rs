@@ -7,11 +7,15 @@
 #![recursion_limit = "256"]
 
 pub mod backend;
+pub mod capabilities;
 pub mod channel;
 pub mod checkpoint;
 pub mod connectivity;
 pub mod fallback;
+pub mod fleet;
+pub mod instructions;
 pub mod provider;
+pub mod question;
 pub mod recall;
 pub mod server;
 pub mod session;

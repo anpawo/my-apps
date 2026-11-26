@@ -3,7 +3,10 @@
 
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use crate::recall;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
+use crate::capabilities::{self, Capabilities};
+use crate::{fleet, question, recall};
 use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::qwen_text::strip_recall;
 use vcx_agents::{Event, Kind, Stream, TurnStatus};
@@ -18,6 +21,13 @@ const DEBATE_SCRIPTS: [&str; 7] = ["ask-codex.sh", "ask-qwen.sh", "ask-agy.sh", 
 const ASKED_REQUESTS: [&str; 3] = ["item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval"];
 const OWN_ROW_ITEMS: [&str; 3] = ["agentMessage", "plan", "userMessage"];
 const HIDDEN_ITEMS: [&str; 2] = ["hookPrompt", "contextCompaction"];
+const RECONNECTING: &str = "Reconnecting…";
+const WEBSOCKET_FALLBACK: &str = "Falling back from WebSockets to HTTPS transport";
+const AGENT_ERROR: &str = "Codex reported an error.";
+/// Claude reports a model's window only when a turn ends; remembering it shows the percentage from a new session's first message.
+const CONTEXT_WINDOWS_FILE: &str = "claude-context-windows.json";
+const PRIVATE_FOLDER: u32 = 0o700;
+const STATUS_EVENTS: [&str; 6] = ["vcx/model", "vcx/context", "vcx/tokens", "vcx/catalog", "vcx/backgroundTasks", "vcx/userQueue"];
 pub const RECOVERED_NOTICE: &str = "Recovered saved conversation and unsent draft. The runtime was interrupted; previous tools were not replayed.";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -40,6 +50,8 @@ pub struct Permission {
 #[derive(Debug, PartialEq)]
 pub enum Effect {
     Decline { id: Value, method: String },
+    /// The agent's request is answered at once with this result.
+    Respond { id: Value, result: Value },
     Stop,
     /// The plan's usage limit stopped the turn: its account rests and the next available one takes the prompt.
     Limit(Object),
@@ -93,7 +105,10 @@ pub struct Session {
     pub models: Vec<String>,
     pub model_efforts: Object,
     pub model_default_efforts: Object,
+    pub model_aliases: Object,
     pub record_id: String,
+    /// Where the agent writes its Fleet label; its progress and task files sit beside it.
+    pub fleet_context_file: String,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub effort: Option<String>,
@@ -127,6 +142,8 @@ pub struct Session {
     pub retry_attempt: Option<f64>,
     /// The running step was stopped because its retry hung on a dead network.
     pub retry_stopped: bool,
+    /// The command palette's and the sidebar's lists.
+    pub capabilities: Capabilities,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -158,6 +175,38 @@ fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
     object.get(key).and_then(Value::as_str)
 }
 
+/// The message of an agent's error, inside its `error` object or beside it.
+fn error_message(params: &Object) -> &str {
+    text(params.get("error").and_then(Value::as_object).unwrap_or(params), "message").unwrap_or(AGENT_ERROR)
+}
+
+/// `number` with thousands separators, as Swift's `formatted()` writes it.
+fn grouped(number: i64) -> String {
+    let digits = number.unsigned_abs().to_string();
+    let mut out = if number < 0 { "-".to_owned() } else { String::new() };
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// The effort his Claude settings give `model`: its `modelSettings` entry over `effortLevel`, the folder closest to `cwd` last.
+fn configured_claude_effort(home: Option<&str>, cwd: &str, model: &str) -> Option<String> {
+    let base = home.map_or_else(|| vcx_config::homes::home_directory().join(".claude"), PathBuf::from);
+    let folders: Vec<&Path> = Path::new(cwd).ancestors().collect();
+    let files = std::iter::once(base.join("settings.json")).chain(folders.iter().rev().flat_map(|folder| [".claude/settings.json", ".claude/settings.local.json"].map(|name| folder.join(name))));
+    let (mut effort, mut model_effort) = (None, None);
+    for file in files {
+        let Some(Value::Object(settings)) = std::fs::read(file).ok().and_then(|data| serde_json::from_slice(&data).ok()) else { continue };
+        effort = text(&settings, "effortLevel").map(str::to_owned).or(effort);
+        model_effort = settings.get("modelSettings").and_then(|models| models.get(model)).and_then(|entry| entry.get("effortLevel")).and_then(Value::as_str).map(str::to_owned).or(model_effort);
+    }
+    model_effort.or(effort)
+}
+
 impl Session {
     pub fn new(cwd: &str, state_directory: &str) -> Self {
         Self {
@@ -168,7 +217,8 @@ impl Session {
             provider_label: "Codex".into(),
             account: json!({"id": "codex-default", "name": "Default Codex", "provider": "codex"}),
             model: "Codex".into(),
-            status: "Starting…".into(),
+            status: "Connecting…".into(),
+            tokens: "Not reported".into(),
             usage_loading: true,
             record_id: new_id(),
             active_mode: "bypass".into(),
@@ -191,11 +241,13 @@ impl Session {
             "model": self.model, "status": self.status, "ready": self.ready, "busy": self.busy, "needsAttention": self.needs_attention,
             "backgroundTasks": self.background_tasks, "changing": self.changing, "activeActions": self.active_actions, "context": self.context,
             "usage": self.usage, "usageLoading": self.usage_loading, "tokens": self.tokens, "repository": "", "branch": "",
-            "repositoryStatus": "", "repositoryChanges": [], "pullRequest": "", "pullRequestURL": "", "hooks": [], "skills": [], "builtinCommands": [],
-            "mcp": [], "instructions": [], "activeMode": self.active_mode, "providerLabel": self.provider_label, "models": self.models,
-            "modelEfforts": self.model_efforts, "modelDefaultEfforts": self.model_default_efforts, "modelAliases": {}, "planning": self.planning,
-            "skillPaths": {}, "legacyCommandPaths": {}, "recordID": self.record_id, "recalledRules": self.recalled_rules, "recalledRuleSections": self.recalled_sections, "recent": [], "permissions": permissions,
-            "providerCommands": [], "account": self.account, "nativeSources": [], "archiveClientVersions": {},
+            "repositoryStatus": "", "repositoryChanges": [], "pullRequest": "", "pullRequestURL": "", "hooks": self.capabilities.hooks,
+            "skills": self.capabilities.skills, "builtinCommands": self.capabilities.builtin_commands, "mcp": self.capabilities.mcp,
+            "instructions": self.capabilities.instructions, "activeMode": self.active_mode, "providerLabel": self.provider_label, "models": self.models,
+            "modelEfforts": self.model_efforts, "modelDefaultEfforts": self.model_default_efforts, "modelAliases": self.model_aliases, "planning": self.planning,
+            "skillPaths": self.capabilities.skill_paths, "legacyCommandPaths": self.capabilities.legacy_command_paths, "recordID": self.record_id, "fleetContext": fleet::context(&self.fleet_context_file),
+            "progressFile": fleet::progress_path(&self.fleet_context_file), "taskFile": fleet::task_path(&self.fleet_context_file), "recalledRules": self.recalled_rules, "recalledRuleSections": self.recalled_sections, "recent": [], "permissions": permissions,
+            "providerCommands": self.capabilities.provider_commands, "account": self.account, "nativeSources": [], "archiveClientVersions": {},
             "nativeHistoryPath": self.native_history_path, "archiveService": self.archive_service, "threadID": self.thread_id, "turnID": self.turn_id,
             "effort": self.effort, "defaultEffort": self.default_effort, "usagePercent": self.usage_percent, "contextUsed": self.context_used,
             "contextLimit": self.context_limit, "repositoryDirectory": null, "conversationName": self.conversation_name,
@@ -301,6 +353,149 @@ impl Session {
         self.insert_row(index, "notice", vec![id]);
     }
 
+    /// One notice says the agent retries, updated in place until the agent makes progress again.
+    fn retry_notice(&mut self, message: &str) {
+        let retry = self.rows.iter().rev().filter_map(|row| row.items.first()).find(|id| self.is_retry(id)).cloned();
+        match retry.and_then(|id| Some((self.items.get(&id)?.clone(), id))) {
+            Some((mut item, id)) => {
+                item.insert("text".into(), json!(message));
+                self.set_item(&id, item);
+            }
+            None => {
+                let id = new_id();
+                self.set_item(&id, json!({"id": id, "type": "notice", "text": message, "retry": true}).as_object().cloned().unwrap_or_default());
+                let index = self.rows.len();
+                self.insert_row(index, "notice", vec![id]);
+            }
+        }
+        self.status = RECONNECTING.into();
+    }
+
+    fn clear_retry_notice(&mut self) {
+        if self.status != RECONNECTING {
+            return;
+        }
+        let retries: Vec<String> = self.rows.iter().filter(|row| row.items.first().is_some_and(|id| self.is_retry(id))).map(|row| row.id.clone()).collect();
+        for row in retries {
+            self.remove_row(&row);
+        }
+        self.status = "Working…".into();
+    }
+
+    fn is_retry(&self, id: &str) -> bool {
+        self.items.get(id).is_some_and(|item| item.get("retry") == Some(&Value::Bool(true)))
+    }
+
+    /// What an agent adapter reports beside the transcript: its model, context, tokens, catalog and background work.
+    fn agent_status(&mut self, method: &str, params: &Object) {
+        match method {
+            "vcx/model" => self.model_resolved(params),
+            "vcx/context" => self.context_reported(params),
+            "vcx/tokens" => {
+                if let (Some(input), Some(output)) = (params.get("input").and_then(Value::as_i64), params.get("output").and_then(Value::as_i64)) {
+                    self.tokens = format!("{} in · {} out", grouped(input), grouped(output));
+                }
+            }
+            "vcx/catalog" => {
+                self.catalog_models(params);
+                self.claude_catalog(&Value::Object(params.clone()));
+            }
+            "vcx/backgroundTasks" => self.background_tasks = params.get("count").and_then(Value::as_i64).unwrap_or_default(),
+            "vcx/userQueue" => self.user_queue(params),
+            _ => {}
+        }
+    }
+
+    fn model_resolved(&mut self, params: &Object) {
+        if let Some(model) = text(params, "model") {
+            self.model = model.to_owned();
+        }
+        let claude = self.provider == "claude";
+        if let Some(known) = self.remembered_window(&self.model).filter(|_| claude) {
+            self.context_limit = Some(known);
+        }
+        self.default_effort = match text(params, "reasoningEffort") {
+            Some(effort) => Some(effort.to_owned()),
+            None if claude => configured_claude_effort(self.account.get("home").and_then(Value::as_str), &self.conversation_directory, &self.model),
+            None => None,
+        };
+    }
+
+    fn context_reported(&mut self, params: &Object) {
+        if let Some(used) = params.get("used").and_then(Value::as_i64) {
+            self.context_used = Some(used);
+        }
+        let served = text(params, "model");
+        match params.get("limit").and_then(Value::as_i64).filter(|limit| *limit > 0) {
+            Some(limit) => {
+                self.context_limit = Some(limit);
+                if let Some(served) = served {
+                    self.remember_window(served, limit);
+                }
+            }
+            None => {
+                if let Some(known) = served.and_then(|served| self.remembered_window(served)) {
+                    self.context_limit = Some(known);
+                }
+            }
+        }
+    }
+
+    fn context_windows(&self) -> Object {
+        let file = Path::new(&self.state_directory).join(CONTEXT_WINDOWS_FILE);
+        std::fs::read(file).ok().and_then(|data| serde_json::from_slice(&data).ok()).unwrap_or_default()
+    }
+
+    fn remembered_window(&self, model: &str) -> Option<i64> {
+        self.context_windows().get(model).and_then(Value::as_i64)
+    }
+
+    fn remember_window(&self, model: &str, limit: i64) {
+        let mut windows = self.context_windows();
+        if windows.get(model).and_then(Value::as_i64) == Some(limit) {
+            return;
+        }
+        windows.insert(model.to_owned(), json!(limit));
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(PRIVATE_FOLDER).create(&self.state_directory);
+        if let Ok(data) = serde_json::to_vec(&windows) {
+            let _ = vcx_config::homes::write_private(&Path::new(&self.state_directory).join(CONTEXT_WINDOWS_FILE), &data);
+        }
+    }
+
+    /// Claude's catalog models: the menu's list, the model each alias resolves to and the efforts each one takes.
+    fn catalog_models(&mut self, catalog: &Object) {
+        let Some(entries) = catalog.get("models").and_then(Value::as_array) else { return };
+        let entries: Vec<&Object> = entries.iter().filter_map(Value::as_object).collect();
+        self.models = entries.iter().filter_map(|entry| text(entry, "value").map(str::to_owned)).collect();
+        self.model_aliases.clear();
+        self.model_efforts.clear();
+        for entry in entries {
+            let Some(id) = text(entry, "value") else { continue };
+            if let Some(resolved) = text(entry, "resolvedModel") {
+                self.model_aliases.entry(id).or_insert_with(|| json!(resolved));
+            }
+            let efforts = if entry.get("supportsEffort") == Some(&Value::Bool(false)) { None } else { entry.get("supportedEffortLevels").filter(|levels| levels.is_array()) };
+            self.model_efforts.entry(id).or_insert_with(|| efforts.cloned().unwrap_or_else(|| json!([])));
+        }
+    }
+
+    /// A prompt sent while the agent works waits in its queue; once read, what the agent does next goes under it.
+    fn user_queue(&mut self, params: &Object) {
+        let Some(id) = text(params, "id") else { return };
+        let shown = self.rows.iter().any(|row| row.kind == "user" && row.items.first().map(String::as_str) == Some(id));
+        let Some(mut item) = self.items.get(id).cloned().filter(|_| shown) else { return };
+        let queued = params.get("queued") == Some(&Value::Bool(true));
+        if !queued && item.contains_key("queued") {
+            self.group = None;
+        }
+        if queued {
+            item.insert("queued".into(), json!(true));
+        } else {
+            item.remove("queued");
+        }
+        self.set_item(id, item);
+    }
+
     /// A prompt comes back with the recalled ERRORS note the worker added: the note goes, its lines stay on the item.
     fn strip_recalled(&mut self, data: &mut Object) {
         let Some(Value::Array(content)) = data.get("content").filter(|_| text(data, "type") == Some("userMessage")) else { return };
@@ -332,6 +527,22 @@ impl Session {
         }
     }
 
+    /// Claude's catalog: its commands, skills and MCP servers, and the permission mode it runs in.
+    pub fn claude_catalog(&mut self, catalog: &Value) {
+        if let Some(mode) = self.capabilities.claude_catalog(catalog) {
+            self.active_mode = mode;
+        }
+    }
+
+    /// Prompt `id` shows `typed` (a skill as it was typed) in place of the text sent for it.
+    pub fn show_typed(&mut self, id: &str, typed: &str) {
+        let Some(mut item) = self.items.get(id).cloned() else { return };
+        if let Some(first) = item.get_mut("content").and_then(Value::as_array_mut).and_then(|content| content.first_mut()) {
+            first["text"] = json!(typed);
+            self.set_item(id, item);
+        }
+    }
+
     /// The ERRORS lines sent with prompt `id`, with the section each sits under when its file names one.
     pub fn recalled(&mut self, id: &str, lines: &[String], sections: Vec<(String, String)>) {
         if let Some(item) = self.items.get(id).cloned() {
@@ -353,6 +564,7 @@ impl Session {
     pub fn show(&mut self, source: &Object) {
         let mut data = source.clone();
         self.strip_recalled(&mut data);
+        capabilities::typed_skill(&mut data);
         if text(&data, "type") == Some("agentMessage") && !data.contains_key("provider") {
             data.insert("provider".into(), json!(self.provider_label));
         }
@@ -432,6 +644,11 @@ impl Session {
         if text(params, "threadId").is_some_and(|thread| Some(thread) != self.thread_id.as_deref()) {
             return Vec::new();
         }
+        if method == "item/tool/call" && text(params, "tool") == Some(question::TOOL) {
+            let Some(params) = question::questions(params) else { return vec![Effect::Respond { id, result: question::refused() }] };
+            self.permissions.push(Permission { id: new_id(), rpc_id: id, method: question::ASKED_METHOD.to_owned(), params });
+            return Vec::new();
+        }
         if !ASKED_REQUESTS.contains(&method) {
             self.notice(&format!("Unsupported request declined: {method}"));
             return vec![Effect::Decline { id, method: method.to_owned() }];
@@ -453,7 +670,11 @@ impl Session {
         if method == "vcx/limit" {
             return vec![Effect::Limit(params.get("limit").and_then(Value::as_object).cloned().unwrap_or_default())];
         }
+        if matches!(event.kind, Kind::ItemStarted { .. } | Kind::ItemCompleted { .. } | Kind::Delta { .. } | Kind::TurnStarted { .. } | Kind::TurnCompleted { .. }) {
+            self.clear_retry_notice();
+        }
         if ["error", "vcx/error", "vcx/disconnected"].contains(&method) && usage_limit(params) && self.busy && !self.stop_requested {
+            self.clear_retry_notice();
             return vec![Effect::Limit(params.clone())];
         }
         let turn = params.get("turn").and_then(Value::as_object);
@@ -516,17 +737,20 @@ impl Session {
                     effects.push(Effect::Offline("a dropped connection"));
                 }
             }
-            Kind::Error { message, will_retry } => {
-                if *will_retry {
-                    self.status = "Reconnecting…".into();
-                }
-                self.notice(message);
+            Kind::Error { will_retry: true, .. } => {
+                let message = params.get("error").and_then(Value::as_object).and_then(|error| text(error, "message")).unwrap_or(RECONNECTING).to_owned();
+                self.retry_notice(&message);
             }
+            Kind::Error { .. } => {
+                self.clear_retry_notice();
+                self.notice(error_message(params));
+            }
+            Kind::Warning { message } if method == "warning" && message.starts_with(WEBSOCKET_FALLBACK) => self.retry_notice(message),
             Kind::Warning { message } => self.notice(message),
             Kind::Compacted => self.notice("Conversation compacted. Earlier messages remain in history."),
             Kind::TokenUsage { total, last, window } => {
                 if let Some(total) = total {
-                    self.tokens = format!("{total} total");
+                    self.tokens = format!("{} total", grouped(*total));
                 }
                 if let (Some(used), Some(limit)) = (last, window.filter(|limit| *limit > 0)) {
                     self.context = format!("{}% context", (*used as f64 / limit as f64 * 100.0).round() as i64);
@@ -538,7 +762,11 @@ impl Session {
             }
             Kind::RequestResolved { request_id } => self.permissions.retain(|permission| permission.rpc_id.to_string() != request_id.to_string()),
             Kind::RateLimits { limits } => self.rate_limits(limits),
-            Kind::Other if method == "vcx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
+            Kind::Other if method == "vcx/error" => {
+                self.clear_retry_notice();
+                self.notice(error_message(params));
+            }
+            Kind::Other if STATUS_EVENTS.contains(&method) => self.agent_status(method, params),
             Kind::Other if method == "vcx/disconnected" => effects.extend(self.agent_stopped(params)),
             Kind::Other if method == "vcx/resumeFailed" => effects.push(Effect::ResumeFailed),
             Kind::Other if method == "vcx/apiRetry" => {
@@ -617,12 +845,13 @@ impl Session {
 
     /// An adapter's agent stopped: on purpose (`ended`), or crashed, with why and its log's last error line, to restart.
     pub fn agent_stopped(&mut self, params: &Object) -> Vec<Effect> {
+        self.clear_retry_notice();
         let ended = params.get("ended") == Some(&Value::Bool(true));
         if params.contains_key("reason") && !ended {
             self.lost(false);
             return vec![Effect::Crashed(params.clone())];
         }
-        let mut message = text(params, "message").unwrap_or("The agent disconnected.").to_owned();
+        let mut message = error_message(params).to_owned();
         if let Some(line) = text(params, "line") {
             message = format!("{message} Last error: {line}");
         }
@@ -681,7 +910,7 @@ impl Session {
         }
         self.context.clear();
         self.context_used = None;
-        self.context_limit = None;
+        self.context_limit = if self.provider == "claude" { self.remembered_window(&self.model) } else { None };
         for turn in history.iter().filter_map(Value::as_object) {
             self.group = None;
             for item in turn.get("items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object) {
@@ -971,6 +1200,44 @@ mod tests {
     }
 
     #[test]
+    fn codexs_question_tool_is_asked_as_a_question() {
+        let mut session = opened();
+        let options = [json!({"label": "A", "description": ""}), json!({"label": "B", "description": ""})];
+        let call = json!({"threadId": "T", "tool": "AskUserQuestion", "arguments": {"questions": [{"question": "Which?", "header": "H", "multiSelect": false, "options": options}]}});
+
+        let effects = session.request(json!(5), "item/tool/call", call.as_object().unwrap());
+
+        let asked = &session.metadata()["permissions"][0];
+        assert!(effects.is_empty());
+        assert_eq!((&asked["method"], &asked["params"]["vcxQuestionTool"], &asked["params"]["questions"][0]["id"]), (&json!("item/tool/requestUserInput"), &json!(true), &json!("question-0")));
+    }
+
+    #[test]
+    fn an_invalid_question_is_refused_to_the_agent_without_asking() {
+        let mut session = opened();
+        let call = json!({"threadId": "T", "tool": "AskUserQuestion", "arguments": {"questions": []}});
+
+        let effects = session.request(json!(6), "item/tool/call", call.as_object().unwrap());
+
+        assert_eq!(effects, [Effect::Respond { id: json!(6), result: crate::question::refused() }]);
+        assert!(session.permissions.is_empty());
+    }
+
+    #[test]
+    fn the_metadata_names_the_fleet_label_and_the_progress_and_task_files() {
+        let mut session = opened();
+        session.fleet_context_file = crate::fleet::create();
+        std::fs::write(&session.fleet_context_file, "Build feature\n").unwrap();
+
+        let meta = session.metadata();
+        crate::fleet::remove(&session.fleet_context_file);
+
+        let folder = std::path::Path::new(&session.fleet_context_file).parent().unwrap();
+        assert_eq!(meta["fleetContext"], json!("Build feature"));
+        assert_eq!((&meta["progressFile"], &meta["taskFile"]), (&json!(folder.join("task.progress")), &json!(folder.join("task.goal"))));
+    }
+
+    #[test]
     fn a_failed_send_takes_the_row_back_and_restores_the_draft() {
         let mut session = opened();
         let draft = vec![json!({"type": "text", "text": "hi"})];
@@ -1036,5 +1303,148 @@ mod tests {
 
         assert!(matches!(limited.as_slice(), [Effect::Limit(_)]));
         assert_eq!(throttled, [Effect::RateLimited]);
+    }
+
+    fn scratch() -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("vcx-session-{}", new_id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    fn claude(state: &Path, home: &Path) -> Session {
+        let mut session = Session::new(&home.to_string_lossy(), &state.to_string_lossy());
+        (session.provider, session.provider_label, session.model) = ("claude".into(), "Claude".into(), "Claude".into());
+        session.account = json!({"id": "claude-default", "provider": "claude", "home": home});
+        session.opened(json!({"thread": {"id": "T"}, "model": "Claude"}).as_object().unwrap(), &[], false);
+        session
+    }
+
+    fn texts(session: &Session) -> Vec<String> {
+        session.rows().iter().filter_map(|row| session.item(&row.items[0])?.get("text")?.as_str().map(str::to_owned)).collect()
+    }
+
+    #[test]
+    fn a_new_session_connects_before_any_token_is_reported() {
+        let session = Session::new("/tmp", "/tmp/state");
+
+        assert_eq!((session.status.as_str(), session.tokens.as_str()), ("Connecting…", "Not reported"));
+    }
+
+    #[test]
+    fn a_resolved_claude_model_takes_its_remembered_window_and_configured_effort() {
+        let (state, home) = (scratch(), scratch());
+        std::fs::write(state.join(CONTEXT_WINDOWS_FILE), r#"{"claude-opus-5-5": 1000000}"#).unwrap();
+        std::fs::write(home.join("settings.json"), r#"{"effortLevel": "high", "modelSettings": {"claude-opus-5-5": {"effortLevel": "xhigh"}}}"#).unwrap();
+        let mut session = claude(&state, &home);
+
+        session.event(&event(json!({"method": "vcx/model", "params": {"model": "claude-opus-5-5"}})));
+
+        assert_eq!(session.model, "claude-opus-5-5");
+        assert_eq!((session.context_limit, session.default_effort.as_deref()), (Some(1_000_000), Some("xhigh")));
+        let _ = (std::fs::remove_dir_all(state), std::fs::remove_dir_all(home));
+    }
+
+    #[test]
+    fn a_reported_context_window_is_remembered_for_the_next_session_of_that_model() {
+        let (state, home) = (scratch(), scratch());
+        let mut first = claude(&state, &home);
+        first.event(&event(json!({"method": "vcx/context", "params": {"used": 1200, "model": "claude-fixture"}})));
+        first.event(&event(json!({"method": "vcx/context", "params": {"limit": 200000, "model": "claude-fixture"}})));
+        let mut next = claude(&state, &home);
+
+        next.event(&event(json!({"method": "vcx/context", "params": {"used": 3400, "model": "claude-fixture"}})));
+
+        assert_eq!((first.context_used, first.context_limit), (Some(1200), Some(200_000)));
+        assert_eq!((next.context_used, next.context_limit), (Some(3400), Some(200_000)));
+        let _ = (std::fs::remove_dir_all(state), std::fs::remove_dir_all(home));
+    }
+
+    #[test]
+    fn token_counts_carry_thousands_separators() {
+        let mut claude = opened();
+        let mut codex = opened();
+
+        claude.event(&event(json!({"method": "vcx/tokens", "params": {"input": 12345, "output": 678}})));
+        codex.event(&event(json!({"method": "thread/tokenUsage/updated", "params": {"threadId": "T", "tokenUsage": {"total": {"totalTokens": 1234567}}}})));
+
+        assert_eq!(claude.tokens, "12,345 in · 678 out");
+        assert_eq!(codex.tokens, "1,234,567 total");
+    }
+
+    #[test]
+    fn counts_the_agents_background_tasks() {
+        let mut session = opened();
+
+        session.event(&event(json!({"method": "vcx/backgroundTasks", "params": {"count": 2}})));
+
+        assert_eq!(session.metadata()["backgroundTasks"], 2);
+    }
+
+    #[test]
+    fn a_queued_prompt_is_flagged_until_the_agent_reads_it() {
+        let mut session = opened();
+        let outgoing = session.begin_send("later", &[], None, None, false).unwrap();
+
+        session.event(&event(json!({"method": "vcx/userQueue", "params": {"id": outgoing.id, "queued": true}})));
+        let queued = session.item(&outgoing.id).unwrap().get("queued").cloned();
+        session.event(&event(json!({"method": "vcx/userQueue", "params": {"id": outgoing.id, "queued": false}})));
+
+        assert_eq!(queued, Some(json!(true)));
+        assert!(!session.item(&outgoing.id).unwrap().contains_key("queued"));
+    }
+
+    #[test]
+    fn the_claude_catalog_sets_the_models_their_aliases_and_efforts() {
+        let mut session = opened();
+        let models = json!([
+            {"value": "opus", "resolvedModel": "claude-opus-5-5", "supportedEffortLevels": ["low", "high"]},
+            {"value": "haiku", "supportsEffort": false, "supportedEffortLevels": ["low"]}
+        ]);
+
+        session.event(&event(json!({"method": "vcx/catalog", "params": {"models": models}})));
+
+        assert_eq!(session.models, ["opus", "haiku"]);
+        assert_eq!(session.metadata()["modelAliases"], json!({"opus": "claude-opus-5-5"}));
+        assert_eq!(Value::Object(session.model_efforts.clone()), json!({"opus": ["low", "high"], "haiku": []}));
+    }
+
+    #[test]
+    fn retries_keep_one_notice_updated_until_the_agent_makes_progress() {
+        let mut session = opened();
+        session.begin_send("hi", &[], None, None, false).unwrap();
+        session.event(&event(json!({"method": "turn/started", "params": {"threadId": "T", "turn": {"id": "U"}}})));
+        let retry = |attempt: &str| json!({"method": "error", "params": {"threadId": "T", "willRetry": true, "error": {"message": attempt}}});
+
+        session.event(&event(retry("Reconnecting 1/5")));
+        session.event(&event(retry("Reconnecting 2/5")));
+        let during = (kinds(&session).len(), texts(&session).last().cloned(), session.status.clone());
+        session.event(&event(json!({"method": "item/agentMessage/delta", "params": {"threadId": "T", "itemId": "a", "delta": "back"}})));
+
+        assert_eq!(during, (2, Some("Reconnecting 2/5".into()), "Reconnecting…".into()));
+        assert_eq!(kinds(&session), ["user", "assistant"]);
+        assert_eq!(session.status, "Working…");
+    }
+
+    #[test]
+    fn the_websockets_fallback_warning_is_a_retry_notice() {
+        let mut session = opened();
+        let warning = json!({"method": "warning", "params": {"threadId": "T", "message": "Falling back from WebSockets to HTTPS transport: closed"}});
+
+        session.event(&event(warning.clone()));
+        session.event(&event(warning));
+
+        assert_eq!(kinds(&session), ["notice"]);
+        assert_eq!(session.status, "Reconnecting…");
+    }
+
+    #[test]
+    fn an_error_without_a_message_says_codex_reported_an_error() {
+        let mut session = opened();
+
+        session.event(&event(json!({"method": "vcx/error", "params": {}})));
+        session.agent_stopped(json!({"ended": true}).as_object().unwrap());
+
+        assert_eq!(texts(&session), ["Codex reported an error.", "Codex reported an error."]);
+        assert_eq!(session.status, "Ended");
     }
 }
