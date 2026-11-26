@@ -13,6 +13,8 @@ enum StateHome {
     private static let mergeWaitMilliseconds: Int32 = 10_000
     private static let linkTarget = "vcx"
     private static let processName = "VCX"
+    // The update markers RuntimeUpdate writes; a stale installed-build kept from vcx made every frontend replace itself in a loop (26/11).
+    private static let pointers: Set<String> = ["installed-build", "manual-build", "update-request"]
     // One empty file per running process of a build that knows the move, named <pid>-<start>.
     private static var registry: String { current + "/.moved" }
 
@@ -91,7 +93,7 @@ enum StateHome {
             var info = stat()
             if lstat(to, &info) != 0 { rename(from, to) }
             else if isFolder(from) && isFolder(to) { mergeEntries(from, into: to) }
-            else if name.hasSuffix(".json"), modified(from) > modified(to) { rename(from, to) }
+            else if name.hasSuffix(".json") || pointers.contains(name), modified(from) > modified(to) { rename(from, to) }
         }
     }
 

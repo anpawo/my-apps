@@ -89,6 +89,10 @@ enum Check {
             check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock", "a saved cx path still points into vcx once the link is gone")
             try? manager.createDirectory(atPath: parent + "/cx/native/key", withIntermediateDirectories: true)
             try? "{}".write(toFile: parent + "/cx/native/key/record.json", atomically: true, encoding: .utf8)
+            try? manager.createDirectory(atPath: parent + "/cx/runtime", withIntermediateDirectories: true)
+            try? "old".write(toFile: parent + "/vcx/runtime/installed-build", atomically: true, encoding: .utf8)
+            try? manager.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: parent + "/vcx/runtime/installed-build")
+            try? "new".write(toFile: parent + "/cx/runtime/installed-build", atomically: true, encoding: .utf8)
             for (folder, row) in [("vcx", "kept"), ("cx", "made again")] {
                 let sqlite = Process()
                 sqlite.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
@@ -107,6 +111,8 @@ enum Check {
                   && (!exists(parent + "/cx") || (try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx")
                   && String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "kept,made again",
                   "a cx folder made again joins vcx, its records and rows included, and is no longer a folder")
+            check((try? String(contentsOfFile: parent + "/vcx/runtime/installed-build", encoding: .utf8)) == "new",
+                  "the installed-build marker written later in a cx folder made again replaces vcx's")
         }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000; Connectivity.grace = 50_000_000
         do {
