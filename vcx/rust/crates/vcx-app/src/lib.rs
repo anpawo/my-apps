@@ -1,6 +1,7 @@
 pub mod app;
 mod confirm;
 pub mod control;
+pub mod desktops;
 pub mod fleet;
 mod focus;
 mod folder;

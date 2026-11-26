@@ -24,6 +24,8 @@ pub struct Entry {
     pub cwd: String,
     pub socket: PathBuf,
     pub record_id: Option<String>,
+    /// The desktop the Swift window was on (its `windowState.desktop`, Swift `Desktops.index`).
+    pub desktop: Option<usize>,
 }
 
 /// The Swift app's recovery folder on his Mac.
@@ -68,7 +70,10 @@ fn entry(folder: &Path, name: &str, value: &Value) -> Result<Option<Entry>, Stri
     let field = |key: &str| checkpoint.get(key).or_else(|| state.get(key)).and_then(Value::as_str).map(str::to_owned);
     let Some(cwd) = field("conversationDirectory").or_else(|| field("cwd")).filter(|cwd| cwd.starts_with('/')) else { return Ok(None) };
     let record_id = field("recordID").as_deref().and_then(uuid_string);
-    Ok(Some(Entry { session_id: id, cwd, socket: socket.into(), record_id }))
+    // Only the window state is the window's own over the checkpoint's (Swift `RuntimeRecovery.pending`).
+    let window_state = state.get("windowState").or_else(|| checkpoint.get("windowState"));
+    let desktop = window_state.and_then(|window| window["desktop"].as_u64()).and_then(|index| usize::try_from(index).ok());
+    Ok(Some(Entry { session_id: id, cwd, socket: socket.into(), record_id, desktop }))
 }
 
 /// A frontend still running owns its window: the recorded pid started at the recorded time (Swift `ownerStart`).
@@ -148,7 +153,21 @@ mod tests {
         let listed = pending(&folder);
 
         fs::remove_dir_all(&folder).unwrap();
-        assert_eq!(listed, Ok(vec![Entry { session_id: ID.into(), cwd: "/tmp/moved".into(), socket: "/tmp/w.sock".into(), record_id: Some(RECORD.into()) }]));
+        assert_eq!(listed, Ok(vec![Entry { session_id: ID.into(), cwd: "/tmp/moved".into(), socket: "/tmp/w.sock".into(), record_id: Some(RECORD.into()), desktop: None }]));
+    }
+
+    #[test]
+    fn keeps_the_desktop_of_the_window_state_over_the_checkpoints() {
+        let folder = folder("desktop");
+        let mut window = window(1, 1);
+        window["state"]["windowState"] = json!({"desktop": 2});
+        write(&folder, &format!("{ID}.window.json"), &window);
+        write(&folder, &format!("{ID}.checkpoint.json"), &json!({"windowState": {"desktop": 0}}));
+
+        let listed = pending(&folder);
+
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(listed.map(|entries| entries.iter().map(|entry| entry.desktop).collect::<Vec<_>>()), Ok(vec![Some(2)]));
     }
 
     #[test]

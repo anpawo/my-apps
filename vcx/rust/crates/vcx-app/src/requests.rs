@@ -78,6 +78,7 @@ fn take_over(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, take: &Val
             taken.push(json!({"sessionId": session_id, "cwd": cwd}));
         }
     }
+    app.return_to_desktops();
     Ok(json!({"taken": taken}))
 }
 

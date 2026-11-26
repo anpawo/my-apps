@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, fleet, focus, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
+use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -106,6 +106,8 @@ pub(crate) struct Win {
     /// The progress line the page has, and the file sizes read for its rate.
     progress_shown: Value,
     progress_samples: Vec<(f64, f64)>,
+    /// The desktop last read for the window, so a move to another desktop, which sends no event, is saved.
+    desktop: Option<usize>,
 }
 
 struct Spec {
@@ -114,6 +116,7 @@ struct Spec {
     frame: Option<Frame>,
     record_id: Option<String>,
     focus: bool,
+    desktop: Option<usize>,
 }
 
 struct Reopen {
@@ -133,11 +136,11 @@ fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
             continue;
         }
         let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd.clone(), prompt: String::new(), resume: if live { None } else { resume }, existing_only: live };
-        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false }, start_worker: !live });
+        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false, desktop: entry.desktop }, start_worker: !live });
     }
     for session in running.iter().filter(|session| !session.attached && !saved.iter().any(|entry| entry.session_id == session.session_id)) {
         let request = AttachRequest { session_id: session.session_id.clone(), cwd: "/".into(), existing_only: true, ..AttachRequest::default() };
-        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false }, start_worker: false });
+        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false, desktop: None }, start_worker: false });
     }
     reopened
 }
@@ -177,6 +180,8 @@ pub(crate) struct App {
     keys: HashMap<WindowId, u64>,
     next: u64,
     focused: Option<u64>,
+    /// Reopened windows to put back on their desktop once all are open (Swift `restoreDesktops`).
+    restore_desktops: HashMap<u64, usize>,
     /// From a worker revision's arrival to the page saying it drew it, for every patch of every window.
     delays: Vec<Duration>,
     pub queue: Vec<Queued>,
@@ -231,6 +236,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         keys: HashMap::new(),
         next: 0,
         focused: None,
+        restore_desktops: HashMap::new(),
         delays: Vec::new(),
         queue: Vec::new(),
         report: None,
@@ -314,6 +320,44 @@ impl App {
             }
             self.open_window(target, reopen.spec);
         }
+        self.return_to_desktops();
+    }
+
+    /// Every window just reopened goes back to the desktop it was saved on; one whose desktop is gone stays in front.
+    /// The move is asynchronous and a save may read the desktop in front meanwhile: the window's last read desktop
+    /// stays unknown, so the next tick reads where it landed and saves it.
+    pub(crate) fn return_to_desktops(&mut self) {
+        for (key, desktop) in std::mem::take(&mut self.restore_desktops) {
+            if let Some(win) = self.windows.get(&key) {
+                desktops::put_back(&desktops::System, desktops::window_number(&win.window), desktop);
+            }
+        }
+    }
+
+    fn desktop_of(&self, win: &Win) -> Option<usize> {
+        if self.windowless {
+            return None;
+        }
+        desktops::index(&desktops::System, desktops::window_number(&win.window))
+    }
+
+    /// A window moved to another desktop sends no event: each tick reads where every window is and saves a change.
+    fn follow_desktops(&mut self) {
+        if self.windowless {
+            return;
+        }
+        let mut moved = false;
+        let keys: Vec<u64> = self.windows.keys().copied().collect();
+        for key in keys {
+            let desktop = self.windows.get(&key).and_then(|win| self.desktop_of(win));
+            if let Some(win) = self.windows.get_mut(&key).filter(|win| desktop.is_some() && win.desktop != desktop) {
+                win.desktop = desktop;
+                moved = true;
+            }
+        }
+        if moved {
+            self.schedule_save();
+        }
     }
 
     /// Reopens a window the Swift app left (`takeover`): on its live worker and session, or, that worker gone, cold
@@ -324,12 +368,17 @@ impl App {
         }
         if answers(&entry.socket) {
             let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: None, existing_only: true };
-            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false });
+            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop });
             self.schedule_save();
             return Some(entry.session_id);
         }
         let resume = entry.record_id.map(|record| format!("native:{record}"))?;
-        Some(self.new_session(target, Open { cwd: entry.cwd, resume: Some(resume), ..Open::default() }))
+        let session_id = self.new_session(target, Open { cwd: entry.cwd, resume: Some(resume), ..Open::default() });
+        let key = self.windows.iter().find(|(_, win)| win.session_id == session_id).map(|(&key, _)| key);
+        if let (Some(key), Some(desktop), false) = (key, entry.desktop, self.windowless) {
+            self.restore_desktops.insert(key, desktop);
+        }
+        Some(session_id)
     }
 
     pub(crate) fn new_session(&mut self, target: &EventLoopWindowTarget<AppEvent>, open: Open) -> String {
@@ -337,7 +386,7 @@ impl App {
         let socket = worker::socket_for(&self.homes, &session_id);
         self.start_worker(&socket, &open.cwd);
         let request = AttachRequest { session_id: session_id.clone(), cwd: open.cwd, prompt: open.prompt, resume: open.resume, existing_only: false };
-        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus });
+        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus, desktop: None });
         self.schedule_save();
         session_id
     }
@@ -366,6 +415,9 @@ impl App {
         }
         let key = self.next;
         self.next += 1;
+        if let (Some(desktop), false) = (spec.desktop, self.windowless) {
+            self.restore_desktops.insert(key, desktop);
+        }
         let proxy = self.proxy.clone();
         let emit: pane::Emit = Arc::new(move |event| drop(proxy.send_event(AppEvent::Pane(key, event))));
         let options = pane::Options { template: self.settings.template.clone(), wait_for_answer: false, quiet: self.windowless };
@@ -378,7 +430,7 @@ impl App {
             pane.note(notice.clone());
         }
         self.keys.insert(window.id(), key);
-        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new() });
+        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new(), desktop: None });
         self.schedule_publish();
     }
 
@@ -422,6 +474,7 @@ impl App {
                 self.show_progress();
                 self.show_update();
                 self.refresh_on_screen();
+                self.follow_desktops();
                 if relaunch::requested() {
                     self.relaunch();
                 }
@@ -753,7 +806,7 @@ impl App {
     }
 
     fn save_now(&self) {
-        let saved: Vec<Saved> = self.windows.values().map(|win| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone() }).collect();
+        let saved: Vec<Saved> = self.windows.values().map(|win| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win) }).collect();
         if let Err(problem) = windows::write(&self.homes.windows(), &saved) {
             eprintln!("vcx-rust: {problem}");
         }
@@ -806,7 +859,7 @@ fn describe(win: &Win, page: Option<Value>) -> Value {
     let summary = win.summary.clone().unwrap_or_default();
     json!({
         "sessionId": win.session_id, "socket": win.socket, "cwd": win.cwd, "recordID": win.record_id,
-        "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(),
+        "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(), "desktop": win.desktop,
         "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "progressFile": summary.progress_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
         "name": vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
         "page": page.unwrap_or(Value::Null),
@@ -833,7 +886,7 @@ mod tests {
     use worker::Running;
 
     fn saved(id: &str, record: Option<&str>) -> Saved {
-        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned) }
+        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None }
     }
 
     fn running(id: &str, attached: bool) -> Running {
@@ -849,5 +902,14 @@ mod tests {
         let shown: Vec<(&str, Option<&str>, bool, bool)> = plan.iter().map(|reopen| (reopen.spec.request.session_id.as_str(), reopen.spec.request.resume.as_deref(), reopen.spec.request.existing_only, reopen.start_worker)).collect();
         assert_eq!(shown, [("LIVE", None, true, false), ("DEAD", Some("native:R2"), false, true), ("UNLISTED", None, true, false)]);
         assert_eq!(plan[1].spec.request.cwd, "/work/DEAD");
+    }
+
+    #[test]
+    fn reopens_a_saved_window_toward_the_desktop_it_was_saved_on() {
+        let list = [Saved { desktop: Some(3), ..saved("LIVE", Some("R1")) }, saved("DEAD", Some("R2"))];
+
+        let plan = plan(&list, &[running("LIVE", false)]);
+
+        assert_eq!(plan.iter().map(|reopen| reopen.spec.desktop).collect::<Vec<_>>(), [Some(3), None]);
     }
 }
