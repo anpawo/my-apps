@@ -127,3 +127,33 @@ impl SessionBackend {
         Ok(backend)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_frozen_by_another_build_is_adopted_with_its_missing_fields_at_their_default() {
+        let mut session = serde_json::to_value(Session::new("/work", "/state")).unwrap();
+        let fields = session.as_object_mut().unwrap();
+        fields.remove("recalled_rules").expect("a field this build writes");
+        fields.insert("a_field_of_a_later_build".into(), json!(1));
+        let frozen = json!({"session": session, "agent": null});
+
+        let checked = check(&frozen);
+        let adopted = session_of(&frozen).unwrap();
+
+        assert_eq!(checked, Ok(()));
+        assert_eq!(adopted.cwd, "/work");
+        assert!(adopted.recalled_rules.is_empty());
+    }
+
+    #[test]
+    fn a_frozen_agent_of_another_provider_is_refused_before_the_exec() {
+        let session = serde_json::to_value(Session::new("/work", "/state")).unwrap();
+
+        let checked = check(&json!({"session": session, "agent": {"kind": "claude"}}));
+
+        assert!(checked.is_err());
+    }
+}
