@@ -9,6 +9,7 @@ mod local;
 mod login;
 mod menus;
 pub mod metrics;
+mod placement;
 mod progress;
 mod quota;
 mod relaunch;

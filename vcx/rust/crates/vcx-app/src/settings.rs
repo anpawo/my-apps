@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 /// The Swift app's binary serves as the worker of the Rust app's sessions until a Rust worker exists.
 const SWIFT_WORKER: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
-const WINDOW_SIZE: (f64, f64) = (1100.0, 760.0);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -16,14 +15,14 @@ pub struct Settings {
     pub worker_arguments: Vec<String>,
     /// A template folder edited live; the built-in template otherwise.
     pub template: Option<PathBuf>,
-    /// The size of a new window, in points.
-    pub window_size: (f64, f64),
+    /// The size of a new window, in points; at the Swift place on the screen when the file names none.
+    pub window_size: Option<(f64, f64)>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
-        Self { worker: home.join(SWIFT_WORKER), worker_arguments: Vec::new(), template: None, window_size: WINDOW_SIZE }
+        Self { worker: home.join(SWIFT_WORKER), worker_arguments: Vec::new(), template: None, window_size: None }
     }
 }
 
@@ -57,7 +56,7 @@ pub fn read(file: &Path) -> (Settings, Option<String>) {
     }
     settings.template = value["template"].as_str().map(PathBuf::from);
     if let (Some(width), Some(height)) = (value["windowSize"][0].as_f64(), value["windowSize"][1].as_f64()) {
-        settings.window_size = (width, height);
+        settings.window_size = Some((width, height));
     }
     (settings, None)
 }
@@ -79,14 +78,14 @@ mod tests {
         let (settings, problem) = read(Path::new("/nonexistent/settings.json"));
 
         assert!(settings.worker.ends_with(SWIFT_WORKER));
-        assert_eq!((settings.template, settings.window_size, problem), (None, WINDOW_SIZE, None));
+        assert_eq!((settings.template, settings.window_size, problem), (None, None, None));
     }
 
     #[test]
     fn takes_the_worker_its_arguments_the_template_and_the_window_size_from_the_file() {
         let (settings, problem) = written(r#"{"worker": "/w", "workerArguments": ["--runtime-test"], "template": "/t", "windowSize": [800, 600]}"#);
 
-        assert_eq!(settings, Settings { worker: "/w".into(), worker_arguments: vec!["--runtime-test".into()], template: Some("/t".into()), window_size: (800.0, 600.0) });
+        assert_eq!(settings, Settings { worker: "/w".into(), worker_arguments: vec!["--runtime-test".into()], template: Some("/t".into()), window_size: Some((800.0, 600.0)) });
         assert_eq!(problem, None);
     }
 

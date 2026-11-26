@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
+use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -38,6 +38,8 @@ pub const ALREADY_RUNNING: &str = "Another VCX Rust app holds this state folder.
 const TITLE_SUFFIX: &str = " · VCX Rust";
 /// Swift `main.swift`: 780 for the transcript and the composer, 200 for the task bar, which always shows.
 const MIN_WINDOW_SIZE: (f64, f64) = (980.0, 560.0);
+/// A windowless window's size, never on screen: the Swift place needs a screen.
+const WINDOWLESS_SIZE: (f64, f64) = (1100.0, 760.0);
 const EXIT_FAILED: i32 = 1;
 /// A page still loading never answers a script: a report gives up on it after this long and says so.
 const PAGE_READ_WAIT: Duration = Duration::from_secs(2);
@@ -409,8 +411,9 @@ impl App {
     }
 
     fn open_window(&mut self, target: &EventLoopWindowTarget<AppEvent>, spec: Spec) {
-        let (width, height) = spec.frame.map_or(self.settings.window_size, |frame| (frame.width, frame.height));
-        let builder = WindowBuilder::new().with_title(title(&spec.request.cwd)).with_inner_size(LogicalSize::new(width, height)).with_min_inner_size(LogicalSize::new(MIN_WINDOW_SIZE.0, MIN_WINDOW_SIZE.1)).with_visible(!self.windowless).with_focused(spec.focus && !self.windowless);
+        let (width, height) = spec.frame.map(|frame| (frame.width, frame.height)).or(self.settings.window_size).unwrap_or(WINDOWLESS_SIZE);
+        // Built hidden: `placement::show` puts it at its place and order before it is ever on screen.
+        let builder = WindowBuilder::new().with_title(title(&spec.request.cwd)).with_inner_size(LogicalSize::new(width, height)).with_min_inner_size(LogicalSize::new(MIN_WINDOW_SIZE.0, MIN_WINDOW_SIZE.1)).with_visible(false).with_focused(spec.focus && !self.windowless);
         let window = match builder.build(target) {
             Ok(window) => window,
             Err(error) => return eprintln!("vcx-rust: cannot open a window: {error}"),
@@ -420,6 +423,10 @@ impl App {
         // The builder's position is the content's corner, the saved one the frame's: set it the way it is read.
         if let Some(frame) = spec.frame {
             window.set_outer_position(LogicalPosition::new(frame.x, frame.y));
+        }
+        placement::dress(&window);
+        if let (false, Some(mtm)) = (self.windowless, objc2_foundation::MainThreadMarker::new()) {
+            placement::show(&window, mtm, spec.frame.is_none() && self.settings.window_size.is_none(), spec.focus);
         }
         let key = self.next;
         self.next += 1;
