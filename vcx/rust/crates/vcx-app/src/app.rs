@@ -5,7 +5,7 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, folder, metrics, requests, tasks};
+use crate::{fleet, folder, metrics, requests, sheet, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
@@ -372,6 +372,13 @@ impl App {
                 let proxy = self.proxy.clone();
                 folder::choose(&win.cwd, move |path| drop(proxy.send_event(AppEvent::Chosen(key, path))));
             }
+            Note::Settings => match self.homes.shared_settings().load() {
+                Ok(settings) => {
+                    let (home, now) = (std::env::var("HOME").unwrap_or_else(|_| "/".into()), SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64()));
+                    win.pane.to_page(&sheet::message(&settings, win.summary.as_ref().and_then(|summary| summary.account.as_ref()), &home, now));
+                }
+                Err(problem) => win.pane.note(problem),
+            },
             Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading => {}
         }
     }

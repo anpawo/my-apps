@@ -28,6 +28,8 @@ pub struct Summary {
     pub task_file: Option<String>,
     /// The task bar's word for it (Swift `TaskBoard.state`): working, question or done.
     pub task_state: &'static str,
+    /// The account the session runs on, as the worker names it: `{id, name, provider, …}`.
+    pub account: Option<Value>,
     /// (kind, text) with Fleet's kinds: user, tool, assistant.
     pub preview: Vec<(&'static str, String)>,
 }
@@ -65,6 +67,7 @@ pub fn of(state: &SessionState) -> Summary {
         progress_file: text(meta, "progressFile").filter(|file| !file.is_empty()),
         task_file: text(meta, "taskFile").filter(|file| !file.is_empty()),
         task_state: task_state(state, waiting || flag("needsAttention"), flag("busy") || flag("changing") || background > 0),
+        account: meta.get("account").filter(|account| account.is_object()).cloned(),
         preview: preview(state),
     }
 }

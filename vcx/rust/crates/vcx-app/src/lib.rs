@@ -5,6 +5,7 @@ mod folder;
 pub mod metrics;
 mod requests;
 pub mod settings;
+mod sheet;
 pub mod tasks;
 pub mod windows;
 pub mod worker;

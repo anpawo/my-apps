@@ -38,6 +38,7 @@ pub enum FromPage {
     /// Another window's card in the task bar.
     Focus { id: String },
     Quota,
+    Settings,
     /// The worker action that reads `what` again: `refreshUsage`, `refreshRepository`, `refreshCapabilities`, `refreshCatalog`.
     Refresh { action: &'static str },
     ChooseDirectory,
@@ -78,6 +79,7 @@ pub fn parse(body: &str) -> Option<FromPage> {
         "title" => Some(FromPage::Title { text: text("text")? }),
         "focus" => Some(FromPage::Focus { id: text("id")? }),
         "quota" => Some(FromPage::Quota),
+        "settings" => Some(FromPage::Settings),
         "refresh" => Some(FromPage::Refresh { action: REFRESHES.iter().find(|(what, _)| Some(*what) == message.get("what").and_then(Value::as_str))?.1 }),
         "chooseDirectory" => Some(FromPage::ChooseDirectory),
         _ => None,
@@ -202,7 +204,7 @@ mod tests {
     fn reads_the_composer_and_chrome_messages() {
         let bodies = [
             r#"{"type":"send","text":"hi","images":["/tmp/a.png"],"draft":[],"generation":4}"#, r#"{"type":"sendNow"}"#, r#"{"type":"command","text":"/model claude opus high"}"#,
-            r#"{"type":"title","text":"Fix the bar"}"#, r#"{"type":"focus","id":"A1"}"#, r#"{"type":"quota"}"#, r#"{"type":"refresh","what":"usage"}"#, r#"{"type":"chooseDirectory"}"#,
+            r#"{"type":"title","text":"Fix the bar"}"#, r#"{"type":"focus","id":"A1"}"#, r#"{"type":"quota"}"#, r#"{"type":"refresh","what":"usage"}"#, r#"{"type":"chooseDirectory"}"#, r#"{"type":"settings"}"#,
         ];
 
         let parsed: Vec<FromPage> = bodies.iter().filter_map(|body| parse(body)).collect();
@@ -216,6 +218,7 @@ mod tests {
             FromPage::Quota,
             FromPage::Refresh { action: "refreshUsage" },
             FromPage::ChooseDirectory,
+            FromPage::Settings,
         ];
         assert_eq!(parsed, expected);
     }
