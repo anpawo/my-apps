@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, terminate, update};
+use crate::{confirm, desktops, fleet, focus, folder, freeze, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, terminate, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -96,6 +96,8 @@ pub enum AppEvent {
     QuitConfirmed(bool),
     /// The close of this session, cut short by a crash, is finished.
     CloseFinished(String),
+    /// The main thread's beat, for the freeze watchdog.
+    Beat,
 }
 
 pub(crate) struct Win {
@@ -244,6 +246,13 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     focus::listen(move |id| drop(to_focus.send_event(AppEvent::Focus(id))));
     let to_quit = proxy.clone();
     terminate::listen(mtm, move || drop(to_quit.send_event(AppEvent::Terminate)));
+    freeze::start(&options.homes.state);
+    let to_beat = proxy.clone();
+    thread::spawn(move || {
+        while to_beat.send_event(AppEvent::Beat).is_ok() {
+            thread::sleep(freeze::BEAT);
+        }
+    });
     let pid = std::process::id();
     let started_at = vcx_config::process::start_time(pid as i32).unwrap_or_default();
     let mut app = App {
@@ -556,6 +565,11 @@ impl App {
             AppEvent::CloseConfirmed(key) => self.close_window(key),
             AppEvent::Terminate => self.ask_quit(),
             AppEvent::QuitConfirmed(quit) => self.end_quit(quit),
+            AppEvent::Beat => {
+                let active = !self.windowless && objc2_foundation::MainThreadMarker::new().is_some_and(|mtm| objc2_app_kit::NSApplication::sharedApplication(mtm).isActive());
+                freeze::beat(active);
+                None
+            }
             AppEvent::CloseFinished(id) => {
                 self.closes.retain(|entry| entry.session_id != id);
                 self.save_now();

@@ -17,6 +17,8 @@ const RUST_WORKER: &str = "../../target/debug/vcx-worker";
 const PRIVATE_FOLDER: u32 = 0o700;
 const EXECUTABLE: u32 = 0o755;
 const WAIT: Duration = Duration::from_secs(40);
+/// Past the watchdog's 3 s, with room for its one-second checks.
+const FREEZE_SECONDS: f64 = 6.0;
 const POLL: Duration = Duration::from_millis(100);
 const THIRTEEN: usize = 13;
 
@@ -878,9 +880,9 @@ fn keeps_a_window_whose_worker_cannot_save_its_session_and_says_why() {
 
 /// What the Dock's Quit and a logout send: a quit Apple event, which AppKit turns into `terminate:`.
 fn send_quit_event(pid: u32) {
-    let script = format!("ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate");
+    let script = format!("ObjC.import('AppKit'); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}); app.isNil() ? 'unlisted' : String(app.terminate)");
     let sent = Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
-    assert!(sent.status.success(), "{}", String::from_utf8_lossy(&sent.stderr));
+    assert_eq!(String::from_utf8_lossy(&sent.stdout).trim(), "true", "the quit event was not sent: {}", String::from_utf8_lossy(&sent.stderr));
 }
 
 #[test]
@@ -994,4 +996,27 @@ fn takes_over_a_window_the_swift_app_left_and_keeps_it_on_that_worker_after_a_re
         assert_eq!((&window["sessionId"], &window["socket"]), (&json!(id), &json!(worker.socket)));
     }
     assert!(run.worker_pids().is_empty(), "the app started a worker of its own for a session the Swift worker holds");
+}
+
+#[test]
+fn samples_the_process_into_its_freezes_folder_when_the_main_thread_spins_for_seconds() {
+    let Some(mut run) = Run::new("freeze") else { return };
+    let folder = run.folder("freeze");
+    run.start(&["--cwd", folder.to_str().unwrap(), "then freeze"]);
+    let freezes = run.root.join("state/freezes");
+
+    let stalled = run.ask(&json!({"stall": {"seconds": FREEZE_SECONDS}}));
+
+    assert_eq!(stalled.map(|reply| reply["stalled"].clone()), Some(json!(FREEZE_SECONDS)));
+    let deadline = Instant::now() + WAIT;
+    let report = loop {
+        let names: Vec<String> = fs::read_dir(&freezes).into_iter().flatten().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+        let report = names.iter().find(|name| !name.contains(".sample")).filter(|name| names.contains(&name.replace(".txt", ".sample.txt")));
+        if let Some(report) = report {
+            break fs::read_to_string(freezes.join(report)).unwrap();
+        }
+        assert!(Instant::now() < deadline, "no freeze report and sample in {}: {names:?}", freezes.display());
+        thread::sleep(POLL);
+    };
+    assert!(report.starts_with("The main thread did not beat for "), "{report}");
 }

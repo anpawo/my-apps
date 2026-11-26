@@ -15,6 +15,8 @@ use vcx_shell::session::Message;
 const QUEUE_LIFE: Duration = Duration::from_secs(3600);
 /// An id prefix this long names a window, as `vcx --send` takes them.
 const ID_PREFIX_CHARS: usize = 4;
+/// The longest stall a windowless check of the freeze watchdog may ask for.
+const STALL_LIMIT: Duration = Duration::from_secs(10);
 const PROVIDERS: [&str; 4] = ["claude", "codex", "qwen", "agy"];
 const CHOICES: [&str; 5] = ["auto", "claude", "codex", "qwen", "agy"];
 
@@ -43,6 +45,8 @@ pub(crate) fn handle(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, re
             }
             Err(problem) => Err(problem),
         }
+    } else if let Some(stall) = body.get("stall") {
+        stall_main_thread(app, stall)
     } else if body.get("report").is_some() {
         app.begin_report(request.answer);
         return None;
@@ -83,6 +87,19 @@ fn take_over(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, take: &Val
 }
 
 /// Only a windowless app, a check's, runs a script it is handed: a page he works in takes none from outside.
+/// A check of the freeze watchdog: the main thread spins, as in a freeze, for at most `STALL_LIMIT`.
+fn stall_main_thread(app: &App, stall: &Value) -> Result<Value, String> {
+    if !app.windowless {
+        return Err("Only a windowless VCX Rust stalls on purpose.".into());
+    }
+    let seconds = stall["seconds"].as_f64().filter(|seconds| (0.0..=STALL_LIMIT.as_secs_f64()).contains(seconds)).ok_or("stall takes seconds, at most 10.")?;
+    let until = Instant::now() + Duration::from_secs_f64(seconds);
+    while Instant::now() < until {
+        std::hint::spin_loop();
+    }
+    Ok(json!({"stalled": seconds}))
+}
+
 fn page(app: &App, evaluate: &Value) -> Result<u64, String> {
     if !app.windowless {
         return Err("Only a windowless VCX Rust runs a page script.".into());

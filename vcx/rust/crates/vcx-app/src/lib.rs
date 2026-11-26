@@ -4,6 +4,7 @@ pub mod control;
 pub mod desktops;
 pub mod fleet;
 mod focus;
+mod freeze;
 mod folder;
 mod local;
 mod login;
