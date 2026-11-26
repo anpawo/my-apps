@@ -144,6 +144,12 @@
     event.preventDefault();
     event.stopPropagation();
   });
+  // Up and Down go to the previous and next match, as in the Swift find field.
+  input.addEventListener('keydown', event => {
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    step(event.key === 'ArrowUp' ? -1 : 1);
+    event.preventDefault();
+  });
   $('find-next').addEventListener('click', () => step(1));
   $('find-previous').addEventListener('click', () => step(-1));
   $('find-close').addEventListener('click', close);

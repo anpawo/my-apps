@@ -782,6 +782,26 @@
       input.focus();
     } else if (event.key.length === 1 && event.key !== ' ') input.focus();
   });
+  // Space and a character typed with Option too (Swift `sendEvent`): Space only focuses, as Return does; the character
+  // lands in the composer once it has the focus.
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || editable(event.target) || event.ctrlKey || event.metaKey) return;
+    if (event.key === ' ' && !event.altKey && !event.shiftKey) {
+      event.preventDefault();
+      input.focus();
+    } else if (event.altKey && event.key.length === 1) input.focus();
+  });
+  // ⌘V goes to the menu, whose Paste reaches the page on whatever has the focus: outside anything editable, it lands in
+  // the composer, folded or attached as a paste there is.
+  document.addEventListener('paste', event => {
+    if (event.defaultPrevented || editable(event.target)) return;
+    input.focus();
+    paste(event);
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    const text = event.clipboardData && event.clipboardData.getData('text/plain');
+    if (text) document.execCommand('insertText', false, text);
+  });
   // A click on a blank spot focuses the composer; a click that selected text keeps its selection.
   document.addEventListener('click', event => {
     const blank = [document.body, document.documentElement, $('transcript'), $('rows'), form, form.parentElement].includes(event.target);
@@ -793,6 +813,20 @@
   });
   for (const button of form.querySelectorAll('button')) button.addEventListener('mousedown', event => event.preventDefault());
   $('stop').addEventListener('click', () => post({ type: 'stop' }));
+  // Escape with nothing open stops the turn (Swift `onExitCommand`). Whatever is open, its own Escape handler closes it
+  // and so changes the page: the observer, started before any handler runs, tells the two apart without a list of them.
+  const escapeWatch = new MutationObserver(() => {});
+  addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    escapeWatch.disconnect();
+    escapeWatch.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+  }, true);
+  addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const changed = escapeWatch.takeRecords().length > 0;
+    escapeWatch.disconnect();
+    if (!changed && !event.defaultPrevented && !event.isComposing && meta.busy) post({ type: 'stop' });
+  });
   input.addEventListener('keydown', keydown);
   input.addEventListener('paste', paste);
   input.addEventListener('input', () => {

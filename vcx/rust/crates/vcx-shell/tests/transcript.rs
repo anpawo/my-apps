@@ -397,6 +397,23 @@ fn finds_in_questions_and_answers_ignoring_case_and_accents(page: &Page) -> Resu
     check(closed == json!({"hidden": true, "painted": false}), format!("Escape left {closed}"))
 }
 
+fn steps_through_the_matches_with_up_and_down_in_the_find_field(page: &Page) -> Result<(), String> {
+    page.show(json!({"rows": [user("R1", "cafe one"), assistant("R2", "cafe two, cafe three", true)]}))?;
+    page.find()?;
+    input::type_text(&page.webview, "cafe")?;
+    page.until("the matches", "document.getElementById('find-count').textContent", |count| count == "1 of 3")?;
+
+    let count = "document.getElementById('find-count').textContent";
+
+    page.press(Key::Down, NONE)?;
+    page.until("Down to the second match", count, |shown| shown == "2 of 3")?;
+    page.press(Key::Up, NONE)?;
+    page.until("Up back to the first", count, |shown| shown == "1 of 3")?;
+    page.press(Key::Up, NONE)?;
+
+    page.until("Up from the first to the last", count, |shown| shown == "3 of 3").map(drop)
+}
+
 fn tells_no_match_and_keeps_its_matches_as_rows_arrive(page: &Page) -> Result<(), String> {
     page.show(json!({"rows": [user("R1", "alpha"), assistant("R2", "beta", true)]}))?;
     page.find()?;
@@ -543,7 +560,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 17] = [
+const TESTS: [(&str, Test); 18] = [
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
     ("answers_a_question_card_by_click_and_by_number", answers_a_question_card_by_click_and_by_number),
@@ -553,6 +570,7 @@ const TESTS: [(&str, Test); 17] = [
     ("folds_a_sections_actions_into_one_block_with_each_actions_detail", folds_a_sections_actions_into_one_block_with_each_actions_detail),
     ("draws_a_notice_with_its_log_and_messages_between_sessions", draws_a_notice_with_its_log_and_messages_between_sessions),
     ("finds_in_questions_and_answers_ignoring_case_and_accents", finds_in_questions_and_answers_ignoring_case_and_accents),
+    ("steps_through_the_matches_with_up_and_down_in_the_find_field", steps_through_the_matches_with_up_and_down_in_the_find_field),
     ("tells_no_match_and_keeps_its_matches_as_rows_arrive", tells_no_match_and_keeps_its_matches_as_rows_arrive),
     ("hands_each_link_to_the_core_which_opens_only_what_is_safe", hands_each_link_to_the_core_which_opens_only_what_is_safe),
     ("copies_a_code_block_through_the_core_and_shows_it_was_copied", copies_a_code_block_through_the_core_and_shows_it_was_copied),

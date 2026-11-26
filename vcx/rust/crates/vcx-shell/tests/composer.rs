@@ -16,7 +16,7 @@ mod menu;
 #[path = "../src/template.rs"]
 mod template;
 
-use input::{COMMAND, Key, NONE, SHIFT};
+use input::{COMMAND, Key, NONE, OPTION, SHIFT};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{MainThreadOnly, define_class, msg_send};
@@ -379,6 +379,52 @@ fn shows_the_stop_button_while_a_turn_runs(page: &Page) -> Result<(), String> {
     page.next("stop")?;
     page.deliver(json!({"type": "patch", "meta": {"busy": false}}))?;
     page.state("the stop button gone once the turn ended", |state| state["stop"] == false).map(drop)
+}
+
+fn escape_with_nothing_open_stops_the_running_turn(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"busy": true}}))?;
+    page.keys("/he")?;
+    page.state("the palette", |state| state["palette"].is_object())?;
+    page.press(Key::Escape, NONE)?;
+    page.state("the palette closed", |state| state["palette"].is_null())?;
+    check(page.quiet("stop"), "the Escape that closed the palette also stopped the turn")?;
+
+    page.press(Key::Escape, NONE)?;
+
+    page.next("stop")?;
+    page.deliver(json!({"type": "patch", "meta": {"busy": false}}))?;
+    page.press(Key::Escape, NONE)?;
+    check(page.quiet("stop"), "Escape asked to stop with no turn running")
+}
+
+fn space_paste_and_option_typing_in_the_transcript_reach_the_composer(page: &Page) -> Result<(), String> {
+    let blur = || page.eval("document.getElementById('input').blur()").map(drop);
+    blur()?;
+    page.press(Key::Char(' '), NONE)?;
+    let spaced = page.state("Space to focus the composer", |state| state["focused"] == true)?;
+    blur()?;
+
+    page.eval("(() => { const data = new DataTransfer(); data.setData('text/plain', 'pasted '); document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); })()")?;
+    page.value("pasted ")?;
+    blur()?;
+    page.press(Key::Char('2'), OPTION)?;
+
+    page.value("pasted 2")?;
+    check(spaced["value"] == "", format!("Space typed into the composer: {spaced}"))
+}
+
+// Accepted with a space, an inline prediction left a double space (Swift `inlinePredictionType = .no`): WebKit offers
+// none while its configuration does not allow them, which wry leaves at WebKit's default.
+fn offers_no_inline_predictions_in_the_composer(page: &Page) -> Result<(), String> {
+    let view = page.webview.webview();
+
+    // SAFETY: a WKWebView answers `configuration`, whose `allowsInlinePredictions` is a BOOL on macOS 14 and later.
+    let allowed: bool = unsafe {
+        let configuration: Retained<AnyObject> = msg_send![&*view, configuration];
+        msg_send![&*configuration, allowsInlinePredictions]
+    };
+
+    check(!allowed, "the web view allows inline predictions in the composer")
 }
 
 fn keeps_quotes_and_dashes_as_typed(page: &Page) -> Result<(), String> {
@@ -853,13 +899,16 @@ fn sends_nothing_for_a_block_edited_back_to_its_original(page: &Page) -> Result<
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 33] = [
+const TESTS: [(&str, Test); 36] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
     ("sends nothing for an empty composer", sends_nothing_for_an_empty_composer),
     ("Shift-Return on an empty composer sends the waiting prompt now", shift_return_on_an_empty_composer_sends_the_waiting_prompt_now),
     ("shows the stop button while a turn runs", shows_the_stop_button_while_a_turn_runs),
+    ("Escape with nothing open stops the running turn", escape_with_nothing_open_stops_the_running_turn),
+    ("Space, a paste and Option typing in the transcript reach the composer", space_paste_and_option_typing_in_the_transcript_reach_the_composer),
+    ("offers no inline predictions in the composer", offers_no_inline_predictions_in_the_composer),
     ("keeps quotes and dashes as typed", keeps_quotes_and_dashes_as_typed),
     ("folds a long paste into a chip and sends its text", folds_a_long_paste_into_a_chip_and_sends_its_text),
     ("leaves a short paste to WebKit", leaves_a_short_paste_to_webkit),
