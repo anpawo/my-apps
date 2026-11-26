@@ -1,6 +1,9 @@
 //! What crosses between the page and the core: the page posts JSON messages, the core calls `vcx.receive`.
 
 use crate::chart;
+use objc2::AnyThread;
+use objc2_app_kit::{NSImage, NSPasteboard, NSPasteboardTypeTIFF};
+use objc2_foundation::NSString;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -12,6 +15,8 @@ const EXTERNAL_SCHEMES: [&str; 3] = ["https://", "http://", "mailto:"];
 const FILE_SCHEME: &str = "file://";
 const OPEN: &str = "/usr/bin/open";
 const PBCOPY: &str = "/usr/bin/pbcopy";
+/// Where the core serves a picture the user attached; the rest of the address is its name in `vcx_model::assets`.
+const IMAGE_ORIGIN: &str = "vcx://image/";
 /// Files a click would run rather than show: they are only revealed in the Finder.
 const RUNNABLE_EXTENSIONS: [&str; 16] = ["app", "command", "tool", "sh", "bash", "zsh", "py", "rb", "pl", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "jar"];
 const EXECUTABLE_BITS: u32 = 0o111;
@@ -30,6 +35,8 @@ pub enum FromPage {
     /// An answer to a request the worker holds open: `{rpcID, method, result}`, the worker action `answer`'s params.
     Answer { params: Value },
     Copy { text: String },
+    /// The previewed picture, by the file its `vcx://image/` address was given for.
+    CopyImage { path: PathBuf },
     /// The composer's own requests (`draft`, `files`, `image`, `sendNow`), the whole message.
     Composer(Value),
     /// A slash command from the chrome's popovers, as typed: `/model claude opus high`.
@@ -74,6 +81,7 @@ pub fn parse(body: &str) -> Option<FromPage> {
         "open" => Some(FromPage::Open { href: text("href")? }),
         "answer" => Some(FromPage::Answer { params: json!({"rpcID": message.get("rpcID")?, "method": text("method")?, "result": message.get("result").filter(|result| result.is_object())?}) }),
         "copy" => Some(FromPage::Copy { text: text("text")? }),
+        "copyImage" => Some(FromPage::CopyImage { path: vcx_model::assets::image_path(text("src")?.strip_prefix(IMAGE_ORIGIN)?)? }),
         "draft" | "files" | "image" | "sendNow" | "dropped" | "attachPath" | "run" | "runInput" | "runStop" => Some(FromPage::Composer(message)),
         "command" => Some(FromPage::Command { text: text("text")? }),
         "title" => Some(FromPage::Title { text: text("text")? }),
@@ -164,10 +172,33 @@ pub fn copy(text: &str) {
     }
 }
 
+/// Puts the picture itself on `pasteboard`, as the Swift `ImagePreview` copies it. False when it cannot be read.
+pub fn write_image(pasteboard: &NSPasteboard, path: &Path) -> bool {
+    let Some(image) = NSImage::initWithContentsOfFile(NSImage::alloc(), &NSString::from_str(&path.to_string_lossy())) else { return false };
+    let Some(tiff) = image.TIFFRepresentation() else { return false };
+    pasteboard.clearContents();
+    // SAFETY: an AppKit constant, set once at load.
+    pasteboard.setData_forType(Some(&tiff), unsafe { NSPasteboardTypeTIFF })
+}
+
+/// Puts the previewed picture on the pasteboard, when Marius clicked it.
+pub fn copy_image(path: &Path) {
+    if !write_image(&NSPasteboard::generalPasteboard(), path) {
+        eprintln!("vcx: cannot copy the picture {}", path.display());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A 1×1 PNG.
+    const PNG_1X1: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+        0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xfc, 0xcf, 0xc0, 0x50, 0x0f, 0x00, 0x04, 0x85, 0x01, 0x80, 0x84, 0xa9, 0x8c, 0x21, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
 
     #[test]
     fn reads_each_message_the_page_posts() {
@@ -289,6 +320,37 @@ mod tests {
 
         assert_eq!(refused, [None, None, None, None, None, None]);
         assert_eq!(target("https://example.com/a", None), Some(Target::Web("https://example.com/a".into())));
+    }
+
+    #[test]
+    fn reads_a_picture_copy_only_for_a_picture_the_core_served() {
+        let id = vcx_model::assets::image("/tmp/shot.png");
+
+        let served = parse(&json!({"type": "copyImage", "src": format!("vcx://image/{id}")}).to_string());
+        let refused = [json!({"type": "copyImage", "src": "vcx://image/0000000000000000"}), json!({"type": "copyImage", "src": format!("file:///{id}")}), json!({"type": "copyImage"})].map(|body| parse(&body.to_string()));
+
+        assert_eq!(served, Some(FromPage::CopyImage { path: PathBuf::from("/tmp/shot.png") }));
+        assert_eq!(refused, [None, None, None]);
+    }
+
+    #[test]
+    fn puts_the_picture_itself_on_a_pasteboard_and_nothing_for_a_missing_file() {
+        let folder = folder("picture");
+        let picture = folder.0.join("shot.png");
+        std::fs::write(&picture, PNG_1X1).unwrap();
+        // A pasteboard of its own: the test never touches Marius's.
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+
+        let written = write_image(&pasteboard, &picture);
+        let tiff = pasteboard.dataForType(unsafe { NSPasteboardTypeTIFF }).map(|data| data.to_vec());
+        let missing = write_image(&pasteboard, &folder.0.join("gone.png"));
+        // SAFETY: a method with no argument on a pasteboard this test made; objc2 does not bind it.
+        let () = unsafe { objc2::msg_send![&*pasteboard, releaseGlobally] };
+
+        assert!(written);
+        let image = tiff.as_deref().and_then(|bytes| NSImage::initWithData(NSImage::alloc(), &objc2_foundation::NSData::with_bytes(bytes)));
+        assert_eq!(image.map(|image| image.size()), Some(objc2_foundation::NSSize::new(1.0, 1.0)));
+        assert!(!missing);
     }
 
     #[test]

@@ -251,7 +251,7 @@ footer { padding: 6px 24px 14px; }
 /* The page's own buttons (find, Back to latest, a question's Cancel, a code block's copy) are the dashboard's
    button (WT-033), nested under their parts so the composer's and the chrome's own .b keep their look. */
 /* :where keeps them as light as a bare .b, so the page's own rules (hidden, positions) still win. */
-:where(#find, #jump, #question, figure.code) {
+:where(#find, #jump, #question, figure.code, #preview) {
   /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
   /* The recon dashboard's button (ui/button.tsx) on its dark theme: 32 px tall, radius 10, 14 px medium, an icon 16 px.
      Under the pointer its fill steps up; pressed, it sinks 1 px; with the keyboard, a blue ring. Greyed out at half. */

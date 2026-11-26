@@ -231,6 +231,12 @@ impl Pane {
                 }
                 Vec::new()
             }
+            FromPage::CopyImage { path } => {
+                if !self.quiet {
+                    bridge::copy_image(&path);
+                }
+                Vec::new()
+            }
             FromPage::Composer(message) => {
                 match message["type"].as_str() {
                     Some("draft") => self.tell(Message::Act { action: "checkpoint", params: json!({"draft": message["draft"], "generation": message["generation"]}) }),

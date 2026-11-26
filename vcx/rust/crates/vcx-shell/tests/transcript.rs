@@ -47,6 +47,9 @@ const LONG_THREAD_SECTIONS: usize = 1250;
 /// The key code of `f` on the ANSI layout.
 const F_KEY: u16 = 3;
 /// A hidden window draws no frames, so its motion never runs on its own: the test ends it.
+/// How long the page says a copy was made, as Swift does, less a margin for the timers: the picture, the cell.
+const COPIED_IMAGE_SHOWN: Duration = Duration::from_millis(1400);
+const COPIED_CELL_SHOWN: Duration = Duration::from_millis(1100);
 const FINISH_MOTION: &str = "document.getAnimations().forEach(motion => motion.finish())";
 
 struct Page {
@@ -172,15 +175,20 @@ impl Page {
     /// A real click on the middle of the first element `selector` names, once the page has handled it: the click
     /// reaches the page on its own way, after a script sent at the same time.
     fn click(&self, selector: &str) -> Result<(), String> {
-        let count = "(window.__clicks || (window.__clicks = 0, addEventListener('click', () => window.__clicks++, true), 0), window.__clicks)";
-        let before = self.eval(count)?;
+        self.click_with(selector, NONE, 1)
+    }
+
+    /// `click`, with `modifiers` held, as the `count`th click of a run (2 for the second of a double-click).
+    fn click_with(&self, selector: &str, modifiers: objc2_app_kit::NSEventModifierFlags, count: isize) -> Result<(), String> {
+        let count_script = "(window.__clicks || (window.__clicks = 0, addEventListener('click', () => window.__clicks++, true), 0), window.__clicks)";
+        let before = self.eval(count_script)?;
         let place = self.eval(&format!("(() => {{ const node = document.querySelector({selector:?}); if (!node) return null; node.scrollIntoView({{block: 'center'}}); const box = node.getBoundingClientRect(); const x = box.x + box.width / 2, y = box.y + box.height / 2; const hit = document.elementFromPoint(x, y); return [x, y, node.contains(hit), hit && hit.outerHTML.slice(0, 120)]; }})()"))?;
         let (Some(x), Some(y)) = (place[0].as_f64(), place[1].as_f64()) else { return Err(format!("{selector} is not on the page")) };
         if place[2] != true {
             return Err(format!("a click on {selector} would land on {}", place[3]));
         }
-        input::click(&self.webview, x, y)?;
-        self.until(&format!("the click on {selector}"), count, |now| now.as_u64() > before.as_u64()).map(drop)
+        input::click_with(&self.webview, x, y, modifiers, count)?;
+        self.until(&format!("the click on {selector}"), count_script, |now| now.as_u64() > before.as_u64()).map(drop)
     }
 
     fn press(&self, key: Key, modifiers: objc2_app_kit::NSEventModifierFlags) -> Result<(), String> {
@@ -441,6 +449,53 @@ fn copies_a_code_block_through_the_core_and_shows_it_was_copied(page: &Page) -> 
     check(source == FromPage::Copy { text: "# Plan\n\n```js\nx()\n```\n".into() }, format!("a Markdown block copies its source: {source:?}"))
 }
 
+fn copies_the_previewed_picture_on_a_click_and_shows_it_was_copied(page: &Page) -> Result<(), String> {
+    let picture = page.picture();
+    let item = json!({"id": "u1", "type": "userMessage", "content": [{"type": "localImage", "path": picture}]});
+    page.show(json!({"rows": [{"id": "R1", "kind": "user", "items": [item]}]}))?;
+    page.until("the picture to load", "document.querySelector('.picture img')?.naturalWidth", |width| width == 1)?;
+    page.click(".picture")?;
+    page.eval(FINISH_MOTION)?;
+
+    let clicked = Instant::now();
+    page.click("#preview img")?;
+    let copied = page.heard("copyImage")?;
+    let shown = page.eval("({label: document.querySelector('#preview .copied')?.innerText.trim(), open: !document.getElementById('preview').hidden, hint: document.querySelector('#preview img').title})")?;
+    page.until("the Copied label to go", &format!("({FINISH_MOTION}, !document.querySelector('#preview .copied'))"), |gone| gone == true)?;
+    let held = clicked.elapsed();
+    page.press(Key::Escape, NONE)?;
+
+    check(copied == FromPage::CopyImage { path: picture }, format!("the core read {copied:?}"))?;
+    check(shown["label"] == "Copied" && shown["open"] == true && shown["hint"] == "Click to copy the image", format!("after the click the preview shows {shown}"))?;
+    check(held >= COPIED_IMAGE_SHOWN, format!("the Copied label went after {held:?}"))
+}
+
+fn copies_a_cell_on_command_click_and_its_row_on_command_double_click(page: &Page) -> Result<(), String> {
+    let table = "| Name | Site |\n|---|---|\n| alpha | [web](https://example.com/a) |\n| beta | two |";
+    page.show(json!({"rows": [user("R1", "table"), assistant("R2", table, true)]}))?;
+
+    page.click(".prose tbody tr:nth-child(2) td")?;
+    let plain = page.posted("copy").len();
+    let clicked = Instant::now();
+    page.click_with(".prose td a", COMMAND, 1)?;
+    let cell = page.heard("copy")?;
+    let cell_marked = page.eval("document.querySelector('.prose td:has(a)').classList.contains('copied')")?;
+    page.posts.lock().unwrap().clear();
+    page.click_with(".prose tbody tr:nth-child(2) td", COMMAND, 1)?;
+    page.click_with(".prose tbody tr:nth-child(2) td", COMMAND, 2)?;
+    page.wait("the row copy", |page| page.posted("copy").len() == 2)?;
+    let row = page.heard("copy")?;
+    let marked = page.eval("[...document.querySelectorAll('.prose .copied')].map(node => node.tagName)")?;
+    page.until("the veil to go", "document.querySelectorAll('.prose .copied').length", |count| count == 0)?;
+    let held = clicked.elapsed();
+
+    check(plain == 0, "a click without ⌘ copies nothing")?;
+    check(cell == FromPage::Copy { text: "web".into() } && cell_marked == true, format!("a ⌘-click on a link's cell copied {cell:?}, veiled: {cell_marked}"))?;
+    check(page.posted("open").is_empty(), "a ⌘-click on a link in a cell does not open it")?;
+    check(row == FromPage::Copy { text: "beta\ttwo".into() } && marked == json!(["TR"]), format!("a ⌘-double-click copied {row:?}, veiled {marked}"))?;
+    check(held >= COPIED_CELL_SHOWN, format!("the veil went after {held:?}"))
+}
+
 fn keeps_a_chart_frame_in_place_while_its_answer_streams(page: &Page) -> Result<(), String> {
     let snapshot = json!({"rows": [user("R1", "chart it"), assistant("R2", "Here:\n\n```chart\n<p>cards</p>\n```\n", false)]});
     let html = full(snapshot.clone())["rows"][1]["items"][0]["html"].as_str().unwrap_or_default().to_owned();
@@ -488,7 +543,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 15] = [
+const TESTS: [(&str, Test); 17] = [
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
     ("answers_a_question_card_by_click_and_by_number", answers_a_question_card_by_click_and_by_number),
@@ -501,6 +556,8 @@ const TESTS: [(&str, Test); 15] = [
     ("tells_no_match_and_keeps_its_matches_as_rows_arrive", tells_no_match_and_keeps_its_matches_as_rows_arrive),
     ("hands_each_link_to_the_core_which_opens_only_what_is_safe", hands_each_link_to_the_core_which_opens_only_what_is_safe),
     ("copies_a_code_block_through_the_core_and_shows_it_was_copied", copies_a_code_block_through_the_core_and_shows_it_was_copied),
+    ("copies_the_previewed_picture_on_a_click_and_shows_it_was_copied", copies_the_previewed_picture_on_a_click_and_shows_it_was_copied),
+    ("copies_a_cell_on_command_click_and_its_row_on_command_double_click", copies_a_cell_on_command_click_and_its_row_on_command_double_click),
     ("keeps_a_chart_frame_in_place_while_its_answer_streams", keeps_a_chart_frame_in_place_while_its_answer_streams),
     ("keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back", keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back),
     ("streams_into_a_thread_of_five_thousand_rows_touching_only_its_row", streams_into_a_thread_of_five_thousand_rows_touching_only_its_row),

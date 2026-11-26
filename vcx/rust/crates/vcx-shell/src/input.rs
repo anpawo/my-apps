@@ -155,12 +155,17 @@ pub fn type_text(webview: &WebView, text: &str) -> Result<(), String> {
 
 /// Clicks the page at `(x, y)`, counted from the top left of the page.
 pub fn click(webview: &WebView, x: f64, y: f64) -> Result<(), String> {
+    click_with(webview, x, y, NONE, 1)
+}
+
+/// A click with `modifiers` held, the `count`th of a run of clicks (2 for the second click of a double-click).
+pub fn click_with(webview: &WebView, x: f64, y: f64, modifiers: NSEventModifierFlags, count: isize) -> Result<(), String> {
     let window = webview.ns_window();
     let view = webview.webview();
     let view: &NSView = &view;
     let in_view = NSPoint::new(x, if view.isFlipped() { y } else { view.bounds().size.height - y });
     let location = view.convertPoint_toView(in_view, None);
-    let mouse = |kind| NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(kind, location, NSEventModifierFlags::empty(), now(), window.windowNumber(), None, 0, 1, FULL_PRESSURE).ok_or("AppKit made no mouse event.");
+    let mouse = |kind| NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(kind, location, modifiers, now(), window.windowNumber(), None, 0, count, FULL_PRESSURE).ok_or("AppKit made no mouse event.");
     let (down, up) = (mouse(NSEventType::LeftMouseDown)?, mouse(NSEventType::LeftMouseUp)?);
     view.mouseDown(&down);
     view.mouseUp(&up);
