@@ -2,7 +2,7 @@
 
 use crate::app::{App, AppEvent, Open};
 use crate::login;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tao::event_loop::EventLoopWindowTarget;
 
@@ -13,6 +13,10 @@ pub enum Local {
     DismissSignIn,
     Window(PathBuf),
     Close,
+    /// The page's own Settings sheet, on its Session tab.
+    OpenSettings,
+    /// The last picture of the conversation, in the page's preview.
+    PreviewLast,
     /// Said in the window's notice: a wrong use, or a command the page has no part for yet.
     Notice(String),
 }
@@ -33,6 +37,8 @@ pub fn read(text: &str, cwd: &str, home: &str) -> Local {
             if folder.is_dir() { Local::Window(folder) } else { Local::Notice("Directory does not exist.".into()) }
         }
         "/quit" | "/exit" => Local::Close,
+        "/settings" => Local::OpenSettings,
+        "/preview" => Local::PreviewLast,
         _ => Local::Notice(format!("{verb} is not in VCX Rust yet.")),
     }
 }
@@ -70,9 +76,23 @@ pub(crate) fn run(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, key: 
         Local::DismissSignIn => app.show_login(login::message("", false)),
         Local::Window(folder) => drop(app.new_session(target, Open { cwd: folder.to_string_lossy().into_owned(), focus: true, ..Open::default() })),
         Local::Close => return app.close_window(key),
+        Local::OpenSettings => app.windows.get(&key)?.pane.to_page(&json!({"type": "openSettings"})),
+        Local::PreviewLast => {
+            let proxy = app.proxy.clone();
+            app.windows.get(&key)?.pane.read(PREVIEW_LAST, move |result| drop(proxy.send_event(AppEvent::Previewed(key, previewed(&result)))));
+        }
         Local::Notice(text) => app.windows.get_mut(&key)?.pane.note(text),
     }
     None
+}
+
+/// The page answers whether it had a picture to open.
+const PREVIEW_LAST: &str = "Boolean(window.vcx && vcx.previewLast())";
+pub(crate) const NO_PICTURE: &str = "No image is available in this conversation.";
+
+/// The web view hands the script's value JSON-encoded, a string around it on some builds.
+fn previewed(result: &str) -> bool {
+    matches!(serde_json::from_str::<Value>(result), Ok(Value::Bool(true))) || matches!(serde_json::from_str::<Value>(result), Ok(Value::String(text)) if text == "true")
 }
 
 /// The sign-in panel is the app's, shown in every window.
@@ -113,6 +133,12 @@ mod tests {
         let read = |text: &str| read(text, "/", "/");
 
         assert_eq!([read("/quit"), read("/EXIT"), read("/vcx:quit")], [Local::Close, Local::Close, Local::Close]);
-        assert_eq!(read("/preview"), Local::Notice("/preview is not in VCX Rust yet.".into()));
+        assert_eq!(read("/attach"), Local::Notice("/attach is not in VCX Rust yet.".into()));
+    }
+
+    #[test]
+    fn hands_settings_and_preview_to_the_page() {
+        assert_eq!([read("/settings", "/", "/"), read("/preview", "/", "/")], [Local::OpenSettings, Local::PreviewLast]);
+        assert_eq!([previewed("true"), previewed("\"true\""), previewed("false"), previewed("")], [true, true, false, false]);
     }
 }

@@ -74,6 +74,8 @@ pub enum AppEvent {
     Login(Value),
     /// The quota popover's lines, read off the main thread.
     Quota(Value),
+    /// Whether window `key`'s page had a picture to preview.
+    Previewed(u64, bool),
 }
 
 pub(crate) struct Win {
@@ -354,6 +356,13 @@ impl App {
                 self.show_tasks();
                 None
             }
+            AppEvent::Previewed(key, false) => {
+                if let Some(win) = self.windows.get_mut(&key) {
+                    win.pane.note(local::NO_PICTURE.into());
+                }
+                None
+            }
+            AppEvent::Previewed(_, true) => None,
             AppEvent::Login(message) => {
                 self.show_login(message);
                 None
