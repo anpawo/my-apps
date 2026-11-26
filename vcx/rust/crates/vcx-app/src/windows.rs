@@ -23,6 +23,9 @@ pub struct Saved {
     pub record_id: Option<String>,
     /// The window's desktop (macOS Space) as its place among the desktops, left to right (`desktops::index`).
     pub desktop: Option<usize>,
+    /// Its close was asked and the worker had not confirmed it: the next launch finishes it instead of reopening it
+    /// (Swift `closeRequested`).
+    pub closing: bool,
 }
 
 pub fn read(file: &Path) -> Vec<Saved> {
@@ -38,7 +41,7 @@ fn entry(value: &Value) -> Option<Saved> {
         Some(Frame { x: number(0)?, y: number(1)?, width: number(2)?, height: number(3)? })
     });
     let desktop = value["desktop"].as_u64().and_then(|index| usize::try_from(index).ok());
-    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), desktop })
+    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), desktop, closing: value["closing"] == true })
 }
 
 pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
@@ -58,6 +61,9 @@ pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
             if let Some(desktop) = saved.desktop {
                 value["desktop"] = json!(desktop);
             }
+            if saved.closing {
+                value["closing"] = json!(true);
+            }
             value
         })
         .collect();
@@ -73,8 +79,8 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("vcx-app-windows-{}", std::process::id()));
         let file = folder.join("windows.json");
         let windows = [
-            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), desktop: Some(2) },
-            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, desktop: None },
+            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), desktop: Some(2), closing: false },
+            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, desktop: None, closing: true },
         ];
 
         write(&file, &windows).unwrap();

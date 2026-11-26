@@ -94,6 +94,8 @@ pub enum AppEvent {
     Terminate,
     /// His answer to the quit's question: whether to end every session.
     QuitConfirmed(bool),
+    /// The close of this session, cut short by a crash, is finished.
+    CloseFinished(String),
 }
 
 pub(crate) struct Win {
@@ -135,7 +137,7 @@ struct Reopen {
 /// on a new one; then each running session no frontend holds that the list lost.
 fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
     let mut reopened = Vec::new();
-    for entry in saved {
+    for entry in saved.iter().filter(|entry| !entry.closing) {
         let live = running.iter().any(|session| session.session_id == entry.session_id);
         let resume = entry.record_id.as_ref().map(|record| format!("native:{record}"));
         if !live && resume.is_none() {
@@ -212,6 +214,8 @@ pub(crate) struct App {
     asking_quit: bool,
     /// Windows whose session is ending, out of sight until the worker says it ended.
     ending: BTreeMap<u64, Win>,
+    /// Closes a crash cut short, finished at launch: saved until their worker confirms them.
+    closes: Vec<Saved>,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -271,6 +275,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         lock,
         asking_quit: false,
         ending: BTreeMap::new(),
+        closes: Vec::new(),
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -328,8 +333,10 @@ impl App {
     /// Reopens the windows of the last run, and any session its workers still hold that no frontend shows.
     fn restore(&mut self, target: &EventLoopWindowTarget<AppEvent>) {
         let saved = windows::read(&self.homes.windows());
+        let running = worker::running(&self.homes);
+        self.finish_closes(saved.iter().filter(|entry| entry.closing), &running);
         let first = self.next;
-        for mut reopen in plan(&saved, &worker::running(&self.homes)) {
+        for mut reopen in plan(&saved, &running) {
             // A window taken from the Swift app keeps its worker's socket, which `running` does not list: still answering,
             // it is live; gone, the cold reopen runs on one of the app's own, never in the Swift app's folders.
             if reopen.start_worker && !reopen.spec.socket.starts_with(self.homes.runtime()) {
@@ -351,6 +358,21 @@ impl App {
             placement::stack(&reopened);
         }
         self.return_to_desktops();
+    }
+
+    /// Ends the sessions whose close a crash cut short, on their worker if it still runs; one gone has nothing to end.
+    fn finish_closes<'a>(&mut self, closing: impl Iterator<Item = &'a Saved>, running: &[worker::Running]) {
+        for entry in closing {
+            if !running.iter().any(|session| session.session_id == entry.session_id) && !answers(&entry.socket) {
+                continue;
+            }
+            self.closes.push(entry.clone());
+            let (entry, proxy) = (entry.clone(), self.proxy.clone());
+            thread::spawn(move || match worker::end(&entry.socket, &entry.session_id, &entry.cwd) {
+                Ok(()) => drop(proxy.send_event(AppEvent::CloseFinished(entry.session_id))),
+                Err(problem) => eprintln!("vcx-rust: the close of {} left by the last run did not finish: {problem}", entry.cwd),
+            });
+        }
     }
 
     /// Every window just reopened goes back to the desktop it was saved on; one whose desktop is gone stays in front.
@@ -534,6 +556,11 @@ impl App {
             AppEvent::CloseConfirmed(key) => self.close_window(key),
             AppEvent::Terminate => self.ask_quit(),
             AppEvent::QuitConfirmed(quit) => self.end_quit(quit),
+            AppEvent::CloseFinished(id) => {
+                self.closes.retain(|entry| entry.session_id != id);
+                self.save_now();
+                None
+            }
             AppEvent::Previewed(key, false) => {
                 if let Some(win) = self.windows.get_mut(&key) {
                     win.pane.note(local::NO_PICTURE.into());
@@ -710,6 +737,7 @@ impl App {
         let Some(problem) = problem else {
             self.keys.remove(&win.window.id());
             win.pane.release();
+            self.save_now();
             return (self.windows.is_empty() && self.ending.is_empty() && !self.windowless).then(|| self.quit());
         };
         win.pane.note(format!("{CANNOT_CLOSE}{problem}"));
@@ -907,7 +935,9 @@ impl App {
             let order = placement::front_to_back(mtm);
             wins.sort_by_key(|win| placement::rank(&order, desktops::window_number(&win.window)));
         }
-        let saved: Vec<Saved> = wins.into_iter().map(|win| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win) }).collect();
+        let closing = self.ending.values().map(|win| (win, true));
+        let mut saved: Vec<Saved> = wins.into_iter().map(|win| (win, false)).chain(closing).map(|(win, closing)| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win), closing }).collect();
+        saved.extend(self.closes.iter().cloned());
         if let Err(problem) = windows::write(&self.homes.windows(), &saved) {
             eprintln!("vcx-rust: {problem}");
         }
@@ -987,7 +1017,7 @@ mod tests {
     use worker::Running;
 
     fn saved(id: &str, record: Option<&str>) -> Saved {
-        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None }
+        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None, closing: false }
     }
 
     fn running(id: &str, attached: bool) -> Running {
@@ -1003,6 +1033,16 @@ mod tests {
         let shown: Vec<(&str, Option<&str>, bool, bool)> = plan.iter().map(|reopen| (reopen.spec.request.session_id.as_str(), reopen.spec.request.resume.as_deref(), reopen.spec.request.existing_only, reopen.start_worker)).collect();
         assert_eq!(shown, [("LIVE", None, true, false), ("DEAD", Some("native:R2"), false, true), ("UNLISTED", None, true, false)]);
         assert_eq!(plan[1].spec.request.cwd, "/work/DEAD");
+    }
+
+    #[test]
+    fn reopens_neither_a_window_whose_close_was_cut_short_nor_its_running_session() {
+        let list = [Saved { closing: true, ..saved("CLOSING", Some("R1")) }, saved("OPEN", None)];
+
+        let plan = plan(&list, &[running("CLOSING", false), running("OPEN", false)]);
+
+        let shown: Vec<&str> = plan.iter().map(|reopen| reopen.spec.request.session_id.as_str()).collect();
+        assert_eq!(shown, ["OPEN"]);
     }
 
     #[test]

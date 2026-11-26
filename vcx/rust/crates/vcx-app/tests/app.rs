@@ -337,6 +337,30 @@ fn keeps_its_window_through_a_live_update_of_the_rust_worker() {
 }
 
 #[test]
+fn finishes_at_launch_a_close_the_last_run_left_unconfirmed_instead_of_reopening_it() {
+    let Some(mut run) = Run::new("closing") else { return };
+    let folder = run.folder("closing");
+    run.start(&["--cwd", folder.to_str().unwrap(), "closed as the app crashed"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let id = windows(&before)[0]["sessionId"].as_str().unwrap().to_owned();
+    run.kill_app();
+    let list = run.root.join("state/windows.json");
+    let mut saved: Value = serde_json::from_str(&fs::read_to_string(&list).unwrap()).unwrap();
+    saved[0]["closing"] = json!(true);
+    fs::write(&list, saved.to_string()).unwrap();
+
+    run.start(&[]);
+
+    let homes = vcx_config::Homes::under(&run.root);
+    let deadline = Instant::now() + WAIT;
+    while vcx_app::worker::running(&homes).iter().any(|session| session.session_id == id) || fs::read_to_string(&list).unwrap().trim() != "[]" {
+        assert!(Instant::now() < deadline, "the close was never finished: {}", fs::read_to_string(&list).unwrap());
+        thread::sleep(POLL);
+    }
+    assert_eq!(windows(&run.report().unwrap()).len(), 0);
+}
+
+#[test]
 fn reattaches_a_running_session_even_without_its_window_list() {
     let Some(mut run) = Run::new("unlisted") else { return };
     let folder = run.folder("unlisted");

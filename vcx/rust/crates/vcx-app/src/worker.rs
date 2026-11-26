@@ -12,7 +12,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use vcx_proto::Client;
+use vcx_proto::{AttachRequest, Client, Error, Lease};
 
 /// Unix socket paths are capped near 104 bytes: a socket is named by part of its session id, not all of it.
 const SOCKET_NAME_CHARS: usize = 16;
@@ -109,6 +109,23 @@ pub fn running(homes: &Homes) -> Vec<Running> {
         }
     }
     found
+}
+
+/// Fault codes of a session already gone: its close has nothing left to do.
+const GONE: [&str; 2] = ["closed", "unknownSession"];
+
+/// Ends session `session_id` on the worker at `socket`, as a close does.
+pub fn end(socket: &Path, session_id: &str, cwd: &str) -> Result<(), String> {
+    let attempt = || -> Result<(), Error> {
+        let client = Client::connect(socket, |_| {})?;
+        client.hello()?;
+        let attachment = client.attach(&AttachRequest { session_id: session_id.to_owned(), cwd: cwd.to_owned(), existing_only: true, ..AttachRequest::default() })?;
+        Lease::of(&attachment).perform(&client, "close", serde_json::json!({})).map(drop)
+    };
+    match attempt() {
+        Err(Error::Fault(fault)) if GONE.contains(&fault.code.as_str()) => Ok(()),
+        result => result.map_err(|error| error.to_string()),
+    }
 }
 
 /// Waits for the workers the app started, so one that ends leaves no zombie, on one thread for all of them.
