@@ -16,7 +16,7 @@ pub const BACKGROUND: [&str; 4] = ["-p", "--print", "--headless", "--ensure-qwen
 
 /// Swift `vcx` flags the Rust command line does not take, each with where it went.
 pub const ELSEWHERE: [(&str, &str); 44] = {
-    const UPDATE: &str = "the Rust app has no live update yet (slice 6 of the rebuild)";
+    const UPDATE: &str = "the Rust app updates live when `vcx/build-rust.sh --install` replaces it, with no command to ask for it";
     const CHECK: &str = "the Swift app's built-in checks are `cargo test` in vcx/rust";
     const WORKER: &str = "a worker flag: the Rust worker is `vcx-worker`";
     const DEBUG: &str = "a debugging entry of the Swift app, not carried over";
