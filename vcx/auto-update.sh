@@ -26,6 +26,11 @@ read -r failed attempts 2>/dev/null < "$state/failed"
 busy_cpu_percent=150
 top_cpu=$(ps -Ao pcpu= | sort -rn | head -1); top_cpu=${top_cpu%.*}
 [ "${top_cpu:-0}" -ge "$busy_cpu_percent" ] && { log "deferred: a process uses ${top_cpu}% CPU"; exit 75; }
+# Nor beside several single-threaded jobs, none past the bound above (26-11: rustc and two python at ~95 % each failed
+# 3 installs in 6 minutes); the Mac sits at 70 to 150 % in total when they are gone.
+busy_total_percent=250
+total_cpu=$(ps -Ao pcpu= | awk '{ s += $1 } END { printf "%d", s }')
+[ "${total_cpu:-0}" -ge "$busy_total_percent" ] && { log "deferred: processes use ${total_cpu}% CPU in total"; exit 75; }
 
 mkdir -p "$state"
 if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
