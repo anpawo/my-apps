@@ -6,7 +6,7 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, update};
+use crate::{confirm, desktops, fleet, focus, folder, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, terminate, update};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -89,6 +89,10 @@ pub enum AppEvent {
     CloseConfirmed(u64),
     /// Fleet or Watcher asked for the window of this session.
     Focus(String),
+    /// A quit from the Dock, at logout or by Apple event.
+    Terminate,
+    /// His answer to the quit's question: whether to end every session.
+    QuitConfirmed(bool),
 }
 
 pub(crate) struct Win {
@@ -204,6 +208,7 @@ pub(crate) struct App {
     /// The updating chip every window shows.
     update_shown: Value,
     lock: File,
+    asking_quit: bool,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -230,6 +235,8 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     relaunch::listen();
     let to_focus = proxy.clone();
     focus::listen(move |id| drop(to_focus.send_event(AppEvent::Focus(id))));
+    let to_quit = proxy.clone();
+    terminate::listen(mtm, move || drop(to_quit.send_event(AppEvent::Terminate)));
     let pid = std::process::id();
     let started_at = vcx_config::process::start_time(pid as i32).unwrap_or_default();
     let mut app = App {
@@ -259,6 +266,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         refreshed_at: Instant::now(),
         update_shown: Value::Null,
         lock,
+        asking_quit: false,
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -513,6 +521,8 @@ impl App {
                 None
             }
             AppEvent::CloseConfirmed(key) => self.close_window(key),
+            AppEvent::Terminate => self.ask_quit(),
+            AppEvent::QuitConfirmed(quit) => self.end_quit(quit),
             AppEvent::Previewed(key, false) => {
                 if let Some(win) = self.windows.get_mut(&key) {
                     win.pane.note(local::NO_PICTURE.into());
@@ -629,6 +639,29 @@ impl App {
             }
         });
         None
+    }
+
+    /// A quit from outside ends every session, asking first while a window is busy (Swift `applicationShouldTerminate`).
+    fn ask_quit(&mut self) -> Option<i32> {
+        if self.asking_quit {
+            return None;
+        }
+        let busy: Vec<String> = self.windows.values().filter_map(|win| win.summary.as_ref().and_then(|summary| confirm::running_work(summary.busy, summary.background_tasks as usize)).map(|work| format!("{}: {work}", win.cwd))).collect();
+        let front = self.focused.filter(|key| self.windows.contains_key(key)).or_else(|| self.windows.keys().next().copied());
+        let Some(key) = front.filter(|_| !busy.is_empty() && !self.windowless) else { return self.end_quit(true) };
+        self.asking_quit = true;
+        let proxy = self.proxy.clone();
+        confirm::ask(&self.windows[&key].window, confirm::QUIT_TITLE, &busy.join("\n"), confirm::QUIT_BUTTON, move |quit| drop(proxy.send_event(AppEvent::QuitConfirmed(quit))));
+        None
+    }
+
+    fn end_quit(&mut self, quit: bool) -> Option<i32> {
+        self.asking_quit = false;
+        let code = quit.then(|| self.quit());
+        if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+            terminate::answer(mtm, quit);
+        }
+        code
     }
 
     /// The File menu (Swift `newWindow`, `openProject`, and `performClose:` on the front window).

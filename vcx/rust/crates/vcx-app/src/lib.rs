@@ -18,6 +18,7 @@ pub mod settings;
 mod sheet;
 pub mod takeover;
 pub mod tasks;
+mod terminate;
 mod update;
 pub mod windows;
 pub mod worker;

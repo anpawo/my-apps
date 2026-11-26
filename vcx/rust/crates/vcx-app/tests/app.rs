@@ -769,6 +769,27 @@ fn ends_its_sessions_and_clears_its_list_when_asked_to_quit() {
     assert!(!run.root.join("state/control.sock").exists());
 }
 
+/// What the Dock's Quit and a logout send: a quit Apple event, which AppKit turns into `terminate:`.
+fn send_quit_event(pid: u32) {
+    let script = format!("ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate");
+    let sent = Command::new("osascript").args(["-l", "JavaScript", "-e", &script]).output().unwrap();
+    assert!(sent.status.success(), "{}", String::from_utf8_lossy(&sent.stderr));
+}
+
+#[test]
+fn ends_its_sessions_and_clears_its_list_when_quit_from_the_dock_or_at_logout() {
+    let Some(mut run) = Run::new("dockquit") else { return };
+    let folder = run.folder("dockquit");
+    run.start(&["--cwd", folder.to_str().unwrap(), "then quit from the dock"]);
+    run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+
+    send_quit_event(run.app.as_ref().unwrap().id());
+
+    assert!(run.wait_for_exit(), "the app did not end");
+    assert_eq!(fs::read_to_string(run.root.join("state/windows.json")).unwrap().trim(), "[]");
+    assert!(!run.root.join("state/control.sock").exists());
+}
+
 #[test]
 fn reads_its_settings_file_and_says_what_is_wrong_in_it() {
     let Some(mut run) = Run::new("settings") else { return };
