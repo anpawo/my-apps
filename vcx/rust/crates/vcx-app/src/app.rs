@@ -945,7 +945,7 @@ impl App {
 
     fn publish_now(&self) {
         let focused = self.focused.and_then(|key| self.windows.get(&key)).map(|win| win.session_id.as_str());
-        let listed: Vec<fleet::Window> = self.windows.values().map(|win| fleet::Window { session_id: &win.session_id, cwd: &win.cwd, summary: win.summary.as_ref(), window_number: None }).collect();
+        let listed: Vec<fleet::Window> = self.windows.values().map(|win| fleet::Window { session_id: &win.session_id, cwd: &win.cwd, summary: win.summary.as_ref(), window_number: Some(desktops::window_number(&win.window) as i64).filter(|number| *number > 0) }).collect();
         let pid = std::process::id();
         if let Err(problem) = fleet::publish(&self.homes.fleet(), pid, fleet::record(pid, self.started_at, &listed, focused)) {
             eprintln!("vcx-rust: {problem}");
