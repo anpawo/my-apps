@@ -27,6 +27,16 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// With no folder named in the file, the page installed at `page` when there is one; the built-in copy otherwise.
+    pub fn or_installed_page(mut self, page: &Path) -> Self {
+        if self.template.is_none() && page.is_dir() {
+            self.template = Some(page.to_owned());
+        }
+        self
+    }
+}
+
 /// Reads the settings, keeping the default of each value missing or unreadable; the problem, if any, is said.
 pub fn read(file: &Path) -> (Settings, Option<String>) {
     let mut settings = Settings::default();
@@ -78,6 +88,18 @@ mod tests {
 
         assert_eq!(settings, Settings { worker: "/w".into(), worker_arguments: vec!["--runtime-test".into()], template: Some("/t".into()), window_size: (800.0, 600.0) });
         assert_eq!(problem, None);
+    }
+
+    #[test]
+    fn shows_the_installed_page_only_when_the_file_names_no_folder_and_the_page_is_there() {
+        let page = std::env::temp_dir().join(format!("vcx-app-page-{}", std::process::id()));
+        fs::create_dir_all(&page).unwrap();
+        let named = Settings { template: Some("/t".into()), ..Settings::default() };
+
+        let (installed, missing, kept) = (Settings::default().or_installed_page(&page), Settings::default().or_installed_page(Path::new("/nonexistent/page")), named.or_installed_page(&page));
+
+        fs::remove_dir(&page).unwrap();
+        assert_eq!((installed.template, missing.template, kept.template), (Some(page), None, Some("/t".into())));
     }
 
     #[test]

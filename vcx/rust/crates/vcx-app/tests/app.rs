@@ -444,6 +444,46 @@ fn runs_a_command_offered_in_the_run_panel_and_shows_its_output_and_exit_code() 
     assert_eq!(panel.trim_end(), "Done \u{b7} exit 0|vcx-run-ok");
 }
 
+fn copy_folder(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        let target = to.join(path.file_name().unwrap());
+        if path.is_dir() { copy_folder(&path, &target) } else { fs::copy(&path, &target).map(drop).unwrap() }
+    }
+}
+
+/// The installed page's own mark, read in the page; `none` on the built-in copy.
+const PAGE_MARK: &str = "document.querySelector('meta[name=vcx-page]')?.content ?? 'none'";
+
+#[test]
+fn shows_the_installed_page_and_reloads_it_in_place_when_the_folder_changes() {
+    let Some(mut run) = Run::new("page") else { return };
+    let page = vcx_config::Homes::under(&run.root).page();
+    copy_folder(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../template"), &page);
+    let index = fs::read_to_string(page.join("index.html")).unwrap();
+    let marked = |mark: &str| index.replacen("<head>", &format!("<head>\n<meta name=\"vcx-page\" content=\"{mark}\">"), 1);
+    fs::write(page.join("index.html"), marked("one")).unwrap();
+    let folder = run.folder("page");
+    run.start(&["--cwd", folder.to_str().unwrap(), "show the page"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let id = windows(&before)[0]["sessionId"].as_str().unwrap().to_owned();
+    // A page still loading answers no script: that read counts as no mark yet.
+    let mark = || -> String { run.ask(&json!({"evaluate": {"to": id, "script": PAGE_MARK}})).and_then(|answer| serde_json::from_str(answer["result"].as_str()?).ok()).unwrap_or_default() };
+    let shown = mark();
+
+    fs::write(page.join("index.html"), marked("two")).unwrap();
+
+    let deadline = Instant::now() + WAIT;
+    while mark() != "two" {
+        assert!(Instant::now() < deadline, "the window never showed the edited page");
+        thread::sleep(POLL);
+    }
+    let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    assert_eq!(shown, "one");
+    assert_eq!((&after["pid"], &windows(&after)[0]["sessionId"]), (&before["pid"], &windows(&before)[0]["sessionId"]));
+}
+
 /// The status bar's progress chip, read in the page; empty while none shows.
 const PROGRESS_CHIP: &str = "document.querySelector('[data-chip=progress]')?.textContent ?? ''";
 

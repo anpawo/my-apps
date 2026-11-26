@@ -208,6 +208,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     worker::keep_build_lock_out();
     let lock = lock(&options.homes)?;
     let (settings, notice) = settings::read(&options.homes.settings());
+    let settings = settings.or_installed_page(&options.homes.page());
     let mut event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     if options.windowless {
         event_loop.set_activation_policy(ActivationPolicy::Accessory);

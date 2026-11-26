@@ -98,6 +98,12 @@ impl Homes {
         self.config.join("settings.json")
     }
 
+    /// The page (HTML, CSS, JS) `build-rust.sh --install` puts outside the signed bundle, so a page change ships
+    /// without a rebuild; it must stay in step with `build-rust.sh`'s `page` folder.
+    pub fn page(&self) -> PathBuf {
+        self.config.join("page")
+    }
+
     /// The worker's `VCX_STATE_HOME`: conversations, archives and checkpoints of the Rust app's sessions.
     pub fn worker_state(&self) -> PathBuf {
         self.state.join("worker")
