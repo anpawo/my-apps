@@ -6,10 +6,13 @@ back as a userMessage item, and finished turns are kept in the file for `thread/
 A prompt holding `fixture:hold` starts a turn that stays open until `turn/interrupt`; one holding `fixture:approve`
 also asks for a command approval and ends once it is answered, accepted or declined. `fixture:limit` fails the turn
 on the plan's usage limit unless the prompt carries the context VCX hands a fallback account; `fixture:ratelimit` fails
-it on a server rate limit; `fixture:crash` writes an error to stderr and exits.
+it on a server rate limit; `fixture:crash` writes an error to stderr and exits. `fixture:pending:<absolute path>` leaves
+the turn/start request unanswered until a file exists at that path, then answers it and runs the turn as usual;
+`fixture:heavy:<MiB>` answers with an agentMessage that many mebibytes long.
 """
 import json
 import os
+import re
 import time
 import sys
 import threading
@@ -30,6 +33,10 @@ CRASH_STATUS = 3
 LIMIT_ERROR = {'message': "You've hit your usage limit.", 'codexErrorInfo': 'usageLimitExceeded'}
 RATE_LIMIT_ERROR = {'message': 'exceeded retry limit, last status: 429 Too Many Requests'}
 HELD_TOOL = {'id': 'fixture-held-tool', 'type': 'commandExecution', 'command': 'fixture-held-tool'}
+PENDING = re.compile(r'fixture:pending:(\S+)')
+PENDING_POLL_SECONDS = 0.02
+HEAVY = re.compile(r'fixture:heavy:(\d+)')
+MEBIBYTE = 1024 * 1024
 output_lock = threading.Lock()
 awaiting = {}
 
@@ -58,7 +65,7 @@ def save(threads):
     os.replace(temporary, HISTORY)
 
 
-def run_turn(thread=THREAD, turn=TURN, prompt=None):
+def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER):
     event('turn/started', {'turn': {'id': turn}}, thread)
     items = []
     if prompt is not None:
@@ -72,9 +79,10 @@ def run_turn(thread=THREAD, turn=TURN, prompt=None):
     done = {**tool, 'status': 'completed', 'exitCode': 0, 'aggregatedOutput': 'fixture\n'}
     event('item/completed', {'item': done}, thread)
     answer_id = 'fixture-answer-' + turn if HISTORY else 'fixture-answer'
-    for word in ANSWER.split(' '):
+    # A heavy answer arrives whole: as deltas it would cost a frame per word.
+    for word in ANSWER.split(' ') if text == ANSWER else []:
         event('item/agentMessage/delta', {'itemId': answer_id, 'delta': word + ' '}, thread)
-    answer = {'id': answer_id, 'type': 'agentMessage', 'text': ANSWER}
+    answer = {'id': answer_id, 'type': 'agentMessage', 'text': text}
     event('item/completed', {'item': answer}, thread)
     if HISTORY:
         threads = load()
@@ -85,6 +93,11 @@ def run_turn(thread=THREAD, turn=TURN, prompt=None):
 
 def prompt_text(params):
     return ' '.join(piece.get('text', '') for piece in params.get('input', []) if isinstance(piece, dict))
+
+
+def answer_text(params):
+    heavy = HEAVY.search(prompt_text(params))
+    return 'x' * (int(heavy.group(1)) * MEBIBYTE) if heavy else ANSWER
 
 
 def held(params):
@@ -172,9 +185,37 @@ def answer_with_history(message):
         elif held(params):
             threading.Timer(0, open_turn, (thread, turn, params)).start()
         else:
-            threading.Timer(0, run_turn, (thread, turn, prompt)).start()
+            threading.Timer(0, run_turn, (thread, turn, prompt, answer_text(params))).start()
         return {'turn': {'id': turn}}, None
     return RESULTS.get(method, {}), None
+
+
+def respond(message):
+    method = message['method']
+    if HISTORY:
+        result, error = answer_with_history(message)
+        send({'id': message['id'], 'error': error} if error else {'id': message['id'], 'result': result})
+        if method == 'turn/interrupt':
+            awaiting.clear()
+            event('turn/completed', {'turn': {'id': (message.get('params') or {}).get('turnId'), 'status': 'interrupted'}}, (message.get('params') or {}).get('threadId'))
+        return
+    params = message.get('params') or {}
+    send({'id': message['id'], 'result': policy(RESULTS.get(method, {}), params) if method == 'thread/start' else RESULTS.get(method, {})})
+    if method == 'turn/start' and failure(params):
+        fail_turn(THREAD, TURN, failure(params))
+    elif method == 'turn/start' and held(params):
+        threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
+    elif method == 'turn/start':
+        threading.Thread(target=run_turn, kwargs={'text': answer_text(params)}, daemon=True).start()
+    elif method == 'turn/interrupt':
+        awaiting.clear()
+        event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})
+
+
+def respond_once_present(path, message):
+    while not os.path.exists(path):
+        time.sleep(PENDING_POLL_SECONDS)
+    respond(message)
 
 
 for line in sys.stdin:
@@ -185,21 +226,8 @@ for line in sys.stdin:
         continue
     if method is None or 'id' not in message:
         continue
-    if HISTORY:
-        result, error = answer_with_history(message)
-        send({'id': message['id'], 'error': error} if error else {'id': message['id'], 'result': result})
-        if method == 'turn/interrupt':
-            awaiting.clear()
-            event('turn/completed', {'turn': {'id': (message.get('params') or {}).get('turnId'), 'status': 'interrupted'}}, (message.get('params') or {}).get('threadId'))
-        continue
-    params = message.get('params') or {}
-    send({'id': message['id'], 'result': policy(RESULTS.get(method, {}), params) if method == 'thread/start' else RESULTS.get(method, {})})
-    if method == 'turn/start' and failure(params):
-        fail_turn(THREAD, TURN, failure(params))
-    elif method == 'turn/start' and held(params):
-        threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
-    elif method == 'turn/start':
-        threading.Thread(target=run_turn, daemon=True).start()
-    elif method == 'turn/interrupt':
-        awaiting.clear()
-        event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})
+    pending = PENDING.search(prompt_text(message.get('params') or {})) if method == 'turn/start' else None
+    if pending:
+        threading.Thread(target=respond_once_present, args=(pending.group(1), message), daemon=True).start()
+    else:
+        respond(message)
