@@ -87,10 +87,25 @@ enum Check {
             check(!StateHome.removeLegacyLinkIfUnused() && !exists(parent + "/cx") && !exists(parent + "/vcx/.moved") && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
                   "the cx link goes once every running process knows vcx")
             check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock", "a saved cx path still points into vcx once the link is gone")
-            try? manager.createDirectory(atPath: parent + "/cx", withIntermediateDirectories: true)
+            try? manager.createDirectory(atPath: parent + "/cx/native/key", withIntermediateDirectories: true)
+            try? "{}".write(toFile: parent + "/cx/native/key/record.json", atomically: true, encoding: .utf8)
+            for (folder, row) in [("vcx", "kept"), ("cx", "made again")] {
+                let sqlite = Process()
+                sqlite.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+                sqlite.arguments = [parent + "/" + folder + "/conversations.sqlite", "CREATE TABLE events (id INTEGER PRIMARY KEY, type TEXT); INSERT INTO events (type) VALUES ('\(row)')"]
+                try? sqlite.run(); sqlite.waitUntilExit()
+            }
+            check(StateHome.directory.path == parent + "/vcx", "the state stays in vcx while a cx folder made again sits beside it")
             StateHome.adopt()
-            check(manager.fileExists(atPath: parent + "/vcx/runtime/kept.json") && (try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == nil,
-                  "a cx folder made again never replaces an existing vcx folder")
+            let merged = Process(), out = Pipe()
+            merged.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+            merged.arguments = [parent + "/vcx/conversations.sqlite", "SELECT group_concat(type, ',') FROM (SELECT type FROM events ORDER BY id)"]
+            merged.standardOutput = out
+            try? merged.run(); merged.waitUntilExit()
+            check(manager.fileExists(atPath: parent + "/vcx/runtime/kept.json") && manager.fileExists(atPath: parent + "/vcx/native/key/record.json")
+                  && (!exists(parent + "/cx") || (try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx")
+                  && String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "kept,made again",
+                  "a cx folder made again joins vcx, its records and rows included, and is no longer a folder")
         }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000; Connectivity.grace = 50_000_000
         do {
