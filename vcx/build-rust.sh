@@ -57,6 +57,10 @@ if (( ${#binaries[@]} )); then
     if named worker; then
         cp rust/target/release/vcx-worker "$app/Contents/MacOS/vcx-worker"
         codesign --force --sign - "$app/Contents/MacOS/vcx-worker"
+        # The worker runs these from ../Resources on each use, so a change to them alone needs no signal.
+        for script in cleanup.py trace_archive.py conversation_archive.py; do
+            cp "$script" "$app/Contents/Resources/$script"
+        done
     fi
     if named app; then
         cp rust/target/release/vcx-rust "$app/Contents/MacOS/vcx-rust"
@@ -83,6 +87,8 @@ if (( ${#binaries[@]} )); then
 PLIST
         plutil -lint "$app/Contents/Info.plist" >/dev/null
     fi
+    # Python leaves byte code beside a script it ran from the bundle: sealed in, it would break the next install's seal.
+    find "$app" -name __pycache__ -type d -prune -exec rm -rf {} +
     touch "$app"
     codesign --force --sign - "$app"
 fi
@@ -144,6 +150,7 @@ if named worker || named app; then
         while IFS= read -r file; do
             [[ -e "$app/$file" ]] || { rm "$installed/$file"; replaced=$((replaced + 1)); }
         done < <(cd "$installed" && find . -type f)
+        find "$installed" -mindepth 1 -depth -type d -empty -delete
         if (( replaced )); then touch "$installed"; fi
         if named worker; then $worker_changed && echo "worker: replaced" || echo "worker: unchanged"; fi
         if named app; then $app_changed && echo "app: replaced" || echo "app: unchanged"; fi

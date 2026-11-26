@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / 'build-rust.sh'
 TEMPLATE = HERE / 'template'
 FIXTURE = HERE / 'fixtures/fake_agent.py'
+WORKER_SCRIPTS = ('cleanup.py', 'trace_archive.py', 'conversation_archive.py')
 WAIT = 60
 POLL = 0.2
 SOCKET_WAIT = 30
@@ -132,6 +133,18 @@ class Parts(unittest.TestCase):
     def installed(self):
         return {str(path): path.stat().st_ino for path in sorted(self.bundle.rglob('*')) if path.is_file()}
 
+    def plant_byte_code(self):
+        """What Python leaves beside a script the worker ran from the bundle."""
+        cache = self.bundle / 'Contents/Resources/__pycache__'
+        cache.mkdir(exist_ok=True)
+        (cache / 'cleanup.cpython-313.pyc').write_bytes(b'stale')
+        return cache
+
+    def test_the_worker_part_ships_the_scripts_the_worker_runs_from_its_resources(self):
+        shipped = [(self.bundle / 'Contents/Resources' / name).read_bytes() for name in WORKER_SCRIPTS]
+
+        self.assertEqual(shipped, [(HERE.parent / name).read_bytes() for name in WORKER_SCRIPTS])
+
     def verify_signature(self):
         check = subprocess.run(['codesign', '--verify', '--deep', '--strict', str(self.bundle)], capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
@@ -167,6 +180,7 @@ class Parts(unittest.TestCase):
     def test_a_worker_install_replaces_and_updates_only_the_workers(self):
         before, session = self.state(), self.window()[1]
         replace(self.worker, self.worker.read_bytes())
+        cache = self.plant_byte_code()
         subprocess.run(['codesign', '--force', '--sign', '-', '--identifier', 'vcx-worker-stale', str(self.worker)], check=True, capture_output=True)
 
         result = self.install('worker')
@@ -178,12 +192,14 @@ class Parts(unittest.TestCase):
         after = self.wait(self.state, lambda state: state['worker'][1] == self.worker.stat().st_ino)
         self.assertEqual(after['worker'][0], before['worker'][0])
         self.assertEqual((after['app'], after['control'], self.window()[1]), (before['app'], before['control'], session))
+        self.assertFalse(cache.exists())
         self.verify_signature()
 
     def test_an_app_install_replaces_and_relaunches_only_the_app(self):
         before, session = self.state(), self.window()[1]
         runner = self.bundle / 'Contents/Resources/background.py'
         replace(runner, runner.read_bytes() + b'\n# stale\n')
+        cache = self.plant_byte_code()
 
         result = self.install('app')
 
@@ -194,6 +210,7 @@ class Parts(unittest.TestCase):
         after = self.wait(self.state, lambda state: state['control'] != before['control'])
         self.assertEqual(after['app'][0], before['app'][0])
         self.assertEqual((after['worker'], self.window()[1]), (before['worker'], session))
+        self.assertFalse(cache.exists())
         self.verify_signature()
 
 
