@@ -26,6 +26,8 @@ pub struct Saved {
     /// Its close was asked and the worker had not confirmed it: the next launch finishes it instead of reopening it
     /// (Swift `closeRequested`).
     pub closing: bool,
+    /// Where its transcript was scrolled, saved for a live update only (`scroll::READ`).
+    pub scroll: Option<Value>,
 }
 
 pub fn read(file: &Path) -> Vec<Saved> {
@@ -41,7 +43,7 @@ fn entry(value: &Value) -> Option<Saved> {
         Some(Frame { x: number(0)?, y: number(1)?, width: number(2)?, height: number(3)? })
     });
     let desktop = value["desktop"].as_u64().and_then(|index| usize::try_from(index).ok());
-    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), desktop, closing: value["closing"] == true })
+    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), desktop, closing: value["closing"] == true, scroll: value.get("scroll").filter(|scroll| scroll.is_object()).cloned() })
 }
 
 pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
@@ -64,6 +66,9 @@ pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
             if saved.closing {
                 value["closing"] = json!(true);
             }
+            if let Some(scroll) = &saved.scroll {
+                value["scroll"] = scroll.clone();
+            }
             value
         })
         .collect();
@@ -79,8 +84,8 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("vcx-app-windows-{}", std::process::id()));
         let file = folder.join("windows.json");
         let windows = [
-            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), desktop: Some(2), closing: false },
-            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, desktop: None, closing: true },
+            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), desktop: Some(2), closing: false, scroll: Some(json!({"row": "item-4", "offset": -12.0})) },
+            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, desktop: None, closing: true, scroll: None },
         ];
 
         write(&file, &windows).unwrap();

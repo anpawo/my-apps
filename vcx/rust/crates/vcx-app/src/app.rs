@@ -6,9 +6,9 @@ use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
 use crate::menus::MenuAction;
-use crate::{confirm, desktops, fleet, focus, folder, freeze, local, login, menus, metrics, placement, progress, quota, relaunch, requests, sheet, takeover, tasks, terminate, update};
+use crate::{confirm, desktops, fleet, focus, folder, freeze, local, login, menus, metrics, placement, progress, quota, relaunch, requests, scroll, sheet, takeover, tasks, terminate, update};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::convert::Infallible;
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -44,6 +44,8 @@ const EXIT_FAILED: i32 = 1;
 const CANNOT_CLOSE: &str = "Cannot close before saving the draft: ";
 /// A page still loading never answers a script: a report gives up on it after this long and says so.
 const PAGE_READ_WAIT: Duration = Duration::from_secs(2);
+/// How long an update waits for the pages to say where they are scrolled: a stuck page must not hold it back.
+const ANCHOR_WAIT: Duration = Duration::from_millis(500);
 
 /// What a page shows, read for a report: enough to tell what it drew, without the whole document.
 const PAGE_REPORT: &str = r#"(() => JSON.stringify({
@@ -98,6 +100,12 @@ pub enum AppEvent {
     CloseFinished(String),
     /// The main thread's beat, for the freeze watchdog.
     Beat,
+    /// A window's scroll anchor, read from its page before an update, as the web view encodes it.
+    Anchor(u64, String),
+    /// The update waits no longer on pages that have not answered.
+    AnchorsDue,
+    /// A window's page is back where it was scrolled before the update.
+    Scrolled(u64),
 }
 
 pub(crate) struct Win {
@@ -119,6 +127,9 @@ pub(crate) struct Win {
     progress_samples: Vec<(f64, f64)>,
     /// The desktop last read for the window, so a move to another desktop, which sends no event, is saved.
     desktop: Option<usize>,
+    /// Where the transcript was scrolled before an update: read for the save, then put back in the new image.
+    anchor: Option<Value>,
+    scroll: Option<Value>,
 }
 
 struct Spec {
@@ -128,6 +139,7 @@ struct Spec {
     record_id: Option<String>,
     focus: bool,
     desktop: Option<usize>,
+    scroll: Option<Value>,
 }
 
 struct Reopen {
@@ -147,11 +159,11 @@ fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
             continue;
         }
         let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd.clone(), prompt: String::new(), resume: if live { None } else { resume }, existing_only: live };
-        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false, desktop: entry.desktop }, start_worker: !live });
+        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false, desktop: entry.desktop, scroll: entry.scroll.clone() }, start_worker: !live });
     }
     for session in running.iter().filter(|session| !session.attached && !saved.iter().any(|entry| entry.session_id == session.session_id)) {
         let request = AttachRequest { session_id: session.session_id.clone(), cwd: "/".into(), existing_only: true, ..AttachRequest::default() };
-        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false, desktop: None }, start_worker: false });
+        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false, desktop: None, scroll: None }, start_worker: false });
     }
     reopened
 }
@@ -218,6 +230,8 @@ pub(crate) struct App {
     ending: BTreeMap<u64, Win>,
     /// Closes a crash cut short, finished at launch: saved until their worker confirms them.
     closes: Vec<Saved>,
+    /// The windows an update waits on for their scroll anchor; none while no update is under way.
+    anchoring: Option<BTreeSet<u64>>,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -285,6 +299,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         asking_quit: false,
         ending: BTreeMap::new(),
         closes: Vec::new(),
+        anchoring: None,
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -429,7 +444,7 @@ impl App {
         }
         if answers(&entry.socket) {
             let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: None, existing_only: true };
-            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop });
+            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop, scroll: None });
             self.schedule_save();
             return Some(entry.session_id);
         }
@@ -447,7 +462,7 @@ impl App {
         let socket = worker::socket_for(&self.homes, &session_id);
         self.start_worker(&socket, &open.cwd);
         let request = AttachRequest { session_id: session_id.clone(), cwd: open.cwd, prompt: open.prompt, resume: open.resume, existing_only: false };
-        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus, desktop: None });
+        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus, desktop: None, scroll: None });
         self.schedule_save();
         session_id
     }
@@ -496,7 +511,7 @@ impl App {
             pane.note(notice.clone());
         }
         self.keys.insert(window.id(), key);
-        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new(), desktop: None });
+        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new(), desktop: None, anchor: None, scroll: spec.scroll });
         self.schedule_publish();
     }
 
@@ -570,6 +585,29 @@ impl App {
                 freeze::beat(active);
                 None
             }
+            AppEvent::Anchor(key, answer) => {
+                if let Some(win) = self.windows.get_mut(&key) {
+                    win.anchor = scroll::anchor(&answer);
+                }
+                if let Some(waiting) = &mut self.anchoring {
+                    waiting.remove(&key);
+                }
+                self.anchored();
+                None
+            }
+            AppEvent::AnchorsDue => {
+                if let Some(waiting) = &mut self.anchoring {
+                    waiting.clear();
+                }
+                self.anchored();
+                None
+            }
+            AppEvent::Scrolled(key) => {
+                if let Some(win) = self.windows.get_mut(&key) {
+                    win.scroll = None;
+                }
+                None
+            }
             AppEvent::CloseFinished(id) => {
                 self.closes.retain(|entry| entry.session_id != id);
                 self.save_now();
@@ -609,6 +647,15 @@ impl App {
         match note {
             Note::Arrived { serial, at } => drop(win.arrived.insert(serial, at)),
             Note::Rendered(serial) => {
+                // Tried after each render until the anchor's row is drawn with room enough below it to sit as it did.
+                if let Some(anchor) = &win.scroll {
+                    let proxy = self.proxy.clone();
+                    win.pane.read(&scroll::restore(anchor), move |done| {
+                        if done == "true" {
+                            let _ = proxy.send_event(AppEvent::Scrolled(key));
+                        }
+                    });
+                }
                 let drawn = Instant::now();
                 let later = win.arrived.split_off(&(serial + 1));
                 self.delays.extend(std::mem::replace(&mut win.arrived, later).into_values().map(|at| drawn - at));
@@ -932,12 +979,32 @@ impl App {
         });
     }
 
-    /// A new build was installed: the windows are saved and the app becomes that build, which reopens them.
+    /// A new build was installed: each page says where it is scrolled, then the windows are saved and the app becomes
+    /// that build, which reopens them.
     fn relaunch(&mut self) {
+        if self.anchoring.is_some() {
+            return;
+        }
+        for (&key, win) in &self.windows {
+            let proxy = self.proxy.clone();
+            win.pane.read(scroll::READ, move |answer| drop(proxy.send_event(AppEvent::Anchor(key, answer))));
+        }
+        self.anchoring = Some(self.windows.keys().copied().collect());
+        self.after(ANCHOR_WAIT, AppEvent::AnchorsDue);
+        self.anchored();
+    }
+
+    fn anchored(&mut self) {
+        if !self.anchoring.as_ref().is_some_and(BTreeSet::is_empty) {
+            return;
+        }
+        self.anchoring = None;
         self.save_now();
         let problem = relaunch::exec(self.windowless, &self.lock);
         eprintln!("vcx-rust: {problem}");
         for win in self.windows.values_mut() {
+            // Kept only for this update: a later save, then a crash, would scroll back to a stale place.
+            win.anchor = None;
             win.pane.note(format!("Automatic update paused: {problem}"));
         }
     }
@@ -950,7 +1017,7 @@ impl App {
             wins.sort_by_key(|win| placement::rank(&order, desktops::window_number(&win.window)));
         }
         let closing = self.ending.values().map(|win| (win, true));
-        let mut saved: Vec<Saved> = wins.into_iter().map(|win| (win, false)).chain(closing).map(|(win, closing)| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win), closing }).collect();
+        let mut saved: Vec<Saved> = wins.into_iter().map(|win| (win, false)).chain(closing).map(|(win, closing)| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win), closing, scroll: win.anchor.clone() }).collect();
         saved.extend(self.closes.iter().cloned());
         if let Err(problem) = windows::write(&self.homes.windows(), &saved) {
             eprintln!("vcx-rust: {problem}");
@@ -1031,7 +1098,7 @@ mod tests {
     use worker::Running;
 
     fn saved(id: &str, record: Option<&str>) -> Saved {
-        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None, closing: false }
+        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None, closing: false, scroll: None }
     }
 
     fn running(id: &str, attached: bool) -> Running {

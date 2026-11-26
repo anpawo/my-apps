@@ -291,6 +291,41 @@ fn becomes_the_newly_installed_build_when_asked_and_reopens_its_window_on_the_sa
     assert_eq!(fs::read_to_string(&taken).unwrap(), "0", "another process took the state folder's lock during the relaunch");
 }
 
+#[test]
+fn keeps_where_its_transcript_was_scrolled_through_a_live_update() {
+    let Some(mut run) = Run::new("scrolled") else { return };
+    let folder = run.folder("scrolled");
+    run.start(&["--cwd", folder.to_str().unwrap(), "fixture:heavy:1"]);
+    let id = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1))["windows"][0]["sessionId"].as_str().unwrap().to_owned();
+    let number = |script: &str| -> f64 { run.ask(&json!({"evaluate": {"to": id, "script": script}})).and_then(|answer| answer["result"].as_str()?.parse().ok()).unwrap_or(-1.0) };
+    let room = number(SCROLL_ROOM);
+    assert!(room > SCROLLED_PX * 2.0, "the transcript does not scroll far enough: {room} px");
+    let scrolled = number(&format!("{SCROLL_TOP}.scrollTop = {SCROLLED_PX}"));
+    let control = vcx_config::Homes::under(&run.root).control();
+    let listening = fs::metadata(&control).unwrap().ino();
+
+    // SAFETY: the pid is this run's own app, as build-rust.sh --install signals the installed one.
+    unsafe { libc::kill(run.app.as_ref().unwrap().id() as i32, libc::SIGUSR1) };
+
+    let deadline = Instant::now() + WAIT;
+    while fs::metadata(&control).map(|info| info.ino()).ok() == Some(listening) {
+        assert!(Instant::now() < deadline, "the app never came back as the new build");
+        thread::sleep(POLL);
+    }
+    run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let mut top = number(&format!("{SCROLL_TOP}.scrollTop"));
+    while (top - scrolled).abs() > 1.0 && Instant::now() < deadline {
+        thread::sleep(POLL);
+        top = number(&format!("{SCROLL_TOP}.scrollTop"));
+    }
+    assert!((top - scrolled).abs() <= 1.0, "scrolled to {scrolled} px before the update, {top} px after");
+}
+
+/// Far enough down the transcript to be neither at its top nor at its end.
+const SCROLLED_PX: f64 = 2000.0;
+const SCROLL_TOP: &str = "document.getElementById('transcript')";
+const SCROLL_ROOM: &str = "(t => t.scrollHeight - t.clientHeight)(document.getElementById('transcript'))";
+
 /// A second launch in the same moment, at its most eager: takes the state folder's lock whenever it is free and holds
 /// it long enough for the relaunched image to find it taken; writes how many times it got it.
 const LOCK_PROBE: &str = "import fcntl, sys, time

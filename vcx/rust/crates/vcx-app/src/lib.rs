@@ -15,6 +15,7 @@ mod progress;
 mod quota;
 mod relaunch;
 mod requests;
+mod scroll;
 pub mod settings;
 mod sheet;
 pub mod takeover;
