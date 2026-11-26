@@ -40,6 +40,13 @@ impl Peer {
         self.request("perform", json!({"sessionId": lease.session_id, "lease": lease.lease, "sequence": sequence, "action": action, "params": params}))
     }
 
+    /// Sends an action and does not wait for its answer: the worker is expected to keep it under way.
+    pub fn leave(&self, lease: &Lease, sequence: u64, action: &str, params: Value) {
+        let request = json!({"sessionId": lease.session_id, "lease": lease.lease, "sequence": sequence, "action": action, "params": params});
+        let answer = self.client.request("perform", request, Duration::ZERO);
+        assert!(matches!(answer, Err(Error::Timeout)), "sequence {sequence} was answered at once: {answer:?}");
+    }
+
     /// The session's line in the worker's `list`.
     pub fn listed(&self, session_id: &str) -> Option<Value> {
         self.client.list().expect("the worker lists its sessions").into_iter().find(|session| session["sessionId"] == session_id)

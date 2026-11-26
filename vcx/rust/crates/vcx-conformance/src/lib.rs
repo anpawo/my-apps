@@ -60,6 +60,9 @@ macro_rules! suite {
             held::a_turn_stays_open_when_its_frontend_leaves,
             held::the_worker_leaves_once_its_last_session_is_closed,
             bounds::an_expired_receipt_is_refused_and_does_not_run_again,
+            bounds::a_frontend_with_too_many_requests_under_way_is_told_busy,
+            bounds::a_session_with_too_many_actions_under_way_refuses_one_more_as_busy,
+            bounds::a_conversation_larger_than_a_frame_refuses_a_second_frontend_and_keeps_the_first,
         );
     };
     (@each $start:path, $target:path; $($module:ident :: $case:ident),* $(,)?) => {

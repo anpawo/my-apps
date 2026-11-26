@@ -79,6 +79,8 @@ def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER):
     done = {**tool, 'status': 'completed', 'exitCode': 0, 'aggregatedOutput': 'fixture\n'}
     event('item/completed', {'item': done}, thread)
     answer_id = 'fixture-answer-' + turn if HISTORY else 'fixture-answer'
+    # Each heavy answer is its own item, so a conversation grows with them.
+    answer_id += '' if text == ANSWER else '-' + uuid.uuid4().hex
     # A heavy answer arrives whole: as deltas it would cost a frame per word.
     for word in ANSWER.split(' ') if text == ANSWER else []:
         event('item/agentMessage/delta', {'itemId': answer_id, 'delta': word + ' '}, thread)
