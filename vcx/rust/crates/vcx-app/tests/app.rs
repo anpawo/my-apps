@@ -382,6 +382,23 @@ fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_go
 }
 
 #[test]
+fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
+    let Some(mut run) = Run::new("menus") else { return };
+    run.start(&[]);
+
+    let menus = run.wait_for(|report| report["menus"].is_array())["menus"].clone();
+
+    let items = |title: &str| menus.as_array().unwrap().iter().find(|menu| menu["title"] == title).map(|menu| menu["items"].as_array().unwrap().clone()).unwrap_or_default();
+    let application = menus[0]["items"].as_array().unwrap();
+    let on_q: Vec<&Value> = application.iter().filter(|item| item["key"] == "q").collect();
+    assert_eq!(on_q, [&json!({"title": "Close Session", "key": "q", "action": "closeWindow:"})], "{menus}");
+    assert!(application.iter().all(|item| item["action"] != "terminate:"), "{menus}");
+    let file = items("File");
+    let file: Vec<(&str, &str)> = file.iter().map(|item| (item["title"].as_str().unwrap(), item["action"].as_str().unwrap())).collect();
+    assert_eq!(file, [("New Window", "newWindow:"), ("Open Project…", "openProject:"), ("Close Window", "closeWindow:")]);
+}
+
+#[test]
 fn says_no_window_is_open_when_no_app_runs() {
     let Some(run) = Run::new("none") else { return };
 

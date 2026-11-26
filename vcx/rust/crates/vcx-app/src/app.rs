@@ -698,7 +698,7 @@ impl App {
         let Some(mut report) = self.report.take() else { return };
         let windows: Vec<Value> = self.windows.iter().map(|(key, win)| describe(win, report.pages.remove(key))).collect();
         let pid = std::process::id();
-        let _ = report.answer.send(json!({"pid": pid, "windows": windows, "metrics": metrics::report(pid as i32), "delays": metrics::spread(&self.delays)}));
+        let _ = report.answer.send(json!({"pid": pid, "windows": windows, "metrics": metrics::report(pid as i32), "delays": metrics::spread(&self.delays), "menus": objc2_foundation::MainThreadMarker::new().map(menus::outline)}));
     }
 }
 

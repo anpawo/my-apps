@@ -10,6 +10,8 @@ use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
 use objc2_foundation::{MainThreadMarker, NSString};
 
 pub const FILE: &str = "File";
+/// Swift's ⌘Q item: it closes the front session, never the whole app.
+const CLOSE_SESSION: &str = "Close Session";
 /// The application menu holds index 0; the File menu follows it, as in the Swift app.
 const FILE_MENU_INDEX: isize = 1;
 const COMMAND: NSEventModifierFlags = NSEventModifierFlags::Command;
@@ -124,7 +126,39 @@ pub fn install(mtm: MainThreadMarker, act: impl Fn(MenuAction) + 'static) {
         bar.removeItem(&previous);
     }
     bar.insertItem_atIndex(&holder, FILE_MENU_INDEX.min(bar.numberOfItems()));
+    close_session_on_q(&bar, &target);
     TARGET.with(|slot| *slot.borrow_mut() = Some(target));
+}
+
+/// The application menu's Quit item (⌘Q) becomes Close Session, as in the Swift app; the app quits once its last
+/// window closes.
+fn close_session_on_q(bar: &NSMenu, target: &FileMenuTarget) {
+    let Some(application) = bar.itemAtIndex(0).and_then(|item| item.submenu()) else { return };
+    for index in 0..application.numberOfItems() {
+        let Some(item) = application.itemAtIndex(index) else { continue };
+        if item.action() == Some(sel!(terminate:)) {
+            item.setTitle(&NSString::from_str(CLOSE_SESSION));
+            // SAFETY: `closeWindow:` is a method of `FileMenuTarget`, which the item now targets.
+            unsafe {
+                item.setAction(Some(selector(MenuAction::CloseWindow)));
+                item.setTarget(Some(target));
+            }
+        }
+    }
+}
+
+/// The menu bar as titles, keys and actions, for the app's report.
+pub fn outline(mtm: MainThreadMarker) -> serde_json::Value {
+    let Some(bar) = NSApplication::sharedApplication(mtm).mainMenu() else { return serde_json::Value::Null };
+    let items = |menu: &NSMenu| -> Vec<serde_json::Value> {
+        (0..menu.numberOfItems()).filter_map(|index| menu.itemAtIndex(index)).filter(|item| !item.isSeparatorItem()).map(|item| {
+            let action = item.action().map(|action| action.name().to_string_lossy().into_owned());
+            serde_json::json!({"title": item.title().to_string(), "key": item.keyEquivalent().to_string(), "action": action})
+        }).collect()
+    };
+    (0..bar.numberOfItems()).filter_map(|index| bar.itemAtIndex(index)).map(|holder| {
+        serde_json::json!({"title": holder.submenu().map(|menu| menu.title().to_string()), "items": holder.submenu().map(|menu| items(&menu))})
+    }).collect()
 }
 
 #[cfg(test)]
