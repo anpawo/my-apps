@@ -33,19 +33,19 @@ const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .
 const waiting = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => awaits(state.byId.get(r.dataset.id))));
 const newestFirst = v => v.every((l, i) => !i || v[i - 1] >= l);
 const firstAnswered = waiting.indexOf(false);
-check(firstAnswered > 0 && waiting.slice(firstAnswered).every(w => !w) && newestFirst(lasts.slice(0, firstAnswered)) && newestFirst(lasts.slice(firstAnswered)) && names.includes('Climbing crew'), `people waiting on my answer come first, then groups among the rest, each newest first (${waiting})`);
+check(firstAnswered > 0 && waiting.slice(firstAnswered).every(w => !w) && newestFirst(lasts.slice(0, firstAnswered)) && newestFirst(lasts.slice(firstAnswered)) && names.includes('Climbing crew'), `people with unread messages come first, then groups among the rest, each newest first (${waiting})`);
 const pinned = await page.evaluate(() => {
   const ids = () => [...document.querySelectorAll('#people .row')].map(r => r.dataset.id);
   const sarah = state.all.find(i => i.name === 'Sarah K');
-  const old = sarah.chats[0].preview;
-  sarah.chats[0].preview = { ...old, isSender: true };
+  const before = ids().indexOf(sarah.id) > ids().indexOf('grp-1');
+  sarah.unread = 1;
   showLists();
-  const answered = ids().indexOf(sarah.id) > ids().indexOf('grp-1');
-  sarah.chats[0].preview = old;
+  const unread = ids().indexOf(sarah.id) < ids().indexOf('grp-1');
+  sarah.unread = 0;
   showLists();
-  return [answered, ids().indexOf(sarah.id) < ids().indexOf('grp-1')];
+  return [before, unread, ids().indexOf(sarah.id) > ids().indexOf('grp-1')];
 });
-check(pinned[0] && pinned[1], `a person whose last message is theirs sits above the groups, and drops back once answered (${pinned})`);
+check(pinned.every(Boolean), `a person with an unread badge sits above newer groups, and drops back once read (${pinned})`);
 const logos = await page.$$eval('#people .row:not([data-id^="grp"])', rs => rs.map(r => [...r.querySelectorAll('.net')].map(n => [n.title, n.getBoundingClientRect().width])));
 check(logos.every(l => l.length === 1 && l[0][1] === 13.5) && (await page.$eval('#people .row:has-text("Lea Martin") .net', n => n.title)) === 'Instagram', `each person in the list shows the logo of the app of their latest message, 13.5 px badge (${JSON.stringify(logos)})`);
 const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, a.querySelector('.tile').getBoundingClientRect().width, a.querySelectorAll('.tile img').length]);
