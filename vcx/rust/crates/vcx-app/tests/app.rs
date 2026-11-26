@@ -244,6 +244,35 @@ fn runs_its_sessions_on_the_rust_worker_and_finds_them_again_after_a_crash() {
 }
 
 #[test]
+fn keeps_its_window_through_a_live_update_of_the_rust_worker() {
+    let Some(worker) = rust_worker() else {
+        return eprintln!("skipped: no Rust worker; build it with cargo build -p vcx-worker");
+    };
+    let mut run = Run::on("swap", &worker);
+    let folder = run.folder("swap");
+    run.start(&["--cwd", folder.to_str().unwrap(), "before the update"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let (id, socket) = (windows(&before)[0]["sessionId"].as_str().unwrap().to_owned(), PathBuf::from(windows(&before)[0]["socket"].as_str().unwrap()));
+    let old = Client::connect(&socket, |_| {}).unwrap().hello().unwrap();
+
+    // SAFETY: the pid was named by this run's own worker on its socket.
+    unsafe { libc::kill(old.pid as i32, libc::SIGUSR1) };
+
+    let deadline = Instant::now() + WAIT;
+    let new = loop {
+        if let Some(hello) = Client::connect(&socket, |_| {}).ok().and_then(|client| client.hello().ok()).filter(|hello| hello.instance_id != old.instance_id) {
+            break hello;
+        }
+        assert!(Instant::now() < deadline, "the worker never came back as a new instance");
+        thread::sleep(POLL);
+    };
+    let sent = run.ask(&json!({"send": {"to": id, "text": "after the update", "from": id}})).unwrap();
+    let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 2));
+    assert_eq!(new.pid, old.pid, "the update runs in the same process");
+    assert_eq!(windows(&after)[0]["sessionId"], json!(id), "{sent}");
+}
+
+#[test]
 fn reattaches_a_running_session_even_without_its_window_list() {
     let Some(mut run) = Run::new("unlisted") else { return };
     let folder = run.folder("unlisted");

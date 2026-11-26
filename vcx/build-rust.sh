@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Rust app as "VCX Rust.app", beside the Swift app and never in its place: its own name, bundle id and
-# state folders. --install copies it to ~/Applications under that name; nothing here launches it. The Rust worker ships
+# state folders. --install copies it to ~/Applications under that name and updates its running Rust workers in place;
+# nothing here launches it. The Rust worker ships
 # beside the app (Contents/MacOS/vcx-worker); settings.json's "worker" picks it, the Swift worker staying the default.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -46,4 +47,12 @@ if [[ "${1:-}" == "--install" ]]; then
     rm -rf "$installed"
     ditto "$app" "$installed"
     echo "installed $installed"
+    # A Rust worker running from the bundle updates itself in place: on SIGUSR1 it execs the build now at its path,
+    # keeping its sessions. Only this bundle's workers: the Swift app's are never signalled.
+    worker="$installed/Contents/MacOS/vcx-worker"
+    ps -axo pid=,comm= | while read -r pid comm; do
+        if [[ "$comm" == "$worker" ]]; then
+            kill -USR1 "$pid" && echo "updating worker $pid"
+        fi
+    done
 fi
