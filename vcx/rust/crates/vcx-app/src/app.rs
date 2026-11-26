@@ -219,6 +219,9 @@ pub fn run(options: Options) -> Result<Infallible, String> {
     // The Edit menu is what carries ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z to the web view.
     let mtm = objc2_foundation::MainThreadMarker::new().ok_or("VCX Rust runs on the main thread.")?;
     vcx_shell::menu::install(mtm);
+    if !options.windowless {
+        placement::show_icon(mtm);
+    }
     let proxy = event_loop.create_proxy();
     let to_menu = proxy.clone();
     menus::install(mtm, move |action| drop(to_menu.send_event(AppEvent::Menu(action))));

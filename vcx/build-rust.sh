@@ -65,6 +65,8 @@ if (( ${#binaries[@]} )); then
     if named app; then
         cp rust/target/release/vcx-rust "$app/Contents/MacOS/vcx-rust"
         cp background.py "$app/Contents/Resources/background.py"
+        # The Swift app's icon, as its build drew it (`VCX --icon`): the Swift sources go, the picture stays.
+        cp rust/VCX.icns "$app/Contents/Resources/VCX.icns"
         version="$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -1)"
         cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -73,6 +75,7 @@ if (( ${#binaries[@]} )); then
 <dict>
     <key>CFBundleDisplayName</key><string>$name</string>
     <key>CFBundleExecutable</key><string>vcx-rust</string>
+    <key>CFBundleIconFile</key><string>VCX</string>
     <key>CFBundleGetInfoString</key><string>The VCX rebuild in Rust: many session windows in one process.</string>
     <key>CFBundleIdentifier</key><string>com.mr.vcx.rust</string>
     <key>CFBundleName</key><string>$name</string>

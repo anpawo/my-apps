@@ -2,14 +2,17 @@
 //! screen's width, centred, whatever size the last one was left at; the light look whatever the system's; and only a
 //! window he asked for in front, one opened from outside (spawn, Watcher, an update) behind his current window.
 
-use objc2_app_kit::{NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSColor, NSRunningApplication, NSScreen, NSWindow, NSWindowOrderingMode};
-use objc2_foundation::{MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize};
+use objc2::AnyThread;
+use objc2_app_kit::{NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSColor, NSImage, NSRunningApplication, NSScreen, NSWindow, NSWindowOrderingMode};
+use objc2_foundation::{MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize, NSString};
 use tao::platform::macos::WindowExtMacOS;
 use tao::window::Window;
 
 /// The new window leaves 1/40 of the screen's width on each side and 1/20 of its height above and below.
 const SIDE_MARGIN: f64 = 1.0 / 40.0;
 const END_MARGIN: f64 = 1.0 / 20.0;
+/// `Contents/Resources/VCX.icns`, which build-rust.sh puts there.
+const ICON: &str = "VCX";
 
 /// The frame of a new window on a screen whose visible part is `screen`, rounded out to whole points as Swift's
 /// `integral` does.
@@ -53,6 +56,15 @@ pub fn show(window: &Window, mtm: MainThreadMarker, place: bool, focus: bool) {
         #[allow(deprecated)]
         app.activateIgnoringOtherApps(true);
     }
+}
+
+/// The Dock tile reads the bundle's icon from the running app: the Dock's own cache outlives rebuilds (Swift
+/// `main.swift`: it served an old icon for weeks). Nothing happens outside the bundle.
+pub fn show_icon(mtm: MainThreadMarker) {
+    let Some(path) = NSBundle::mainBundle().pathForResource_ofType(Some(&NSString::from_str(ICON)), Some(&NSString::from_str("icns"))) else { return };
+    let Some(icon) = NSImage::initWithContentsOfFile(NSImage::alloc(), &path) else { return };
+    // SAFETY: a loaded image, set on the main thread.
+    unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&icon)) };
 }
 
 /// A launch he asked to focus, forwarded to the app already running, hands it the focus: the running app cannot take
