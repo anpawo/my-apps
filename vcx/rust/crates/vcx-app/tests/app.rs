@@ -15,6 +15,7 @@ const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
 /// The Rust worker as the workspace builds it (`cargo build -p vcx-worker`).
 const RUST_WORKER: &str = "../../target/debug/vcx-worker";
 const PRIVATE_FOLDER: u32 = 0o700;
+const EXECUTABLE: u32 = 0o755;
 const WAIT: Duration = Duration::from_secs(40);
 const POLL: Duration = Duration::from_millis(100);
 const THIRTEEN: usize = 13;
@@ -767,6 +768,51 @@ fn ends_its_sessions_and_clears_its_list_when_asked_to_quit() {
     assert!(run.wait_for_exit(), "the app did not end");
     assert_eq!(fs::read_to_string(run.root.join("state/windows.json")).unwrap().trim(), "[]");
     assert!(!run.root.join("state/control.sock").exists());
+}
+
+/// A worker that holds its sessions and refuses to close any, as one that cannot save the conversation does.
+const REFUSING_WORKER: &str = r#"#!/usr/bin/python3
+import json, os, socket, sys, threading
+path = sys.argv[sys.argv.index('--runtime-worker') + 1]
+server = socket.socket(socket.AF_UNIX)
+server.bind(path)
+os.chmod(path, 0o600)
+server.listen()
+def answer(request):
+    method, params = request.get('method'), request.get('params', {})
+    if method == 'hello':
+        return {'result': {'protocol': 1, 'build': 'refusing', 'pid': os.getpid()}}
+    if method == 'attach':
+        return {'result': {'sessionId': params['sessionId'], 'lease': 'L', 'revision': 1, 'state': {'cwd': params['cwd'], 'ready': True}}}
+    if method == 'perform' and params.get('action') == 'close':
+        return {'error': {'code': 'actionFailed', 'message': 'Could not save the current conversation.'}}
+    return {'result': {}}
+def serve(connection):
+    for line in connection.makefile():
+        request = json.loads(line)
+        connection.sendall((json.dumps({**answer(request), 'id': request['id']}) + '\n').encode())
+while True:
+    threading.Thread(target=serve, args=(server.accept()[0],), daemon=True).start()
+"#;
+
+#[test]
+fn keeps_a_window_whose_worker_cannot_save_its_session_and_says_why() {
+    let script = PathBuf::from(format!("/tmp/vcx-rust-{}-refusing.py", std::process::id()));
+    fs::write(&script, REFUSING_WORKER).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(EXECUTABLE)).unwrap();
+    let mut run = Run::on("refusing", &script);
+    let folder = run.folder("refusing");
+    run.start(&["--cwd", folder.to_str().unwrap()]);
+    let report = run.wait_for(|report| windows(report).len() == 1);
+    let id = windows(&report)[0]["sessionId"].clone();
+
+    let asked = run.ask(&json!({"close": {"to": id}}));
+
+    let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["page"]["notice"].as_str().is_some_and(|notice| notice.starts_with("Cannot close")));
+    let _ = fs::remove_file(&script);
+    assert_eq!(asked.unwrap()["closed"], json!(true));
+    assert_eq!(windows(&report)[0]["sessionId"], id);
+    assert_eq!(windows(&report)[0]["page"]["notice"], json!("Cannot close before saving the draft: Could not save the current conversation."));
 }
 
 /// What the Dock's Quit and a logout send: a quit Apple event, which AppKit turns into `terminate:`.

@@ -41,6 +41,7 @@ const MIN_WINDOW_SIZE: (f64, f64) = (980.0, 560.0);
 /// A windowless window's size, never on screen: the Swift place needs a screen.
 const WINDOWLESS_SIZE: (f64, f64) = (1100.0, 760.0);
 const EXIT_FAILED: i32 = 1;
+const CANNOT_CLOSE: &str = "Cannot close before saving the draft: ";
 /// A page still loading never answers a script: a report gives up on it after this long and says so.
 const PAGE_READ_WAIT: Duration = Duration::from_secs(2);
 
@@ -209,6 +210,8 @@ pub(crate) struct App {
     update_shown: Value,
     lock: File,
     asking_quit: bool,
+    /// Windows whose session is ending, out of sight until the worker says it ended.
+    ending: BTreeMap<u64, Win>,
 }
 
 pub fn run(options: Options) -> Result<Infallible, String> {
@@ -267,6 +270,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         update_shown: Value::Null,
         lock,
         asking_quit: false,
+        ending: BTreeMap::new(),
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -467,6 +471,13 @@ impl App {
 
     fn on(&mut self, event: AppEvent, target: &EventLoopWindowTarget<AppEvent>) -> Option<i32> {
         match event {
+            AppEvent::Pane(key, event) if self.ending.contains_key(&key) => {
+                let notes = self.ending.get_mut(&key).map(|win| win.pane.on(event)).unwrap_or_default();
+                notes.into_iter().find_map(|note| match note {
+                    Note::Ended(problem) => Some(problem),
+                    _ => None,
+                }).and_then(|problem| self.ended(key, problem))
+            }
             AppEvent::Pane(key, event) => {
                 let notes = self.windows.get_mut(&key).map(|win| win.pane.on(event)).unwrap_or_default();
                 let mut exit = None;
@@ -564,7 +575,7 @@ impl App {
             Note::Summary(summary) => self.summarized(key, summary),
             Note::Closed(reason) => {
                 eprintln!("vcx-rust: {reason}");
-                self.drop_window(key, false);
+                self.drop_window(key);
             }
             // The page has just been given the whole state: it gets the task bar and the progress line again.
             Note::Shown(_) => {
@@ -615,7 +626,7 @@ impl App {
                     drop(proxy.send_event(AppEvent::Quota(quota::message(&quota::read(&settings, &home, now)))));
                 });
             }
-            Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading | Note::Local(_) => {}
+            Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading | Note::Local(_) | Note::Ended(_) => {}
         }
     }
 
@@ -682,10 +693,34 @@ impl App {
         None
     }
 
-    /// Ends the window's session; the app's exit code once its last window closed.
+    /// Ends the window's session: the window goes at once, and comes back if the worker cannot save the session
+    /// (Swift `beginClose`).
     pub(crate) fn close_window(&mut self, key: u64) -> Option<i32> {
-        self.drop_window(key, true);
-        (self.windows.is_empty() && !self.windowless).then(|| self.quit())
+        let win = self.windows.remove(&key)?;
+        win.window.set_visible(false);
+        win.pane.end();
+        self.ending.insert(key, win);
+        self.forget(key);
+        None
+    }
+
+    /// The worker's answer to a close: the app's exit code once its last window closed.
+    fn ended(&mut self, key: u64, problem: Option<String>) -> Option<i32> {
+        let mut win = self.ending.remove(&key)?;
+        let Some(problem) = problem else {
+            self.keys.remove(&win.window.id());
+            win.pane.release();
+            return (self.windows.is_empty() && self.ending.is_empty() && !self.windowless).then(|| self.quit());
+        };
+        win.pane.note(format!("{CANNOT_CLOSE}{problem}"));
+        if !self.windowless {
+            win.window.set_visible(true);
+            win.window.set_focus();
+        }
+        self.windows.insert(key, win);
+        self.save_now();
+        self.publish_now();
+        None
     }
 
     fn summarized(&mut self, key: u64, summary: Summary) {
@@ -792,15 +827,16 @@ impl App {
         self.schedule_publish();
     }
 
-    /// Takes a window away. `end` also ends its session, as closing it does; a session taken by another frontend
-    /// is left to that one.
-    pub(crate) fn drop_window(&mut self, key: u64, end: bool) {
+    /// Takes a window away, its session left to the frontend that took it.
+    pub(crate) fn drop_window(&mut self, key: u64) {
         let Some(mut win) = self.windows.remove(&key) else { return };
         self.keys.remove(&win.window.id());
-        if end {
-            win.pane.tell(Message::Act { action: "close", params: json!({}) });
-        }
         win.pane.release();
+        self.forget(key);
+    }
+
+    /// A window gone from the list, the report, Fleet and the saved windows.
+    fn forget(&mut self, key: u64) {
         if let Some(report) = &mut self.report {
             report.waiting.remove(&key);
         }
@@ -814,10 +850,12 @@ impl App {
         for win in self.windows.values() {
             win.pane.tell(Message::Act { action: "close", params: json!({}) });
         }
-        for win in self.windows.values_mut() {
+        // A session already ending is waited for as long as one asked to end here.
+        for win in self.windows.values_mut().chain(self.ending.values_mut()) {
             win.pane.close();
         }
         self.windows.clear();
+        self.ending.clear();
         let saved = windows::write(&self.homes.windows(), &[]);
         let _ = fleet::publish(&self.homes.fleet(), std::process::id(), None);
         let _ = std::fs::remove_file(self.homes.control());

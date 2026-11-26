@@ -200,7 +200,7 @@ fn close(app: &mut App, close: &Value) -> Result<Value, String> {
         return Err(format!("{} is busy: close it once its turn ends.", name(win)));
     }
     let closed = name(win);
-    app.drop_window(key, true);
+    let _ = app.close_window(key);
     Ok(json!({"closed": true, "name": closed}))
 }
 

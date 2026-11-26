@@ -162,7 +162,7 @@ impl App {
                 return Some(if self.check.is_some() { EXIT_FAILED } else { 0 });
             }
             Note::Title(text) => self.window.set_title(&text),
-            Note::Arrived { .. } | Note::Summary(_) | Note::Focus(_) | Note::ChooseDirectory | Note::Settings | Note::Quota | Note::Local(_) => {}
+            Note::Arrived { .. } | Note::Summary(_) | Note::Focus(_) | Note::ChooseDirectory | Note::Settings | Note::Quota | Note::Local(_) | Note::Ended(_) => {}
         }
         None
     }

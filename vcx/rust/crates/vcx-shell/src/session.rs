@@ -32,6 +32,10 @@ pub enum Message {
     Worker(u64, Event),
     Attached(u64, Result<Attachment, String>),
     ActionFailed(String),
+    /// Ends the session, then says so with `Output::Ended`.
+    End,
+    /// Why the worker kept the session it was asked to end; none once it ended.
+    Ended(Option<String>),
     Close,
 }
 
@@ -46,6 +50,8 @@ pub enum Output {
     /// What the session list and Fleet show of it changed.
     Summary(Summary),
     Closed(String),
+    /// The session asked to end did: none; or why the worker kept it.
+    Ended(Option<String>),
 }
 
 pub struct Handle {
@@ -156,6 +162,11 @@ impl<E: Fn(Output)> Session<E> {
             Message::Attached(_, Ok(attachment)) => self.attach(&attachment),
             Message::Attached(_, Err(problem)) => self.link_is("lost", &problem),
             Message::ActionFailed(problem) => self.page(json!({"type": "notice", "text": problem})),
+            Message::End => match &self.link {
+                Some(link) => drop(link.send(Command::End)),
+                None => (self.emit)(Output::Ended(None)),
+            },
+            Message::Ended(problem) => (self.emit)(Output::Ended(problem)),
             Message::Close => {}
         }
     }

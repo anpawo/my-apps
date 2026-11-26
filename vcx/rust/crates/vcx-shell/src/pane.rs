@@ -66,6 +66,8 @@ pub enum Note {
     /// A command the app runs, as typed: `/login claude`, `/window ~/projects`.
     Local(String),
     Closed(String),
+    /// The session `end` asked for ended: none; or why the worker kept it.
+    Ended(Option<String>),
 }
 
 pub struct Options {
@@ -185,6 +187,7 @@ impl Pane {
                 vec![Note::Summary(summary)]
             }
             Output::Closed(reason) => vec![Note::Closed(reason)],
+            Output::Ended(problem) => vec![Note::Ended(problem)],
         }
     }
 
@@ -374,6 +377,11 @@ impl Pane {
         if let Some(target) = bridge::target(href, home.as_deref()) {
             bridge::open(&target);
         }
+    }
+
+    /// Asks the worker to end the session; `Note::Ended` tells how it went.
+    pub fn end(&self) {
+        self.tell(Message::End);
     }
 
     /// Gives the session back to its worker without waiting for it.
