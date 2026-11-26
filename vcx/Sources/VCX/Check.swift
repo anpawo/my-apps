@@ -95,7 +95,8 @@ enum Check {
                 sqlite.arguments = [parent + "/" + folder + "/conversations.sqlite", "CREATE TABLE events (id INTEGER PRIMARY KEY, type TEXT); INSERT INTO events (type) VALUES ('\(row)')"]
                 try? sqlite.run(); sqlite.waitUntilExit()
             }
-            check(StateHome.directory.path == parent + "/vcx", "the state stays in vcx while a cx folder made again sits beside it")
+            check(StateHome.relocated(parent + "/cx/native/key/record.json") == parent + "/vcx/native/key/record.json",
+                  "a cx path points into vcx while a cx folder made again sits beside it")
             StateHome.adopt()
             let merged = Process(), out = Pipe()
             merged.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
