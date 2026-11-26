@@ -903,9 +903,11 @@
     const meta = state.meta;
     if (title === 'Commands') return capabilityCommands().map(command => ({ name: command.name.slice(1), detail: command.detail || '' })).sort(byName);
     if (title === 'RAG') {
+      // The heading each line sits under in its ERRORS file, read by the core (Swift `ErrorsRecall.section`).
+      const sections = meta.recalledRuleSections || {};
       return (meta.recalledRules || []).map(rule => {
         const date = rule.match(RULE_DATE);
-        return { name: 'ERRORS line', detail: date ? rule.slice(date[0].length) : rule };
+        return { name: sections[rule] || 'ERRORS line', detail: date ? rule.slice(date[0].length) : rule };
       });
     }
     const items = (({ Hooks: meta.hooks, Skills: meta.skills, MCP: meta.mcp, Instructions: meta.instructions })[title] || []).map(value => {

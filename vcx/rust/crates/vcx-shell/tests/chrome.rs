@@ -521,6 +521,16 @@ fn opens_an_md_file_from_its_list(page: &Page) -> Result<(), String> {
     same(&page.wait_post("open")?, json!({"type": "open", "href": "~/.claude/CLAUDE.md"}), "the file opened")
 }
 
+fn names_a_recalled_line_after_its_errors_section(page: &Page) -> Result<(), String> {
+    let rules = ["24/11: An S3 HeadObject 403 does not prove denied uploads.", "A line with no date and no known section."];
+    page.show(&demo()?)?;
+    page.deliver(json!({"type": "patch", "meta": {"ready": true, "recalledRules": rules, "recalledRuleSections": {rules[0]: "Before I say it"}}}))?;
+
+    page.click("#session .card[data-card=RAG]")?;
+
+    same(&page.dump()?["capability"]["rows"], json!([["Before I say it"], ["ERRORS line"]]), "each line named after its section")
+}
+
 fn copies_the_session_id_through_the_core(page: &Page) -> Result<(), String> {
     loaded(page)?;
 
@@ -671,7 +681,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 33] = [
+const TESTS: [(&str, Test); 34] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -694,6 +704,7 @@ const TESTS: [(&str, Test); 33] = [
     ("opens a capability list and narrows it to what is typed", opens_a_capability_list_and_narrows_it_to_what_is_typed),
     ("leaves the provider's skills out of the commands", leaves_the_providers_skills_out_of_the_commands),
     ("opens an MD file from its list", opens_an_md_file_from_its_list),
+    ("names a recalled line after its ERRORS section", names_a_recalled_line_after_its_errors_section),
     ("copies the session ID through the core", copies_the_session_id_through_the_core),
     ("opens the settings on the session tab and asks the core for the rest", opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest),
     ("shows the accounts and Qwen the core sends", shows_the_accounts_and_qwen_the_core_sends),
