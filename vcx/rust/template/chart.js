@@ -97,7 +97,8 @@
     return element;
   }
 
-  // One chart per chat stays above the transcript, live; the same chart pinned again comes off.
+  // One chart per chat stays above the transcript, live; the same chart pinned again comes off (the pin() of the
+  // WT-119 template, the block a frame).
   function toggle(id) {
     pinned = pinned === id ? null : id;
     const area = strip();

@@ -43,6 +43,8 @@ const WITHOUT_POLICY: &str = "control=no-policy";
 const TOUCH_GUARD: Duration = Duration::from_millis(600);
 /// WebKit sends the web process one move at a time; the last ones arrive after the loop that made them.
 const MOVES_SETTLE: Duration = Duration::from_millis(300);
+/// How far from the plot's top left corner the hover legend may sit: the template places it 2 px in.
+const LEGEND_INSET: f64 = 4.0;
 /// How long WebKit is given to tell the page its window became active or inactive.
 const ACTIVATION_SETTLE: Duration = Duration::from_millis(200);
 const FULL_PRESSURE: f32 = 1.0;
@@ -215,10 +217,16 @@ impl Page {
 
     /// Shows one answer holding `markdown`, as the session hands it over, and waits for its chart frames to say hello.
     fn answer(&self, markdown: &str, frames: usize) -> Result<(), String> {
+        self.turn(None, markdown, frames)
+    }
+
+    /// Shows one turn: `question`, when given, heads it as the user's row, then the answer holding `markdown`.
+    fn turn(&self, question: Option<&str>, markdown: &str, frames: usize) -> Result<(), String> {
         self.serial.set(self.serial.get() + 1);
         let html = vcx_model::markdown::to_html(markdown);
+        let asked = question.map(|text| json!({"id": "R0", "kind": "user", "items": [{"id": "u0", "type": "userMessage", "content": [{"type": "text", "text": text}]}]}));
         let row = json!({"id": "R1", "kind": "assistant", "items": [{"id": "a1", "type": "agentMessage", "html": html, "provider": "Claude", "endedTurn": true}]});
-        let message = json!({"type": "full", "serial": self.serial.get(), "meta": {"ready": true}, "rows": [row]});
+        let message = json!({"type": "full", "serial": self.serial.get(), "meta": {"ready": true}, "rows": asked.into_iter().chain([row]).collect::<Vec<_>>()});
         self.webview.evaluate_script(&bridge::deliver(&message)).map_err(|error| error.to_string())?;
         self.until("the chart frames to say hello", "document.querySelectorAll('.chart iframe[data-heard]').length", |count| count.as_u64() >= Some(frames as u64)).map(drop)
     }
@@ -503,11 +511,13 @@ fn shows_the_value_under_the_pointer(page: &Page) -> Result<(), String> {
     let legend = page.read_until(FRAME, ".vcx-plot .legend", |read| texts(read).concat().contains("112"))?;
     let shown = page.read(FRAME, ".vcx-plot")?;
     check(texts(&legend) == ["Close 112.00"], format!("the legend shows the hovered day's value: {legend}"))?;
+    let corner = first_box(&legend).ok_or("no legend box")?;
+    check((corner[0] - plot[0]).abs() <= LEGEND_INSET && (corner[1] - plot[1]).abs() <= LEGEND_INSET, format!("the legend sits at the plot's top left (WT-012's legend): legend {corner:?}, plot {plot:?}"))?;
     check(items(&shown)[0]["className"].as_str().unwrap_or_default().contains("hover"), "the legend is shown")
 }
 
 fn pins_a_chart_above_the_chat(page: &Page) -> Result<(), String> {
-    page.answer("```chart pin\n<script>vcx.chart({ kind: 'cards', title: 'Pinned', data: [{ label: 'Open', value: 7 }] })</script>\n```\n", 2)?;
+    page.turn(Some("Pin it"), "```chart pin\n<script>vcx.chart({ kind: 'cards', title: 'Pinned', data: [{ label: 'Open', value: 7 }] })</script>\n```\n", 2)?;
 
     let pinned = page.read_until("#chart-pin iframe", ".vcx-title", |read| texts(read) == ["Pinned"])?;
     let strip = page.box_of("#chart-pin")?;
@@ -520,7 +530,15 @@ fn pins_a_chart_above_the_chat(page: &Page) -> Result<(), String> {
     page.eval("(() => { const transcript = document.getElementById('transcript'); document.getElementById('rows').style.minHeight = '3000px'; transcript.scrollTop = transcript.scrollHeight; return 0 })()")?;
     let scrolled = page.box_of("#chart-pin")?;
     check((scrolled[1] - transcript[1]).abs() <= 1.0, format!("the pinned chart stays at the top once the chat scrolls: {scrolled:?}"))?;
-    page.eval("(() => { document.getElementById('rows').style.minHeight = ''; return 0 })()")?;
+    check(scrolled[2] >= transcript[2] - 1.0, format!("the strip spans the transcript, so the chat scrolls under it, never beside it: strip {scrolled:?}, transcript {transcript:?}"))?;
+    let shadow = page.eval("getComputedStyle(document.querySelector('#chart-pin .chart')).boxShadow")?;
+    check(shadow.as_str().is_some_and(|shadow| shadow != "none"), format!("the pinned block casts its shadow over the chat: {shadow}"))?;
+    // An unshown window runs no animation: the question's entrance (rise, 6 px down) is brought to its end first.
+    page.eval("(() => { document.getElementById('rows').style.minHeight = ''; const transcript = document.getElementById('transcript'); document.querySelector('.turn').style.minHeight = '3000px'; transcript.scrollTop = 600; document.getAnimations().forEach(animation => Number.isFinite(animation.effect.getComputedTiming().endTime) && animation.finish()); return 0 })()")?;
+    let strip = page.box_of("#chart-pin")?;
+    let heading = page.box_of(".turn > .row.heading")?;
+    check((heading[1] - (strip[1] + strip[3])).abs() <= 1.0, format!("the turn's sticky question stops under the pinned chart: heading {heading:?}, strip {strip:?}"))?;
+    page.eval("(() => { document.querySelector('.turn').style.minHeight = ''; document.getElementById('transcript').scrollTop = 0; return 0 })()")?;
     let button = page.box_of(".prose .chart .chart-button.pin")?;
     input::click(&page.webview, button[0] + button[2] / 2.0, button[1] + button[3] / 2.0)?;
     page.until("the pin to come off", "document.getElementById('chart-pin').hidden", |hidden| hidden == true).map(drop)
@@ -542,7 +560,23 @@ fn enlarges_a_chart_on_a_double_click(page: &Page) -> Result<(), String> {
     page.until("the enlarged chart to zoom out and go", "!document.querySelector('.chart-zoom')", |gone| gone == true).map(drop)
 }
 
+/// The Nasdaq symbol chart, its two vcx.live feeds fetched by the core from the live API. It reaches the network,
+/// so it runs only when asked: `VCX_CHARTS_LIVE=1`.
+fn draws_a_nasdaq_symbol_from_the_live_api(page: &Page) -> Result<(), String> {
+    page.answer("```chart\n<script>vcx.chart({ symbol: 'NVDA' }).then(c => setInterval(() => { document.body.dataset.points = c.series.data().length }, 200))</script>\n```\n", 1)?;
+
+    let value = page.read_until(FRAME, ".vcx-value", |read| texts(read).concat().starts_with('$'))?;
+    let plot = page.read_until(FRAME, ".vcx-plot", |read| read["data"]["points"].as_str().is_some_and(|points| points != "0"))?;
+    let note = page.read(FRAME, ".vcx-note")?;
+    let feeds = page.feeds.count();
+
+    println!("  NVDA {} | {} | {} points | {feeds} feeds", texts(&value).concat(), texts(&note).concat(), plot["data"]["points"]);
+    check(feeds == 2, format!("the chart and the quote are two live feeds: {feeds}"))
+}
+
 type Test = fn(&Page) -> Result<(), String>;
+
+const LIVE_TESTS: [(&str, Test); 1] = [("draws a Nasdaq symbol from the live API", draws_a_nasdaq_symbol_from_the_live_api)];
 
 const TESTS: [(&str, Test); 10] = [
     ("draws a time series", draws_a_time_series),
@@ -563,7 +597,8 @@ fn main() -> ExitCode {
     let page = Page::open(&event_loop);
     let filter: Vec<String> = std::env::args().skip(1).filter(|argument| !argument.starts_with('-')).collect();
     let mut failed = 0;
-    for (name, test) in TESTS {
+    let live = std::env::var("VCX_CHARTS_LIVE").is_ok_and(|value| value == "1");
+    for (name, test) in TESTS.into_iter().chain(if live { LIVE_TESTS.to_vec() } else { Vec::new() }) {
         if !filter.is_empty() && !filter.iter().any(|wanted| name.contains(wanted.as_str())) {
             continue;
         }

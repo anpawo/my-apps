@@ -16,11 +16,16 @@
 .chart-button.pin svg { fill: currentColor; stroke: none; }
 .chart-button.on { color: var(--ink, #1d1d1f); }
 
+/* The pinned chart is the pinned block at the top of a scrolling chat (new template WT-119), scoped to #chart-pin
+   in the transcript; the frame itself is held to PINNED_MAX_PX, so the block is not cut. */
+#chart-pin { --pin-max: none; }
+/* ---- Effect: pinned block at the top of a scrolling chat. Copy from here ---- */
 #chart-pin { position: sticky; top: calc(-1 * var(--transcript-top, 0px)); z-index: 3; margin: calc(-1 * var(--transcript-top, 0px)) -24px 12px; padding: 8px 24px; background: var(--page); }
-/* A turn's sticky heading stops under the pinned chart instead of behind it. */
-#transcript:has(> #chart-pin:not([hidden])) .turn > .row.heading { top: calc(var(--chart-pin-height, 0px) - var(--transcript-top, 0px)); }
 #chart-pin[hidden] { display: none; }
-#chart-pin .chart { max-width: var(--column, 760px); margin: 0 auto; box-shadow: 0 3px 8px rgb(0 0 0 / 0.08); }
+#chart-pin > * { max-width: var(--column, 760px); max-height: var(--pin-max, 280px); overflow: hidden; margin: 0 auto; box-shadow: var(--pin-shadow, 0 3px 8px rgb(0 0 0 / .08)); }
+/* A turn's sticky heading stops under the pinned block instead of behind it. */
+#transcript:has(> #chart-pin:not([hidden])) .turn > .row.heading { top: calc(var(--chart-pin-height, 0px) - var(--transcript-top, 0px)); }
+/* ---- End of effect ---- */
 #chart-pin iframe { max-height: 280px; }
 
 /* The enlarged chart is the zoom popup (WT-118): its veil and its light glass, scoped to the overlay. */

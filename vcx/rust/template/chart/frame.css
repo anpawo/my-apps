@@ -11,11 +11,15 @@ body { font: 13px/1.4 -apple-system, system-ui, Inter, sans-serif; color: #09090
 .vcx-down { color: #dc2626; }
 .vcx-note { color: #71717a; font-size: 12px; margin-left: auto; }
 .vcx-plot { position: relative; cursor: crosshair; }
+/* The hovered values: the legend of the chart tooltip (WT-012), scoped to .vcx-plot; the library draws the crosshair. */
+/* ---- Effect: chart tooltip. Copy from here ---- */
 .vcx-plot .legend { position: absolute; left: 2px; top: 0; z-index: 3; pointer-events: none; font-size: 11px; white-space: nowrap; opacity: 0; transition: opacity 120ms ease-out; }
 .vcx-plot.hover .legend { opacity: 1; }
-.vcx-plot .legend .n { color: #71717a; margin-left: 8px; }
+.vcx-plot .legend .n { color: var(--muted, #71717a); margin-left: 8px; }
 .vcx-plot .legend .n:first-child { margin-left: 0; }
 .vcx-plot .legend b { font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .vcx-plot .legend { transition-duration: 100ms; } }
+/* ---- End of effect ---- */
 .vcx-days { position: relative; height: 22px; overflow: hidden; }
 .vcx-days .day { position: absolute; top: 5px; border-top: 1px solid #d4d4d8; padding-top: 2px; text-align: center; font-size: 11px; color: #71717a; white-space: nowrap; overflow: hidden; }
 .vcx-days .day::before, .vcx-days .day::after { content: ''; position: absolute; top: -5px; width: 1px; height: 5px; background: #d4d4d8; }
