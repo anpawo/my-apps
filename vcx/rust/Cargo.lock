@@ -2536,6 +2536,7 @@ name = "vcx-shell"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "libc",
  "notify",
  "objc2",
  "objc2-app-kit",

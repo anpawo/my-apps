@@ -27,6 +27,7 @@ harness = false
 
 [dependencies]
 block2.workspace = true
+libc.workspace = true
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSMenu", "NSMenuItem", "NSPasteboard"] }
 objc2-foundation = { workspace = true, features = ["NSRunLoop"] }

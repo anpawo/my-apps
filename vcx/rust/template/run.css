@@ -1,0 +1,28 @@
+/* The run panel: the bar dialog (WT-072, its classes in chrome.css) placed above the composer as the permission prompt
+   is. Its output box, its input field (the ring of the text area that grows, WT-035) and a code block's Run button
+   have no template and are drawn in the dialog's style. */
+#run { position: relative; z-index: auto; top: auto; left: auto; translate: none; width: 100%; margin-bottom: 10px;
+  font: 13px/1.45 -apple-system, system-ui, sans-serif; }
+#run .bar { min-height: 0; }
+#run .bar p { font-size: 16px; line-height: 24px; }
+#run .bar p.done { color: var(--ready, #34c759); }
+#run .bar p.failed { color: var(--failed, #d93025); }
+#run pre { margin: 0; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#run .command { font-weight: 500; }
+#run .output { max-height: 220px; overflow-y: auto; padding: 8px; border-radius: 8px; background: rgb(0 0 0 / .045); }
+#run .output[hidden] { display: none; }
+#run .foot { align-items: center; }
+#run .foot > [hidden] { display: none; }
+#run .where { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(28 33 39 / .5); font-size: 11px; }
+#run .line { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid #c5cbd3; border-radius: 10px; background: rgb(255 255 255 / .6); color: var(--ink);
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace; outline: none;
+  transition: border-color 150ms cubic-bezier(.4, 0, .2, 1), box-shadow 150ms cubic-bezier(.4, 0, .2, 1); }
+#run .line:focus { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
+#run .ub { height: 28px; font: 500 13px -apple-system, system-ui, sans-serif; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { #run .line { transition-duration: 1ms; } }
+
+/* New, beside a code block's copy button and in its look: the play button of a shell block. */
+figure.code button.run { width: 26px; height: 22px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+figure.code button.run::before { content: "▶"; font-size: 10px; }
+figure.code button.run:hover { background: rgb(0 0 0 / 0.06); }
+code.run-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }

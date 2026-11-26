@@ -11,6 +11,7 @@ pub mod link;
 pub mod menu;
 pub mod pane;
 pub mod progress;
+pub mod run;
 pub mod session;
 pub mod snapshot;
 pub mod summary;

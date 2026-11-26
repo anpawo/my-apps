@@ -259,6 +259,50 @@ impl Page {
     }
 }
 
+/// What the run panel shows, read from the live page; `null` while it is closed.
+const RUN_PANEL: &str = r#"(() => {
+  const card = document.getElementById('run');
+  if (!card) return null;
+  const shown = node => !node.hidden;
+  const field = card.querySelector('.line');
+  return {
+    title: card.querySelector('.bar p').textContent,
+    command: card.querySelector('.command').textContent,
+    output: card.querySelector('.output').textContent,
+    note: shown(card.querySelector('.where')) ? card.querySelector('.where').textContent : null,
+    field: shown(field) ? field.type : null,
+    typed: field.value,
+    focused: document.activeElement === field,
+    buttons: [...card.querySelectorAll('.foot .ub')].filter(shown).map(button => button.textContent),
+  };
+})()"#;
+
+/// A reply as markdown.rs draws it: a shell block, a block to paste and an inline sudo command.
+const RUNNABLE_REPLY: &str = r#"<div class="prose"><figure class="code"><figcaption><span class="language">bash</span><button type="button" class="copy"></button></figcaption><pre><code class="language-bash">ls -la</code></pre></figure><figure class="code"><figcaption><span class="language">Code</span><button type="button" class="copy"></button></figcaption><pre><code>Dear Bas,</code></pre></figure><p>Then <code>sudo reboot</code>.</p></div>"#;
+
+impl Page {
+    /// Puts `html` in the transcript and scrolls the part `selector` names to the top: in the small test window the
+    /// footer covers the rest.
+    fn show(&self, html: &str, selector: &str) -> Result<(), String> {
+        let script = format!("(() => {{ const rows = document.getElementById('rows'); rows.insertAdjacentHTML('beforeend', {} + '<div style=\"height: 2000px\"></div>'); rows.querySelector({selector:?}).scrollIntoView({{ block: 'start' }}); }})()", json!(html));
+        self.eval(&script).map(drop)
+    }
+
+    fn run_panel(&self, what: &str, done: impl Fn(&Value) -> bool) -> Result<Value, String> {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let panel = self.eval(RUN_PANEL)?;
+            if done(&panel) {
+                return Ok(panel);
+            }
+            if Instant::now() > deadline {
+                return Err(format!("{what}: the run panel is {panel}"));
+            }
+            spin();
+        }
+    }
+}
+
 fn full(meta: Value, rows: Value) -> Value {
     json!({"type": "full", "serial": 1, "meta": meta, "rows": rows, "draft": []})
 }
@@ -599,9 +643,70 @@ fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), St
     check(page.next("send")?["text"] == "q仮名", format!("sent other text: {clicked}"))
 }
 
+fn offers_a_shell_block_and_runs_it_only_once_run_is_clicked(page: &Page) -> Result<(), String> {
+    page.deliver(full(json!({"ready": true, "cwd": "/Users/someone/work"}), json!([])))?;
+    page.show(RUNNABLE_REPLY, "figure.code")?;
+    page.wait("the shell block's Run button", |page| page.eval("document.querySelectorAll('#rows button.run').length").ok() == Some(json!(1)))?;
+
+    page.click("#rows button.run")?;
+
+    let offered = page.run_panel("the offer", |panel| !panel.is_null())?;
+    check(offered["title"] == "Run this command?" && offered["command"] == "ls -la" && offered["note"] == "Runs in ~/work on its own terminal", format!("{offered}"))?;
+    check(offered["buttons"] == json!(["Cancel", "Run"]) && page.quiet("run"), format!("ran before Run was clicked: {offered}"))?;
+    page.click("#run .ub.primary")?;
+    let run = page.next("run")?;
+    check(run["command"] == "ls -la" && run["id"].is_string(), format!("posted {run}"))?;
+    page.run_panel("the run to start", |panel| panel["buttons"] == json!(["Stop"]) && panel["field"] == "text").map(drop)
+}
+
+fn sends_a_password_line_to_the_run_only_and_masks_the_field(page: &Page) -> Result<(), String> {
+    page.eval("vcxRun.offer('sudo -k true')")?;
+    page.click("#run .ub.primary")?;
+    let id = page.next("run")?["id"].clone();
+    page.deliver(json!({"type": "run", "id": id, "state": "running", "output": "Password:", "hidden": true, "code": null}))?;
+    let asking = page.run_panel("the password field", |panel| panel["field"] == "password")?;
+    check(asking["title"] == "Running · the command asks for a password" && asking["focused"] == true, format!("{asking}"))?;
+
+    page.keys("hunter2")?;
+    page.press(Key::Return, NONE)?;
+
+    let line = page.next("runInput")?;
+    check(line["id"] == id && line["line"] == "hunter2", format!("posted {line}"))?;
+    check(page.run_panel("the field to clear", |panel| panel["typed"] == "")?["focused"] == true, "the field kept the focus")?;
+    let leaks: Vec<Value> = page.posts.lock().unwrap().iter().filter(|post| post.to_string().contains("hunter2")).cloned().collect();
+    check(leaks.is_empty() && page.posted("send").is_empty(), format!("the password went out in {leaks:?}"))
+}
+
+fn shows_the_exit_status_and_closes_on_escape_once_finished(page: &Page) -> Result<(), String> {
+    page.eval("vcxRun.offer('make test')")?;
+    page.click("#run .ub.primary")?;
+    let id = page.next("run")?["id"].clone();
+    page.eval("vcxRun.offer('make clean')")?;
+    check(page.run_panel("the running command", |panel| !panel.is_null())?["command"] == "make test", "an offer replaced a running command")?;
+
+    page.deliver(json!({"type": "run", "id": id, "state": "finished", "output": "1 failed", "hidden": false, "code": 3}))?;
+
+    let finished = page.run_panel("the exit status", |panel| panel["title"] == "Failed · exit 3")?;
+    check(finished["buttons"] == json!(["Close"]) && finished["field"].is_null() && finished["output"] == "1 failed", format!("{finished}"))?;
+    page.press(Key::Escape, NONE)?;
+    page.run_panel("the panel to close", Value::is_null)?;
+    check(page.state("the caret back in the composer", |state| state["focused"] == true).is_ok(), "the composer lost the focus")
+}
+
+fn opens_the_panel_from_an_inline_sudo_command_only(page: &Page) -> Result<(), String> {
+    page.show(RUNNABLE_REPLY, "p")?;
+    page.wait("the sudo link", |page| page.eval("document.querySelectorAll('#rows code.run-link').length").ok() == Some(json!(1)))?;
+
+    page.click("#rows code.run-link")?;
+
+    let offered = page.run_panel("the offer", |panel| !panel.is_null())?;
+    check(offered["command"] == "sudo reboot", format!("{offered}"))?;
+    check(page.eval("[...document.querySelectorAll('#rows figure.code')].map(figure => Boolean(figure.querySelector('button.run')))")? == json!([true, false]), "a block to paste got a Run button")
+}
+
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 24] = [
+const TESTS: [(&str, Test); 28] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
@@ -626,6 +731,10 @@ const TESTS: [(&str, Test); 24] = [
     ("pastes an image through the core and shows it in its chip", pastes_an_image_through_the_core_and_shows_it_in_its_chip),
     ("flies the sent message into its new bubble only", flies_the_sent_message_into_its_new_bubble_only),
     ("keeps marked text, paste, undo and focus together", keeps_marked_text_paste_undo_and_focus_together),
+    ("offers a shell block and runs it only once Run is clicked", offers_a_shell_block_and_runs_it_only_once_run_is_clicked),
+    ("sends a password line to the run only and masks the field", sends_a_password_line_to_the_run_only_and_masks_the_field),
+    ("shows the exit status and closes on Escape once finished", shows_the_exit_status_and_closes_on_escape_once_finished),
+    ("opens the panel from an inline sudo command only", opens_the_panel_from_an_inline_sudo_command_only),
 ];
 
 fn main() -> ExitCode {

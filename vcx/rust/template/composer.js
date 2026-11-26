@@ -750,6 +750,7 @@
   }
 
   function receive(message) {
+    window.vcxRun?.receive(message);
     if (message.type === 'full' || message.type === 'patch') {
       track(message);
       // After app.js has drawn the rows of this message.
