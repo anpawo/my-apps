@@ -15,6 +15,11 @@ const VISIT_LIMIT: usize = 20_000;
 const SKIPPED_FOLDERS: [&str; 8] = [".git", "node_modules", "target", ".build", "dist", "build", "__pycache__", ".venv"];
 /// The page refuses bigger pictures (`IMAGE_MAX_BYTES` in `composer.js`).
 const IMAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// The Rust app's state folder, as `vcx-config` names it (`STATE_VARIABLE`, `STATE_DEFAULT`), which `vcx-shell` does
+/// not depend on; pasted pictures live under it, never in the Swift app's folders.
+const STATE_VARIABLE: &str = "VCX_RUST_STATE_HOME";
+const STATE_DEFAULT: &str = ".local/state/vcx-rust";
+const ATTACHMENTS: &str = "attachments";
 
 #[derive(Debug, PartialEq)]
 pub struct Found {
@@ -119,6 +124,35 @@ pub fn dropped(paths: &[PathBuf], cwd: &Path) -> Value {
     json!({"type": "attach", "items": items})
 }
 
+/// Where pasted pictures are written.
+pub fn attachments_folder() -> PathBuf {
+    let state = std::env::var_os(STATE_VARIABLE).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let home = || std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join(STATE_DEFAULT);
+    state.unwrap_or_else(home).join(ATTACHMENTS)
+}
+
+/// The page's answer to a composer request the core serves: `files` (an `@` word's list, from `cwd`), `image` (a pasted
+/// picture, written into `attachments`) and `dropped` (paths dropped on the window). It reads the disk: call it off
+/// the main thread. `None` for any other message.
+pub fn answer(message: &Value, cwd: &Path, attachments: &Path) -> Option<Value> {
+    let text = |key: &str| message.get(key).and_then(Value::as_str);
+    match text("type")? {
+        "files" => {
+            let found = if cwd.is_dir() { find_files(cwd, text("query").unwrap_or_default()) } else { Vec::new() };
+            Some(files_reply(&message["id"], &found))
+        }
+        "image" => Some(match save_image(attachments, text("name").unwrap_or_default(), text("data")?) {
+            Ok(path) => image_attached(&message["id"], &path),
+            Err(problem) => json!({"type": "notice", "text": problem}),
+        }),
+        "dropped" => {
+            let paths: Vec<PathBuf> = message.get("paths")?.as_array()?.iter().filter_map(Value::as_str).map(PathBuf::from).collect();
+            (!paths.is_empty()).then(|| dropped(&paths, cwd))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +222,27 @@ mod tests {
 
         assert!(saved.is_err());
         fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn answers_files_images_and_drops_and_leaves_other_messages() {
+        let (root, attachments) = (scratch("answer"), scratch("attachments"));
+        fs::write(root.join("notes.md"), "").unwrap();
+
+        let files = answer(&json!({"type": "files", "id": 2, "query": "not"}), &root, &attachments).unwrap();
+        let image = answer(&json!({"type": "image", "id": 3, "name": "shot.png", "data": "iVBORw0KGgo="}), &root, &attachments).unwrap();
+        let refused = answer(&json!({"type": "image", "id": 4, "name": "shot.png", "data": ""}), &root, &attachments).unwrap();
+        let drop = answer(&json!({"type": "dropped", "paths": [root.join("notes.md")]}), &root, &attachments).unwrap();
+        let nowhere = answer(&json!({"type": "files", "id": 5, "query": ""}), Path::new(""), &attachments).unwrap();
+
+        assert_eq!((files["id"].clone(), files["files"][0]["path"].clone()), (json!(2), json!("notes.md")));
+        assert!(image["items"][0]["path"].as_str().unwrap().starts_with(attachments.to_str().unwrap()), "{image}");
+        assert_eq!((image["type"].clone(), image["items"][0]["id"].clone(), refused["type"].clone()), (json!("attach"), json!(3), json!("notice")));
+        assert_eq!(drop["items"][0]["relative"], "notes.md");
+        assert_eq!(nowhere["files"], json!([]));
+        assert_eq!(answer(&json!({"type": "draft"}), &root, &attachments), None);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(attachments).unwrap();
     }
 
     #[test]
