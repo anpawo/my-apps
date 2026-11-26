@@ -453,17 +453,19 @@ type Test = fn(&Page) -> Result<(), String>;
 
 const THREAD: &str = "019a7c3e-thread";
 
-/// What a Claude session reports it loaded, as the worker's snapshot carries it. The view hands these to the page
-/// once its page keys include them (asked of Rust transcript), so the tests give them through the meta.
+/// What a Claude session reports it loaded, as the worker's snapshot carries it; the view passes it to the page.
 fn loaded(page: &Page) -> Result<(), String> {
-    page.show(&demo()?)?;
-    let meta = json!({"model": "claude-fable-5-2", "providerLabel": "Claude", "ready": true, "threadID": THREAD,
+    let mut snapshot = demo()?;
+    let reported = json!({"threadID": THREAD,
         "hooks": ["gateguard.py · PreToolUse · trusted · Checks a tool call before it runs.", "gateguard.py · UserPromptSubmit · configured · Checks a prompt before it is sent.",
             "memory.sh · SessionStart · disabled · Loads context when a session starts."],
         "skills": ["deep", "council"], "mcp": ["lightpanda · connected · Tools: goto"], "instructions": ["~/.claude/CLAUDE.md", "~/self/my-apps/CLAUDE.md"],
         "recalledRules": ["24/11: An S3 HeadObject 403 does not prove denied uploads."],
         "providerCommands": [{"name": "/council", "detail": "Convenes a council"}, {"name": "/deep", "detail": "Deep mode"}], "builtinCommands": []});
-    page.deliver(json!({"type": "patch", "meta": meta}))
+    for (key, value) in reported.as_object().ok_or("the report is an object")? {
+        snapshot[key] = value.clone();
+    }
+    page.show(&snapshot).map(drop)
 }
 
 fn names(rows: &Value) -> Value {
