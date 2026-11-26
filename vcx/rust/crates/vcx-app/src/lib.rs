@@ -1,6 +1,7 @@
 pub mod app;
 pub mod control;
 pub mod fleet;
+mod folder;
 pub mod metrics;
 mod requests;
 pub mod settings;

@@ -12,6 +12,8 @@ use vcx_cli::control;
 use vcx_proto::Client;
 
 const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
+/// The Rust worker as the workspace builds it (`cargo build -p vcx-worker`).
+const RUST_WORKER: &str = "../../target/debug/vcx-worker";
 const PRIVATE_FOLDER: u32 = 0o700;
 const WAIT: Duration = Duration::from_secs(40);
 const POLL: Duration = Duration::from_millis(100);
@@ -29,6 +31,11 @@ impl Run {
             eprintln!("skipped: no Swift VCX binary (VCX_SWIFT_BINARY or the installed app) to run sessions on");
             return None;
         };
+        Some(Self::on(name, &worker))
+    }
+
+    /// The app with its sessions on `worker`.
+    fn on(name: &str, worker: &Path) -> Self {
         // Unix socket paths are capped near 104 bytes, so the homes sit in /tmp.
         let root = PathBuf::from(format!("/tmp/vcx-rust-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -41,7 +48,7 @@ impl Run {
         fs::write(&command, json!(["/usr/bin/python3", fixture]).to_string()).unwrap();
         let settings = json!({"worker": worker, "workerArguments": ["--runtime-test", "--runtime-fixture-command", command]});
         fs::write(root.join("config/settings.json"), settings.to_string()).unwrap();
-        Some(Self { root, app: None })
+        Self { root, app: None }
     }
 
     fn folder(&self, name: &str) -> PathBuf {
@@ -142,6 +149,11 @@ fn swift_binary() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+fn rust_worker() -> Option<PathBuf> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(RUST_WORKER);
+    path.is_file().then(|| path.canonicalize().unwrap())
+}
+
 fn windows(report: &Value) -> &Vec<Value> {
     report["windows"].as_array().unwrap()
 }
@@ -211,6 +223,26 @@ fn finds_its_sessions_again_after_the_app_is_killed() {
 }
 
 #[test]
+fn runs_its_sessions_on_the_rust_worker_and_finds_them_again_after_a_crash() {
+    let Some(worker) = rust_worker() else {
+        return eprintln!("skipped: no Rust worker; build it with cargo build -p vcx-worker");
+    };
+    let mut run = Run::on("rustworker", &worker);
+    let folder = run.folder("rust");
+    run.start(&["--cwd", folder.to_str().unwrap(), "on the rust worker"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    let socket = PathBuf::from(windows(&before)[0]["socket"].as_str().unwrap());
+    let build = Client::connect(&socket, |_| {}).unwrap().hello().unwrap().build;
+    run.kill_app();
+
+    run.start(&[]);
+
+    let after = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
+    assert!(build.starts_with("rust-"), "the session runs on {build}");
+    assert_eq!((&windows(&after)[0]["sessionId"], &windows(&after)[0]["cwd"]), (&windows(&before)[0]["sessionId"], &json!(folder)));
+}
+
+#[test]
 fn reattaches_a_running_session_even_without_its_window_list() {
     let Some(mut run) = Run::new("unlisted") else { return };
     let folder = run.folder("unlisted");
@@ -252,7 +284,7 @@ fn restores_each_window_frame_on_the_next_launch() {
     let folder = run.folder("framed");
     run.start(&["--cwd", folder.to_str().unwrap()]);
     let id = run.wait_for(|report| windows(report).len() == 1)["windows"][0]["sessionId"].as_str().unwrap().to_owned();
-    let placed = run.ask(&json!({"frame": {"to": id, "frame": [120.0, 140.0, 900.0, 640.0]}})).unwrap();
+    let placed = run.ask(&json!({"frame": {"to": id, "frame": [120.0, 140.0, 1020.0, 640.0]}})).unwrap();
     let saved = || fs::read_to_string(run.root.join("state/windows.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let deadline = Instant::now() + WAIT;
     while saved().is_none_or(|list| list[0]["frame"] != placed["frame"]) {
@@ -265,7 +297,7 @@ fn restores_each_window_frame_on_the_next_launch() {
 
     let after = run.wait_for(|report| windows(report).len() == 1);
     assert_eq!(windows(&after)[0]["frame"], placed["frame"]);
-    assert_eq!(placed["frame"].as_array().unwrap()[2..], [json!(900.0), json!(640.0)]);
+    assert_eq!(placed["frame"].as_array().unwrap()[2..], [json!(1020.0), json!(640.0)]);
 }
 
 #[test]
@@ -375,14 +407,14 @@ fn reads_its_settings_file_and_says_what_is_wrong_in_it() {
     let Some(mut run) = Run::new("settings") else { return };
     let folder = run.folder("settings");
     let mut settings: Value = serde_json::from_str(&fs::read_to_string(run.root.join("config/settings.json")).unwrap()).unwrap();
-    settings["windowSize"] = json!([700, 500]);
+    settings["windowSize"] = json!([1040, 600]);
     settings["template"] = json!(run.root.join("no-such-template"));
     fs::write(run.root.join("config/settings.json"), settings.to_string()).unwrap();
 
     run.start(&["--cwd", folder.to_str().unwrap()]);
 
     let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["page"]["notice"].is_string());
-    assert_eq!(windows(&report)[0]["frame"].as_array().unwrap()[2..], [json!(700.0), json!(500.0)]);
+    assert_eq!(windows(&report)[0]["frame"].as_array().unwrap()[2..], [json!(1040.0), json!(600.0)]);
     assert!(windows(&report)[0]["page"]["notice"].as_str().unwrap().contains("built-in template"), "{:#}", windows(&report)[0]["page"]);
 }
 

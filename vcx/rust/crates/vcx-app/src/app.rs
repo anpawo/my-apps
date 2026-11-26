@@ -5,7 +5,7 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, metrics, requests, tasks};
+use crate::{fleet, folder, metrics, requests, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -33,6 +33,8 @@ const SAVE_DELAY: Duration = Duration::from_millis(500);
 const PRESENCE_DELAY: Duration = Duration::from_millis(250);
 pub const ALREADY_RUNNING: &str = "Another VCX Rust app holds this state folder.";
 const TITLE_SUFFIX: &str = " · VCX Rust";
+/// Swift `main.swift`: 780 for the transcript and the composer, 200 for the task bar, which always shows.
+const MIN_WINDOW_SIZE: (f64, f64) = (980.0, 560.0);
 const EXIT_FAILED: i32 = 1;
 /// A page still loading never answers a script: a report gives up on it after this long and says so.
 const PAGE_READ_WAIT: Duration = Duration::from_secs(2);
@@ -66,6 +68,8 @@ pub enum AppEvent {
     ReportDue(u64),
     /// Time to read the task files again.
     Tasks,
+    /// The folder picked in window `key`'s panel.
+    Chosen(u64, PathBuf),
 }
 
 pub(crate) struct Win {
@@ -268,7 +272,7 @@ impl App {
 
     fn open_window(&mut self, target: &EventLoopWindowTarget<AppEvent>, spec: Spec) {
         let (width, height) = spec.frame.map_or(self.settings.window_size, |frame| (frame.width, frame.height));
-        let builder = WindowBuilder::new().with_title(title(&spec.request.cwd)).with_inner_size(LogicalSize::new(width, height)).with_visible(!self.windowless).with_focused(spec.focus && !self.windowless);
+        let builder = WindowBuilder::new().with_title(title(&spec.request.cwd)).with_inner_size(LogicalSize::new(width, height)).with_min_inner_size(LogicalSize::new(MIN_WINDOW_SIZE.0, MIN_WINDOW_SIZE.1)).with_visible(!self.windowless).with_focused(spec.focus && !self.windowless);
         let window = match builder.build(target) {
             Ok(window) => window,
             Err(error) => return eprintln!("vcx-rust: cannot open a window: {error}"),
@@ -332,6 +336,12 @@ impl App {
                 self.show_tasks();
                 None
             }
+            AppEvent::Chosen(key, path) => {
+                if let Some(win) = self.windows.get(&key) {
+                    win.pane.tell(Message::Act { action: "command", params: json!({"text": folder::command(&path)}) });
+                }
+                None
+            }
         }
     }
 
@@ -356,6 +366,12 @@ impl App {
             }
             Note::Title(text) => win.window.set_title(&text),
             Note::Focus(id) => self.bring(&id),
+            // A check never opens a panel.
+            Note::ChooseDirectory if self.windowless => {}
+            Note::ChooseDirectory => {
+                let proxy = self.proxy.clone();
+                folder::choose(&win.cwd, move |path| drop(proxy.send_event(AppEvent::Chosen(key, path))));
+            }
             Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading => {}
         }
     }

@@ -10,8 +10,10 @@ name = "vcx-rust"
 path = "src/main.rs"
 
 [dependencies]
+block2.workspace = true
 libc.workspace = true
-objc2-foundation.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSSavePanel", "block2"] }
+objc2-foundation = { workspace = true, features = ["NSURL"] }
 serde_json.workspace = true
 tao.workspace = true
 uuid.workspace = true

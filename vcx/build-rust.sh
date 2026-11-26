@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Rust app as "VCX Rust.app", beside the Swift app and never in its place: its own name, bundle id and
-# state folders. --install copies it to ~/Applications under that name; nothing here launches it.
+# state folders. --install copies it to ~/Applications under that name; nothing here launches it. The Rust worker ships
+# beside the app (Contents/MacOS/vcx-worker); settings.json's "worker" picks it, the Swift worker staying the default.
 set -euo pipefail
 cd "$(dirname "$0")"
 name="VCX Rust"
@@ -8,11 +9,12 @@ app="dist/$name.app"
 installed="$HOME/Applications/$name.app"
 [[ "$installed" != *"Vibe Code X.app" ]] || { echo "refusing to install over the Swift app" >&2; exit 1; }
 
-(cd rust && ~/.local/bin/build-stack cargo build --release -j 2 -p vcx-app)
+(cd rust && ~/.local/bin/build-stack cargo build --release -j 2 -p vcx-app -p vcx-worker)
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp rust/target/release/vcx-rust "$app/Contents/MacOS/vcx-rust"
+cp rust/target/release/vcx-worker "$app/Contents/MacOS/vcx-worker"
 cp background.py "$app/Contents/Resources/background.py"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -1)"
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -36,6 +38,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 touch "$app"
+codesign --force --sign - "$app/Contents/MacOS/vcx-worker"
 codesign --force --sign - "$app"
 
 if [[ "${1:-}" == "--install" ]]; then

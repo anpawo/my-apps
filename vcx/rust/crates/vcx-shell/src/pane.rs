@@ -54,6 +54,8 @@ pub enum Note {
     Title(String),
     /// A click on another session's task card: bring that window up.
     Focus(String),
+    /// The folder chip: ask for the session's new folder.
+    ChooseDirectory,
     Closed(String),
 }
 
@@ -241,7 +243,8 @@ impl Pane {
             // The window's own business, wired by Rust app: its title, another window, the quota sheet, the folder panel.
             FromPage::Title { text } => vec![Note::Title(text)],
             FromPage::Focus { id } => vec![Note::Focus(id)],
-            FromPage::Quota | FromPage::ChooseDirectory => Vec::new(),
+            FromPage::ChooseDirectory => vec![Note::ChooseDirectory],
+            FromPage::Quota => Vec::new(),
         }
     }
 
