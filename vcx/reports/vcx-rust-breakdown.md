@@ -114,7 +114,7 @@ Single-leg claims:
 | C1 | Without an Edit menu, ⌘C/⌘V/⌘A do not reach the web view | likely true, not run; the app slice adds the menu | tao 0.38 installs no main menu; wry's parent view forwards keys to `app.mainMenu()` (`wry_web_view_parent.rs:30-35`), read by Claude; Codex undecided |
 | C2 | An unshown window with no size gives a 0×0 view | refuted | tao 0.38 `window_delegate.rs:174-176` defaults to 800×600 |
 | C3 | Sandboxed chart frames fail under a custom scheme | refuted, run (see Outcomes, 26/11) | `tests/charts.rs` in `vcx-shell`: sandboxed `vcx://chart/<id>` frames draw, post to their parent and are refused the network by their own CSP header |
-| C4 | The Swift app can take a session back from the Rust app | supported by code, not run | `main.swift:213-217` closes the window on lease loss through `closing`, so `windowShouldClose` (`main.swift:419`) skips `beginClose`, and `RuntimeRecovery.requestClose`/`remove` run only from the close paths (`main.swift:433,443,495`, `RuntimeClient.swift:227-238`); `main.swift:170-174` reattaches pending entries on a cold launch; update race: `main.swift:215,312,344`, Codex undecided |
+| C4 | The Swift app can take a session back from the Rust app | observed before the fix, gone since `fb40939` (Outcomes, 26/11) | `main.swift:213-217` closes the window on lease loss through `closing`, so `windowShouldClose` (`main.swift:419`) skips `beginClose`, and `RuntimeRecovery.requestClose`/`remove` run only from the close paths (`main.swift:433,443,495`, `RuntimeClient.swift:227-238`); `main.swift:170-174` reattaches pending entries on a cold launch; update race: `main.swift:215,312,344`, Codex undecided |
 | C5 | Only a private occlusion setter keeps a page visible | true for a shown, covered window only | WebKit `PageClientImplMac.mm`: a window that is not visible is hidden before occlusion is consulted; M3 |
 | C6 | Swift workers can connect to a Rust server through `--runtime-url` | refuted, withdrawn by Qwen | no such flag in the Swift sources; the worker is the server |
 | C7 | Muse's three sources for private occlusion settings | weak, said so by Muse | agent-written notes; not needed after M2 |
@@ -207,3 +207,10 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   `cargo test -j 2 --workspace --no-fail-fast` ends with exit 0: 452 tests pass, none fails, one is left out on
   purpose (`measures_thirteen_windows_in_one_process`, a measurement). `vcx-conformance` has 26 cases and both the
   Swift worker and the Rust worker pass all of them.
+- 26/11/2026, observed: C4's takeover test exists and passes (`rust/crates/vcx-conformance/tests/takeover.rs`). A
+  headless frontend of the installed Swift app (`fb40939`) holds a session on a Swift worker, in folders of its own;
+  a second frontend attaches it with `vcx-proto`, the call the Rust app makes; the Swift frontend's entry leaves its
+  recovery list, and the Swift app's cold recovery read finds no session to reopen while the taker goes on with a
+  turn. Against the Swift app built from `1a744b8`, the commit before the fix, the same test fails: the entry is
+  still listed 30 s after the takeover. Not run: the same takeover made by the `vcx-rust` binary itself, and one on
+  a session of his live state. The suite also gained a receipt-expiry case: 27 cases, green on both workers.

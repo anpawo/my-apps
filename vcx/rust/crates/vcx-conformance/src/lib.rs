@@ -3,6 +3,7 @@
 //! (`Sources/VCX/RuntimeServer.swift`). A worker passes when `suite!` is green against it.
 
 pub mod actions;
+pub mod bounds;
 pub mod handshake;
 pub mod held;
 pub mod peer;
@@ -58,6 +59,7 @@ macro_rules! suite {
             held::a_declined_approval_ends_the_turn_without_running_it,
             held::a_turn_stays_open_when_its_frontend_leaves,
             held::the_worker_leaves_once_its_last_session_is_closed,
+            bounds::an_expired_receipt_is_refused_and_does_not_run_again,
         );
     };
     (@each $start:path, $target:path; $($module:ident :: $case:ident),* $(,)?) => {

@@ -26,6 +26,7 @@ pub fn has_exited(directory: &Path) -> bool {
 
 pub struct SwiftWorker {
     process: Process,
+    binary: PathBuf,
     pub directory: PathBuf,
     pub socket: PathBuf,
 }
@@ -37,9 +38,16 @@ impl SwiftWorker {
         let directory = private_folder("interop", name);
         let command = fixture_command(&directory, None);
         let process = Process::watch(launch(&binary, &directory, &command, None), &directory);
-        let worker = Self { process, socket: directory.join(SOCKET), directory };
+        let worker = Self { process, binary, socket: directory.join(SOCKET), directory };
         wait_for_socket(&worker.socket, "the Swift worker never opened its socket");
         Some(worker)
+    }
+
+    /// The same binary in this worker's folders, for the app's other windowless entry points (its headless frontends).
+    pub fn app(&self) -> Command {
+        let mut app = Command::new(&self.binary);
+        isolate(&mut app, &self.directory);
+        app
     }
 
     pub fn pid(&self) -> i64 {
@@ -129,6 +137,8 @@ impl Drop for RustWorker {
 
 const SOCKET: &str = "worker.sock";
 const CONFIG: &str = "config";
+/// The runtime folder inside a worker's folder: recovery entries and frontend tickets live there.
+pub const RUNTIME: &str = "runtime";
 const HOME: &str = "home";
 
 /// A worker process reaped by its own thread, which writes the exit marker.
@@ -184,11 +194,8 @@ fn fixture_command(directory: &Path, history: Option<PathBuf>) -> PathBuf {
 
 fn launch(binary: &Path, directory: &Path, command: &Path, provider: Option<&str>) -> Child {
     let mut worker = Command::new(binary);
-    worker
-        .args(["--runtime-worker", directory.join(SOCKET).to_str().unwrap(), "--runtime-test"])
-        .env("VCX_RUNTIME_HOME", directory.join("runtime"))
-        .env("VCX_CONFIG_HOME", directory.join(CONFIG))
-        .env("VCX_STATE_HOME", directory.join("state"));
+    worker.args(["--runtime-worker", directory.join(SOCKET).to_str().unwrap(), "--runtime-test"]);
+    isolate(&mut worker, directory);
     // A provider with no command of its own (Qwen speaks HTTP) is started without one.
     if command.exists() {
         worker.args(["--runtime-fixture-command", command.to_str().unwrap()]);
@@ -203,6 +210,14 @@ fn launch(binary: &Path, directory: &Path, command: &Path, provider: Option<&str
         .stderr(Stdio::null())
         .spawn()
         .unwrap()
+}
+
+/// Its runtime, config and state folders are the worker folder's own, never his.
+fn isolate(command: &mut Command, directory: &Path) {
+    command
+        .env("VCX_RUNTIME_HOME", directory.join(RUNTIME))
+        .env("VCX_CONFIG_HOME", directory.join(CONFIG))
+        .env("VCX_STATE_HOME", directory.join("state"));
 }
 
 fn wait_for_socket(socket: &Path, failure: &str) {
