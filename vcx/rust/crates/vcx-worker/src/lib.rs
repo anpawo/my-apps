@@ -8,6 +8,7 @@
 pub mod backend;
 pub mod channel;
 pub mod checkpoint;
+pub mod fallback;
 pub mod provider;
 pub mod server;
 pub mod session;
@@ -19,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 pub const BUILD: &str = concat!("rust-", env!("CARGO_PKG_VERSION"));
+/// A test worker waits a hundredth of the rate-limit retry delays, so a retry test takes milliseconds.
+const TEST_RETRY_SCALE: f64 = 0.01;
 const USAGE: &str = "usage: vcx-worker --runtime-worker <socket> [--runtime-test] [--runtime-fixture-command <command.json>] [--runtime-fixture-provider <provider>]";
 
 #[derive(Debug, PartialEq)]
@@ -89,9 +92,10 @@ async fn serve(options: Options) -> i32 {
     };
     let homes = vcx_config::WorkerHomes::from_env();
     let home = homes.runtime;
+    let retry_scale = if options.test { TEST_RETRY_SCALE } else { 1.0 };
     let state_directory = if options.test { home.join("test-state") } else { home.join("state") };
     let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
-    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory });
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale });
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&config)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();
     let server = Server::new(BUILD.to_owned(), uuid::Uuid::new_v4().to_string().to_uppercase(), factory, Box::new(move || { let _ = done.send(()); }));

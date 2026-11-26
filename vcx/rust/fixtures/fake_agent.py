@@ -4,10 +4,13 @@ The Swift worker starts it through `--runtime-test --runtime-fixture-command`, s
 With `--history <file>` it also behaves as Codex does across restarts: each thread gets its own id, the prompt comes
 back as a userMessage item, and finished turns are kept in the file for `thread/resume` and `thread/turns/list`.
 A prompt holding `fixture:hold` starts a turn that stays open until `turn/interrupt`; one holding `fixture:approve`
-also asks for a command approval and ends once it is answered, accepted or declined.
+also asks for a command approval and ends once it is answered, accepted or declined. `fixture:limit` fails the turn
+on the plan's usage limit unless the prompt carries the context VCX hands a fallback account; `fixture:ratelimit` fails
+it on a server rate limit; `fixture:crash` writes an error to stderr and exits.
 """
 import json
 import os
+import time
 import sys
 import threading
 import uuid
@@ -19,6 +22,13 @@ HISTORY = sys.argv[sys.argv.index('--history') + 1] if '--history' in sys.argv e
 HOLD = 'fixture:hold'
 APPROVE = 'fixture:approve'
 APPROVAL_ID = 7301
+LIMIT = 'fixture:limit'
+RATE_LIMIT = 'fixture:ratelimit'
+CRASH = 'fixture:crash'
+HANDOFF = 'Context from this conversation'
+CRASH_STATUS = 3
+LIMIT_ERROR = {'message': "You've hit your usage limit.", 'codexErrorInfo': 'usageLimitExceeded'}
+RATE_LIMIT_ERROR = {'message': 'exceeded retry limit, last status: 429 Too Many Requests'}
 HELD_TOOL = {'id': 'fixture-held-tool', 'type': 'commandExecution', 'command': 'fixture-held-tool'}
 output_lock = threading.Lock()
 awaiting = {}
@@ -82,6 +92,25 @@ def held(params):
     return HOLD in text or APPROVE in text
 
 
+def failure(params):
+    """The error the prompt names, `CRASH` for a crash, or None."""
+    text = prompt_text(params)
+    pieces = params.get('input', [])
+    handed_off = bool(pieces) and isinstance(pieces[0], dict) and pieces[0].get('text', '').startswith(HANDOFF)
+    if CRASH in text:
+        return CRASH
+    return LIMIT_ERROR if LIMIT in text and not handed_off else RATE_LIMIT_ERROR if RATE_LIMIT in text else None
+
+
+def fail_turn(thread, turn, error):
+    if error == CRASH:
+        print('fatal: fixture crashed', file=sys.stderr, flush=True)
+        time.sleep(0.1)
+        os._exit(CRASH_STATUS)
+    event('turn/started', {'turn': {'id': turn}}, thread)
+    event('turn/completed', {'turn': {'id': turn, 'status': 'failed', 'error': error}}, thread)
+
+
 def open_turn(thread, turn, params):
     event('turn/started', {'turn': {'id': turn}}, thread)
     event('item/started', {'item': {**HELD_TOOL, 'status': 'inProgress'}}, thread)
@@ -113,6 +142,13 @@ RESULTS = {
 RESULTS['thread/resume'] = RESULTS['thread/start']
 
 
+def policy(result, params):
+    """Echoes an asking policy, as Codex does: the thread then runs sandboxed."""
+    if params.get('approvalPolicy') != 'on-request':
+        return result
+    return {**result, 'approvalPolicy': 'on-request', 'sandbox': {'type': 'workspaceWrite'}}
+
+
 def answer_with_history(message):
     method, params = message['method'], message.get('params') or {}
     thread = params.get('threadId')
@@ -121,7 +157,7 @@ def answer_with_history(message):
         threads = load()
         threads[thread] = []
         save(threads)
-        return {**RESULTS['thread/start'], 'thread': {'id': thread}}, None
+        return policy({**RESULTS['thread/start'], 'thread': {'id': thread}}, params), None
     if method in ('thread/resume', 'thread/turns/list') and thread not in load():
         return None, {'code': -32600, 'message': 'thread not found: ' + str(thread)}
     if method == 'thread/resume':
@@ -131,7 +167,9 @@ def answer_with_history(message):
     if method == 'turn/start':
         turn = 'fixture-turn-' + uuid.uuid4().hex[:12]
         prompt = {'id': 'fixture-user-' + turn, 'type': 'userMessage', 'clientId': params.get('clientUserMessageId'), 'content': params.get('input', [])}
-        if held(params):
+        if failure(params):
+            threading.Timer(0, fail_turn, (thread, turn, failure(params))).start()
+        elif held(params):
             threading.Timer(0, open_turn, (thread, turn, params)).start()
         else:
             threading.Timer(0, run_turn, (thread, turn, prompt)).start()
@@ -154,8 +192,11 @@ for line in sys.stdin:
             awaiting.clear()
             event('turn/completed', {'turn': {'id': (message.get('params') or {}).get('turnId'), 'status': 'interrupted'}}, (message.get('params') or {}).get('threadId'))
         continue
-    send({'id': message['id'], 'result': RESULTS.get(method, {})})
-    if method == 'turn/start' and held(message.get('params') or {}):
+    params = message.get('params') or {}
+    send({'id': message['id'], 'result': policy(RESULTS.get(method, {}), params) if method == 'thread/start' else RESULTS.get(method, {})})
+    if method == 'turn/start' and failure(params):
+        fail_turn(THREAD, TURN, failure(params))
+    elif method == 'turn/start' and held(params):
         threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
     elif method == 'turn/start':
         threading.Thread(target=run_turn, daemon=True).start()

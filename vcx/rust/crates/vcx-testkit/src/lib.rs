@@ -91,8 +91,10 @@ impl RustWorker {
         if !command.is_empty() {
             fs::write(&path, json!(command).to_string()).unwrap();
         }
+        // The worker writes his settings (an account's usage limit) only in a folder no one else can read.
         for folder in [CONFIG, HOME] {
             fs::create_dir(directory.join(folder)).unwrap();
+            fs::set_permissions(directory.join(folder), fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
         }
         fs::write(directory.join(CONFIG).join("settings.json"), settings.to_string()).unwrap();
         Self::launched(binary, directory, path, Some(provider.to_owned()))

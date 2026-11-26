@@ -3,6 +3,7 @@
 
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::{Event, Kind, Stream, TurnStatus};
 use vcx_model::item;
 
@@ -38,6 +39,10 @@ pub struct Permission {
 pub enum Effect {
     Decline { id: Value, method: String },
     Stop,
+    /// The plan's usage limit stopped the turn: its account rests and the next available one takes the prompt.
+    Limit(Object),
+    /// A server rate limit failed the turn: the same account retries it after a wait.
+    RateLimited,
 }
 
 /// A prompt on its way: the row is already shown, the request not yet answered.
@@ -91,6 +96,14 @@ pub struct Session {
     pub stop_source: Option<String>,
     pub draft: Vec<Value>,
     pub draft_generation: i64,
+    /// The prompt of the running turn, guidance included, sent again to a fallback account.
+    pub pending_input: Option<(String, Vec<String>)>,
+    /// The recent conversation a newly connected agent gets before its first prompt.
+    pub injected_context: String,
+    /// Retries sent on their own since the last turn that went well.
+    pub auto_resumes: usize,
+    /// Codex takes a changed permission mode with the next turn.
+    pub mode_override: bool,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -103,6 +116,15 @@ pub struct Session {
     order_dirty: bool,
     last_meta: Option<Object>,
     published_draft: Option<(u64, i64)>,
+}
+
+/// What Codex is asked for in `mode`: `bypass` runs everything, any other mode asks first.
+pub fn approval_policy(mode: &str) -> &'static str {
+    if mode == "bypass" { "never" } else { "on-request" }
+}
+
+pub fn sandbox(mode: &str) -> &'static str {
+    if mode == "bypass" { "danger-full-access" } else { "workspace-write" }
 }
 
 fn new_id() -> String {
@@ -241,8 +263,17 @@ impl Session {
     }
 
     pub fn notice(&mut self, message: &str) {
+        self.notice_linked(message, None);
+    }
+
+    /// A notice that opens `link` (an agent's log) when clicked.
+    pub fn notice_linked(&mut self, message: &str, link: Option<&str>) {
         let id = new_id();
-        self.set_item(&id, json!({"id": id, "type": "notice", "text": message}).as_object().cloned().unwrap_or_default());
+        let mut data = json!({"id": id, "type": "notice", "text": message});
+        if let Some(link) = link {
+            data["link"] = json!(link);
+        }
+        self.set_item(&id, data.as_object().cloned().unwrap_or_default());
         let index = self.rows.len();
         self.insert_row(index, "notice", vec![id]);
     }
@@ -346,6 +377,17 @@ impl Session {
         if event.thread_id.as_ref().is_some_and(|thread| Some(thread) != self.thread_id.as_ref()) {
             return Vec::new();
         }
+        let (method, params) = (event.method(), event.params());
+        if method == "cx/limit" {
+            return vec![Effect::Limit(params.get("limit").and_then(Value::as_object).cloned().unwrap_or_default())];
+        }
+        if ["error", "cx/error", "cx/disconnected"].contains(&method) && usage_limit(params) && self.busy && !self.stop_requested {
+            return vec![Effect::Limit(params.clone())];
+        }
+        let turn = params.get("turn").and_then(Value::as_object);
+        if matches!(event.kind, Kind::TurnCompleted { .. }) && !self.stop_requested && turn.is_some_and(usage_limit) {
+            return vec![Effect::Limit(turn.cloned().unwrap_or_default())];
+        }
         let mut effects = Vec::new();
         match &event.kind {
             Kind::ItemStarted { item } | Kind::ItemCompleted { item } => {
@@ -384,7 +426,14 @@ impl Session {
                     effects.push(Effect::Stop);
                 }
             }
-            Kind::TurnCompleted { status, error, .. } => self.turn_completed(status, error.as_deref()),
+            Kind::TurnCompleted { status, error, .. } => {
+                self.turn_completed(status, error.as_deref());
+                if !self.needs_attention {
+                    self.auto_resumes = 0;
+                } else if *status != TurnStatus::Interrupted && turn.is_some_and(crate::fallback::rate_limited) {
+                    effects.push(Effect::RateLimited);
+                }
+            }
             Kind::Error { message, will_retry } => {
                 if *will_retry {
                     self.status = "Reconnecting…".into();
@@ -407,6 +456,8 @@ impl Session {
             }
             Kind::RequestResolved { request_id } => self.permissions.retain(|permission| permission.rpc_id.to_string() != request_id.to_string()),
             Kind::RateLimits { limits } => self.rate_limits(limits),
+            Kind::Other if method == "cx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
+            Kind::Other if method == "cx/disconnected" => self.agent_stopped(params),
             Kind::Other => {}
         }
         effects
@@ -428,6 +479,7 @@ impl Session {
             }
         }
         self.permissions.clear();
+        self.pending_input = None;
         let asked = self.stop_source.as_deref().is_some_and(|source| source != "Close Session");
         self.needs_attention = if *status == TurnStatus::Interrupted { !asked } else { *status == TurnStatus::Failed || error.is_some() };
         self.turn_prompt = None;
@@ -468,6 +520,26 @@ impl Session {
             .join(" - ");
     }
 
+    /// An adapter's agent stopped: on purpose (`ended`), or with why and its log's last error line.
+    pub fn agent_stopped(&mut self, params: &Object) {
+        let ended = params.get("ended") == Some(&Value::Bool(true));
+        let mut message = text(params, "message").unwrap_or("The agent disconnected.").to_owned();
+        if let Some(reason) = text(params, "reason") {
+            message = format!("{} stopped ({reason}). {message}", self.provider_label);
+        }
+        if let Some(line) = text(params, "line") {
+            message = format!("{message} Last error: {line}");
+        }
+        self.disconnected(&message, ended);
+        if let Some(log) = text(params, "log") {
+            if let Some(item) = self.rows.last().and_then(|row| row.items.first()).cloned() {
+                if let Some(data) = self.items.get_mut(&item) {
+                    data.insert("link".into(), json!(log));
+                }
+            }
+        }
+    }
+
     /// The agent ended: the session cannot work until it is reopened.
     pub fn disconnected(&mut self, reason: &str, ended: bool) {
         self.notice(reason);
@@ -480,17 +552,20 @@ impl Session {
         self.permissions.clear();
     }
 
-    /// The thread is open: its history, if resumed, becomes the transcript.
-    pub fn opened(&mut self, result: &Object, history: &[Value]) {
+    /// The thread is open: its history, if resumed, becomes the transcript; `keep_rows` keeps the transcript, as when
+    /// another agent takes the conversation over.
+    pub fn opened(&mut self, result: &Object, history: &[Value], keep_rows: bool) {
         self.flush();
-        for row in std::mem::take(&mut self.rows) {
-            for item in row.items {
-                self.items.remove(&item);
+        if !keep_rows {
+            for row in std::mem::take(&mut self.rows) {
+                for item in row.items {
+                    self.items.remove(&item);
+                }
             }
+            self.seen.clear();
         }
         self.order_dirty = true;
         self.needs_attention = false;
-        self.seen.clear();
         self.group = None;
         let thread = result.get("thread").and_then(Value::as_object);
         self.thread_id = thread.and_then(|thread| text(thread, "id")).map(str::to_owned);
@@ -559,7 +634,8 @@ impl Session {
     }
 
     /// Shows a prompt and builds its request, or tells why it cannot go (`None`, with a notice when the user must know).
-    pub fn begin_send(&mut self, text: &str, images: &[String], expected_draft: Option<Vec<Value>>, expected_generation: Option<i64>) -> Option<Outgoing> {
+    /// A `retry` sends a prompt already shown again, to a fallback account: no new row, the draft untouched.
+    pub fn begin_send(&mut self, text: &str, images: &[String], expected_draft: Option<Vec<Value>>, expected_generation: Option<i64>, retry: bool) -> Option<Outgoing> {
         if !self.ready || self.changing {
             if !self.ready {
                 self.notice("Not connected. Use /reconnect or /provider to continue. Your draft has been kept.");
@@ -582,15 +658,27 @@ impl Session {
         let sent_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
         self.seen.insert(id.clone());
         self.group = None;
-        self.set_item(&id, json!({"id": id, "type": "userMessage", "content": content, "sentAt": sent_at}).as_object().cloned().unwrap_or_default());
-        let index = self.rows.len();
-        self.insert_row(index, "user", vec![id.clone()]);
-        if self.draft_generation == generation && self.draft == saved_draft {
-            self.set_draft(Vec::new(), self.draft_generation);
+        if !retry {
+            self.set_item(&id, json!({"id": id, "type": "userMessage", "content": content, "sentAt": sent_at}).as_object().cloned().unwrap_or_default());
+            let index = self.rows.len();
+            self.insert_row(index, "user", vec![id.clone()]);
+            if self.draft_generation == generation && self.draft == saved_draft {
+                self.set_draft(Vec::new(), self.draft_generation);
+            }
         }
         if !was_busy {
             self.active_actions.clear();
-            self.turn_prompt = Some(id.clone());
+            self.turn_prompt = (!retry).then(|| id.clone());
+        }
+        self.pending_input = match self.pending_input.take().filter(|_| was_busy) {
+            Some((previous, mut earlier)) => {
+                earlier.extend(images.iter().cloned());
+                Some((format!("{previous}\n\nAdditional guidance: {text}"), earlier))
+            }
+            None => Some((text.to_owned(), images.to_vec())),
+        };
+        if !self.injected_context.is_empty() {
+            content.insert(0, json!({"type": "text", "text": self.injected_context}));
         }
         self.busy = true;
         self.stop_requested = false;
@@ -608,12 +696,19 @@ impl Session {
             if self.provider == "codex" {
                 let effort = self.effort.clone().or_else(|| self.default_effort.clone());
                 params["collaborationMode"] = json!({"mode": if self.planning { "plan" } else { "default" }, "settings": {"model": self.model, "reasoning_effort": effort, "developer_instructions": null}});
+                // Codex takes a new mode with a turn and keeps it for the turns after.
+                if self.mode_override {
+                    let bypass = self.active_mode == "bypass";
+                    params["approvalPolicy"] = json!(approval_policy(&self.active_mode));
+                    params["sandboxPolicy"] = if bypass { json!({"type": "dangerFullAccess"}) } else { json!({"type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false}) };
+                }
             }
         }
         Some(Outgoing { id, method: if was_busy { "turn/steer" } else { "turn/start" }, params, was_busy, saved_draft })
     }
 
     pub fn send_succeeded(&mut self, result: &Value) {
+        self.injected_context.clear();
         if self.busy && self.turn_id.is_none() {
             self.turn_id = result.get("turn").and_then(|turn| turn.get("id")).and_then(Value::as_str).map(str::to_owned);
         }
@@ -688,7 +783,7 @@ mod tests {
 
     fn opened() -> Session {
         let mut session = Session::new("/tmp", "/tmp/state");
-        session.opened(json!({"thread": {"id": "T"}, "model": "gpt"}).as_object().unwrap(), &[]);
+        session.opened(json!({"thread": {"id": "T"}, "model": "gpt"}).as_object().unwrap(), &[], false);
         session.take_patch();
         session
     }
@@ -700,7 +795,7 @@ mod tests {
     #[test]
     fn groups_tools_under_one_activity_row_between_the_prompt_and_the_answer() {
         let mut session = opened();
-        session.begin_send("hi", &[], None, None).unwrap();
+        session.begin_send("hi", &[], None, None, false).unwrap();
 
         for value in [
             json!({"method": "turn/started", "params": {"threadId": "T", "turn": {"id": "U"}}}),
@@ -733,7 +828,7 @@ mod tests {
     #[test]
     fn shows_the_echoed_prompt_once() {
         let mut session = opened();
-        let outgoing = session.begin_send("once", &[], None, None).unwrap();
+        let outgoing = session.begin_send("once", &[], None, None, false).unwrap();
 
         session.event(&event(json!({"method": "item/completed", "params": {"threadId": "T", "item": {"id": "u", "type": "userMessage", "clientId": outgoing.id, "content": []}}})));
 
@@ -743,7 +838,7 @@ mod tests {
     #[test]
     fn a_patch_names_only_what_changed() {
         let mut session = opened();
-        session.begin_send("hi", &[], None, None).unwrap();
+        session.begin_send("hi", &[], None, None, false).unwrap();
         session.take_patch();
 
         session.event(&event(json!({"method": "item/agentMessage/delta", "params": {"threadId": "T", "itemId": "a", "delta": "x"}})));
@@ -784,7 +879,7 @@ mod tests {
         let mut session = opened();
         let draft = vec![json!({"type": "text", "text": "hi"})];
         session.set_draft(draft.clone(), 1);
-        let outgoing = session.begin_send("hi", &[], Some(draft.clone()), Some(1)).unwrap();
+        let outgoing = session.begin_send("hi", &[], Some(draft.clone()), Some(1), false).unwrap();
 
         session.send_failed(&outgoing, "boom");
 
@@ -796,7 +891,7 @@ mod tests {
     #[test]
     fn an_interrupted_turn_the_user_stopped_needs_no_attention() {
         let mut session = opened();
-        session.begin_send("hi", &[], None, None).unwrap();
+        session.begin_send("hi", &[], None, None, false).unwrap();
         session.event(&event(json!({"method": "turn/started", "params": {"threadId": "T", "turn": {"id": "U"}}})));
 
         let stop = session.begin_stop("Escape key");
@@ -816,10 +911,34 @@ mod tests {
             {"id": "a", "type": "agentMessage", "text": "after"}
         ]})];
 
-        session.opened(json!({"thread": {"id": "T"}}).as_object().unwrap(), &history);
+        session.opened(json!({"thread": {"id": "T"}}).as_object().unwrap(), &history, false);
         session.recovered(json!({"draft": [{"type": "text", "text": "unsent"}], "draftGeneration": 4, "interrupted": true}).as_object().unwrap());
 
         assert_eq!(kinds(&session), ["user", "activity", "assistant", "notice"]);
         assert_eq!((session.draft_generation, session.status.as_str(), session.busy), (4, "Interrupted", false));
+    }
+
+    #[test]
+    fn a_codex_turn_carries_the_mode_chosen_during_the_session() {
+        let mut session = opened();
+        (session.provider, session.active_mode, session.mode_override) = ("codex".into(), "ask".into(), true);
+
+        let outgoing = session.begin_send("hi", &[], None, None, false).unwrap();
+
+        assert_eq!(outgoing.params["approvalPolicy"], "on-request");
+        assert_eq!(outgoing.params["sandboxPolicy"]["type"], "workspaceWrite");
+    }
+
+    #[test]
+    fn tells_a_usage_limit_from_a_rate_limit_when_a_turn_fails() {
+        let failed = |error: Value| json!({"method": "turn/completed", "params": {"threadId": "T", "turn": {"id": "U", "status": "failed", "error": error}}});
+        let mut session = opened();
+        session.begin_send("hi", &[], None, None, false).unwrap();
+
+        let limited = session.event(&event(failed(json!({"message": "You've hit your usage limit.", "codexErrorInfo": "usageLimitExceeded"}))));
+        let throttled = session.event(&event(failed(json!({"message": "429 Too Many Requests"}))));
+
+        assert!(matches!(limited.as_slice(), [Effect::Limit(_)]));
+        assert_eq!(throttled, [Effect::RateLimited]);
     }
 }
