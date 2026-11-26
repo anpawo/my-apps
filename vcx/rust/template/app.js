@@ -16,6 +16,9 @@
   const list = $('rows');
   const rows = new Map();
   const unfolded = new Set();
+  // The Swift `/details`: every work block and action shown open until `/focus` folds them again.
+  let detailsOn = false;
+  const DETAILED = /^(work|action)\b/;
   let meta = {};
 
   function make(tag, className, text) {
@@ -28,7 +31,7 @@
   // A fold remembers that the reader opened it, so a redraw of its row does not close it.
   function fold(key, className, ...title) {
     const details = make('details', className);
-    details.open = unfolded.has(key);
+    details.open = unfolded.has(key) || (detailsOn && DETAILED.test(className));
     details.addEventListener('toggle', () => (details.open ? unfolded.add(key) : unfolded.delete(key)));
     const summary = make('summary');
     summary.append(...title);
@@ -554,6 +557,12 @@
     $('latest').hidden = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
   }, { passive: true });
 
-  window.vcx = { receive, restyle, post, previewLast };
+  function toggleDetails() {
+    detailsOn = !detailsOn;
+    for (const fold of list.querySelectorAll('details.work, details.action')) fold.open = detailsOn;
+    return true;
+  }
+
+  window.vcx = { receive, restyle, post, previewLast, toggleDetails };
   post({ type: 'ready', contract: CONTRACT });
 })();

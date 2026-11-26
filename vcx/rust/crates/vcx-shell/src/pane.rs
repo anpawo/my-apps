@@ -23,7 +23,7 @@ use wry::{BackgroundThrottlingPolicy, DragDropEvent, WebView, WebViewBuilder};
 const READY_WAIT: Duration = Duration::from_secs(3);
 const LAST_GOOD: &str = "Showing the last template that worked.";
 /// What VCX runs itself, never the worker, which refuses them (Swift `RuntimeSession`'s frontend verbs).
-const FRONTEND_COMMANDS: [&str; 7] = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit"];
+const FRONTEND_COMMANDS: [&str; 9] = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit", "/details", "/focus"];
 
 /// Hands an event to the event loop, addressed to the pane it came from.
 pub type Emit = Arc<dyn Fn(PaneEvent) + Send + Sync>;
@@ -441,10 +441,10 @@ mod tests {
 
     #[test]
     fn keeps_the_app_commands_from_the_worker() {
-        let texts = ["/login claude", "/WINDOW ~/p", "/quit", "/vcx:exit", "/model claude", "/loginx", "login claude", "/compact"];
+        let texts = ["/login claude", "/WINDOW ~/p", "/quit", "/vcx:exit", "/details", "/model claude", "/loginx", "login claude", "/compact"];
 
         let frontend: Vec<bool> = texts.iter().map(|text| is_frontend(text)).collect();
 
-        assert_eq!(frontend, [true, true, true, true, false, false, false, false]);
+        assert_eq!(frontend, [true, true, true, true, true, false, false, false, false]);
     }
 }

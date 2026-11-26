@@ -17,6 +17,8 @@ pub enum Local {
     OpenSettings,
     /// The last picture of the conversation, in the page's preview.
     PreviewLast,
+    /// Every action's details shown, or folded again (Swift `/details`, `/focus`).
+    ToggleDetails,
     /// Said in the window's notice: a wrong use, or a command the page has no part for yet.
     Notice(String),
 }
@@ -39,6 +41,7 @@ pub fn read(text: &str, cwd: &str, home: &str) -> Local {
         "/quit" | "/exit" => Local::Close,
         "/settings" => Local::OpenSettings,
         "/preview" => Local::PreviewLast,
+        "/details" | "/focus" => Local::ToggleDetails,
         _ => Local::Notice(format!("{verb} is not in VCX Rust yet.")),
     }
 }
@@ -81,6 +84,7 @@ pub(crate) fn run(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, key: 
             let proxy = app.proxy.clone();
             app.windows.get(&key)?.pane.read(PREVIEW_LAST, move |result| drop(proxy.send_event(AppEvent::Previewed(key, previewed(&result)))));
         }
+        Local::ToggleDetails => app.windows.get(&key)?.pane.read(TOGGLE_DETAILS, |_| {}),
         Local::Notice(text) => app.windows.get_mut(&key)?.pane.note(text),
     }
     None
@@ -88,6 +92,7 @@ pub(crate) fn run(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, key: 
 
 /// The page answers whether it had a picture to open.
 const PREVIEW_LAST: &str = "Boolean(window.vcx && vcx.previewLast())";
+const TOGGLE_DETAILS: &str = "Boolean(window.vcx && vcx.toggleDetails && vcx.toggleDetails())";
 pub(crate) const NO_PICTURE: &str = "No image is available in this conversation.";
 
 /// The web view hands the script's value JSON-encoded, a string around it on some builds.
@@ -139,6 +144,7 @@ mod tests {
     #[test]
     fn hands_settings_and_preview_to_the_page() {
         assert_eq!([read("/settings", "/", "/"), read("/preview", "/", "/")], [Local::OpenSettings, Local::PreviewLast]);
+        assert_eq!([read("/details", "/", "/"), read("/focus", "/", "/")], [Local::ToggleDetails, Local::ToggleDetails]);
         assert_eq!([previewed("true"), previewed("\"true\""), previewed("false"), previewed("")], [true, true, false, false]);
     }
 }

@@ -32,6 +32,8 @@ use vcx_shell::summary::Summary;
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Fleet reads presence a few times a second at most (the Swift app throttles it the same way).
 const PRESENCE_DELAY: Duration = Duration::from_millis(250);
+/// How often a window on screen reads its usage and repository again (Swift `startRefresh`).
+const REFRESH_EVERY: Duration = Duration::from_secs(60);
 pub const ALREADY_RUNNING: &str = "Another VCX Rust app holds this state folder.";
 const TITLE_SUFFIX: &str = " · VCX Rust";
 /// Swift `main.swift`: 780 for the transcript and the composer, 200 for the task bar, which always shows.
@@ -138,6 +140,14 @@ fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
     reopened
 }
 
+fn on_screen(window: &Window) -> bool {
+    use objc2_app_kit::{NSWindow, NSWindowOcclusionState};
+    use tao::platform::macos::WindowExtMacOS;
+    // SAFETY: tao hands the NSWindow it owns for as long as `window` lives, which outlasts this call.
+    let Some(ns_window) = (unsafe { (window.ns_window() as *const NSWindow).as_ref() }) else { return false };
+    window.is_visible() && ns_window.occlusionState().contains(NSWindowOcclusionState::Visible)
+}
+
 fn answers(socket: &std::path::Path) -> bool {
     vcx_proto::Client::connect(socket, |_| {}).and_then(|client| client.hello()).is_ok()
 }
@@ -181,6 +191,7 @@ pub(crate) struct App {
     quota: Option<(Instant, Value)>,
     /// The windows waiting for the quota read under way.
     quota_waiting: Option<Vec<u64>>,
+    refreshed_at: Instant,
     _lock: File,
 }
 
@@ -225,6 +236,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         login_message: Value::Null,
         quota: None,
         quota_waiting: None,
+        refreshed_at: Instant::now(),
         _lock: lock,
     };
     event_loop.run(move |event, target, flow| {
@@ -399,6 +411,7 @@ impl App {
             AppEvent::Tasks => {
                 self.show_tasks();
                 self.show_progress();
+                self.refresh_on_screen();
                 None
             }
             AppEvent::Menu(action) => self.menu(target, action),
@@ -577,6 +590,18 @@ impl App {
             _ => {}
         }
         None
+    }
+
+    /// Every minute, the windows he can see read their usage and repository again; a hidden or covered one waits.
+    fn refresh_on_screen(&mut self) {
+        if self.windowless || self.refreshed_at.elapsed() < REFRESH_EVERY {
+            return;
+        }
+        self.refreshed_at = Instant::now();
+        for win in self.windows.values().filter(|win| on_screen(&win.window)) {
+            win.pane.tell(Message::Act { action: "refreshUsage", params: json!({"force": false}) });
+            win.pane.tell(Message::Act { action: "refreshRepository", params: json!({}) });
+        }
     }
 
     /// Reads what each window's agent waits on ($VCX_PROGRESS_FILE) and gives the page the line that changed.

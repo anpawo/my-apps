@@ -410,6 +410,41 @@ fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_go
     assert_eq!(hidden, "");
 }
 
+/// Each action fold of the transcript: open or not.
+const ACTION_FOLDS: &str = "[...document.querySelectorAll('details.action')].map(fold => fold.open).join(',')";
+
+#[test]
+fn opens_every_action_on_details_and_folds_them_again_on_focus_without_asking_the_agent() {
+    let Some(mut run) = Run::new("details") else { return };
+    let folder = run.folder("details");
+    run.start(&["--cwd", folder.to_str().unwrap(), "show the details"]);
+    let id = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1))["windows"][0]["sessionId"].as_str().unwrap().to_owned();
+    let evaluate = |script: &str| -> String { serde_json::from_str(run.ask(&json!({"evaluate": {"to": id, "script": script}})).unwrap()["result"].as_str().unwrap()).unwrap() };
+    let command = |text: &str| evaluate(&format!("vcx.post({{type: 'command', text: '{text}'}}); ''"));
+    let wait_for_folds = |wanted: bool| -> String {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let folds = evaluate(ACTION_FOLDS);
+            if !folds.is_empty() && folds.split(',').all(|open| open == wanted.to_string()) {
+                return folds;
+            }
+            assert!(Instant::now() < deadline, "the action folds never turned open={wanted}: {folds}");
+            thread::sleep(POLL);
+        }
+    };
+    let before = evaluate(ACTION_FOLDS);
+
+    command("/details");
+    let opened = wait_for_folds(true);
+    command("/focus");
+    let folded = wait_for_folds(false);
+
+    let report = run.report().unwrap();
+    assert!(before.contains("false"), "the actions start folded: {before}");
+    assert_eq!((opened.matches("true").count(), folded.matches("false").count()), (before.split(',').count(), before.split(',').count()));
+    assert!(drew_turns(&windows(&report)[0], 1), "a command reached the agent: {report:#}");
+}
+
 #[test]
 fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
     let Some(mut run) = Run::new("menus") else { return };
