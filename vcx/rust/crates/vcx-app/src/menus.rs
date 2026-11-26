@@ -14,6 +14,9 @@ pub const FILE: &str = "File";
 const CLOSE_SESSION: &str = "Close Session";
 const CLOSE_NOW_KEY: &str = "k";
 const ABOUT: &str = "About VCX Rust";
+/// Swift's last Edit item, after a separator: it opens or closes the front window's find bar.
+const FIND: &str = "Find";
+const FIND_KEY: &str = "f";
 /// The application menu holds index 0; the File menu follows it, as in the Swift app.
 const FILE_MENU_INDEX: isize = 1;
 const COMMAND: NSEventModifierFlags = NSEventModifierFlags::Command;
@@ -25,6 +28,8 @@ pub enum MenuAction {
     CloseWindow,
     /// Swift's ⌘K: the front session closes at once, its agent at work or not.
     CloseNow,
+    /// Swift's ⌘F in the Edit menu: the front window's find bar opens, or closes if open.
+    Find,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +55,7 @@ fn selector(action: MenuAction) -> Sel {
         MenuAction::OpenProject => sel!(openProject:),
         MenuAction::CloseWindow => sel!(closeWindow:),
         MenuAction::CloseNow => sel!(closeNow:),
+        MenuAction::Find => sel!(toggleFind:),
     }
 }
 
@@ -88,6 +94,12 @@ define_class!(
         #[unsafe(method(closeNow:))]
         fn close_now(&self, _sender: Option<&AnyObject>) {
             (self.ivars().act)(MenuAction::CloseNow);
+        }
+
+        // SAFETY: as above.
+        #[unsafe(method(toggleFind:))]
+        fn toggle_find(&self, _sender: Option<&AnyObject>) {
+            (self.ivars().act)(MenuAction::Find);
         }
 
         // SAFETY: `validateMenuItem:` takes the item and returns a BOOL.
@@ -138,8 +150,38 @@ pub fn install(mtm: MainThreadMarker, act: impl Fn(MenuAction) + 'static) {
     }
     bar.insertItem_atIndex(&holder, FILE_MENU_INDEX.min(bar.numberOfItems()));
     close_session_on_q(&bar, &target);
+    find_last_in_edit(&bar, &target);
     about_first(&bar, mtm);
     TARGET.with(|slot| *slot.borrow_mut() = Some(target));
+}
+
+fn find_last_in_edit(bar: &NSMenu, target: &FileMenuTarget) {
+    let Some(edit) = bar.itemWithTitle(&NSString::from_str(vcx_shell::menu::EDIT)).and_then(|holder| holder.submenu()) else { return };
+    if edit.itemWithTitle(&NSString::from_str(FIND)).is_some() {
+        return;
+    }
+    let mtm = MainThreadMarker::from(target);
+    edit.addItem(&NSMenuItem::separatorItem(mtm));
+    // SAFETY: `toggleFind:` is a method of `FileMenuTarget` taking the sender, and the item targets it.
+    let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &NSString::from_str(FIND), Some(selector(MenuAction::Find)), &NSString::from_str(FIND_KEY)) };
+    item.setKeyEquivalentModifierMask(COMMAND);
+    // SAFETY: as in `install`.
+    unsafe { item.setTarget(Some(target)) };
+    edit.addItem(&item);
+}
+
+/// Sends the action of the item titled `title`, in whichever menu holds it, as a click on it would; false if none.
+pub fn perform(mtm: MainThreadMarker, title: &str) -> bool {
+    let Some(bar) = NSApplication::sharedApplication(mtm).mainMenu() else { return false };
+    let title = NSString::from_str(title);
+    for menu in (0..bar.numberOfItems()).filter_map(|index| bar.itemAtIndex(index)?.submenu()) {
+        let index = menu.indexOfItemWithTitle(&title);
+        if index >= 0 {
+            menu.performActionForItemAtIndex(index);
+            return true;
+        }
+    }
+    false
 }
 
 /// The application menu's Quit item (⌘Q) becomes Close Session, as in the Swift app; the app quits once its last

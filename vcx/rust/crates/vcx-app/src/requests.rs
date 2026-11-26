@@ -45,6 +45,8 @@ pub(crate) fn handle(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, re
             }
             Err(problem) => Err(problem),
         }
+    } else if let Some(item) = body.get("menu") {
+        press_menu_item(app, item)
     } else if let Some(stall) = body.get("stall") {
         stall_main_thread(app, stall)
     } else if body.get("report").is_some() {
@@ -87,6 +89,16 @@ fn take_over(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, take: &Val
 }
 
 /// Only a windowless app, a check's, runs a script it is handed: a page he works in takes none from outside.
+/// A check of a menu item's action: windowless only, as a click in the menu bar is his.
+fn press_menu_item(app: &App, item: &Value) -> Result<Value, String> {
+    if !app.windowless {
+        return Err("Only a windowless VCX Rust presses its menu items on request.".into());
+    }
+    let title = item["title"].as_str().ok_or("menu takes the title of an item.")?;
+    let mtm = objc2_foundation::MainThreadMarker::new().ok_or("Menus live on the main thread.")?;
+    if crate::menus::perform(mtm, title) { Ok(json!({"pressed": title})) } else { Err(format!("No menu holds {title}.")) }
+}
+
 /// A check of the freeze watchdog: the main thread spins, as in a freeze, for at most `STALL_LIMIT`.
 fn stall_main_thread(app: &App, stall: &Value) -> Result<Value, String> {
     if !app.windowless {

@@ -46,6 +46,8 @@ const CANNOT_CLOSE: &str = "Cannot close before saving the draft: ";
 const PAGE_READ_WAIT: Duration = Duration::from_secs(2);
 /// How long an update waits for the pages to say where they are scrolled: a stuck page must not hold it back.
 const ANCHOR_WAIT: Duration = Duration::from_millis(500);
+/// The page's find bar (`template/find.js`), opened or closed as Swift `toggleFind` does.
+const TOGGLE_FIND: &str = "window.vcxFind && (document.getElementById('find').hidden ? vcxFind.open() : vcxFind.close())";
 
 /// What a page shows, read for a report: enough to tell what it drew, without the whole document.
 const PAGE_REPORT: &str = r#"(() => JSON.stringify({
@@ -777,6 +779,11 @@ impl App {
             }
             MenuAction::CloseWindow => return front.and_then(|key| self.ask_close(key)),
             MenuAction::CloseNow => return front.and_then(|key| self.close_window(key)),
+            MenuAction::Find => {
+                if let Some(win) = front.or_else(|| self.windows.keys().next().copied()).and_then(|key| self.windows.get(&key)) {
+                    win.pane.read(TOGGLE_FIND, |_| {});
+                }
+            }
         }
         None
     }

@@ -750,6 +750,33 @@ fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
     let file = items("File");
     let file: Vec<(&str, &str)> = file.iter().map(|item| (item["title"].as_str().unwrap(), item["action"].as_str().unwrap())).collect();
     assert_eq!(file, [("New Window", "newWindow:"), ("Open Project…", "openProject:"), ("Close Window", "closeWindow:")]);
+    // AppKit appends items of its own (Emoji & Symbols) to an Edit menu: Find follows the last of the app's.
+    let edit = items("Edit");
+    assert_eq!(edit.iter().skip_while(|item| item["title"] != "Select All").nth(1), Some(&json!({"title": "Find", "key": "f", "action": "toggleFind:"})), "{menus}");
+}
+
+#[test]
+fn opens_the_find_bar_from_the_edit_menu_and_closes_it_from_there_again() {
+    let Some(mut run) = Run::new("find") else { return };
+    let folder = run.folder("find");
+    run.start(&["--cwd", folder.to_str().unwrap(), "find me"]);
+    let id = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1))["windows"][0]["sessionId"].as_str().unwrap().to_owned();
+    let hidden = || run.ask(&json!({"evaluate": {"to": id, "script": "document.getElementById('find').hidden"}})).unwrap()["result"].clone();
+    let until = |wanted: &str| {
+        let deadline = Instant::now() + WAIT;
+        while hidden() != wanted {
+            assert!(Instant::now() < deadline, "the find bar's hidden never became {wanted}");
+            thread::sleep(POLL);
+        }
+    };
+    until("true");
+
+    let pressed = run.ask(&json!({"menu": {"title": "Find"}}));
+
+    assert_eq!(pressed, Some(json!({"pressed": "Find"})));
+    until("false");
+    run.ask(&json!({"menu": {"title": "Find"}}));
+    until("true");
 }
 
 #[test]
