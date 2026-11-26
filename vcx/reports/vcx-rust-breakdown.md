@@ -65,7 +65,7 @@ input for checks, the application menu, open and save panels, drag and drop.
 | 3 | Composer: chips, long-paste, `/` palette, Edit menu, undo | the M9 and M11 harness extended; paste tested page-side with a synthetic `ClipboardEvent` (a real paste would read his clipboard) | open |
 | 4 | The app: many windows in one process, starts workers itself, own bundle id, own Fleet namespace; the Swift recovery-list fix | a 13-window run measuring threads, memory and patch delay; a cold Swift launch while Rust holds a session | open |
 | 5 | Conformance suite, then the Rust worker with the Codex adapter, then Claude, Qwen, agy | the same suite green against both workers; the Swift frontend attached to a Rust worker | open |
-| 6 | Rust-to-Rust live update, cutover, Swift retired | a swap under a streaming agent: same agent pid, no byte lost, failed adoption rolls back | open |
+| 6 | Rust-to-Rust live update, cutover, Swift retired | a swap under a streaming agent: same agent pid, no byte lost, failed adoption rolls back | live update built and tested (Outcomes, 26/11); cutover and retiring Swift open, on his word |
 
 ## Evidence: measured on this Mac
 
@@ -214,3 +214,16 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   turn. Against the Swift app built from `1a744b8`, the commit before the fix, the same test fails: the entry is
   still listed 30 s after the takeover. Not run: the same takeover made by the `vcx-rust` binary itself, and one on
   a session of his live state. The suite also gained a receipt-expiry case: 27 cases, green on both workers.
+- 26/11/2026, observed: the Rust worker updates itself live (`rust/crates/vcx-worker/src/swap.rs`,
+  `cargo test -p vcx-worker --test swap --test swap_refused`, 4 tests pass, 8 runs in a row). On SIGUSR1 it freezes
+  its sessions, asks the build at its own path whether it can adopt them (`--adopt-check`), tells its frontends
+  (`runtime/swapping`) and execs that build in the same process: the agents stay its children on the same pipes,
+  the socket stays bound and locked. Under an agent streaming 150 numbered deltas, the answer after the swap is the
+  whole sequence from the same agent pid, the worker's pid is unchanged and its instance id is new; a line the agent
+  had half written when the worker left its image is read as one line by the next. With the unfinished line
+  dropped on purpose, two of the tests fail (a number is missing). An update the next image refuses
+  (`/usr/bin/false` as the image) leaves the worker in its first image, the connection open and the turn whole.
+  Limits: only Codex sessions are carried, so a worker holding a Claude, agy or Qwen session waits (it asks again
+  every 100 ms) until that session closes; receipts stay behind, as on the Swift worker. Not run: a swap between
+  two different builds (the tests exec the same binary), and the Rust app through a swap (nothing sends SIGUSR1
+  yet: neither `build-rust.sh --install` nor the app).
