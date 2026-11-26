@@ -144,7 +144,7 @@ struct Report {
 pub(crate) struct App {
     pub homes: Homes,
     settings: Settings,
-    windowless: bool,
+    pub(crate) windowless: bool,
     pub(crate) proxy: EventLoopProxy<AppEvent>,
     reaper: Reaper,
     pub windows: BTreeMap<u64, Win>,

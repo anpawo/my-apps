@@ -1,5 +1,5 @@
 //! What the control socket asks of the running app: open a window, pass a message from another window's agent, move a
-//! session to another folder, place a window, report, quit.
+//! session to another folder, place a window, report, quit, and in a windowless check run a page script.
 
 use crate::app::{App, AppEvent, Open, Queued};
 use crate::control::Request;
@@ -31,6 +31,15 @@ pub(crate) fn handle(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, re
         self::close(app, close)
     } else if let Some(place) = body.get("frame") {
         frame(app, place)
+    } else if let Some(evaluate) = body.get("evaluate") {
+        match page(app, evaluate) {
+            Ok(key) => {
+                let answer = request.answer;
+                app.windows[&key].pane.read(evaluate["script"].as_str().unwrap_or_default(), move |result| drop(answer.send(json!({"result": result}))));
+                return None;
+            }
+            Err(problem) => Err(problem),
+        }
     } else if body.get("report").is_some() {
         app.begin_report(request.answer);
         return None;
@@ -55,6 +64,17 @@ fn open(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, open: &Value) -
 }
 
 /// The window `key` names: an id, an id prefix, or a name, matching one window only.
+/// Only a windowless app, a check's, runs a script it is handed: a page he works in takes none from outside.
+fn page(app: &App, evaluate: &Value) -> Result<u64, String> {
+    if !app.windowless {
+        return Err("Only a windowless VCX Rust runs a page script.".into());
+    }
+    if !evaluate["script"].is_string() {
+        return Err("evaluate takes a script.".into());
+    }
+    find(app, evaluate["to"].as_str().unwrap_or_default())
+}
+
 fn find(app: &App, key: &str) -> Result<u64, String> {
     let key = key.to_lowercase();
     let by_id: Vec<u64> = app.windows.iter().filter(|(_, win)| {

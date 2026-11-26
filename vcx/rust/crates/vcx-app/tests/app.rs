@@ -58,7 +58,8 @@ impl Run {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_vcx-rust"));
+        // VCX_RUST_APP points the checks at an installed bundle's binary instead of the one just built.
+        let mut command = Command::new(std::env::var_os("VCX_RUST_APP").unwrap_or_else(|| env!("CARGO_BIN_EXE_vcx-rust").into()));
         command.envs(vcx_config::Homes::under(&self.root).environment());
         // The test may itself run in an agent's window: the app must not take it for the caller.
         command.env_remove("CLAUDE_CODE_SESSION_ID").env_remove("VCX_THREAD_ID");
@@ -320,6 +321,30 @@ fn lists_its_windows_and_publishes_them_to_fleet_under_its_own_folder() {
     assert_eq!((record["sessionId"].as_str(), record["state"].as_str(), record["cwd"].as_str()), (Some(id.as_str()), Some("ready"), folder.to_str()));
     let line = text(&listed);
     assert!(line.contains(&id[..8]) && line.contains("list me please") && line.contains(folder.to_str().unwrap()), "{line}");
+}
+
+/// The run panel's heading and output, read in the page.
+const RUN_PANEL: &str = "[document.querySelector('#run .bar p')?.textContent, document.querySelector('#run pre.output')?.textContent].join('|')";
+
+#[test]
+fn runs_a_command_offered_in_the_run_panel_and_shows_its_output_and_exit_code() {
+    let Some(mut run) = Run::new("panel") else { return };
+    let folder = run.folder("panel");
+    run.start(&["--cwd", folder.to_str().unwrap(), "run something"]);
+    let id = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1))["windows"][0]["sessionId"].as_str().unwrap().to_owned();
+    let evaluate = |script: &str| run.ask(&json!({"evaluate": {"to": id, "script": script}})).unwrap();
+
+    let offered = evaluate("vcxRun.offer('echo vcx-run-ok'); document.querySelector('#run .ub.primary').click(); vcxRun.open");
+
+    assert_eq!(offered["result"], "true", "{offered}");
+    let deadline = Instant::now() + WAIT;
+    let mut panel = String::new();
+    while !panel.starts_with("Done") {
+        assert!(Instant::now() < deadline, "the run never finished: {panel}");
+        thread::sleep(POLL);
+        panel = serde_json::from_str(evaluate(RUN_PANEL)["result"].as_str().unwrap()).unwrap();
+    }
+    assert_eq!(panel.trim_end(), "Done \u{b7} exit 0|vcx-run-ok");
 }
 
 #[test]
