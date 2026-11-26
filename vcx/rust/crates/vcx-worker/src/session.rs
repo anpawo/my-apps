@@ -185,6 +185,8 @@ pub struct Session {
     /// The provider threads the record owns.
     pub native_sources: Vec<NativeSource>,
     pub archive_client_versions: Object,
+    /// The running agent's provider version, which each source it writes keeps (the Swift `archiveClientVersion`).
+    pub client_version: Option<String>,
     /// The files the running turn edited.
     turn_edits: Vec<String>,
     /// Prompts, agent events and notices go to the trace in `state_directory`: a worker's sessions, never a test's model.

@@ -60,8 +60,8 @@ impl SessionBackend {
         wait_for_exit(group).await?;
         self.session.borrow_mut().ready = false;
         let owned: Vec<NativeSource> = sources.iter().filter(|source| self.records.borrow().leases.contains_key(&source.key())).cloned().collect();
-        let (state, path) = (self.state_path(), self.snapshot_path());
-        self.archive(&state).archive(&path, &sources, &owned).await?;
+        let (state, path, versions) = (self.state_path(), self.snapshot_path(), self.session.borrow().archive_client_versions.clone());
+        self.archive(&state).archive(&path, &sources, &owned, &versions).await?;
         self.records.borrow_mut().archived_for_close = true;
         let mut session = self.session.borrow_mut();
         session.busy = false;

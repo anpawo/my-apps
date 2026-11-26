@@ -76,6 +76,8 @@ pub struct Config {
     pub cleanup: Option<PathBuf>,
     /// Where saved conversations keep their native history, and for a test worker whether they keep any.
     pub native: crate::archive::Native,
+    /// Where each agent's provider version is read, for the archive to prune only the history of a verified one.
+    pub versions: crate::archive::Versions,
 }
 
 pub struct SessionBackend {
@@ -272,8 +274,8 @@ impl SessionBackend {
         self.session.borrow_mut().status = format!("Connecting to {}…", provider::label(&account.provider));
         let resume = self.resume_target(params);
         let opened = async {
-            let (agent, incoming) = self.start_agent(&account, &settings).await?;
-            self.install(&account, agent, incoming, self.preferred_mode(&settings));
+            let (agent, incoming, version) = self.start_agent(&account, &settings).await?;
+            self.install(&account, agent, incoming, version, self.preferred_mode(&settings));
             self.open(resume.as_deref(), false).await
         };
         let result = opened.await;
@@ -283,12 +285,15 @@ impl SessionBackend {
         result
     }
 
-    /// Starts `account`'s agent, greeted when it is Codex; the running one is left alone until this succeeds.
-    async fn start_agent(&self, account: &Account, settings: &Settings) -> Result<(Connection, mpsc::UnboundedReceiver<Incoming>), String> {
+    /// Starts `account`'s agent, greeted when it is Codex, with its provider's version; the running one is left alone
+    /// until this succeeds.
+    async fn start_agent(&self, account: &Account, settings: &Settings) -> Result<(Connection, mpsc::UnboundedReceiver<Incoming>, Option<String>), String> {
         let (cwd, fleet) = {
             let session = self.session.borrow();
             (session.cwd.clone(), session.fleet_context_file.clone())
         };
+        let environment = provider::environment(account, &vcx_config::homes::home_directory(), &fleet);
+        let version = self.config.versions.read(&account.provider, &environment).await;
         let log = self.log_path();
         self.log_start.set(std::fs::metadata(&log).map_or(0, |meta| meta.len()));
         let mode = self.preferred_mode(settings);
@@ -302,7 +307,7 @@ impl SessionBackend {
                 return Err(error);
             }
         }
-        Ok((agent, incoming))
+        Ok((agent, incoming, version))
     }
 
     async fn greet(&self, agent: &Connection) -> Result<(), String> {
@@ -319,8 +324,9 @@ impl SessionBackend {
         Ok(())
     }
 
-    /// Makes `agent` the session's: the one before is closed and its events no longer count.
-    fn install(self: &Rc<Self>, account: &Account, agent: Connection, incoming: mpsc::UnboundedReceiver<Incoming>, mode: String) {
+    /// Makes `agent` the session's: the one before is closed and its events no longer count. `version` is its
+    /// provider's, which the record's archive is told (the Swift `archiveClientVersions[next.provider]`).
+    fn install(self: &Rc<Self>, account: &Account, agent: Connection, incoming: mpsc::UnboundedReceiver<Incoming>, version: Option<String>, mode: String) {
         self.records.borrow_mut().group = records::agent_group(&agent);
         if let Some(previous) = self.agent.replace(Some(agent)) {
             previous.close();
@@ -332,6 +338,11 @@ impl SessionBackend {
         tokio::task::spawn_local(Rc::clone(self).pump(incoming, generation));
         let mut session = self.session.borrow_mut();
         session.provider = account.provider.clone();
+        match &version {
+            Some(version) => session.archive_client_versions.insert(account.provider.clone(), json!(version)),
+            None => session.archive_client_versions.remove(&account.provider),
+        };
+        session.client_version = version;
         session.provider_label = provider::label(&account.provider);
         session.model = session.provider_label.clone();
         session.account = json!({"id": account.id, "name": account.name, "provider": account.provider});
@@ -398,12 +409,12 @@ impl SessionBackend {
 
     async fn switch_to(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>, keep_rows: bool) -> Result<(), String> {
         let settings = self.settings();
-        let (agent, incoming) = self.start_agent(account, &settings).await?;
+        let (agent, incoming, version) = self.start_agent(account, &settings).await?;
         let previous = self.session.borrow().account["id"].clone();
         self.session.borrow_mut().flush();
         // A resumed provider thread already holds the conversation; Qwen keeps none of its own.
         let handoff = if keep_rows && (resume.is_none() || account.provider == "qwen") { fallback::handoff_context(&self.session.borrow()) } else { String::new() };
-        self.install(account, agent, incoming, self.preferred_mode(&settings));
+        self.install(account, agent, incoming, version, self.preferred_mode(&settings));
         self.session.borrow_mut().injected_context = handoff;
         if let Err(error) = self.open(resume.as_deref(), keep_rows).await {
             self.session.borrow_mut().ready = false;

@@ -227,6 +227,7 @@ impl SessionBackend {
         }
         let mut source = self.native_source(thread, &self.session_account(), path.clone(), pending);
         source.managed = managed;
+        source.client_version = self.session.borrow().client_version.clone();
         self.lease_source(&source)?;
         let key = source.key();
         let mut session = self.session.borrow_mut();

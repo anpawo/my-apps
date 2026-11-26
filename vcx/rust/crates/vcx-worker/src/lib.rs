@@ -133,6 +133,7 @@ async fn serve(options: Options) -> i32 {
     // His worker saves conversations where the Swift app does, so either can resume the other's.
     let state_directory = if options.test { home.join("test-state") } else { homes.state.clone() };
     let native = if options.test { archive::Native::test(&home, &state_directory) } else { archive::Native::production(&state_directory) };
+    let versions = if options.test { archive::Versions::Fixture(home.join(archive::TEST_VERSIONS)) } else { archive::Versions::Installed };
     let probe = if options.test { connectivity::Probe::Flag(home.join(TEST_OFFLINE_FLAG)) } else { connectivity::Probe::Internet };
     let connectivity = connectivity::Connectivity::new(probe, retry_scale);
     let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
@@ -143,7 +144,7 @@ async fn serve(options: Options) -> i32 {
         None if options.test => Vec::new(),
         None => project::ROUTER.map(str::to_owned).to_vec(),
     };
-    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router, cleanup: disk_cleanup, native });
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router, cleanup: disk_cleanup, native, versions });
     let starting = Rc::clone(&config);
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&starting)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();

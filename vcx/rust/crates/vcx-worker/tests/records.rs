@@ -3,13 +3,15 @@
 //! history is on only inside each test worker's own folder: its state, Codex home, locks and archive.
 
 use serde_json::{Value, json};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use vcx_conformance::Target;
 use vcx_conformance::peer::{Held, prompt, request_for};
 use vcx_model::SessionState;
 use vcx_testkit::{RustWorker, session_id};
-use vcx_worker::archive::TEST_FLAG;
+use vcx_worker::archive::{TEST_FLAG, TEST_VERSIONS};
 use vcx_worker::records::{RECORD_OPEN, canonical_archive_root, snapshot};
 
 const IDLE_ONLY: &str = "Stop the current response before changing session settings.";
@@ -17,6 +19,10 @@ const ACCOUNT: &str = "codex-fixture";
 const ARCHIVE: &str = "conversations.sqlite";
 const WAIT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(50);
+const CLIENT_VERSION: &str = "codex-cli 0.0.0-fixture";
+/// The archive script's `ADAPTER_REVISION`, under which a provider is certified.
+const ADAPTER_REVISION: u64 = 1;
+const EXECUTABLE: u32 = 0o755;
 
 /// A Codex worker whose one account keeps its home in the worker's folder, with native history turned on there.
 fn worker(name: &str) -> RustWorker {
@@ -162,4 +168,40 @@ fn fork_says_so_when_codex_returns_no_forked_conversation() {
 
     command(&mut held, "/fork");
     held.follow(|state| notices(state).contains(&"Codex did not return a forked conversation.".to_owned()));
+}
+
+/// Runs one action of the archive script on the test worker's own state folder.
+fn archive_action(worker: &RustWorker, mut request: Value) -> Value {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../conversation_archive.py");
+    request["state"] = json!(state_folder(worker));
+    let mut child = Command::new("/usr/bin/python3").arg(script).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), request.to_string().as_bytes()).unwrap();
+    let answer: Value = serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    assert_eq!(answer["ok"], json!(true), "{request}");
+    answer
+}
+
+#[test]
+fn an_archived_record_carries_its_providers_client_version_so_the_verified_providers_history_is_pruned() {
+    let worker = worker("records-version");
+    let versions = worker.directory.join("runtime").join(TEST_VERSIONS);
+    std::fs::create_dir_all(&versions).unwrap();
+    let fake = versions.join("codex");
+    std::fs::write(&fake, format!("#!/bin/sh\necho '  {CLIENT_VERSION}  '\n")).unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(EXECUTABLE)).unwrap();
+    let mut held = Held::open(&target(&worker));
+    let record = answered_record(&worker, &mut held, "version me");
+    let thread = saved(&worker, &record, |_| true)["nativeSources"][0]["threadId"].as_str().unwrap().to_owned();
+    let rollout = worker.directory.join("home/.codex/sessions").join(format!("rollout-{thread}.jsonl"));
+    archive_action(&worker, json!({"action": "certifyProvider", "provider": "codex", "adapterRevision": ADAPTER_REVISION, "clientVersion": CLIENT_VERSION}));
+    let (existed, carried) = (rollout.is_file(), meta(held.replica.state().unwrap(), "archiveClientVersions").clone());
+
+    held.lease.perform(&held.peer.client, "close", json!({})).expect("the record is archived and the session closed");
+
+    let archived = archive_action(&worker, json!({"action": "read", "id": record}));
+    let sources = archived["record"]["nativeSources"].as_array().unwrap();
+    assert!(existed, "{} was written before the close", rollout.display());
+    assert_eq!(carried, json!({"codex": CLIENT_VERSION}));
+    assert!(!rollout.exists(), "the verified provider's history was pruned");
+    assert!(!sources.is_empty() && sources.iter().all(|source| source["clientVersion"] == CLIENT_VERSION && source["managed"] == json!(true)), "{sources:?}");
 }

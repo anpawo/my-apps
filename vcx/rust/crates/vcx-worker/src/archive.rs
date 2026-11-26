@@ -6,7 +6,8 @@ use crate::records::{NativeSource, Object, canonical_archive_root};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::AsyncWriteExt;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub const FAILED: &str = "Could not archive or restore the conversation. Existing history has been retained.";
 const SCRIPT: &str = "conversation_archive.py";
@@ -17,6 +18,13 @@ pub const TEST_FLAG: &str = "native-history";
 const TEMPORARY: &str = "/tmp";
 const LOCKS: &str = "native-locks";
 const LOCK_VARIABLE: &str = "VCX_NATIVE_LOCK_HOME";
+/// A test worker's provider reports the version its fake command `<runtime>/client-versions/<provider>` prints.
+pub const TEST_VERSIONS: &str = "client-versions";
+const ENV: &str = "/usr/bin/env";
+const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_VERSION_BYTES: usize = 4096;
+/// Qwen keeps no native history of its own, so it reports no version.
+const UNVERSIONED: &str = "qwen";
 
 /// Where a worker keeps native history. A test worker keeps it only once `flag` exists, and only inside `confined`:
 /// every state folder, provider home and lock folder is checked against it before use.
@@ -53,6 +61,46 @@ impl Native {
             Ok(resolved) if resolved.starts_with(root) => Ok(()),
             _ => Err(format!("Native history is kept only inside the test folder, not at {}.", path.display())),
         }
+    }
+}
+
+/// Where a provider's version comes from: the archive prunes only the history of a version it verified.
+#[derive(Debug, Clone)]
+pub enum Versions {
+    /// His installed provider, `/usr/bin/env <provider> --version`.
+    Installed,
+    /// A test's fake commands, `<folder>/<provider> --version`: none there, no version. His binaries never run.
+    Fixture(PathBuf),
+}
+
+impl Versions {
+    /// The Swift `nativeClientVersion`: what the provider prints for `--version`, trimmed; `None` on any failure.
+    pub async fn read(&self, provider: &str, environment: &[(String, String)]) -> Option<String> {
+        if provider == UNVERSIONED {
+            return None;
+        }
+        let mut command = match self {
+            Self::Installed => {
+                let mut command = tokio::process::Command::new(ENV);
+                command.arg(provider);
+                command
+            }
+            Self::Fixture(folder) => tokio::process::Command::new(folder.join(provider)),
+        };
+        command.arg("--version").env_clear().envs(environment.iter().map(|(key, value)| (key, value)));
+        let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true).spawn().ok()?;
+        let mut output = child.stdout.take()?;
+        let read = async {
+            let mut data = Vec::new();
+            (&mut output).take(MAX_VERSION_BYTES as u64 + 1).read_to_end(&mut data).await.ok()?;
+            if data.len() > MAX_VERSION_BYTES {
+                return None;
+            }
+            child.wait().await.ok().filter(|status| status.success()).map(|_| data)
+        };
+        let data = tokio::time::timeout(VERSION_TIMEOUT, read).await.ok()??;
+        let version = String::from_utf8(data).ok()?.trim().to_owned();
+        (!version.is_empty()).then_some(version)
     }
 }
 
@@ -117,11 +165,11 @@ impl Archive<'_> {
         Ok(paths.get("paths").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect())
     }
 
-    /// Seals the record at `path` and its native history into the archive. No client versions are sent, so no
-    /// provider counts as verified and the script deletes no provider file: only the record and its agent log go.
-    pub async fn archive(&self, path: &Path, sources: &[NativeSource], owned: &[NativeSource]) -> Result<(), String> {
+    /// Seals the record at `path` and its native history into the archive. The script deletes a provider's files
+    /// only when `versions` names the version it verified for that provider and the owned source was written by it.
+    pub async fn archive(&self, path: &Path, sources: &[NativeSource], owned: &[NativeSource], versions: &Object) -> Result<(), String> {
         let listed = |sources: &[NativeSource]| sources.iter().map(NativeSource::json).collect::<Vec<_>>();
-        let values = json!({"recordPath": path, "nativeSources": listed(sources), "ownedSources": listed(owned), "pruneProviders": PRUNED_PROVIDERS, "clientVersions": {}, "childExited": true});
+        let values = json!({"recordPath": path, "nativeSources": listed(sources), "ownedSources": listed(owned), "pruneProviders": PRUNED_PROVIDERS, "clientVersions": versions, "childExited": true});
         self.call("archive", values, sources).await.map(drop)
     }
 }

@@ -175,7 +175,7 @@ impl SessionBackend {
 
     /// The Swift `archiveRetired`: the record left behind goes to the archive once its agent has stopped.
     pub(in crate::backend) async fn archive_retired(&self, previous: Retiring) {
-        let Retiring { path, thread, sources, mut leases, group, lock, .. } = previous;
+        let Retiring { path, thread, sources, mut leases, client_versions, group, lock, .. } = previous;
         if !self.native_history() || thread.is_none() {
             return drop(lock);
         }
@@ -189,7 +189,7 @@ impl SessionBackend {
             wait_for_exit(group).await?;
             let owned: Vec<NativeSource> = sources.iter().filter(|source| leases.contains_key(&source.key())).cloned().collect();
             let state = self.state_path();
-            self.archive(&state).archive(&path, &sources, &owned).await
+            self.archive(&state).archive(&path, &sources, &owned, &client_versions).await
         };
         if let Err(error) = archived.await {
             self.session.borrow_mut().notice(&format!("{ARCHIVE_UNFINISHED}{error}"));
