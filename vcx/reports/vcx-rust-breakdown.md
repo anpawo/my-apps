@@ -257,3 +257,15 @@ Web legs and Qwen received the disagreement list with each position, not the fiv
   refreshed from the last commit that holds the Swift sources (it predates the rename), the installed
   `Vibe Code X.app` removed (`Rust app`), and the Swift sources, `build.sh`, `install-native.py`, `auto-update.sh` and
   the `mac.vcx-update` job removed from the repo in one commit that can be reverted.
+- 26/11/2026, observed: the Rust worker keeps a Claude session across its live update, between two turns, as the
+  Swift worker does (`f8a2ffc`; `rust/crates/vcx-agents/src/claude.rs`, `process.rs`, `rust/crates/vcx-worker/src/backend/carry.rs`).
+  `cargo test -p vcx-worker --test swap`: a worker whose Claude has read its catalog is sent SIGUSR1, comes back in
+  a new image under the same pid, and the prompt sent after that is answered by the Claude process started before
+  (a recorded Claude started anew would replay its catalog exchange and never answer). `cargo test -p vcx-agents
+  --test adopt_claude` (6 tests): a turn under way refuses the freeze and its end allows it, the frozen state holds
+  no value of the agent's environment, an adopted connection runs its turn on the process it is handed. Whole
+  workspace on `2e899cd` plus this change: exit 0, 514 passed, 0 failed, 1 ignored (the `test result` lines). An
+  earlier run on `b0e4224` showed 8 failures in `vcx-shell` (chrome, windowless) and `vcx-worker` (commands): the Mac
+  was at load 21 and I had edited files during that build; the three targets pass on clean `2e899cd`. Limits now:
+  a Claude turn, permission or control request under way makes the update wait; agy and Qwen sessions are still
+  not carried; not run against the real `claude` (the tests play a recording).
