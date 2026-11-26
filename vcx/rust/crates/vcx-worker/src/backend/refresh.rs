@@ -4,8 +4,9 @@
 
 use super::{REQUEST_TIMEOUT, SessionBackend, object};
 use crate::session::Effect;
-use crate::{fallback, provider, repository};
-use serde_json::json;
+use crate::{capabilities, fallback, provider, repository};
+use serde_json::{Value, json};
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 use vcx_config::Account;
@@ -13,6 +14,18 @@ use vcx_config::Account;
 /// How often an attached window's usage and repository are read again, as the Swift app's refresh timer does.
 const REFRESH_PERIOD: Duration = Duration::from_secs(60);
 const SELF_FOLDER: &str = "self";
+const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
+const FULL_WINDOW_PERCENT: i64 = 100;
+
+/// The Swift `codexContextWindow`: the window Codex's model cache gives `model` (or `configured`), cut to the share
+/// Codex lets a conversation use.
+pub(crate) fn codex_context_window(model: &str, home: &Path, configured: Option<i64>) -> Option<i64> {
+    let cache: Value = serde_json::from_slice(&std::fs::read(home.join("models_cache.json")).ok()?).ok()?;
+    let entry = cache["models"].as_array()?.iter().find(|entry| entry["slug"] == model)?;
+    let window = configured.or_else(|| entry["context_window"].as_i64()).filter(|window| *window > 0)?;
+    let percent = entry["effective_context_window_percent"].as_i64().unwrap_or(FULL_WINDOW_PERCENT);
+    (percent > 0 && percent <= FULL_WINDOW_PERCENT).then(|| window * percent / FULL_WINDOW_PERCENT)
+}
 
 impl SessionBackend {
     /// The Swift `refreshUsage`: Claude's usage is read once per connection and when asked, its turns' own reports
@@ -123,11 +136,54 @@ impl SessionBackend {
         });
     }
 
+    /// The Swift `refreshContextLimit`: Claude's window as remembered for its model, Codex's from its config and
+    /// model cache, so the context percentage shows before the first turn.
+    pub(super) async fn refresh_context_limit(&self) {
+        let (provider, model, cwd) = {
+            let session = self.session.borrow();
+            (session.provider.clone(), session.model.clone(), session.cwd.clone())
+        };
+        if provider == "claude" {
+            let mut session = self.session.borrow_mut();
+            session.context_limit = session.remembered_window(&model);
+            return;
+        }
+        if provider != "codex" {
+            return;
+        }
+        let generation = self.generation.get();
+        let config = self.request("config/read", json!({"cwd": cwd, "includeLayers": false}), CONFIG_TIMEOUT).await.ok();
+        let home = capabilities::provider_home(&self.current_account(), &self.config.errors_home);
+        let mut session = self.session.borrow_mut();
+        if self.generation.get() != generation || session.model != model || session.context_limit.is_some() {
+            return;
+        }
+        session.context_limit = codex_context_window(&model, &home, config.and_then(|config| config["config"]["model_context_window"].as_i64()));
+    }
+
     /// The account the session runs on rests until `reset`.
     pub(super) fn rest_current(&self, reset: f64) {
         let account = self.session.borrow().account["id"].as_str().unwrap_or_default().to_owned();
         if !account.is_empty() {
             self.rest(&account, reset);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_codex_window_is_the_cached_or_configured_one_cut_to_its_effective_share() {
+        let home = std::env::temp_dir().join(format!("vcx-window-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let cache = json!({"models": [{"slug": "gpt", "context_window": 200_000, "effective_context_window_percent": 95}, {"slug": "odd", "context_window": 1000, "effective_context_window_percent": 0}]});
+        std::fs::write(home.join("models_cache.json"), cache.to_string()).unwrap();
+
+        let windows = [codex_context_window("gpt", &home, None), codex_context_window("gpt", &home, Some(100_000)), codex_context_window("odd", &home, None), codex_context_window("missing", &home, None)];
+
+        assert_eq!(windows, [Some(190_000), Some(95_000), None, None]);
+        let _ = std::fs::remove_dir_all(home);
     }
 }

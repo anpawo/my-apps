@@ -389,6 +389,12 @@ impl SessionBackend {
         };
         self.idle()?;
         *self.mode_choice.borrow_mut() = Some(mode.to_owned());
+        self.apply_mode(mode).await.map(|()| None)
+    }
+
+    /// The Swift `switchMode`: Codex takes `mode` with its next turn, the adapters at once; an agent that is not
+    /// ready or refuses it is reconnected in it.
+    async fn apply_mode(self: &Rc<Self>, mode: &str) -> Result<(), String> {
         let (ready, codex) = {
             let session = self.session.borrow();
             (session.ready, session.provider == "codex")
@@ -399,14 +405,21 @@ impl SessionBackend {
             (true, false) => self.request("vcx/mode", json!({"mode": mode}), MODE_TIMEOUT).await.is_ok(),
         };
         if !switched {
-            return self.reconnect("permission mode changed").await.map(|()| None);
+            return self.reconnect("permission mode changed").await;
         }
         let mut session = self.session.borrow_mut();
         session.mode_override |= codex;
         session.active_mode = mode.to_owned();
         let label = if mode == "bypass" { "Bypass / YOLO" } else { "Ask for approval" };
         session.notice(&format!("Permission mode changed to {label}."));
-        Ok(None)
+        Ok(())
+    }
+
+    /// A mode changed in Settings, applied before the next turn; a failed reconnect is told and leaves it unready.
+    pub(super) async fn switch_mode(self: &Rc<Self>, mode: &str) {
+        if let Err(error) = self.apply_mode(mode).await {
+            self.session.borrow_mut().notice(&error);
+        }
     }
 
     /// A new conversation under a new record, on the first available account; the old one is kept if it fails.

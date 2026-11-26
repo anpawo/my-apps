@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use crate::capabilities::{self, Capabilities};
-use crate::{fleet, project, question, recall};
+use crate::{draft, fleet, project, question, recall};
 use crate::{repository, usage};
 use vcx_agents::directory::shell_directory;
 use vcx_agents::claude_stream::usage_limit;
@@ -71,6 +71,17 @@ pub enum Effect {
     Rest(f64),
     /// A turn edited a file in another folder: the footer names it.
     RefreshRepository,
+    /// The turn was stopped for the prompt waiting on it (its id): a turn with no input now answers it.
+    ContinueWith(String),
+}
+
+/// How the prompt waiting for the running turn goes now (Shift+Return).
+#[derive(Debug, PartialEq)]
+pub enum SendNow {
+    /// Claude takes this queued prompt in itself.
+    Queued(String),
+    /// The turn is interrupted; `ContinueWith` follows once it ends.
+    Interrupt,
 }
 
 /// A prompt on its way: the row is already shown, the request not yet answered.
@@ -174,6 +185,8 @@ pub struct Session {
     group: Option<String>,
     deltas: Vec<(String, String)>,
     turn_prompt: Option<String>,
+    /// The prompt Shift+Return stopped the turn for, answered once the turn ends.
+    sending_now: Option<String>,
     dirty_items: BTreeSet<String>,
     dirty_rows: BTreeSet<String>,
     order_dirty: bool,
@@ -461,7 +474,7 @@ impl Session {
         }
         self.default_effort = match text(params, "reasoningEffort") {
             Some(effort) => Some(effort.to_owned()),
-            None if claude => configured_claude_effort(self.account.get("home").and_then(Value::as_str), &self.conversation_directory, &self.model),
+            None if claude => self.configured_effort(),
             None => None,
         };
     }
@@ -491,7 +504,7 @@ impl Session {
         std::fs::read(file).ok().and_then(|data| serde_json::from_slice(&data).ok()).unwrap_or_default()
     }
 
-    fn remembered_window(&self, model: &str) -> Option<i64> {
+    pub fn remembered_window(&self, model: &str) -> Option<i64> {
         self.context_windows().get(model).and_then(Value::as_i64)
     }
 
@@ -771,7 +784,7 @@ impl Session {
                 let restarting = std::mem::take(&mut self.retry_stopped) && interrupted;
                 self.retry_attempt = None;
                 self.resume_when_back = false;
-                self.turn_completed(status, error.as_deref(), restarting);
+                effects.extend(self.turn_completed(status, error.as_deref(), restarting));
                 let moved = self.turn_moved();
                 effects.extend(self.edited_elsewhere().or(moved));
                 if restarting {
@@ -832,8 +845,9 @@ impl Session {
         effects
     }
 
-    /// `restarting`: the step was stopped to restart on a live network, which needs no notice.
-    fn turn_completed(&mut self, status: &TurnStatus, error: Option<&str>, restarting: bool) {
+    /// `restarting`: the step was stopped to restart on a live network, which needs no notice. Gives the prompt
+    /// Shift+Return stopped the turn for.
+    fn turn_completed(&mut self, status: &TurnStatus, error: Option<&str>, restarting: bool) -> Option<Effect> {
         self.flush();
         self.turn_id = None;
         self.busy = false;
@@ -852,9 +866,12 @@ impl Session {
         self.pending_input = None;
         let asked = self.stop_source.as_deref().is_some_and(|source| source != "Close Session");
         self.needs_attention = if *status == TurnStatus::Interrupted { !asked } else { *status == TurnStatus::Failed || error.is_some() };
+        let interrupted = *status == TurnStatus::Interrupted;
+        let withdrawn = interrupted && self.stop_source.as_deref() == Some("Escape") && self.withdraw_prompt();
         self.turn_prompt = None;
-        if *status == TurnStatus::Interrupted {
-            if !restarting {
+        if withdrawn {
+        } else if interrupted {
+            if !restarting && self.sending_now.is_none() {
                 let who = self.stop_source.as_ref().map_or("The provider did not report who stopped it.".to_owned(), |source| format!("Stop requested by {source}."));
                 self.notice(&format!("Work interrupted. {who} Send a message to continue."));
             }
@@ -863,11 +880,24 @@ impl Session {
         }
         self.stop_source = None;
         self.status = match (status, self.needs_attention) {
+            _ if withdrawn => "Ready",
             (TurnStatus::Interrupted, _) => "Stopped",
             (_, true) => "Failed",
             _ => "Ready",
         }
         .into();
+        self.sending_now.take().filter(|_| interrupted).map(Effect::ContinueWith)
+    }
+
+    /// Escape before the agent showed anything takes the prompt back into the composer, as Claude Code does.
+    fn withdraw_prompt(&mut self) -> bool {
+        let Some(row) = self.rows.last().filter(|row| row.kind == "user" && row.items.first() == self.turn_prompt.as_ref()) else { return false };
+        let row = row.id.clone();
+        let Some(content) = self.turn_prompt.as_ref().and_then(|id| self.items.get(id)).and_then(|item| item.get("content")).and_then(Value::as_array).cloned() else { return false };
+        self.remove_row(&row);
+        let restored = draft::withdrawn(&content, &self.draft);
+        self.set_draft(restored, self.draft_generation);
+        true
     }
 
     fn instruction_sources(&mut self, result: &Object) {
@@ -1050,7 +1080,7 @@ impl Session {
         self.planning = false;
         self.model = text(result, "model").unwrap_or(&self.provider_label).to_owned();
         self.archive_service = text(result, "modelProvider").unwrap_or_default().to_owned();
-        self.default_effort = text(result, "reasoningEffort").map(str::to_owned);
+        self.default_effort = text(result, "reasoningEffort").map(str::to_owned).or_else(|| if self.provider == "claude" { self.configured_effort() } else { None });
         if let Some(policy) = text(result, "approvalPolicy") {
             let full = result.get("sandbox").and_then(|sandbox| sandbox.get("type")).and_then(Value::as_str) == Some("dangerFullAccess");
             self.active_mode = if policy == "never" && full { "bypass" } else { "ask" }.into();
@@ -1231,15 +1261,74 @@ impl Session {
         Some(self.permissions.remove(index))
     }
 
-    pub fn unsend(&mut self, id: &str) -> bool {
-        let queued = self.rows.iter().find(|row| row.kind == "user" && row.items.first().map(String::as_str) == Some(id) && self.queued(row)).map(|row| row.id.clone());
-        match queued {
-            Some(row) => {
-                self.remove_row(&row);
-                true
+    /// The agent dropped a queued prompt: it leaves the chat, and the guidance it added to the turn's input goes too.
+    pub fn unsent(&mut self, id: &str) {
+        let content = self.items.get(id).and_then(|item| item.get("content")).and_then(Value::as_array).cloned().unwrap_or_default();
+        let guidance = format!("\n\nAdditional guidance: {}", content.iter().filter_map(|piece| piece.get("text").and_then(Value::as_str)).collect::<String>());
+        let images = content.iter().filter(|piece| piece.get("path").is_some()).count();
+        if let Some((input, paths)) = self.pending_input.as_mut() {
+            if let Some(kept) = input.strip_suffix(&guidance) {
+                *input = kept.to_owned();
+                paths.truncate(paths.len().saturating_sub(images));
             }
-            None => false,
         }
+        let rows: Vec<String> = self.rows.iter().filter(|row| row.kind == "user" && row.items.first().map(String::as_str) == Some(id)).map(|row| row.id.clone()).collect();
+        for row in rows {
+            self.remove_row(&row);
+        }
+    }
+
+    /// The Swift `sendWaitingNow`'s choice: the last prompt, sent during the turn and not yet read, goes now.
+    pub fn begin_send_now(&mut self) -> Option<SendNow> {
+        let row = self.rows.last().filter(|row| row.kind == "user")?;
+        let id = row.items.first().filter(|id| self.busy && self.sending_now.is_none() && self.turn_prompt.as_ref() != Some(*id))?.clone();
+        if self.provider == "claude" {
+            return self.queued(row).then_some(SendNow::Queued(id));
+        }
+        self.sending_now = Some(id);
+        Some(SendNow::Interrupt)
+    }
+
+    /// The turn/start that answers `prompt`, already in the agent's thread, once the turn Shift+Return stopped ended.
+    pub fn continue_with(&mut self, prompt: &str) -> Option<Value> {
+        let thread = self.thread_id.clone().filter(|_| self.ready && !self.busy && !self.changing)?;
+        self.busy = true;
+        self.turn_prompt = Some(prompt.to_owned());
+        self.active_actions.clear();
+        self.status = "Working…".into();
+        let mut params = json!({"threadId": thread, "input": [], "cwd": self.cwd});
+        if let Some(effort) = &self.effort {
+            params["effort"] = json!(effort);
+        }
+        Some(params)
+    }
+
+    pub fn continue_failed(&mut self, message: &str) {
+        self.busy = false;
+        self.needs_attention = true;
+        self.status = "Send failed".into();
+        self.notice(&format!("Prompt was not sent: {message}"));
+    }
+
+    /// The Swift `effectiveEffort`: the effort the next turn runs at.
+    pub fn effective_effort(&self) -> Option<String> {
+        let default = || self.model_default_efforts.get(&self.model).and_then(Value::as_str).map(str::to_owned);
+        self.effort.clone().or_else(|| self.default_effort.clone()).or_else(default).or_else(|| (self.provider == "qwen").then(|| "off".to_owned()))
+    }
+
+    /// The thread reopened on `model`; an already loaded Codex thread returns its old model, and turn/start applies the
+    /// selection.
+    pub fn model_changed(&mut self, result: &Object, model: &str, effort: Option<String>) {
+        self.model = if self.provider == "codex" { model } else { text(result, "model").unwrap_or(model) }.to_owned();
+        self.default_effort = text(result, "reasoningEffort").map(str::to_owned).or_else(|| match self.provider.as_str() {
+            "claude" => self.configured_effort(),
+            _ => self.model_default_efforts.get(&self.model).and_then(Value::as_str).map(str::to_owned),
+        });
+        self.effort = effort;
+    }
+
+    fn configured_effort(&self) -> Option<String> {
+        configured_claude_effort(self.account.get("home").and_then(Value::as_str), &self.conversation_directory, &self.model)
     }
 }
 
@@ -1644,5 +1733,90 @@ mod tests {
         assert_eq!(moved, [Effect::RefreshRepository]);
         assert!(same.is_empty() && unedited.is_empty());
         assert_eq!(session.edited_folder.as_deref(), Some("/work/a"));
+    }
+
+    fn started(session: &mut Session) {
+        session.event(&event(json!({"method": "turn/started", "params": {"threadId": "T", "turn": {"id": "U"}}})));
+    }
+
+    #[test]
+    fn shift_return_on_codex_stops_the_turn_and_a_turn_without_input_answers_the_waiting_prompt() {
+        let mut session = opened();
+        session.begin_send("first", &[], None, None, false).unwrap();
+        started(&mut session);
+        let waiting = session.begin_send("now", &[], None, None, false).unwrap();
+
+        let choice = session.begin_send_now();
+        session.begin_stop("Shift+Return");
+        let effects = session.event(&event(json!({"method": "turn/completed", "params": {"threadId": "T", "turn": {"id": "U", "status": "interrupted"}}})));
+        let params = session.continue_with(&waiting.id).unwrap();
+
+        assert_eq!(choice, Some(SendNow::Interrupt));
+        assert_eq!(effects, [Effect::ContinueWith(waiting.id.clone())]);
+        assert_eq!(kinds(&session), ["user", "user"], "no interruption notice");
+        assert_eq!((params["input"].clone(), session.busy, session.status.as_str()), (json!([]), true, "Working…"));
+    }
+
+    #[test]
+    fn shift_return_on_claude_sends_only_a_prompt_still_in_its_queue() {
+        let mut session = opened();
+        session.provider = "claude".into();
+        session.begin_send("first", &[], None, None, false).unwrap();
+        started(&mut session);
+        let waiting = session.begin_send("now", &[], None, None, false).unwrap();
+
+        let read = session.begin_send_now();
+        session.event(&event(json!({"method": "vcx/userQueue", "params": {"id": waiting.id, "queued": true}})));
+        let queued = session.begin_send_now();
+
+        assert_eq!((read, queued), (None, Some(SendNow::Queued(waiting.id))));
+    }
+
+    #[test]
+    fn a_withdrawn_queued_prompt_leaves_the_chat_and_the_turns_input() {
+        let mut session = opened();
+        session.begin_send("first", &["/a.png".into()], None, None, false).unwrap();
+        started(&mut session);
+        let later = session.begin_send("later", &["/b.png".into()], None, None, false).unwrap();
+
+        session.unsent(&later.id);
+
+        assert_eq!(session.pending_input, Some(("first".into(), vec!["/a.png".into()])));
+        assert_eq!(kinds(&session), ["user"]);
+    }
+
+    #[test]
+    fn escape_before_any_output_takes_the_prompt_back_into_the_draft_without_a_notice() {
+        let mut session = opened();
+        session.begin_send("fix [Image #1]", &["/a.png".into()], None, None, false).unwrap();
+        started(&mut session);
+
+        session.begin_stop("Escape");
+        session.event(&event(json!({"method": "turn/completed", "params": {"threadId": "T", "turn": {"id": "U", "status": "interrupted"}}})));
+
+        assert!(kinds(&session).is_empty());
+        assert_eq!(session.draft, [json!({"type": "text", "text": "fix "}), json!({"type": "localImage", "path": "/a.png"})]);
+        assert_eq!((session.status.as_str(), session.needs_attention), ("Ready", false));
+    }
+
+    #[test]
+    fn a_claude_conversation_opens_at_the_effort_his_settings_give_its_model() {
+        let (state, home) = (scratch(), scratch());
+        std::fs::write(home.join("settings.json"), r#"{"effortLevel": "high"}"#).unwrap();
+
+        let session = claude(&state, &home);
+
+        assert_eq!(session.default_effort.as_deref(), Some("high"));
+        let _ = (std::fs::remove_dir_all(state), std::fs::remove_dir_all(home));
+    }
+
+    #[test]
+    fn a_codex_model_change_keeps_the_selection_over_the_threads_old_model_and_takes_its_default_effort() {
+        let mut session = opened();
+        session.model_default_efforts = json!({"next": "medium"}).as_object().unwrap().clone();
+
+        session.model_changed(json!({"model": "old"}).as_object().unwrap(), "next", None);
+
+        assert_eq!((session.model.as_str(), session.default_effort.as_deref(), session.effective_effort().as_deref()), ("next", Some("medium"), Some("medium")));
     }
 }

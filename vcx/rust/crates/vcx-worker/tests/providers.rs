@@ -59,7 +59,8 @@ fn assert_ran(held: &Held, label: &str, provider: &str) {
 
 #[test]
 fn runs_a_replayed_claude_turn_through_the_worker() {
-    let worker = worker("claude", "claude", &replay("claude-turn.jsonl"), json!({}));
+    // The recording ran in Claude's default mode: in any other, the send would first switch it (`vcx/mode`).
+    let worker = worker("claude", "claude", &replay("claude-turn.jsonl"), json!({"mode": "ask"}));
     let mut held = Held::open(&target(&worker));
 
     run_turn(&mut held);

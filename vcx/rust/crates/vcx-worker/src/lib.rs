@@ -12,6 +12,7 @@ pub mod channel;
 pub mod checkpoint;
 pub mod cleanup;
 pub mod connectivity;
+pub mod draft;
 pub mod fallback;
 pub mod fleet;
 pub mod instructions;

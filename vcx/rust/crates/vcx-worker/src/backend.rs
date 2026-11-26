@@ -31,6 +31,7 @@ mod commands;
 mod refresh;
 mod route;
 mod upkeep;
+mod sending;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -48,6 +49,7 @@ const CLAUDE_CATALOG_TIMEOUT: Duration = Duration::from_secs(25);
 /// An agent that stops twice within this many seconds is left to the user.
 const CRASH_WINDOW: f64 = 300.0;
 const IDLE_ONLY: &str = "Stop the current response before changing session settings.";
+const MODEL_UNAVAILABLE: &str = "Codex session is busy or the model is unavailable.";
 
 /// How sessions start their agent.
 pub struct Config {
@@ -751,6 +753,9 @@ impl SessionBackend {
     async fn refresh_catalog(self: &Rc<Self>) {
         let Ok(catalog) = self.request("model/list", json!({"limit": CATALOG_LIMIT}), REQUEST_TIMEOUT).await else { return };
         self.session.borrow_mut().apply_catalog(&object(catalog));
+        if self.session.borrow().context_limit.is_none() {
+            self.refresh_context_limit().await;
+        }
         self.refresh_connection_usage().await;
         Rc::clone(self).refresh_repository().await;
         self.schedule();
@@ -871,6 +876,7 @@ impl SessionBackend {
                 }
                 Effect::Rest(reset) => self.rest_current(reset),
                 Effect::RefreshRepository => self.detach(Rc::clone(self).refresh_repository()),
+                Effect::ContinueWith(prompt) => self.detach(Rc::clone(self).continue_with(prompt)),
             }
         }
         let idle = !self.session.borrow().busy && !self.transferring.get();
@@ -955,6 +961,10 @@ impl SessionBackend {
 
     /// `send`, for a skill also with its piece, its prompt showing the skill as it was typed.
     async fn send_as(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool, skill: Option<Skill>) -> Result<Object, String> {
+        if !retry && !self.prepare_turn().await {
+            self.schedule();
+            return Ok(Object::new());
+        }
         let routing = self.routing(text, retry);
         let outgoing = self.session.borrow_mut().begin_send(text, images, draft, generation, retry);
         self.schedule();
@@ -1075,11 +1085,11 @@ impl SessionBackend {
                 Rc::clone(&self).stop(text(&params, "source").unwrap_or("Stop command")).await;
                 Object::new()
             }
-            "sendNow" => Object::new(),
-            "unsend" => {
-                let cancelled = self.session.borrow_mut().unsend(text(&params, "id").unwrap_or_default());
-                object(json!({"cancelled": cancelled}))
+            "sendNow" => {
+                Rc::clone(&self).send_waiting_now().await;
+                Object::new()
             }
+            "unsend" => object(json!({"cancelled": self.unsend(&params).await})),
             "answer" => {
                 let (Some(rpc_id), Some(method), Some(Value::Object(result))) = (params.get("rpcID"), text(&params, "method"), params.get("result")) else {
                     return Err("This approval is no longer pending.".into());
@@ -1093,7 +1103,7 @@ impl SessionBackend {
             }
             "command" => Rc::clone(&self).command(text(&params, "text").ok_or("Invalid command payload.")?).await?,
             "setModel" => {
-                let model = text(&params, "model").ok_or("Codex session is busy or the model is unavailable.")?;
+                let model = text(&params, "model").ok_or(MODEL_UNAVAILABLE)?;
                 self.set_model(model, text(&params, "effort")).await?;
                 Object::new()
             }
@@ -1152,18 +1162,29 @@ impl SessionBackend {
         session.capabilities.skill(&session.provider, text)
     }
 
+    /// The Swift `setModel` action: Codex only, between turns, with the effort the next turn would run at unless
+    /// one is named.
     async fn set_model(&self, model: &str, effort: Option<&str>) -> Result<(), String> {
-        if !self.session.borrow().models.iter().any(|known| known == model) {
-            return Err("Codex session is busy or the model is unavailable.".into());
-        }
-        let effort = effort.map(str::to_owned).or_else(|| {
+        let usable = {
             let session = self.session.borrow();
-            session.effort.clone().or_else(|| session.default_effort.clone())
-        });
-        self.change_model(model, effort).await
+            session.provider == "codex" && session.ready && !session.busy && !session.changing && session.models.iter().any(|known| known == model)
+        };
+        if !usable {
+            return Err(MODEL_UNAVAILABLE.into());
+        }
+        let effort = effort.map(str::to_owned).or_else(|| self.session.borrow().effective_effort());
+        if let Err(error) = self.change_model(model, effort.clone()).await {
+            self.session.borrow_mut().notice(&error);
+        }
+        let session = self.session.borrow();
+        if session.model != model || session.effective_effort() != effort {
+            return Err("Model change did not complete.".into());
+        }
+        Ok(())
     }
 
-    /// The Swift `changeModel`: no `effort` is the model's default.
+    /// The Swift `changeModel`: the thread is reopened on `model` in the session's mode and with its instructions; no
+    /// `effort` is the model's default.
     async fn change_model(&self, model: &str, effort: Option<String>) -> Result<(), String> {
         if !self.session.borrow().models.iter().any(|known| known == model) {
             return Err("Unknown model. Choose one from the model menu.".into());
@@ -1172,15 +1193,31 @@ impl SessionBackend {
         if !allowed {
             return Err("Reasoning effort is unavailable for this model.".into());
         }
-        let (thread, cwd) = {
-            let session = self.session.borrow();
-            (session.thread_id.clone().ok_or("No conversation is open.")?, session.cwd.clone())
+        let (thread, cwd, mode, previous_limit) = {
+            let mut session = self.session.borrow_mut();
+            let thread = session.thread_id.clone().ok_or("No conversation is open.")?;
+            let previous_limit = session.context_limit;
+            if session.provider == "codex" && session.model != model {
+                session.context_limit = None;
+            }
+            session.changing = true;
+            (thread, session.cwd.clone(), session.active_mode.clone(), previous_limit)
         };
         let instructions = instructions::developer_instructions(&self.current_account(), &cwd, &vcx_config::homes::home_directory());
-        self.request("thread/resume", json!({"threadId": thread, "model": model, "developerInstructions": instructions}), REQUEST_TIMEOUT).await?;
-        let mut session = self.session.borrow_mut();
-        session.model = model.to_owned();
-        session.effort = effort;
+        let params = json!({"threadId": thread, "model": model, "excludeTurns": true, "approvalPolicy": model::approval_policy(&mode), "sandbox": model::sandbox(&mode), "developerInstructions": instructions, "effort": effort});
+        let result = self.request("thread/resume", params, REQUEST_TIMEOUT).await;
+        self.session.borrow_mut().changing = false;
+        match result {
+            Ok(result) => self.session.borrow_mut().model_changed(&object(result), model, effort),
+            Err(error) => {
+                let mut session = self.session.borrow_mut();
+                session.context_limit = session.context_limit.or(previous_limit);
+                return Err(error);
+            }
+        }
+        if self.session.borrow().context_limit.is_none() {
+            self.refresh_context_limit().await;
+        }
         Ok(())
     }
 }

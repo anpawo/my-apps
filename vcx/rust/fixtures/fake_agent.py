@@ -24,6 +24,9 @@ Started with `--route` (the worker's test router, in Haiku's place), it reads th
 folder the first `fixture:route:<folder>` in it names, or `none`, and exits.
 A `routing-timeout` file in the test worker's `VCX_RUNTIME_HOME` fails the next thread/start or thread/resume once, as
 Codex's workspace routing does when it times out, and is removed.
+`fixture:quiet` holds the turn as `fixture:hold` does but shows nothing. A steer holding `fixture:queued` is reported
+waiting in the agent's queue (`vcx/userQueue`), as Claude reports one, and `vcx/unsend` takes it back.
+`fixture:lastopen` answers with the JSON of every parameter the last thread/start or thread/resume was given.
 """
 import json
 import os
@@ -47,6 +50,9 @@ RATE_LIMIT = 'fixture:ratelimit'
 CRASH = 'fixture:crash'
 DROPPED = 'fixture:dropped'
 API_RETRY = 'fixture:apiretry'
+QUIET = 'fixture:quiet'
+QUEUED = 'fixture:queued'
+LAST_OPEN = 'fixture:lastopen'
 HANDOFF = 'Context from this conversation'
 CRASH_STATUS = 3
 LIMIT_ERROR = {'message': "You've hit your usage limit.", 'codexErrorInfo': 'usageLimitExceeded'}
@@ -66,6 +72,7 @@ ROUTING_TIMEOUT_FLAG = 'routing-timeout'
 ROUTING_TIMEOUT_ERROR = {'code': -32603, 'message': 'workspace routing discovery timed out'}
 SESSION_FILES = ('FLEET_CONTEXT_FILE', 'VCX_PROGRESS_FILE', 'VCX_TASK_FILE')
 opened = {}
+queued = set()
 output_lock = threading.Lock()
 awaiting = {}
 
@@ -136,6 +143,8 @@ def prompt_text(params):
 
 
 def answer_text(params):
+    if LAST_OPEN in prompt_text(params):
+        return json.dumps(opened, sort_keys=True)
     if OPENED in prompt_text(params):
         tools = [tool.get('name') for tool in opened.get('dynamicTools') or []]
         environment = {key: os.environ.get(key) for key in SESSION_FILES}
@@ -148,7 +157,7 @@ def answer_text(params):
 
 def held(params):
     text = prompt_text(params)
-    return any(marker in text for marker in (HOLD, APPROVE, API_RETRY, QUESTION, TWO_QUESTIONS))
+    return any(marker in text for marker in (HOLD, APPROVE, API_RETRY, QUESTION, TWO_QUESTIONS, QUIET))
 
 
 def failure(params):
@@ -174,6 +183,8 @@ def fail_turn(thread, turn, error):
 
 def open_turn(thread, turn, params):
     event('turn/started', {'turn': {'id': turn}}, thread)
+    if QUIET in prompt_text(params):
+        return
     event('item/started', {'item': {**HELD_TOOL, 'status': 'inProgress'}}, thread)
     if API_RETRY in prompt_text(params):
         # Claude's announced API retry, which the adapters pass on as `vcx/apiRetry`.
@@ -300,6 +311,11 @@ def respond(message):
     if method in HOME_LISTS:
         send({'id': message['id'], 'result': HOME_LISTS[method](message.get('params') or {})})
         return
+    if method == 'vcx/unsend':
+        prompt = (message.get('params') or {}).get('id')
+        send({'id': message['id'], 'result': {'cancelled': prompt in queued}})
+        queued.discard(prompt)
+        return
     if method in ('thread/start', 'thread/resume'):
         opened.clear()
         opened.update(message.get('params') or {})
@@ -319,6 +335,9 @@ def respond(message):
     elif method == 'turn/start':
         edit, cd = EDIT.search(prompt_text(params)), CD.search(prompt_text(params))
         threading.Thread(target=run_turn, kwargs={'text': answer_text(params), 'edit': edit and edit.group(1), 'cd': cd and cd.group(1)}, daemon=True).start()
+    elif method == 'turn/steer' and QUEUED in prompt_text(params):
+        queued.add(params.get('clientUserMessageId'))
+        event('vcx/userQueue', {'id': params.get('clientUserMessageId'), 'queued': True})
     elif method == 'turn/interrupt':
         awaiting.clear()
         event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})
