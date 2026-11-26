@@ -5,6 +5,7 @@ use crate::bridge::{self, FromPage};
 use crate::chart;
 use crate::composer;
 use crate::progress::{self, Progress};
+use crate::run;
 use crate::session::{self, Message, Output, Source};
 use crate::summary::Summary;
 use crate::template::{self, Change, Store};
@@ -222,6 +223,10 @@ impl Pane {
                 match message["type"].as_str() {
                     Some("draft") => self.tell(Message::Act { action: "checkpoint", params: json!({"draft": message["draft"], "generation": message["generation"]}) }),
                     Some("sendNow") => self.tell(Message::Act { action: "sendNow", params: json!({}) }),
+                    Some("run" | "runInput" | "runStop") => {
+                        let emit = self.emit.clone();
+                        run::handle(&message, &self.cwd, Arc::new(move |reply| emit(PaneEvent::Script(bridge::deliver(&reply)))));
+                    }
                     // `files`, `image` and `dropped` read or write the disk: off the main thread, back as a script.
                     _ => {
                         let (emit, cwd) = (self.emit.clone(), self.cwd.clone());
