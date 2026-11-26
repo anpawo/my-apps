@@ -30,7 +30,22 @@ await page.waitForSelector('#people .row');
 const names = await page.$$eval('#people .row .name', ns => ns.map(n => n.textContent));
 check(names.length === 7, `5 people and 2 groups in one list (${names.join(', ')})`);
 const lasts = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => state.byId.get(r.dataset.id).last));
-check(lasts.every((l, i) => !i || lasts[i - 1] >= l) && names.includes('Climbing crew'), 'groups sit among people, newest first');
+const waiting = await page.evaluate(() => [...document.querySelectorAll('#people .row')].map(r => awaits(state.byId.get(r.dataset.id))));
+const newestFirst = v => v.every((l, i) => !i || v[i - 1] >= l);
+const firstAnswered = waiting.indexOf(false);
+check(firstAnswered > 0 && waiting.slice(firstAnswered).every(w => !w) && newestFirst(lasts.slice(0, firstAnswered)) && newestFirst(lasts.slice(firstAnswered)) && names.includes('Climbing crew'), `people waiting on my answer come first, then groups among the rest, each newest first (${waiting})`);
+const pinned = await page.evaluate(() => {
+  const ids = () => [...document.querySelectorAll('#people .row')].map(r => r.dataset.id);
+  const sarah = state.all.find(i => i.name === 'Sarah K');
+  const old = sarah.chats[0].preview;
+  sarah.chats[0].preview = { ...old, isSender: true };
+  showLists();
+  const answered = ids().indexOf(sarah.id) > ids().indexOf('grp-1');
+  sarah.chats[0].preview = old;
+  showLists();
+  return [answered, ids().indexOf(sarah.id) < ids().indexOf('grp-1')];
+});
+check(pinned[0] && pinned[1], `a person whose last message is theirs sits above the groups, and drops back once answered (${pinned})`);
 const logos = await page.$$eval('#people .row:not([data-id^="grp"])', rs => rs.map(r => [...r.querySelectorAll('.net')].map(n => [n.title, n.getBoundingClientRect().width])));
 check(logos.every(l => l.length === 1 && l[0][1] === 13.5) && (await page.$eval('#people .row:has-text("Lea Martin") .net', n => n.title)) === 'Instagram', `each person in the list shows the logo of the app of their latest message, 13.5 px badge (${JSON.stringify(logos)})`);
 const faces = await page.$eval('#people .row[data-id="grp-1"] .av.faces', a => [a.firstElementChild.className, a.firstElementChild.getBoundingClientRect().width, a.querySelector('.tile').getBoundingClientRect().width, a.querySelectorAll('.tile img').length]);
@@ -84,7 +99,7 @@ const crossAnswer = await page.evaluate(() => {
 check(crossAnswer[0] === 0 && crossAnswer[1] === 1, `a later reply on another network clears the badge, an earlier one does not (${crossAnswer})`);
 
 // Opening Lea: mixed timeline, marks, auto target = Instagram (her last message), read sent.
-await page.click('#people .row >> nth=0');
+await page.click('#people .row:has-text("Lea Martin")');
 await page.waitForSelector('#thread .msg');
 await page.waitForTimeout(700);
 const thread = await page.$$eval('#thread .msg', ms => ms.map(m => m.dataset.net + ':' + msgText(m)));
@@ -318,7 +333,7 @@ const distinct = new Set(pillTrack.map(Math.round)).size;
 check(distinct >= 4 && monotonic(pillTrack), `selection pill moves through ${distinct} positions, one way only`);
 
 // Header logos: back on Lea, clicking WhatsApp's moves the highlight; clicking Instagram's moves it back.
-await page.click('#people .row >> nth=0');
+await page.click('#people .row:has-text("Lea Martin")');
 await page.waitForTimeout(700);
 const on = () => page.$eval('.who .ring.on', c => c.dataset.net);
 await page.click('.who .ring[data-net="whatsapp"]');

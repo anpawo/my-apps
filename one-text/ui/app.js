@@ -198,11 +198,22 @@ function fits() {
 }
 // A favorite shows in the rows above instead; someone in a group stays in the list like anyone else.
 const listed = i => !isFav(i) && (!i.hidden || i.id === state.cur?.id);
+const UNANSWERED_DAYS = 14;
+// Waiting on me: a person whose newest message is theirs, recent, not muted, and not let go with ⌘K.
+function awaits(i) {
+  if (i?.kind !== 'person' || !i.chats.length) return false;
+  const c = i.chats.reduce((a, c) => (c.last > a.last ? c : a));
+  const at = Date.parse(c.last);
+  return !!c.preview && !c.preview.isSender && c.preview.type !== 'REACTION' && !c.muted
+    && !(Date.parse(seen[c.id]) >= at) && Date.now() - at < UNANSWERED_DAYS * 864e5;
+}
+// The people waiting on me come first, right under the favorites, newest first.
 function shown(items) {
   items = items.filter(listed);
+  items = [...items.filter(awaits), ...items.filter(i => !awaits(i))];
   const max = state.more || fits();
   const at = items.findIndex(i => i.id === state.cur?.id);
-  const out = items.filter((i, n) => n < max || (i.unread > 0 && n !== at));
+  const out = items.filter((i, n) => n < max || ((i.unread > 0 || awaits(i)) && n !== at));
   // An open conversation from further down (the group bar, a search) shows on top instead of past the screen.
   if (at >= max) out.unshift(items[at]);
   return out;
@@ -621,7 +632,7 @@ addEventListener('keydown', e => {
   if (e.metaKey && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     const item = state.byId.get(document.querySelector('#list .row:hover, .fav:hover')?.dataset.id) || state.cur;
-    if (item?.unread) markRead(item);
+    if (item?.unread || awaits(item)) markRead(item);
   }
   // Escape in the field (or nowhere) with the thread scrolled to its end is ⌘K on the open chat; one that closes something is not.
   if (e.key === 'Escape' && !e.defaultPrevented && !openMenu && (e.target === input || e.target === document.body) && atEnd && state.cur?.unread) markRead(state.cur);
@@ -1433,6 +1444,7 @@ function markRead(item) {
   }
   localStorage.seen = JSON.stringify(seen);
   item.unread = item.chats.reduce((s, c) => s + c.unread, 0);
+  showLists();
   if (item === state.cur) drawNewLine();
   const n = document.querySelector(`#list .row[data-id="${CSS.escape(item.id)}"]`);
   if (item.unread) { if (n) fill(n, item); return; }
