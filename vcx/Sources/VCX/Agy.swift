@@ -245,7 +245,7 @@ final class AgyConnection: Connection {
         if method == "session/request_permission", let id = message["id"] { permission(id, message["params"] as? JSON ?? [:]); return }
         if let method, let id = message["id"] {
             // No file system or terminal capability was offered, so agy has nothing else to ask.
-            try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "vvcx does not support \(method)"]]); return
+            try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "vcx does not support \(method)"]]); return
         }
         guard let id = message["id"] as? Int, let waiting = pending.removeValue(forKey: id) else { return }
         if let error = message["error"] as? JSON { waiting.resume(throwing: CXError(message: "Antigravity: " + (error["message"] as? String ?? "request failed"))) }

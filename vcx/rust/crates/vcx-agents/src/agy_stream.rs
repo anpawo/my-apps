@@ -80,7 +80,7 @@ impl AgyStream {
                 self.permission(id.clone(), &obj(message.get("params")), &mut out);
             } else {
                 // No file system or terminal capability was offered, so agy has nothing else to ask.
-                out.push(Effect::Write(object(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("vvcx does not support {method}")}}))));
+                out.push(Effect::Write(object(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("vcx does not support {method}")}}))));
             }
             return out;
         }
