@@ -46,10 +46,25 @@
   };
   // An ERRORS line starts with its date, then a colon or a dash (Swift `capabilityItems`).
   const RULE_DATE = /^[0-9/, -]+?(: | \u2014 )/;
+  const SETTINGS_TABS = ['Session', 'Accounts', 'Qwen', 'Background', 'Keys'];
+  const QWEN_HOSTS = { mac: 'This Mac', pc: 'Windows PC' };
+  // Swift `SettingsPopup`'s own figures: the resends after a dropped connection, the conversation a new turn is handed.
+  const NETWORK_RESUMES = 3;
+  const RECENT_KB = 48;
+  const MS_PER_SECOND = 1000;
+  // Swift `SettingsPopup.shortcuts`.
+  const SHORTCUTS = [
+    [['\u21a9'], 'Send the prompt'], [['\u21e7', '\u21a9'], 'New line; on an empty composer, send the waiting prompt now'], [['\u2325', '\u21a9'], 'New line'],
+    [['\u2191'], 'Withdraw the unread prompt, or recall the previous one'], [['\u2193'], 'Next prompt in history'], [['\u21e5'], 'Expand the last paste, or complete a command'],
+    [['esc'], 'Close find, a preview or a panel, else stop the turn'], [['1\u20139'], 'Pick an option of the open question'],
+    [['\u2318', 'F'], 'Find in the transcript'], [['\u2318', ','], 'Settings'], [['\u2318', '\u21e7', 'N'], 'New window'], [['\u2318', 'O'], 'Open project'],
+    [['\u2318', 'W'], 'Close window'], [['\u2318', 'Q'], 'Close session'], [['\u2325', 'click'], 'Define the word; drag to widen it'], [['\u2325'], 'Held, select the word under the pointer'],
+  ];
 
   const $ = id => document.getElementById(id);
   const post = message => window.ipc.postMessage(JSON.stringify(message));
-  const state = { meta: {}, rows: new Map(), order: [], notes: { link: '', problem: '' }, progress: null, update: null, tasks: null, quota: null };
+  const state = { meta: {}, rows: new Map(), order: [], notes: { link: '', problem: '' }, progress: null, update: null, tasks: null, quota: null, settings: null, login: null };
+  const sheet = { open: false, signature: '' };
   const shown = { chips: new Map(), tasks: '', title: '', status: '', request: '', empty: false };
   let popover = null;
   const capability = { open: null, hovered: null, inPanel: false, choose: null, signature: '' };
@@ -331,6 +346,7 @@
     permission.id = 'permission';
     permission.hidden = true;
     status.before(permission);
+    status.before(loginPanel());
     status.after(note);
     $('notice').classList.add('pill');
     const tasks = make('aside');
@@ -345,7 +361,7 @@
     const layer = make('div', 'pop');
     layer.id = 'popover';
     layer.hidden = true;
-    document.body.append(sessionPanel(), tasks, layer, capabilityPanel());
+    document.body.append(sessionPanel(), tasks, layer, capabilityPanel(), settingsSheet());
   }
 
   function icon(name, className = 'go') {
@@ -356,7 +372,7 @@
   function sessionPanel() {
     const panel = make('aside');
     panel.id = 'session';
-    const settings = button('b b-outline wide', '', () => post({ type: 'settings' }));
+    const settings = button('b b-outline wide', '', openSettings);
     settings.id = 'settings-button';
     settings.title = 'Settings (⌘,)';
     settings.innerHTML = `${icon('settings')}<b>SETTINGS</b>`;
@@ -1028,6 +1044,213 @@
     if (fresh || focused) input.focus();
   }
 
+  // ---- Effect: tabs (WT-105) ----
+  // tabs(root): the n-th .tb-trigger shows the n-th .tb-panel.
+  function tabs(root) {
+    const triggers = [...root.querySelectorAll('.tb-trigger')], panels = [...root.querySelectorAll('.tb-panel')];
+    triggers.forEach((t, i) => t.addEventListener('click', () => {
+      if (t.classList.contains('on')) return;
+      triggers.forEach((x, k) => { x.classList.toggle('on', k === i); x.ariaSelected = k === i; });
+      panels.forEach((p, k) => p.classList.toggle('on', k === i));
+    }));
+  }
+  // ---- End of effect ----
+
+  // Swift `SettingsPopup`, as the bar dialog (WT-072) with the tabs (WT-105); each setting is a name and value block (WT-055).
+  function settingsSheet() {
+    const node = make('section', 'dialog light');
+    node.id = 'settings';
+    node.hidden = true;
+    node.role = 'dialog';
+    node.ariaLabel = 'Settings';
+    const bar = make('header', 'bar');
+    const title = make('div');
+    title.append(make('p', '', 'Settings'));
+    const shut = button('b b-ghost icon', '', closeSettings);
+    shut.innerHTML = icon('close');
+    shut.ariaLabel = 'Close settings';
+    bar.append(title, shut);
+    const list = make('div', 'tb-list');
+    list.role = 'tablist';
+    list.ariaLabel = 'Settings section';
+    const body = make('div', 'body');
+    for (const [index, name] of SETTINGS_TABS.entries()) {
+      const trigger = make('button', index ? 'tb-trigger' : 'tb-trigger on', name);
+      trigger.type = 'button';
+      trigger.role = 'tab';
+      trigger.ariaSelected = !index;
+      const panel = make('div', index ? 'tb-panel' : 'tb-panel on');
+      panel.dataset.tab = name;
+      list.append(trigger);
+      body.append(panel);
+    }
+    node.append(bar, list, body);
+    tabs(node);
+    return node;
+  }
+
+  function openSettings() {
+    closeCapability();
+    popover = null;
+    drawPopover();
+    sheet.open = true;
+    sheet.signature = '';
+    $('settings').querySelector('.tb-trigger').click();
+    // The core answers with the accounts, the limits, Qwen and what runs in the background.
+    post({ type: 'settings' });
+    drawSettings();
+    $('settings').focus();
+  }
+
+  function closeSettings() {
+    sheet.open = false;
+    $('settings').hidden = true;
+  }
+
+  // Swift `showCommands`: the command goes into the composer, which opens its palette on it.
+  function showCommands(text) {
+    closeSettings();
+    const input = $('input');
+    input.focus();
+    input.select();
+    if (!document.execCommand('insertText', false, text)) {
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+    }
+  }
+
+  function fact(name, value, command, fill) {
+    const block = make('div', 'fact');
+    block.role = 'button';
+    block.tabIndex = 0;
+    const words = make('span', fill ? `val f-${fill}` : 'val');
+    words.title = value;
+    words.append(make('span', '', value));
+    const dd = make('dd');
+    dd.append(words);
+    block.append(make('dt', '', name), dd);
+    block.addEventListener('click', () => showCommands(command));
+    block.addEventListener('keydown', event => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), showCommands(command)));
+    const line = make('dl');
+    line.append(block);
+    return line;
+  }
+
+  function capitalized(word) {
+    return word ? word[0].toUpperCase() + word.slice(1) : '';
+  }
+
+  function sessionFacts() {
+    const meta = state.meta, modelCommand = `/model ${provider(meta)} `, effort = effectiveEffort(meta);
+    return [
+      fact('Provider', meta.providerLabel || 'Not connected', '/model '),
+      fact('Model', modelLabel(meta), modelCommand),
+      effort && fact('Effort', effort, `${modelCommand}${meta.model || ''} `),
+      fact('Permissions', meta.activeMode === 'bypass' ? 'Bypass / YOLO' : 'Ask for approval', '/perms '),
+      fact('Working directory', meta.cwd || '', '/dir '),
+    ].filter(Boolean);
+  }
+
+  function accountFacts() {
+    const known = state.settings;
+    const facts = known ? [] : [make('p', 'none', 'Reading the accounts…')];
+    for (const account of (known && known.accounts) || []) {
+      facts.push(fact(account.name, `${capitalized(account.provider)} · ${account.enabled ? 'enabled' : 'disabled'}`, '/account ', account.enabled ? 'green' : ''));
+      if (account.home) facts.push(fact('Profile', account.home, `/profile ${account.provider} `));
+      const reset = ((known.limits || {})[account.id] || 0) * MS_PER_SECOND;
+      if (reset > clock()) facts.push(fact('Available after', new Date(reset).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }), '/usage', 'orange'));
+    }
+    facts.push(fact('Add account', 'Claude or Codex', '/login '), fact('Import profile', 'Existing account folder', '/profile '));
+    return facts;
+  }
+
+  function qwenFacts() {
+    const qwen = state.settings && state.settings.qwen;
+    if (!qwen) return [make('p', 'none', 'Reading the Qwen settings…')];
+    return [
+      fact('Runs on', QWEN_HOSTS[qwen.host] || 'Custom endpoint', '/qwen host '),
+      fact('Endpoint', qwen.url || '', '/qwen url '),
+      fact('Proxy', qwen.proxy || 'None', '/qwen proxy '),
+      fact('Model', qwen.model || '', '/qwen model '),
+    ];
+  }
+
+  function job(title, status, detail) {
+    const block = make('div', 'fact job');
+    const words = make('span', 'val f-blue');
+    words.append(make('span', '', status));
+    const dd = make('dd');
+    dd.append(words);
+    block.append(make('dt', '', title), dd, make('p', 'detail', detail));
+    return block;
+  }
+
+  function backgroundJobs() {
+    const known = state.settings || {}, meta = state.meta, account = known.account || 'the account';
+    const running = meta.backgroundTasks || 0, retries = known.rateLimitRetries || [], fallbacks = known.fallbacks || [];
+    const routing = ['/', known.home].includes(meta.cwd) && ![...state.rows.values()].some(row => row.kind === 'user');
+    return [
+      make('p', 'intro', 'Work VCX starts without a prompt from you. Each one spends tokens on the account named.'),
+      job('Agent background tasks', running ? `${running} running` : 'None running', `Commands and subagents the agent left running keep spending ${account}'s tokens after its reply; when one finishes, Claude starts a turn by itself.`),
+      job('Project routing', routing ? 'Armed in this window' : 'Done for this window', `The first prompt of a window opened in / or ~ goes to Claude Haiku on ${known.routeAccount || 'no Claude account'}, with the ~/self folder map and the skill list, to pick its project. It runs while you type and again on Enter if the prompt grew by more than a quarter.`),
+      job('Rate limit retries', `${retries.length} at most`, `A turn stopped by a rate limit (not the plan's usage limit) is resent as "Keep going" on the same account after ${retries.map(seconds => `${Math.trunc(seconds)} s`).join(', ')}.`),
+      job('Network resume', `${NETWORK_RESUMES} at most`, 'A turn a dropped connection killed is resent as "Keep going" once the internet answers again.'),
+      job('Usage limit fallback', fallbacks.length ? fallbacks.join(', ') : 'No fallback', `When an account reaches its usage limit mid-turn, the next enabled account takes the last prompt, with up to ${RECENT_KB} KB of the recent conversation.`),
+      job('Resume recovery', 'When needed', `When Claude cannot resume a saved conversation, a new one starts and gets the pending prompt with up to ${RECENT_KB} KB of recent messages.`),
+    ];
+  }
+
+  function shortcutRows() {
+    return SHORTCUTS.map(([keys, action]) => {
+      const row = make('div', 'key');
+      const caps = make('span', 'caps');
+      caps.append(...keys.map(key => make('kbd', '', key)));
+      row.append(caps, make('span', 'action', action));
+      return row;
+    });
+  }
+
+  function drawSettings() {
+    const node = $('settings');
+    if (!sheet.open) return;
+    const signature = JSON.stringify([state.meta, state.settings, state.rows.size]);
+    node.hidden = false;
+    if (signature === sheet.signature) return;
+    sheet.signature = signature;
+    const content = { Session: sessionFacts, Accounts: accountFacts, Qwen: qwenFacts, Background: backgroundJobs, Keys: shortcutRows };
+    for (const panel of node.querySelectorAll('.tb-panel')) panel.replaceChildren(...content[panel.dataset.tab]());
+  }
+
+  // Swift `loginStatus`, above the composer as the permission prompt is: the bar dialog (WT-072) with one button.
+  function loginPanel() {
+    const node = make('section', 'dialog light');
+    node.id = 'login';
+    node.hidden = true;
+    const bar = make('header', 'bar');
+    const title = make('div');
+    title.append(make('p'));
+    const body = make('pre', 'body');
+    const foot = make('div', 'foot');
+    foot.append(button('ub outline', '', () => {
+      // `/login cancel` stops the sign-in under way, `/login dismiss` clears the message (Swift `Commands`).
+      command(state.login && state.login.signingIn ? '/login cancel' : '/login dismiss');
+      state.login = null;
+      drawLogin();
+    }));
+    node.append(bar, body, foot);
+    bar.append(title);
+    return node;
+  }
+
+  function drawLogin() {
+    const node = $('login'), login = state.login;
+    node.hidden = !(login && login.text);
+    if (node.hidden) return;
+    node.querySelector('.bar p').textContent = login.signingIn ? 'Account sign-in' : 'Account status';
+    node.querySelector('.body').textContent = login.text;
+    node.querySelector('.foot button').textContent = login.signingIn ? 'Cancel' : 'Dismiss';
+  }
+
   // The connection's state and the last problem are told apart, so one clearing does not hide the other.
   function drawNotice() {
     const shownText = [state.notes.link, state.notes.problem].filter(Boolean).join(' ');
@@ -1070,6 +1293,8 @@
     else if (message.type === 'update') state.update = message.words ? message : null;
     else if (message.type === 'tasks') state.tasks = message.entries || [];
     else if (message.type === 'quota') state.quota = message.lines || [];
+    else if (message.type === 'settings') state.settings = message;
+    else if (message.type === 'login') state.login = message.text ? message : null;
     if (message.meta) {
       state.meta = message.meta;
       if (!(state.meta.requests || []).some(request => request.id === answering)) answering = null;
@@ -1085,6 +1310,8 @@
     drawNotice();
     drawTitle();
     drawSession();
+    drawSettings();
+    drawLogin();
     if (popover) drawPopover();
   }
 
@@ -1107,6 +1334,11 @@
         rows: [...$('capability').querySelectorAll('.item:not([hidden])')].map(node => node.innerText.trim().split('\n').filter(Boolean)),
         none: $('capability').querySelector('.none').hidden ? null : $('capability').querySelector('.none').textContent,
       },
+      settings: sheet.open ? {
+        tab: $('settings').querySelector('.tb-trigger.on').textContent,
+        rows: [...$('settings').querySelectorAll('.tb-panel.on > *')].map(node => node.innerText.trim().split('\n').filter(Boolean)),
+      } : null,
+      login: text('login') && { title: $('login').querySelector('.bar p').textContent, text: $('login').querySelector('.body').textContent, button: $('login').querySelector('.foot button').textContent },
       sessionID: { label: [...$('session-id').querySelectorAll('b:not([hidden])')].map(node => node.textContent).join(''), disabled: $('session-id').disabled },
     };
   }
@@ -1131,10 +1363,15 @@
     drawNotice();
   });
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !(popover || capability.open)) return;
+    if (event.key === ',' && event.metaKey) {
+      event.preventDefault();
+      return sheet.open ? closeSettings() : openSettings();
+    }
+    if (event.key !== 'Escape' || !(popover || capability.open || sheet.open)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (popover) {
+    if (sheet.open) closeSettings();
+    else if (popover) {
       popover = null;
       drawPopover();
     } else closeCapability();

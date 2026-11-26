@@ -528,15 +528,139 @@ fn copies_the_session_id_through_the_core(page: &Page) -> Result<(), String> {
     page.until("(document.getAnimations().forEach(motion => motion.finish()), window.vcxChrome.dump().sessionID.label)", json!("COPIED"))
 }
 
-fn opens_the_settings_from_the_session_panel(page: &Page) -> Result<(), String> {
+fn escape(page: &Page) -> Result<(), String> {
+    page.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))").map(drop)
+}
+
+/// What the core answers a `settings` post with: Swift `Settings` and what the session runs in the background.
+fn settings() -> Value {
+    json!({"type": "settings", "home": "/Users/demo", "account": "Work Claude", "routeAccount": "Work Claude", "rateLimitRetries": [30, 90], "fallbacks": ["Default Codex"],
+        "accounts": [{"id": "claude-work", "name": "Work Claude", "provider": "claude", "enabled": true, "home": "~/.claude-work"},
+            {"id": "codex-default", "name": "Default Codex", "provider": "codex", "enabled": false}],
+        "limits": {"claude-work": 1_000_000_000, "codex-default": 4_102_444_800_u64},
+        "qwen": {"host": "pc", "url": "http://pc.local:11434/api/chat", "proxy": "", "model": "qwen3.5-9b-abl"}})
+}
+
+fn tab(page: &Page, name: &str) -> Result<Value, String> {
+    let index = ["Session", "Accounts", "Qwen", "Background", "Keys"].iter().position(|tab| *tab == name).ok_or("no such tab")? + 1;
+    page.click(&format!("#settings .tb-trigger:nth-child({index})"))?;
+    page.settle()?;
+    Ok(page.dump()?["settings"].clone())
+}
+
+fn opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
 
     page.click("#settings-button")?;
 
-    same(&page.wait_post("settings")?, json!({"type": "settings"}), "the settings post")
+    same(&page.wait_post("settings")?, json!({"type": "settings"}), "the settings post")?;
+    let shown = page.dump()?["settings"].clone();
+    same(&shown["tab"], json!("Session"), "the first tab")?;
+    same(&shown["rows"], json!([["Provider", "Claude"], ["Model", "Fable 5.2"], ["Effort", "high"], ["Permissions", "Ask for approval"], ["Working directory", "/Users/demo/projects/vcx"]]), "the session's settings")
 }
 
-const TESTS: [(&str, Test); 24] = [
+fn shows_the_accounts_and_qwen_the_core_sends(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.click("#settings-button")?;
+    let waiting = tab(page, "Accounts")?["rows"].clone();
+
+    page.deliver(settings())?;
+
+    let accounts = tab(page, "Accounts")?["rows"].clone();
+    let qwen = tab(page, "Qwen")?["rows"].clone();
+    same(&waiting[0], json!(["Reading the accounts…"]), "the accounts before the core answers")?;
+    same(&names(&accounts), json!(["Work Claude", "Profile", "Default Codex", "Available after", "Add account", "Import profile"]), "the accounts")?;
+    same(&json!([&accounts[0][1], &accounts[1][1], &accounts[2][1]]), json!(["Claude · enabled", "~/.claude-work", "Codex · disabled"]), "each account's line")?;
+    same(&qwen, json!([["Runs on", "Windows PC"], ["Endpoint", "http://pc.local:11434/api/chat"], ["Proxy", "None"], ["Model", "qwen3.5-9b-abl"]]), "the Qwen settings")
+}
+
+fn says_what_runs_in_the_background_and_on_which_account(page: &Page) -> Result<(), String> {
+    let mut snapshot = demo()?;
+    snapshot["backgroundTasks"] = json!(2);
+    snapshot["cwd"] = json!("/Users/demo");
+    snapshot["rows"] = json!([]);
+    page.show(&snapshot)?;
+    page.click("#settings-button")?;
+    page.deliver(settings())?;
+
+    let rows = tab(page, "Background")?["rows"].clone();
+
+    let states: Vec<Value> = rows.as_array().into_iter().flatten().skip(1).map(|row| json!([row[0], row[1]])).collect();
+    same(&json!(states), json!([["Agent background tasks", "2 running"], ["Project routing", "Armed in this window"], ["Rate limit retries", "2 at most"],
+        ["Network resume", "3 at most"], ["Usage limit fallback", "Default Codex"], ["Resume recovery", "When needed"]]), "each job's state")?;
+    check(rows[1][2].as_str().is_some_and(|detail| detail.contains("Work Claude's tokens")), "the account the tasks spend")?;
+    check(rows[3][2].as_str().is_some_and(|detail| detail.ends_with("after 30 s, 90 s.")), "the retry delays")
+}
+
+fn lists_the_keyboard_shortcuts(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.click("#settings-button")?;
+
+    let rows = tab(page, "Keys")?["rows"].clone();
+
+    same(&json!(rows.as_array().map(Vec::len)), json!(16), "the shortcuts")?;
+    same(&rows[1], json!(["⇧", "↩", "New line; on an empty composer, send the waiting prompt now"]), "a shortcut's keys and action")
+}
+
+fn puts_a_settings_command_in_the_composer_and_closes(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.click("#settings-button")?;
+
+    page.click("#settings .tb-panel.on dl:nth-child(4) .fact")?;
+
+    same(&page.dump()?["settings"], Value::Null, "the sheet after the choice")?;
+    same(&page.eval("document.getElementById('input').value")?, json!("/perms "), "the composer's command")?;
+    same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")
+}
+
+fn opens_the_settings_with_command_comma_and_closes_them_on_escape(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', metaKey: true, bubbles: true}))")?;
+    let opened = page.dump()?["settings"]["tab"].clone();
+    escape(page)?;
+
+    same(&opened, json!("Session"), "the sheet ⌘, opens")?;
+    same(&page.dump()?["settings"], Value::Null, "the sheet after Escape")
+}
+
+fn keeps_the_sheet_480_by_520_and_each_value_inside_its_block(page: &Page) -> Result<(), String> {
+    let mut snapshot = demo()?;
+    snapshot["cwd"] = json!("/Users/demo/projects/a-folder-name-long-enough-to-run-past-the-block-it-sits-in/and-deeper-still");
+    page.show(&snapshot)?;
+
+    page.click("#settings-button")?;
+
+    let size = page.eval("(r => [r.width, r.height])(document.getElementById('settings').getBoundingClientRect())")?;
+    let inside = page.eval("[...document.querySelectorAll('#settings .tb-panel.on .fact')].every(block => { const b = block.getBoundingClientRect(), v = block.querySelector('.val').getBoundingClientRect(); return v.right <= b.right && v.left >= b.left; })")?;
+    same(&size, json!([480, 520]), "the sheet's size")?;
+    same(&inside, json!(true), "every value inside its block")
+}
+
+fn shows_the_sign_in_and_cancels_it(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.deliver(json!({"type": "login", "text": "Complete sign-in in your browser.", "signingIn": true}))?;
+    let shown = page.dump()?["login"].clone();
+
+    page.click("#login .foot button")?;
+
+    same(&shown, json!({"title": "Account sign-in", "text": "Complete sign-in in your browser.", "button": "Cancel"}), "the sign-in panel")?;
+    same(&page.wait_post("command")?, json!({"type": "command", "text": "/login cancel"}), "the cancel")?;
+    same(&page.dump()?["login"], Value::Null, "the panel after Cancel")
+}
+
+fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.deliver(json!({"type": "login", "text": "Account added. Enable the accounts to use for fallback.", "signingIn": false}))?;
+    let shown = page.dump()?["login"].clone();
+
+    page.click("#login .foot button")?;
+
+    same(&json!([&shown["title"], &shown["button"]]), json!(["Account status", "Dismiss"]), "the status panel")?;
+    same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
+}
+
+const TESTS: [(&str, Test); 32] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -560,7 +684,15 @@ const TESTS: [(&str, Test); 24] = [
     ("leaves the provider's skills out of the commands", leaves_the_providers_skills_out_of_the_commands),
     ("opens an MD file from its list", opens_an_md_file_from_its_list),
     ("copies the session ID through the core", copies_the_session_id_through_the_core),
-    ("opens the settings from the session panel", opens_the_settings_from_the_session_panel),
+    ("opens the settings on the session tab and asks the core for the rest", opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest),
+    ("shows the accounts and Qwen the core sends", shows_the_accounts_and_qwen_the_core_sends),
+    ("says what runs in the background and on which account", says_what_runs_in_the_background_and_on_which_account),
+    ("lists the keyboard shortcuts", lists_the_keyboard_shortcuts),
+    ("puts a settings command in the composer and closes", puts_a_settings_command_in_the_composer_and_closes),
+    ("opens the settings with command comma and closes them on Escape", opens_the_settings_with_command_comma_and_closes_them_on_escape),
+    ("keeps the sheet 480 by 520 and each value inside its block", keeps_the_sheet_480_by_520_and_each_value_inside_its_block),
+    ("shows the sign-in and cancels it", shows_the_sign_in_and_cancels_it),
+    ("dismisses the account status", dismisses_the_account_status),
 ];
 
 fn main() -> ExitCode {
