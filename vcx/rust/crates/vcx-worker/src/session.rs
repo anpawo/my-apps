@@ -49,6 +49,10 @@ pub enum Effect {
     Crashed(Object),
     /// Claude could not find the conversation it was asked to resume: a new one takes the recent messages.
     ResumeFailed,
+    /// The network may be gone (why): the process probes it until it answers.
+    Offline(&'static str),
+    /// A step stopped because it waited on a request sent while the network was down: the agent is told to go on.
+    KeepGoing,
 }
 
 /// A prompt on its way: the row is already shown, the request not yet answered.
@@ -115,6 +119,14 @@ pub struct Session {
     /// The ERRORS lines recalled for this conversation's prompts, and the heading each sits under.
     pub recalled_rules: Vec<String>,
     pub recalled_sections: Object,
+    /// The agent stopped or could not start: it reconnects once the network comes back from a real drop.
+    pub lost_connection: bool,
+    /// A turn the network killed continues once the network is back.
+    pub resume_when_back: bool,
+    /// When the API retry the agent announced is due (seconds since 1970), until the API answers.
+    pub retry_attempt: Option<f64>,
+    /// The running step was stopped because its retry hung on a dead network.
+    pub retry_stopped: bool,
     draft_revision: u64,
     rows: Vec<Row>,
     items: HashMap<String, Object>,
@@ -487,11 +499,21 @@ impl Session {
                 }
             }
             Kind::TurnCompleted { status, error, .. } => {
-                self.turn_completed(status, error.as_deref());
+                let interrupted = *status == TurnStatus::Interrupted;
+                let restarting = std::mem::take(&mut self.retry_stopped) && interrupted;
+                self.retry_attempt = None;
+                self.resume_when_back = false;
+                self.turn_completed(status, error.as_deref(), restarting);
+                if restarting {
+                    effects.push(Effect::KeepGoing);
+                }
                 if !self.needs_attention {
                     self.auto_resumes = 0;
-                } else if *status != TurnStatus::Interrupted && turn.is_some_and(crate::fallback::rate_limited) {
+                } else if !interrupted && turn.is_some_and(crate::fallback::rate_limited) {
                     effects.push(Effect::RateLimited);
+                } else if !interrupted && self.auto_resumes < crate::fallback::NETWORK_RESUMES && turn.is_some_and(crate::fallback::network_dropped) {
+                    self.resume_when_back = true;
+                    effects.push(Effect::Offline("a dropped connection"));
                 }
             }
             Kind::Error { message, will_retry } => {
@@ -519,12 +541,22 @@ impl Session {
             Kind::Other if method == "cx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
             Kind::Other if method == "cx/disconnected" => effects.extend(self.agent_stopped(params)),
             Kind::Other if method == "cx/resumeFailed" => effects.push(Effect::ResumeFailed),
+            Kind::Other if method == "cx/apiRetry" => {
+                if params.get("done") == Some(&Value::Bool(true)) {
+                    self.retry_attempt = None;
+                } else {
+                    let delay = params.get("delay").and_then(Value::as_f64).unwrap_or_default() / 1000.0;
+                    self.retry_attempt = Some(crate::fallback::now() + delay);
+                    effects.push(Effect::Offline("an API retry"));
+                }
+            }
             Kind::Other => {}
         }
         effects
     }
 
-    fn turn_completed(&mut self, status: &TurnStatus, error: Option<&str>) {
+    /// `restarting`: the step was stopped to restart on a live network, which needs no notice.
+    fn turn_completed(&mut self, status: &TurnStatus, error: Option<&str>, restarting: bool) {
         self.flush();
         self.turn_id = None;
         self.busy = false;
@@ -545,8 +577,10 @@ impl Session {
         self.needs_attention = if *status == TurnStatus::Interrupted { !asked } else { *status == TurnStatus::Failed || error.is_some() };
         self.turn_prompt = None;
         if *status == TurnStatus::Interrupted {
-            let who = self.stop_source.as_ref().map_or("The provider did not report who stopped it.".to_owned(), |source| format!("Stop requested by {source}."));
-            self.notice(&format!("Work interrupted. {who} Send a message to continue."));
+            if !restarting {
+                let who = self.stop_source.as_ref().map_or("The provider did not report who stopped it.".to_owned(), |source| format!("Stop requested by {source}."));
+                self.notice(&format!("Work interrupted. {who} Send a message to continue."));
+            }
         } else if self.needs_attention {
             self.notice(error.unwrap_or("Turn failed. Send a message to retry."));
         }
@@ -605,6 +639,7 @@ impl Session {
 
     fn lost(&mut self, ended: bool) {
         self.needs_attention = !ended;
+        self.lost_connection = !ended;
         self.ready = false;
         self.busy = false;
         self.background_tasks = 0;

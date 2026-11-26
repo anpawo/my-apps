@@ -2,6 +2,7 @@
 //! session, runs the frontend's actions, publishes patches and keeps the checkpoint.
 
 use crate::checkpoint::Store;
+use crate::connectivity::Connectivity;
 use crate::fallback;
 use crate::provider;
 use crate::recall;
@@ -53,6 +54,8 @@ pub struct Config {
     pub retry_scale: f64,
     /// Where his `~/.claude/ERRORS*.md` are read for the lines recalled with each prompt: a test run's own folder.
     pub errors_home: PathBuf,
+    /// The process's watch on the network, which every session of it hears.
+    pub connectivity: Rc<Connectivity>,
 }
 
 pub struct SessionBackend {
@@ -88,6 +91,8 @@ pub struct SessionBackend {
     account_choice: RefCell<Option<String>>,
     /// When the agent last stopped on its own, in seconds since 1970.
     last_crash: Cell<Option<f64>>,
+    /// The account and thread a connection failed to open, which `/reconnect` and the network coming back try again.
+    pending_activation: RefCell<Option<(Account, Option<String>)>>,
     /// Work `apply` started on its own (a stop, a fallback, a retry) and that has not ended: an exec would lose it.
     detached: Cell<usize>,
 }
@@ -147,8 +152,10 @@ impl SessionBackend {
             pending_command: RefCell::default(),
             account_choice: RefCell::default(),
             last_crash: Cell::new(None),
+            pending_activation: RefCell::default(),
             detached: Cell::new(0),
         });
+        backend.config.connectivity.watch(&backend);
         let (starting, params) = (Rc::clone(&backend), params.clone());
         tokio::task::spawn_local(async move {
             starting.connect(&params).await;
@@ -220,19 +227,26 @@ impl SessionBackend {
         let account = provider::choose(&settings, self.config.provider.as_deref(), saved.as_deref(), fallback::now());
         *self.provider_choice.borrow_mut() = Some(self.config.provider.clone().unwrap_or_else(|| settings.default_provider()));
         self.session.borrow_mut().status = format!("Connecting to {}…", provider::label(&account.provider));
-        let (agent, incoming) = self.start_agent(&account, &settings).await?;
-        self.install(&account, agent, incoming, self.preferred_mode(&settings));
         let resume = self.resume_target(params);
-        match resume {
-            Some(thread) => {
-                if let Err(error) = self.open(Some(&thread), false).await {
-                    self.session.borrow_mut().notice(&format!("Could not reopen the saved conversation ({error}); a new one was started."));
-                    self.open(None, false).await?;
+        let opened = async {
+            let (agent, incoming) = self.start_agent(&account, &settings).await?;
+            self.install(&account, agent, incoming, self.preferred_mode(&settings));
+            match &resume {
+                Some(thread) => {
+                    if let Err(error) = self.open(Some(thread), false).await {
+                        self.session.borrow_mut().notice(&format!("Could not reopen the saved conversation ({error}); a new one was started."));
+                        self.open(None, false).await?;
+                    }
                 }
+                None => self.open(None, false).await?,
             }
-            None => self.open(None, false).await?,
+            Ok::<(), String>(())
+        };
+        let result = opened.await;
+        if let Err(error) = &result {
+            self.activation_failed(&account, resume, error);
         }
-        Ok(())
+        result
     }
 
     /// Starts `account`'s agent, greeted when it is Codex; the running one is left alone until this succeeds.
@@ -303,10 +317,30 @@ impl SessionBackend {
         }
         self.session.borrow_mut().changing = true;
         self.schedule();
-        let result = self.switch_to(account, resume, reason).await;
+        let result = self.switch_to(account, resume.clone(), reason).await;
         self.session.borrow_mut().changing = false;
+        match &result {
+            Ok(()) => {
+                *self.pending_activation.borrow_mut() = None;
+                self.session.borrow_mut().lost_connection = false;
+            }
+            Err(error) => self.activation_failed(account, resume, error),
+        }
         self.schedule();
         result
+    }
+
+    /// The Swift `activate`'s failure, when the session has no working agent left: the target is kept for
+    /// `/reconnect`, and a failure that is not a usage limit has the network probed.
+    fn activation_failed(self: &Rc<Self>, account: &Account, resume: Option<String>, error: &str) {
+        if self.session.borrow().ready {
+            return;
+        }
+        *self.pending_activation.borrow_mut() = Some((account.clone(), resume));
+        if !usage_limit(&object(json!({"error": error}))) {
+            self.session.borrow_mut().lost_connection = true;
+            self.config.connectivity.lost("a failed connection", false);
+        }
     }
 
     async fn switch_to(self: &Rc<Self>, account: &Account, resume: Option<String>, reason: Option<&str>) -> Result<(), String> {
@@ -322,7 +356,8 @@ impl SessionBackend {
             self.session.borrow_mut().ready = false;
             return Err(error);
         }
-        let switched = previous != json!(account.id);
+        // A session whose first agent never started had no account to switch from.
+        let switched = !previous.is_null() && previous != json!(account.id);
         let mut session = self.session.borrow_mut();
         if switched {
             session.effort = None;
@@ -459,6 +494,11 @@ impl SessionBackend {
             self.notice_linked(&format!("{stopped} It stopped twice in 5 minutes, so VCX did not restart it. Use /reconnect to try again.{line}"), log);
             return;
         }
+        if !self.config.connectivity.online().await {
+            self.config.connectivity.lost("a dropped connection", true);
+            self.notice_linked(&format!("{stopped} The network is down, so VCX restarts it once the network is back.{line}"), log);
+            return;
+        }
         self.last_crash.set(Some(now));
         let thread = self.session.borrow().thread_id.clone();
         match self.activate(&self.current_account(), thread, None).await {
@@ -511,9 +551,9 @@ impl SessionBackend {
         let current = self.current_account();
         let thread = self.session.borrow().thread_id.clone();
         let auto = self.provider_choice.borrow().as_deref() == Some("auto");
-        let mut target = (current.clone(), thread.clone());
-        if !auto && fallback.id != current.id {
-            target = (fallback.clone(), None);
+        let mut target = self.pending_activation.borrow().clone().unwrap_or((current.clone(), thread.clone()));
+        if !auto && fallback.id != target.0.id {
+            target = (fallback.clone(), if fallback.id == current.id { thread } else { None });
         }
         let chosen = self.account_choice.borrow().clone();
         if settings.account(&target.0.id).is_some_and(|latest| !latest.enabled && chosen.as_ref() != Some(&latest.id)) {
@@ -525,6 +565,63 @@ impl SessionBackend {
         self.activate(&target.0, target.1, Some(reason)).await?;
         self.refresh_catalog().await;
         Ok(())
+    }
+
+    /// The Swift `networkBack`: every session hears that the internet answers again; one that was fine does nothing.
+    pub(crate) fn network_back(self: &Rc<Self>, cause: &str, reconnecting: bool) {
+        if self.closed.get() {
+            return;
+        }
+        let (backend, cause) = (Rc::clone(self), cause.to_owned());
+        self.detach(async move { backend.came_back(&cause, reconnecting).await });
+    }
+
+    async fn came_back(self: Rc<Self>, cause: &str, reconnecting: bool) {
+        let (lost, changing) = {
+            let session = self.session.borrow();
+            (session.lost_connection, session.changing)
+        };
+        if lost && reconnecting && !changing {
+            if let Err(error) = self.reconnect(&format!("network back after {cause}")).await {
+                self.notice_linked(&error, None);
+            }
+        }
+        let (busy, attempt) = {
+            let session = self.session.borrow();
+            (session.busy, session.retry_attempt)
+        };
+        if let Some(attempt) = attempt.filter(|attempt| reconnecting && busy && *attempt < fallback::now()) {
+            let backend = Rc::clone(&self);
+            self.detach(async move { backend.stop_stuck_retry(attempt).await });
+        }
+        if !std::mem::take(&mut self.session.borrow_mut().resume_when_back) {
+            return;
+        }
+        if !self.session.borrow().ready || self.session.borrow().busy {
+            return;
+        }
+        self.session.borrow_mut().auto_resumes += 1;
+        let _ = Rc::clone(&self).send(fallback::KEEP_GOING_DROPPED, &[], None, None, false).await;
+    }
+
+    /// An API retry sent while the network was down waits on a dead socket until its own timeout; if the API is still
+    /// silent after a grace once the network is back, the step restarts on the live network.
+    async fn stop_stuck_retry(self: Rc<Self>, attempt: f64) {
+        tokio::time::sleep(self.config.connectivity.grace()).await;
+        let label = {
+            let session = self.session.borrow();
+            if !session.busy || session.retry_attempt != Some(attempt) || session.stop_requested {
+                return;
+            }
+            session.provider_label.clone()
+        };
+        {
+            let mut session = self.session.borrow_mut();
+            session.retry_stopped = true;
+            session.notice(&format!("The network is back but {label} was still waiting on a request sent while it was down, so VCX restarts the step."));
+        }
+        self.schedule();
+        self.stop("the network coming back").await;
     }
 
     /// `/account <id or name>` uses it; `/account enable|disable <id>` and `/account rename <id> <name>` change his settings.
@@ -679,6 +776,13 @@ impl SessionBackend {
                 }
                 Effect::ResumeFailed => {
                     self.detach(Rc::clone(self).resume_failed());
+                }
+                Effect::Offline(reason) => self.config.connectivity.lost(reason, false),
+                Effect::KeepGoing => {
+                    let backend = Rc::clone(self);
+                    self.detach(async move {
+                        let _ = backend.send(fallback::KEEP_GOING_DROPPED, &[], None, None, false).await;
+                    });
                 }
             }
         }

@@ -11,6 +11,14 @@ pub const LIMIT_PAUSE: f64 = 300.0;
 /// The waits before each retry of a rate-limited turn, in seconds.
 pub const RATE_LIMIT_RETRIES: [u64; 3] = [10, 30, 60];
 pub const KEEP_GOING: &str = "Keep going: the request was rate limited. Retry the step that failed and continue.";
+pub const KEEP_GOING_DROPPED: &str = "Keep going: the connection dropped. Retry the step that failed and continue.";
+/// Turns the network killed that continue on their own before the user decides: past that, it is not the network.
+pub const NETWORK_RESUMES: usize = 3;
+/// The Swift `resumeWhenOnline` pattern, matched without case.
+const NETWORK_ERRORS: [&str; 15] = [
+    "connection", "econn", "etimedout", "enotfound", "eai_again", "enetunreach", "ehostunreach", "socket hang up", "fetch failed", "network", "timed out", "reach the api",
+    "no response from api", "stream disconnected", "error sending request",
+];
 const RESET_KEYS: [&str; 3] = ["resetsAt", "resetAt", "resets_at"];
 const HANDOFF_ROWS: usize = 60;
 const HANDOFF_ITEMS: usize = 12;
@@ -46,6 +54,12 @@ pub fn rate_limited(turn: &Object) -> bool {
     }
     let message = error.get("message").and_then(Value::as_str).unwrap_or_default().to_lowercase();
     names_rate_limit(&message) || names_status(&message, RATE_LIMIT_STATUS)
+}
+
+/// A failed turn the network killed (a Wi-Fi drop, a reset connection), which continues once the network is back.
+pub fn network_dropped(turn: &Object) -> bool {
+    let message = turn.get("error").and_then(|error| error.get("message")).and_then(Value::as_str).unwrap_or_default().to_lowercase();
+    NETWORK_ERRORS.iter().any(|pattern| message.contains(pattern))
 }
 
 /// `rate.?limit`: "rate limit", "rate-limit", "ratelimit".
@@ -130,6 +144,15 @@ mod tests {
         let found = plain.map(|message| rate_limited(&object(json!({"error": {"message": message}}))));
 
         assert_eq!(found, [false, false]);
+    }
+
+    #[test]
+    fn reads_a_dropped_connection_and_not_a_long_prompt_as_the_network() {
+        let failed = |message: &str| object(json!({"error": {"message": message}}));
+
+        let found = ["API Error: Connection dropped (ECONNRESET).", "stream disconnected before completion", "Prompt is too long"].map(|message| network_dropped(&failed(message)));
+
+        assert_eq!(found, [true, true, false]);
     }
 
     #[test]

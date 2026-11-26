@@ -9,6 +9,7 @@ use std::os::fd::RawFd;
 use std::rc::Rc;
 use tokio::sync::{mpsc, watch};
 use vcx_agents::{Connection, Incoming};
+use vcx_config::Account;
 
 pub(super) type Stream = Rc<RefCell<mpsc::UnboundedReceiver<Incoming>>>;
 
@@ -23,6 +24,19 @@ impl Drop for Detached {
     fn drop(&mut self) {
         self.0.detached.set(self.0.detached.get() - 1);
     }
+}
+
+fn pending_json(pending: &Option<(Account, Option<String>)>) -> Value {
+    pending.as_ref().map_or(Value::Null, |(account, resume)| {
+        json!({"account": {"id": account.id, "name": account.name, "provider": account.provider, "home": account.home, "enabled": account.enabled}, "resume": resume})
+    })
+}
+
+fn pending_of(state: &Value) -> Option<(Account, Option<String>)> {
+    let account = &state["account"];
+    let text = |key: &str| account[key].as_str().map(str::to_owned);
+    let account = Account { id: text("id")?, name: text("name").unwrap_or_default(), provider: text("provider")?, home: text("home"), enabled: account["enabled"].as_bool().unwrap_or(true) };
+    Some((account, state["resume"].as_str().map(str::to_owned)))
 }
 
 fn session_of(state: &Value) -> Result<Session, String> {
@@ -74,6 +88,7 @@ impl SessionBackend {
             "consumedGeneration": self.consumed_generation.get(), "recovery": *self.recovery.borrow(), "logStart": self.log_start.get(),
             "providerChoice": *self.provider_choice.borrow(), "modeChoice": *self.mode_choice.borrow(), "pendingCommand": *self.pending_command.borrow(),
             "accountChoice": *self.account_choice.borrow(), "lastCrash": self.last_crash.get(),
+            "pendingActivation": pending_json(&self.pending_activation.borrow()),
         }))
     }
 
@@ -115,8 +130,18 @@ impl SessionBackend {
             pending_command: RefCell::new(text("pendingCommand")),
             account_choice: RefCell::new(text("accountChoice")),
             last_crash: Cell::new(state["lastCrash"].as_f64()),
+            pending_activation: RefCell::new(pending_of(&state["pendingActivation"])),
             detached: Cell::new(0),
         });
+        backend.config.connectivity.watch(&backend);
+        // The probe the previous image ran did not come along: what waited on it waits on this one.
+        let (lost, resuming) = {
+            let session = backend.session.borrow();
+            (session.lost_connection, session.resume_when_back || session.retry_attempt.is_some())
+        };
+        if lost || resuming {
+            backend.config.connectivity.lost("a dropped connection", lost);
+        }
         if let Some(incoming) = incoming {
             tokio::task::spawn_local(Rc::clone(&backend).pump(incoming, ADOPTED_GENERATION));
             // The catalog request the previous image may have had on its way was never sent.
@@ -146,6 +171,17 @@ mod tests {
         assert_eq!(checked, Ok(()));
         assert_eq!(adopted.cwd, "/work");
         assert!(adopted.recalled_rules.is_empty());
+    }
+
+    #[test]
+    fn a_connection_that_failed_to_open_is_tried_again_by_the_next_image() {
+        let account = Account { id: "codex-work".into(), name: "Work".into(), provider: "codex".into(), home: Some("/tmp/codex-work".into()), enabled: true };
+        let pending = Some((account, Some("T".to_owned())));
+
+        let carried = pending_of(&pending_json(&pending));
+
+        assert_eq!(carried, pending);
+        assert_eq!(pending_of(&Value::Null), None);
     }
 
     #[test]

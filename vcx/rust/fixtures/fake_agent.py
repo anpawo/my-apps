@@ -8,7 +8,8 @@ also asks for a command approval and ends once it is answered, accepted or decli
 on the plan's usage limit unless the prompt carries the context VCX hands a fallback account; `fixture:ratelimit` fails
 it on a server rate limit; `fixture:crash` writes an error to stderr and exits. `fixture:pending:<absolute path>` leaves
 the turn/start request unanswered until a file exists at that path, then answers it and runs the turn as usual;
-`fixture:heavy:<MiB>` answers with an agentMessage that many mebibytes long.
+`fixture:heavy:<MiB>` answers with an agentMessage that many mebibytes long. `fixture:dropped` fails the turn as a
+dropped connection does; `fixture:apiretry` holds the turn as `fixture:hold` does after announcing an API retry.
 """
 import json
 import os
@@ -28,10 +29,13 @@ APPROVAL_ID = 7301
 LIMIT = 'fixture:limit'
 RATE_LIMIT = 'fixture:ratelimit'
 CRASH = 'fixture:crash'
+DROPPED = 'fixture:dropped'
+API_RETRY = 'fixture:apiretry'
 HANDOFF = 'Context from this conversation'
 CRASH_STATUS = 3
 LIMIT_ERROR = {'message': "You've hit your usage limit.", 'codexErrorInfo': 'usageLimitExceeded'}
 RATE_LIMIT_ERROR = {'message': 'exceeded retry limit, last status: 429 Too Many Requests'}
+DROPPED_ERROR = {'message': 'stream disconnected before completion: error sending request'}
 HELD_TOOL = {'id': 'fixture-held-tool', 'type': 'commandExecution', 'command': 'fixture-held-tool'}
 PENDING = re.compile(r'fixture:pending:(\S+)')
 PENDING_POLL_SECONDS = 0.02
@@ -104,7 +108,7 @@ def answer_text(params):
 
 def held(params):
     text = prompt_text(params)
-    return HOLD in text or APPROVE in text
+    return HOLD in text or APPROVE in text or API_RETRY in text
 
 
 def failure(params):
@@ -114,6 +118,8 @@ def failure(params):
     handed_off = bool(pieces) and isinstance(pieces[0], dict) and pieces[0].get('text', '').startswith(HANDOFF)
     if CRASH in text:
         return CRASH
+    if DROPPED in text:
+        return DROPPED_ERROR
     return LIMIT_ERROR if LIMIT in text and not handed_off else RATE_LIMIT_ERROR if RATE_LIMIT in text else None
 
 
@@ -129,6 +135,9 @@ def fail_turn(thread, turn, error):
 def open_turn(thread, turn, params):
     event('turn/started', {'turn': {'id': turn}}, thread)
     event('item/started', {'item': {**HELD_TOOL, 'status': 'inProgress'}}, thread)
+    if API_RETRY in prompt_text(params):
+        # Claude's announced API retry, which the adapters pass on as `cx/apiRetry`.
+        event('cx/apiRetry', {'delay': 0}, thread)
     if APPROVE in prompt_text(params):
         awaiting[APPROVAL_ID] = (thread, turn)
         request = {'threadId': thread, 'turnId': turn, 'itemId': HELD_TOOL['id'], 'command': HELD_TOOL['command']}
