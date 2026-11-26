@@ -31,6 +31,8 @@ top_cpu=$(ps -Ao pcpu= | sort -rn | head -1); top_cpu=${top_cpu%.*}
 busy_total_percent=250
 total_cpu=$(ps -Ao pcpu= | awk '{ s += $1 } END { printf "%d", s }')
 [ "${total_cpu:-0}" -ge "$busy_total_percent" ] && { log "deferred: processes use ${total_cpu}% CPU in total"; exit 75; }
+# Queued builds use no CPU yet but run beside the checks (26-11: 12 released at once, the report came after 12 s).
+build-stack --status 2>/dev/null | grep -q '^Build stack: 0 running, 0 queued' || { log "deferred: other builds are running or queued"; exit 75; }
 
 mkdir -p "$state"
 if [ -e "$tree/.git" ]; then git -C "$tree" checkout -q --detach "$head"
