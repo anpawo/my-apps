@@ -37,6 +37,8 @@ const SPIN: f64 = 0.005;
 const TURN_START_MS: u64 = 1_800_000_000_000;
 const SEVENTY_FIVE_SECONDS_MS: u64 = 75_000;
 const APPROVAL: &str = "item/commandExecution/requestApproval";
+/// Longer than the page waits before a card under the pointer opens its list.
+const HOVER_PASSED: Duration = Duration::from_millis(250);
 
 struct Page {
     webview: WebView,
@@ -472,6 +474,12 @@ fn names(rows: &Value) -> Value {
     json!(rows.as_array().into_iter().flatten().map(|row| row[0].clone()).collect::<Vec<_>>())
 }
 
+/// Clicks a session card for real and waits for its list: the page may take the click after the next read.
+fn open_list(page: &Page, card: &str) -> Result<(), String> {
+    page.click(&format!("#session .card[data-card={card}]"))?;
+    page.until("window.vcxChrome.dump().capability?.title ?? null", json!(card))
+}
+
 fn counts_what_the_session_loaded_on_its_cards(page: &Page) -> Result<(), String> {
     loaded(page)?;
 
@@ -485,7 +493,7 @@ fn counts_what_the_session_loaded_on_its_cards(page: &Page) -> Result<(), String
 
 fn opens_a_capability_list_and_narrows_it_to_what_is_typed(page: &Page) -> Result<(), String> {
     loaded(page)?;
-    page.click("#session .card[data-card=Hooks]")?;
+    open_list(page, "Hooks")?;
     let opened = page.dump()?;
 
     page.type_into("#capability input", "memory")?;
@@ -502,10 +510,26 @@ fn opens_a_capability_list_and_narrows_it_to_what_is_typed(page: &Page) -> Resul
     same(&page.dump()?["capability"], Value::Null, "the list after Escape")
 }
 
+fn keeps_a_list_closed_under_the_card_the_pointer_just_reached(page: &Page) -> Result<(), String> {
+    loaded(page)?;
+    // In one script, so that all of it happens before the hover delay ends.
+    let reached_clicked_closed = "(() => { const card = document.querySelector('#session .card[data-card=Hooks]'); card.dispatchEvent(new PointerEvent('pointerenter')); card.click(); \
+        const opened = window.vcxChrome.dump().capability?.title ?? null; document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return opened; })()";
+
+    let opened = page.eval(reached_clicked_closed)?;
+    let hover_passed = Instant::now() + HOVER_PASSED;
+    while Instant::now() < hover_passed {
+        spin();
+    }
+
+    same(&opened, json!("Hooks"), "the list the click opened")?;
+    same(&page.dump()?["capability"], Value::Null, "the list once the hover delay passed")
+}
+
 fn leaves_the_providers_skills_out_of_the_commands(page: &Page) -> Result<(), String> {
     loaded(page)?;
 
-    page.click("#session .card[data-card=Commands]")?;
+    open_list(page, "Commands")?;
 
     let rows = names(&page.dump()?["capability"]["rows"]);
     check(!rows.as_array().unwrap().iter().any(|name| name == "council" || name == "deep"), format!("no skill among the commands: {rows}"))?;
@@ -514,7 +538,7 @@ fn leaves_the_providers_skills_out_of_the_commands(page: &Page) -> Result<(), St
 
 fn opens_an_md_file_from_its_list(page: &Page) -> Result<(), String> {
     loaded(page)?;
-    page.click("#session .card[data-card=Instructions]")?;
+    open_list(page, "Instructions")?;
 
     page.click("#capability .item")?;
 
@@ -526,7 +550,7 @@ fn names_a_recalled_line_after_its_errors_section(page: &Page) -> Result<(), Str
     page.show(&demo()?)?;
     page.deliver(json!({"type": "patch", "meta": {"ready": true, "recalledRules": rules, "recalledRuleSections": {rules[0]: "Before I say it"}}}))?;
 
-    page.click("#session .card[data-card=RAG]")?;
+    open_list(page, "RAG")?;
 
     same(&page.dump()?["capability"]["rows"], json!([["Before I say it"], ["ERRORS line"]]), "each line named after its section")
 }
@@ -681,7 +705,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 34] = [
+const TESTS: [(&str, Test); 35] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -702,6 +726,7 @@ const TESTS: [(&str, Test); 34] = [
     ("tells the link and the last problem apart", tells_the_link_and_the_last_problem_apart),
     ("counts what the session loaded on its cards", counts_what_the_session_loaded_on_its_cards),
     ("opens a capability list and narrows it to what is typed", opens_a_capability_list_and_narrows_it_to_what_is_typed),
+    ("keeps a list closed under the card the pointer just reached", keeps_a_list_closed_under_the_card_the_pointer_just_reached),
     ("leaves the provider's skills out of the commands", leaves_the_providers_skills_out_of_the_commands),
     ("opens an MD file from its list", opens_an_md_file_from_its_list),
     ("names a recalled line after its ERRORS section", names_a_recalled_line_after_its_errors_section),

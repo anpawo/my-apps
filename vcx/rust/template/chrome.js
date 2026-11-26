@@ -67,7 +67,7 @@
   const sheet = { open: false, signature: '' };
   const shown = { chips: new Map(), tasks: '', title: '', status: '', request: '', empty: false };
   let popover = null;
-  const capability = { open: null, hovered: null, inPanel: false, choose: null, signature: '' };
+  const capability = { open: null, hovered: null, opening: 0, inPanel: false, choose: null, signature: '' };
   let busySince = null;
   let ticking = null;
   let answering = null;
@@ -951,7 +951,8 @@
     capability.hovered = title;
     // Once a list is open, moving to another card switches at once.
     if (capability.open) return openCapability(title);
-    setTimeout(() => capability.hovered === title && openCapability(title), HOVER_OPEN_MS);
+    clearTimeout(capability.opening);
+    capability.opening = setTimeout(() => capability.hovered === title && openCapability(title), HOVER_OPEN_MS);
   }
 
   function leaveCapability(title) {
@@ -973,6 +974,8 @@
   function closeCapability() {
     if (!capability.open) return;
     capability.open = null;
+    // A list closed under a card the pointer just reached stays closed until the pointer comes back.
+    clearTimeout(capability.opening);
     const bar = $('session').querySelector('.bar');
     bar.querySelector('.card[aria-current]')?.removeAttribute('aria-current');
     bar.style.setProperty('--cut-a', '0px');
