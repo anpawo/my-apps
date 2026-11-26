@@ -9,6 +9,11 @@ struct ChecksView: View {
     @ObservedObject var inbox: Inbox
     /// The site's dialog of one pane, `sm:max-w-3xl`.
     static let width: CGFloat = 768
+    /// Tiles in a row: three fit a title of a dozen letters beside a logo and the count.
+    static let columns = 3
+    /// The popup of one tile, `sm:max-w-2xl`, over the dialog.
+    static let popupWidth: CGFloat = 672
+    static let popupListHeight: CGFloat = 460
 
     private static func hex(_ v: Int) -> Color {
         Color(red: Double(v >> 16 & 255) / 255, green: Double(v >> 8 & 255) / 255, blue: Double(v & 255) / 255)
@@ -53,6 +58,7 @@ struct ChecksView: View {
         .font(.system(size: 14))
         .foregroundStyle(Site.ink)
         .frame(width: Self.width)
+        .overlay { if let group = opened { popup(group) } }
         .card()
         .padding(.vertical, 60)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,23 +66,82 @@ struct ChecksView: View {
 
     private var sections: some View {
         VStack(spacing: 24) {
-            section("Watching", waiting)
+            section("Watching", "waiting", waiting)
             Rectangle().fill(Site.line).frame(height: 1)
-            section("Done in the last 7 days", done)
+            section("Done in the last 7 days", "done", done)
         }
     }
 
-    private func section(_ title: String, _ entries: [CheckEntry]) -> some View {
+    private func section(_ title: String, _ key: String, _ entries: [CheckEntry]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(title).font(.system(size: 18, weight: .semibold))
                 pill("\(entries.count)")
             }
-            // lazy: an open builds the rows in sight, not all of them
-            LazyVStack(spacing: 8) { ForEach(entries, id: \.id) { row($0) } }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: Self.columns), spacing: 8) {
+                ForEach(CheckGroup.of(entries)) { tile($0, key) }
+            }
             if entries.isEmpty { Text("Nothing here") }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A kind of watch in one block: two logos, or a logo and its title, then how many. A click shows its watches.
+    private func tile(_ group: CheckGroup, _ section: String) -> some View {
+        HStack(spacing: 8) {
+            badge(group)
+            Spacer(minLength: 0)
+            pill("\(group.entries.count)").monospacedDigit()
+        }
+        .help(group.title)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .block()
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture { inbox.openGroup = "\(section):\(group.id)" }
+        .pointerStyle(.link)
+    }
+
+    private func badge(_ group: CheckGroup) -> some View {
+        HStack(spacing: 8) {
+            ForEach(group.logos, id: \.self) { logo($0) }
+            if group.logos.count < 2 { Text(group.title).fontWeight(.medium).lineLimit(1) }
+        }
+    }
+
+    private var opened: CheckGroup? {
+        guard let key = inbox.openGroup else { return nil }
+        return [("waiting", waiting), ("done", done)].lazy
+            .compactMap { section, entries in CheckGroup.of(entries).first { "\(section):\($0.id)" == key } }.first
+    }
+
+    /// One tile's watches, as the list showed them, over the dialog dimmed; a click beside it or Done closes it.
+    private func popup(_ group: CheckGroup) -> some View {
+        ZStack {
+            Site.ink.opacity(0.12)
+                .contentShape(Rectangle())
+                .onTapGesture { inbox.openGroup = nil }
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 8) {
+                    badge(group)
+                    if group.logos.count == 2 { Text(group.title).font(.system(size: 18, weight: .semibold)) }
+                    pill("\(group.entries.count)")
+                    Spacer()
+                    button("Done") { inbox.openGroup = nil }
+                }
+                let rows = VStack(spacing: 8) { ForEach(group.entries, id: \.id) { row($0) } }
+                if renderBackdrop == nil {
+                    ScrollView { rows }.frame(maxHeight: Self.popupListHeight).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    rows
+                }
+            }
+            .padding(16)
+            .frame(width: Self.popupWidth)
+            .background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: Site.radius))
+            .overlay(RoundedRectangle(cornerRadius: Site.radius).strokeBorder(Site.line, lineWidth: 1))
+            .shadow(color: Site.ink.opacity(0.15), radius: 24, y: 8)
+        }
     }
 
     /// A check in one block, as a field of the mail is: its name, the logo of what it reads (its words under the
@@ -156,19 +221,23 @@ struct ChecksView: View {
         .frame(width: 20, height: 20)
     }
 
+    /// The site's outline button: white, and the muted grey while S, its key, is pressed.
+    private func button(_ label: String, action: @escaping () -> Void) -> some View {
+        Text(label)
+            .fontWeight(.medium)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(Color(white: inbox.pressed == kVK_ANSI_S ? 0.97 : 1), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Site.line, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+    }
+
     private var footer: some View {
         HStack(spacing: 8) {
             pill("Last check \(inbox.lastCheck)")
             Spacer()
-            // the site's Done, its outline button: white, and the muted grey while pressed
-            Text("Done")
-                .fontWeight(.medium)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(Color(white: inbox.pressed == kVK_ANSI_S ? 0.97 : 1), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Site.line, lineWidth: 1))
-                .contentShape(Rectangle())
-                .onTapGesture { _ = inbox.key(UInt16(kVK_ANSI_S)) }
+            button("Done") { _ = inbox.key(UInt16(kVK_ANSI_S)) }
         }
         .padding(16)
         .background(.white.opacity(0.25))

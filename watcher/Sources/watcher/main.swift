@@ -48,6 +48,8 @@ if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
         let real = CheckEntry.load()
         Inbox.render([], checks: real.entries, lastCheck: real.last, to: beside("checks"))
         Inbox.render([], checks: real.entries, lastCheck: real.last, on: "white", to: beside("checks-white"))
+        let first = CheckGroup.of(real.entries.filter { $0.state == .waiting }).first.map { "waiting:\($0.id)" }
+        Inbox.render([], checks: real.entries, lastCheck: real.last, group: first, to: beside("checks-popup"))
         exit(0)
     }
 }

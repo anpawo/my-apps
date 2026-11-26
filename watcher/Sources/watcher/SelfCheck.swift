@@ -217,15 +217,26 @@ enum SelfCheck {
         }
         expect(logo(.whatsapp, "") == "whatsapp" && logo(.gmail, "") == "gmail" && logo(.command, "mo@ inbox: a BofA reply") == "outlook"
                && logo(.command, "ssh to mo-recon") == "server.rack" && logo(.command, "a quiet Mac") == "terminal"
-               && logo(.outlook, "") == "outlook" && logo(.page, "") == "globe" && logo(.github, "") == "arrow.triangle.pull" && logo(.timer, "") == "clock", true,
+               && logo(.outlook, "") == "outlook" && logo(.page, "") == "globe" && logo(.github, "") == "github" && logo(.timer, "") == "clock", true,
                "checks: each shows the logo of what it reads, a command's by a word of its how")
-        let missing = (["whatsapp", "gmail", "terminal", "globe", "arrow.triangle.pull"] + CheckEntry.logos.map(\.1)).filter {
+        let missing = (["whatsapp", "gmail", "terminal", "globe", "github", "datadog"] + CheckEntry.logos.map(\.1)).filter {
             Bundle.main.url(forResource: $0, withExtension: "png", subdirectory: "logos") == nil && NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil
         }
         expect(missing.isEmpty, true, "checks: every logo is in the app or among the SF Symbols \(missing)")
+        func entry(_ id: String, _ channel: CheckEntry.Channel, _ group: String?) -> CheckEntry {
+            CheckEntry(id: id, name: id, who: nil, watching: "", channel: channel, state: .waiting, at: 0, group: group)
+        }
+        let groups = CheckGroup.of([entry("1", .gmail, nil), entry("2", .github, "datadog"), entry("3", .outlook, "s14 recon"),
+                                    entry("4", .command, "s14-prs"), entry("5", .gmail, "Jobs"), entry("6", .outlook, "s14 teams"),
+                                    entry("7", .gmail, "job applications")])
+        expect(groups.map { "\($0.title) \($0.logos.joined(separator: "+")) \($0.entries.count)" }
+               == ["Datadog github+datadog 1", "S14 outlook 3", "Jobs gmail 2", "Other gmail 1"], true,
+               "checks: one tile per first word of the group, its most read logo, then its own, Other last")
         let watcher = Inbox(folder: state.appending(path: "inbox"))
         expect(watcher.key(UInt16(kVK_ANSI_S)) && watcher.settings && watcher.checks.count == 3, true, "inbox: S shows the checks")
         expect(watcher.key(UInt16(kVK_DownArrow)), false, "inbox: in the checks, other keys go on")
+        watcher.openGroup = "waiting:other"
+        expect(watcher.key(UInt16(kVK_Escape)) && watcher.settings && watcher.openGroup == nil, true, "inbox: Esc in a tile's popup closes the popup alone")
         expect(watcher.key(UInt16(kVK_Escape)) && !watcher.settings, true, "inbox: Esc in the checks closes Watcher")
         _ = watcher.key(UInt16(kVK_ANSI_S))
         expect(watcher.key(UInt16(kVK_ANSI_K), flags: [.command, .option]) && !watcher.settings, true,

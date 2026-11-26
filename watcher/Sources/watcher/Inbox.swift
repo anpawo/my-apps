@@ -28,6 +28,8 @@ final class Inbox: NSObject, ObservableObject {
     @Published private(set) var settings = false
     @Published private(set) var checks: [CheckEntry] = []
     @Published private(set) var lastCheck = ""
+    /// The tile of the checks shown in a popup, by its section and topic (`waiting:s14`).
+    @Published var openGroup: String?
 
     /// What opening does. A stand-in in the selftest, which must not start a terminal.
     var launch: (InboxItem) -> Bool = Inbox.resume
@@ -127,6 +129,10 @@ final class Inbox: NSObject, ObservableObject {
             return true
         }
         if settings {
+            if openGroup != nil, [kVK_ANSI_S, kVK_Escape].contains(Int(code)) {
+                openGroup = nil
+                return true
+            }
             switch Int(code) {
             // nothing to go back to: S closes, as Done does
             case kVK_ANSI_S: if items.isEmpty { hide() } else { showSettings(false) }
@@ -157,6 +163,7 @@ final class Inbox: NSObject, ObservableObject {
 
     private func showSettings(_ on: Bool) {
         settings = on
+        openGroup = nil
         if on { (checks, lastCheck) = CheckEntry.load(state: folder.deletingLastPathComponent()) }
     }
 
@@ -335,6 +342,7 @@ final class Inbox: NSObject, ObservableObject {
     func hide() {
         panel?.orderOut(nil)
         settings = false
+        openGroup = nil
     }
 
     /// Non-activating, as Spotlight: it takes the keys without taking the app in front away from him. No window
@@ -368,11 +376,13 @@ final class Inbox: NSObject, ObservableObject {
 
     /// The panel as it would show `items`, drawn offscreen over a light backdrop, as his desktop is.
     static func render(_ items: [InboxItem], index: Int = 0, asking: Bool = false,
-                       checks: [CheckEntry]? = nil, lastCheck: String = "", on backdrop: String = "light", to path: String) {
+                       checks: [CheckEntry]? = nil, lastCheck: String = "", group: String? = nil, on backdrop: String = "light",
+                       to path: String) {
         let inbox = Inbox(folder: URL(fileURLWithPath: "/nonexistent"))
         inbox.items = items
         inbox.index = index
         if let checks { (inbox.settings, inbox.checks, inbox.lastCheck) = (true, checks, lastCheck) }
+        inbox.openGroup = group
         inbox.asking = asking ? inbox.current.map { Ask(id: $0.id) } : nil
         let colors = backdrops[backdrop] ?? [.gray]
         let backdrop = LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)

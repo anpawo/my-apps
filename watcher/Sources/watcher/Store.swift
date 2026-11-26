@@ -180,6 +180,8 @@ struct CheckEntry: Equatable {
     var session: String? = nil
     /// Read on each new mail or Beeper message it pairs to, within the minute; else only at :10 of every hour.
     var live = false
+    /// What it is about, as the checker was told (`s14 recon`, `datadog`): the checks show one tile per first word.
+    var group: String? = nil
 
     /// The name split around the one it is awaited from, matched in any case; not in the name, in front of it.
     var parts: (before: String, who: String, after: String)? {
@@ -200,7 +202,7 @@ struct CheckEntry: Equatable {
         case .command: return Self.logos.first { watching.lowercased().contains($0.0) }?.1 ?? "terminal"
         case .outlook: return "outlook"
         case .page: return "globe"
-        case .github: return "arrow.triangle.pull"
+        case .github: return "github"
         case .timer: return "clock"
         }
     }
@@ -246,7 +248,8 @@ struct CheckEntry: Equatable {
                 ?? fired.map { (.arrived, $0) } ?? (.waiting, stamp(json["since"]))
             return CheckEntry(id: id, name: name, who: json["who"] as? String ?? json["chat"] as? String, watching: watching,
                               channel: channel, state: state, at: at ?? 0, session: json["session"] as? String,
-                              live: channel == .whatsapp || channel == .gmail || json["beeper"] != nil)
+                              live: channel == .whatsapp || channel == .gmail || json["beeper"] != nil,
+                              group: json["group"] as? String)
         }
         let all = (read(state.appending(path: "checks")) + read(state.appending(path: "fired"))).compactMap(entry)
         let order: [State] = [.waiting, .dropped, .arrived]
@@ -266,5 +269,43 @@ struct CheckEntry: Equatable {
         let at = parsed.date(from: String(line.prefix(19))).map { Store.when($0.timeIntervalSince1970 * 1000) } ?? String(line.prefix(19))
         let counts = line.dropFirst(21).split(separator: ",").dropLast().joined(separator: ",")
         return "\(at) · \(counts)"
+    }
+}
+
+/// Watches of one kind, in one tile of the checks: those whose group starts with the same word, the others together.
+struct CheckGroup: Identifiable {
+    let id: String
+    let title: String
+    /// The logo most of its watches read by, then the topic's own when the app has one: else the tile shows the title.
+    let logos: [String]
+    let entries: [CheckEntry]
+
+    static let other = "other"
+    /// First words that name the same thing, and titles a capital letter alone does not give.
+    static let aliases = ["jobs": "job"]
+    static let titles = ["job": "Jobs", "s14": "S14", "agent": "Agents", other: "Other"]
+
+    static func topic(_ group: String?) -> String {
+        guard let word = group?.lowercased().split(whereSeparator: { $0 == " " || $0 == "-" }).first else { return other }
+        return aliases[String(word)] ?? String(word)
+    }
+
+    /// In the order of their newest watch, Other last.
+    static func of(_ entries: [CheckEntry]) -> [CheckGroup] {
+        var topics: [String] = []
+        var members: [String: [CheckEntry]] = [:]
+        for entry in entries {
+            let topic = topic(entry.group)
+            if members[topic] == nil { topics.append(topic) }
+            members[topic, default: []].append(entry)
+        }
+        topics = topics.filter { $0 != other } + topics.filter { $0 == other }
+        return topics.map { topic in
+            let entries = members[topic]!
+            let counts = Dictionary(entries.map { ($0.logo, 1) }, uniquingKeysWith: +)
+            let channel = entries.map(\.logo).first { counts[$0] == counts.values.max() }!
+            let own = topic != channel && Bundle.main.url(forResource: topic, withExtension: "png", subdirectory: "logos") != nil
+            return CheckGroup(id: topic, title: titles[topic] ?? topic.capitalized, logos: own ? [channel, topic] : [channel], entries: entries)
+        }
     }
 }
