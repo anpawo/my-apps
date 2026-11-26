@@ -162,6 +162,8 @@ impl SessionBackend {
             // Claude's usage, read once per agent, is not read again for the same agent.
             usage_read: Cell::new(if state["usageRead"] == true { ADOPTED_GENERATION } else { 0 }),
             repository_reads: Cell::new(0),
+            project_guess: RefCell::default(),
+            guess_delay: RefCell::default(),
         });
         backend.config.connectivity.watch(&backend);
         backend.refresh_periodically();

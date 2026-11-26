@@ -18,6 +18,10 @@ instructions, dynamic tool names) and the session files in the agent's own envir
 `skills/list` and `hooks/list` read `skills/<name>/SKILL.md` and `hooks.json` in its Codex home: `CODEX_HOME`, else
 `.codex` in the test worker's `VCX_RUNTIME_HOME`, never his own; with neither, both lists are empty.
 `fixture:edit:<absolute path>` writes that file and reports it as a fileChange item before the turn's tool.
+`fixture:cd:<absolute path>` reports a finished `cd '<path>'` command before the turn's tool. `fixture:echo` answers
+with the JSON of the turn's `cwd` and its whole input text.
+Started with `--route` (the worker's test router, in Haiku's place), it reads the question after `-p`, prints the
+folder the first `fixture:route:<folder>` in it names, or `none`, and exits.
 """
 import json
 import os
@@ -51,6 +55,9 @@ PENDING = re.compile(r'fixture:pending:(\S+)')
 PENDING_POLL_SECONDS = 0.02
 HEAVY = re.compile(r'fixture:heavy:(\d+)')
 EDIT = re.compile(r'fixture:edit:(\S+)')
+CD = re.compile(r'fixture:cd:(\S+)')
+ECHO = 'fixture:echo'
+ROUTE = re.compile(r'fixture:route:(\S+)')
 MEBIBYTE = 1024 * 1024
 OPENED = 'fixture:opened'
 SESSION_FILES = ('FLEET_CONTEXT_FILE', 'VCX_PROGRESS_FILE', 'VCX_TASK_FILE')
@@ -83,7 +90,7 @@ def save(threads):
     os.replace(temporary, HISTORY)
 
 
-def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER, edit=None):
+def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER, edit=None, cd=None):
     event('turn/started', {'turn': {'id': turn}}, thread)
     items = []
     if prompt is not None:
@@ -96,6 +103,9 @@ def run_turn(thread=THREAD, turn=TURN, prompt=None, text=ANSWER, edit=None):
             file.write('fixture\n')
         change = {'id': 'fixture-edit', 'type': 'fileChange', 'status': 'completed', 'changes': [{'path': edit, 'kind': 'add'}]}
         event('item/completed', {'item': change}, thread)
+    if cd is not None:
+        command = {'id': 'fixture-cd', 'type': 'commandExecution', 'status': 'completed', 'exitCode': 0, 'command': "cd '" + cd + "'"}
+        event('item/completed', {'item': command}, thread)
     tool = {'id': 'fixture-tool', 'type': 'commandExecution', 'command': 'echo fixture'}
     if HISTORY:
         tool['id'] = 'fixture-tool-' + turn
@@ -126,6 +136,8 @@ def answer_text(params):
         tools = [tool.get('name') for tool in opened.get('dynamicTools') or []]
         environment = {key: os.environ.get(key) for key in SESSION_FILES}
         return json.dumps({'developerInstructions': opened.get('developerInstructions'), 'dynamicTools': tools, 'environment': environment})
+    if ECHO in prompt_text(params):
+        return json.dumps({'cwd': params.get('cwd'), 'input': prompt_text(params)})
     heavy = HEAVY.search(prompt_text(params))
     return 'x' * (int(heavy.group(1)) * MEBIBYTE) if heavy else ANSWER
 
@@ -289,8 +301,8 @@ def respond(message):
     elif method == 'turn/start' and held(params):
         threading.Thread(target=open_turn, args=(THREAD, TURN, message.get('params') or {}), daemon=True).start()
     elif method == 'turn/start':
-        edit = EDIT.search(prompt_text(params))
-        threading.Thread(target=run_turn, kwargs={'text': answer_text(params), 'edit': edit and edit.group(1)}, daemon=True).start()
+        edit, cd = EDIT.search(prompt_text(params)), CD.search(prompt_text(params))
+        threading.Thread(target=run_turn, kwargs={'text': answer_text(params), 'edit': edit and edit.group(1), 'cd': cd and cd.group(1)}, daemon=True).start()
     elif method == 'turn/interrupt':
         awaiting.clear()
         event('turn/completed', {'turn': {'id': TURN, 'status': 'interrupted'}})
@@ -305,6 +317,11 @@ def respond_once_present(path, message):
         time.sleep(PENDING_POLL_SECONDS)
     respond(message)
 
+
+if '--route' in sys.argv:
+    folder = ROUTE.search(sys.argv[sys.argv.index('-p') + 1])
+    print(folder.group(1) if folder else 'none')
+    sys.exit(0)
 
 for line in sys.stdin:
     message = json.loads(line)

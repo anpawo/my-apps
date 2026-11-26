@@ -14,6 +14,7 @@ pub mod connectivity;
 pub mod fallback;
 pub mod fleet;
 pub mod instructions;
+pub mod project;
 pub mod provider;
 pub mod question;
 pub mod recall;
@@ -34,6 +35,8 @@ pub const BUILD: &str = concat!("rust-", env!("CARGO_PKG_VERSION"));
 const TEST_RETRY_SCALE: f64 = 0.01;
 /// A test worker's network is down while this file exists in its runtime home.
 pub const TEST_OFFLINE_FLAG: &str = "offline";
+/// Added to a test's agent command, it answers the project router's question in Haiku's place.
+pub const TEST_ROUTER_FLAG: &str = "--route";
 /// How long a live update waits before it asks again whether the worker can leave its image.
 const SWAP_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 const USAGE: &str = "usage: vcx-worker --runtime-worker <socket> [--runtime-test] [--runtime-fixture-command <command.json>] [--runtime-fixture-provider <provider>]";
@@ -126,7 +129,13 @@ async fn serve(options: Options) -> i32 {
     let probe = if options.test { connectivity::Probe::Flag(home.join(TEST_OFFLINE_FLAG)) } else { connectivity::Probe::Internet };
     let connectivity = connectivity::Connectivity::new(probe, retry_scale);
     let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
-    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity });
+    // A test routes through its fixture agent, never Haiku; one with no agent command routes nowhere.
+    let router = match &options.fixture {
+        Some(fixture) => fixture.iter().cloned().chain(std::iter::once(TEST_ROUTER_FLAG.to_owned())).collect(),
+        None if options.test => Vec::new(),
+        None => project::ROUTER.map(str::to_owned).to_vec(),
+    };
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory, retry_scale, errors_home, connectivity, router });
     let starting = Rc::clone(&config);
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&starting)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();

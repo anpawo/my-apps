@@ -6,8 +6,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use crate::capabilities::{self, Capabilities};
-use crate::{fleet, question, recall};
+use crate::{fleet, project, question, recall};
 use crate::{repository, usage};
+use vcx_agents::directory::shell_directory;
 use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::qwen_text::strip_recall;
 use vcx_agents::{Event, Kind, Stream, TurnStatus};
@@ -723,6 +724,7 @@ impl Session {
                     let id = text(item, "id").unwrap_or_default().to_owned();
                     self.deltas.retain(|(item, _)| *item != id);
                     self.note_edits(item);
+                    effects.extend(self.followed_cd(item));
                 }
             }
             Kind::Delta { item_id, delta, stream } => {
@@ -747,7 +749,8 @@ impl Session {
                 self.retry_attempt = None;
                 self.resume_when_back = false;
                 self.turn_completed(status, error.as_deref(), restarting);
-                effects.extend(self.edited_elsewhere());
+                let moved = self.turn_moved();
+                effects.extend(self.edited_elsewhere().or(moved));
                 if restarting {
                     effects.push(Effect::KeepGoing);
                 }
@@ -885,6 +888,49 @@ impl Session {
             }
             _ => {}
         }
+    }
+
+    fn user_prompts(&self) -> usize {
+        self.rows.iter().filter(|row| row.kind == "user").count()
+    }
+
+    /// The text of each prompt sent, in order.
+    pub fn sent_prompts(&self) -> Vec<String> {
+        let prompts = self.rows.iter().filter(|row| row.kind == "user").flat_map(|row| row.items.iter()).filter_map(|id| self.items.get(id));
+        let text = |item: &Object| item.get("content").and_then(Value::as_array).into_iter().flatten().filter_map(|piece| piece.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n");
+        prompts.map(text).filter(|prompt| !prompt.is_empty()).collect()
+    }
+
+    /// A window at `/`, or at his home before its first prompt, asks which project its prompt is about.
+    pub fn routable(&self, home: &str) -> bool {
+        self.cwd == "/" || (self.cwd == home && self.user_prompts() == 0)
+    }
+
+    /// The Swift `moveDirectory`: the session works in `directory`, whose repository is read again.
+    pub fn move_directory(&mut self, directory: &str) -> Effect {
+        self.cwd = directory.to_owned();
+        self.clear_repository();
+        Effect::RefreshRepository
+    }
+
+    /// A finished lone `cd` places the session during its first prompt only; later, only edits move it.
+    fn followed_cd(&mut self, item: &Object) -> Option<Effect> {
+        if text(item, "type") != Some("commandExecution") || self.user_prompts() > 1 {
+            return None;
+        }
+        let added = project::added_directories(&vcx_config::homes::home_directory());
+        let directory = shell_directory(item, &self.cwd, &self.conversation_directory, &added).filter(|directory| *directory != self.cwd)?;
+        Some(self.move_directory(&directory))
+    }
+
+    /// A turn that edited files in another project moves the session there.
+    fn turn_moved(&mut self) -> Option<Effect> {
+        if self.turn_edits.is_empty() {
+            return None;
+        }
+        let home = vcx_config::homes::home_directory();
+        let directory = project::turn_directory(&self.turn_edits, &self.cwd, &self.conversation_directory, &project::added_directories(&home), &home.to_string_lossy())?;
+        Some(self.move_directory(&directory))
     }
 
     /// The footer is read again when the turn's last edit is in another folder than the one before.

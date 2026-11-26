@@ -33,7 +33,7 @@ pub fn label(provider: &str) -> String {
     }
 }
 
-fn built_in(provider: &str) -> Account {
+pub fn built_in(provider: &str) -> Account {
     Account { id: format!("{provider}-default"), name: format!("Default {}", label(provider)), provider: provider.into(), home: None, enabled: true }
 }
 

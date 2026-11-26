@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, watch};
 use vcx_agents::claude_stream::usage_limit;
 use vcx_agents::process::{last_error_line, log_tail};
 use vcx_agents::capabilities::{self as agent_capabilities, Provider};
+use vcx_agents::directory::working_directory;
 use vcx_agents::rpc::METHOD_NOT_FOUND;
 use vcx_agents::{AgentError, Connection, Inbound, Incoming};
 use vcx_config::{Account, Settings, SettingsFile};
@@ -28,6 +29,7 @@ use vcx_config::{Account, Settings, SettingsFile};
 pub mod carry;
 mod commands;
 mod refresh;
+mod route;
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -62,6 +64,8 @@ pub struct Config {
     pub errors_home: PathBuf,
     /// The process's watch on the network, which every session of it hears.
     pub connectivity: Rc<Connectivity>,
+    /// The project router's command: Haiku through `claude`, a test's agent, or none (no routing).
+    pub router: Vec<String>,
 }
 
 pub struct SessionBackend {
@@ -105,6 +109,10 @@ pub struct SessionBackend {
     usage_read: Cell<u64>,
     /// Counts the repository reads started: one that ends after a later one began is dropped as stale.
     repository_reads: Cell<u64>,
+    /// The project the draft being typed is about, asked before Enter; an exec drops it.
+    project_guess: RefCell<Option<route::Guess>>,
+    /// The wait before the draft's project is asked, cancelled by the next keystroke.
+    guess_delay: RefCell<Option<tokio::task::JoinHandle<()>>>,
 }
 
 fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
@@ -167,6 +175,8 @@ impl SessionBackend {
             detached: Cell::new(0),
             usage_read: Cell::new(0),
             repository_reads: Cell::new(0),
+            project_guess: RefCell::default(),
+            guess_delay: RefCell::default(),
         });
         backend.config.connectivity.watch(&backend);
         backend.refresh_periodically();
@@ -939,6 +949,7 @@ impl SessionBackend {
 
     /// `send`, for a skill also with its piece, its prompt showing the skill as it was typed.
     async fn send_as(self: Rc<Self>, text: &str, images: &[String], draft: Option<Vec<Value>>, generation: Option<i64>, retry: bool, skill: Option<Skill>) -> Result<Object, String> {
+        let routing = self.routing(text, retry);
         let outgoing = self.session.borrow_mut().begin_send(text, images, draft, generation, retry);
         self.schedule();
         let Some(mut outgoing) = outgoing else { return Ok(Object::new()) };
@@ -947,6 +958,13 @@ impl SessionBackend {
                 input.push(piece);
             }
             self.session.borrow_mut().show_typed(&outgoing.id, &skill.shown);
+        }
+        if let Some(earlier) = routing {
+            if let Err(error) = self.route(&mut outgoing, text, &earlier).await {
+                self.session.borrow_mut().send_failed(&outgoing, &error);
+                self.schedule();
+                return Ok(Object::new());
+            }
         }
         let recalled = self.recall(text);
         if !recalled.is_empty() {
@@ -1015,6 +1033,8 @@ impl SessionBackend {
             let mut session = self.session.borrow_mut();
             if generation >= session.draft_generation && generation > self.consumed_generation.get() {
                 session.set_draft(draft.clone(), generation);
+                drop(session);
+                self.guess_project();
             }
         }
         let result = match action {
@@ -1071,14 +1091,10 @@ impl SessionBackend {
                 Object::new()
             }
             "moveDirectory" => {
-                let path = text(&params, "path").filter(|path| path.starts_with('/') && Path::new(path).is_dir()).ok_or("Directory does not exist.")?;
-                let moved = self.session.borrow().cwd != path;
-                if moved {
-                    let mut session = self.session.borrow_mut();
-                    session.cwd = path.to_owned();
-                    session.clear_repository();
-                    drop(session);
-                    self.detach(Rc::clone(&self).refresh_repository());
+                let path = text(&params, "path").and_then(|path| working_directory(path, "/")).ok_or("Directory does not exist.")?;
+                if self.session.borrow().cwd != path {
+                    let moved = self.session.borrow_mut().move_directory(&path);
+                    self.run_effects(vec![moved]);
                 }
                 Object::new()
             }
