@@ -198,6 +198,10 @@ fn launch(binary: &Path, directory: &Path, command: &Path, provider: Option<&str
     let mut worker = Command::new(binary);
     worker.args(["--runtime-worker", directory.join(SOCKET).to_str().unwrap(), "--runtime-test"]);
     isolate(&mut worker, directory);
+    // The Swift worker makes this folder at its first use and sets its mode a moment later: a close arriving in
+    // between read it as not private (5 of 320 runs). His real folder has existed since the first launch.
+    fs::create_dir_all(directory.join(RUNTIME)).unwrap();
+    fs::set_permissions(directory.join(RUNTIME), fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
     // A provider with no command of its own (Qwen speaks HTTP) is started without one.
     if command.exists() {
         worker.args(["--runtime-fixture-command", command.to_str().unwrap()]);
