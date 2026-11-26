@@ -429,7 +429,7 @@ struct FlyingMessage: View {
     }
 }
 
-struct CXView: View {
+struct VCXView: View {
     @ObservedObject var session: Session
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var update = UpdateBuild.shared
@@ -899,11 +899,11 @@ struct GlideBar: NSViewRepresentable {
     func updateNSView(_ bar: Bar, context: Context) { bar.fraction = fraction }
 }
 
-extension CXView {
+extension VCXView {
     // The window alone sets its size: measured at zero width, a wrapped question gave a minimum height over 3,000 pt,
     // which grew the window past the bottom of the screen with the composer.
-    static func host(_ session: Session) -> NSHostingView<CXView> {
-        let host = NSHostingView(rootView: CXView(session: session))
+    static func host(_ session: Session) -> NSHostingView<VCXView> {
+        let host = NSHostingView(rootView: VCXView(session: session))
         host.sizingOptions = []
         _ = TranscriptWheel.monitor
         return host

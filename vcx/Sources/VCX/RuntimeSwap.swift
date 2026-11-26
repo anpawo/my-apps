@@ -23,7 +23,7 @@ func adoptConnection(_ state: JSON) throws -> any Connection {
     switch state["kind"] as? String {
     case "claude": return try ClaudeConnection(adopting: state)
     case "codex": return try RPC(adopting: state)
-    default: throw CXError(message: "This agent connection cannot be adopted.")
+    default: throw VCXError(message: "This agent connection cannot be adopted.")
     }
 }
 
@@ -31,7 +31,7 @@ func adoptConnection(_ state: JSON) throws -> any Connection {
 func adoptedAgent(_ state: JSON) throws -> (process: Process, input: FileHandle, output: FileHandle, leftover: Data)? {
     guard let agent = state["agent"] as? JSON else { return nil }
     guard let pid = agent["pid"] as? Int, let input = agent["input"] as? Int, let output = agent["output"] as? Int,
-          let leftover = Data(base64Encoded: agent["leftover"] as? String ?? "") else { throw CXError(message: "Invalid adopted agent.") }
+          let leftover = Data(base64Encoded: agent["leftover"] as? String ?? "") else { throw VCXError(message: "Invalid adopted agent.") }
     for fd in [input, output] { _ = fcntl(Int32(fd), F_SETFD, FD_CLOEXEC) }
     return (AdoptedProcess(pid: pid_t(pid)), FileHandle(fileDescriptor: Int32(input), closeOnDealloc: false), FileHandle(fileDescriptor: Int32(output), closeOnDealloc: false), leftover)
 }
@@ -178,12 +178,12 @@ final class RuntimeSwap {
 
     static func manifest(_ path: String) throws -> JSON {
         let value = try RuntimeUpdate.readTicket(path, suffix: suffix, maximumBytes: maximumBytes)
-        guard value["version"] as? Int == version, value["build"] as? String == RuntimeIdentity.build else { throw CXError(message: "The live update manifest was written for another build.") }
+        guard value["version"] as? Int == version, value["build"] as? String == RuntimeIdentity.build else { throw VCXError(message: "The live update manifest was written for another build.") }
         return value
     }
 
     static func adopt(_ manifest: JSON, into server: RuntimeServer) throws {
-        guard let listener = manifest["listener"] as? Int, let lock = manifest["lock"] as? Int else { throw CXError(message: "The live update manifest has no listener.") }
+        guard let listener = manifest["listener"] as? Int, let lock = manifest["lock"] as? Int else { throw VCXError(message: "The live update manifest has no listener.") }
         var sessions: [(id: String, revision: Int, lastSequence: Int, backend: any RuntimeBackend)] = [], carried = 0
         for session in manifest["sessions"] as? [JSON] ?? [] {
             guard let id = session["sessionId"] as? String, let state = session["backend"] as? JSON else { continue }

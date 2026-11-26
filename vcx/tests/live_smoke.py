@@ -15,7 +15,7 @@ async def main():
             result = await client.request("thread/start", {"cwd": cwd})
             thread_id = result["thread"]["id"]
             print("PASS: Codex handshake and thread creation", flush=True)
-            await client.request("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": "Run the shell command printf CX_TOOL_OK, then reply exactly CX_LIVE_OK. Do not edit any files."}]})
+            await client.request("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": "Run the shell command printf VCX_TOOL_OK, then reply exactly VCX_LIVE_OK. Do not edit any files."}]})
             replies, tools, streamed = [], [], False
             async with asyncio.timeout(180):
                 while True:
@@ -37,13 +37,13 @@ async def main():
                         assert params["turn"]["status"] == "completed", params["turn"]["status"]
                         break
             assert streamed, "No streamed text"
-            assert any("CX_LIVE_OK" in reply for reply in replies), "Expected reply absent"
-            assert any("CX_TOOL_OK" in (item.get("aggregatedOutput") or "") and item.get("exitCode") == 0 for item in tools), "Expected tool output absent"
+            assert any("VCX_LIVE_OK" in reply for reply in replies), "Expected reply absent"
+            assert any("VCX_TOOL_OK" in (item.get("aggregatedOutput") or "") and item.get("exitCode") == 0 for item in tools), "Expected tool output absent"
             print("PASS: real streamed reply and shell tool execution", flush=True)
             result = await client.request("thread/resume", {"threadId": thread_id, "excludeTurns": True})
             assert result["thread"]["id"] == thread_id
             history = await client.request("thread/turns/list", {"threadId": thread_id, "itemsView": "full", "sortDirection": "asc"})
-            assert any(item.get("type") == "agentMessage" and "CX_LIVE_OK" in item.get("text", "") for turn in history["data"] for item in turn.get("items", []))
+            assert any(item.get("type") == "agentMessage" and "VCX_LIVE_OK" in item.get("text", "") for turn in history["data"] for item in turn.get("items", []))
             print("PASS: session resume and persisted history", flush=True)
         finally:
             await client.close()

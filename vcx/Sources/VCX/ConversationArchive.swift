@@ -24,7 +24,7 @@ enum ConversationArchive {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0, let result = try JSONSerialization.jsonObject(with: data) as? JSON,
-              result["ok"] as? Bool == true else { throw CXError(message: "Could not archive or restore the conversation. Existing history has been retained.") }
+              result["ok"] as? Bool == true else { throw VCXError(message: "Could not archive or restore the conversation. Existing history has been retained.") }
         return result
     }
 

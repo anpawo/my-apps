@@ -102,7 +102,7 @@ enum GraphDump {
             session.show(["id": "answer-\(index)", "type": "agentMessage", "text": (1...12).map { "Line \($0) of answer \(index)." }.joined(separator: "\n\n")])
         }
         session.revision += 1
-        let host = NSHostingView(rootView: CXView(session: session))
+        let host = NSHostingView(rootView: VCXView(session: session))
         host.sizingOptions = []; host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -124,7 +124,7 @@ enum GraphDump {
             guard line.hasPrefix("graph "), let part = line.split(separator: ":").dropFirst().first else { return nil }
             return Int(part.split(separator: " ").first ?? "")
         }.max() ?? 0
-        let named = text.contains("CXView") || text.contains("ConversationRow") || text.contains("UserBubble")
+        let named = text.contains("VCXView") || text.contains("ConversationRow") || text.contains("UserBubble")
         print("\(updates > 10 && named ? "PASS" : "FAIL"): graph summary at \(report.path), \(updates) updates, VCX views named: \(named)")
         return updates > 10 && named ? 0 : 1
     }

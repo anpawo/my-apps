@@ -23,7 +23,7 @@ enum RuntimeBoundsCheck {
             case "answer", "checkpoint": controls += 1; return [:]
             case "stop": release(); return [:]
             case "close": close(); return [:]
-            default: throw CXError(message: "Unknown bounds fixture action.")
+            default: throw VCXError(message: "Unknown bounds fixture action.")
             }
         }
         func release() { blocked = false; let pending = waiting; waiting.removeAll(); pending.forEach { $0.resume() } }
@@ -54,16 +54,16 @@ enum RuntimeBoundsCheck {
             let deadline = Date().addingTimeInterval(10)
             while Date() < deadline {
                 if let value = responses.removeValue(forKey: id) { return value }
-                if closed { throw CXError(message: "Bounds fixture connection closed before response.") }
+                if closed { throw VCXError(message: "Bounds fixture connection closed before response.") }
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
-            throw CXError(message: "Bounds fixture response timed out.")
+            throw VCXError(message: "Bounds fixture response timed out.")
         }
         func call(_ method: String, _ params: JSON = [:]) async throws -> JSON { try await response(send(method, params)) }
         func attach(_ id: String, cwd: String) async throws -> JSON {
             _ = try await call("hello", ["protocol": 1])
             let reply = try await call("attach", ["sessionId": id, "cwd": cwd])
-            guard let result = reply["result"] as? JSON else { throw CXError(message: "Bounds fixture attach failed.") }
+            guard let result = reply["result"] as? JSON else { throw VCXError(message: "Bounds fixture attach failed.") }
             return result
         }
         func arguments(_ session: JSON, _ sequence: Int, _ action: String, _ params: JSON = [:]) -> JSON {
@@ -86,14 +86,14 @@ enum RuntimeBoundsCheck {
         }
         var count = 0
         func check(_ value: Bool, _ message: String) throws {
-            guard value else { throw CXError(message: "Runtime bounds: " + message) }
+            guard value else { throw VCXError(message: "Runtime bounds: " + message) }
             count += 1
         }
         func errorCode(_ value: JSON) -> String? { (value["error"] as? JSON)?["code"] as? String }
         func writerFinished(_ semaphore: DispatchSemaphore, after seconds: Double) -> Bool { semaphore.wait(timeout: .now() + seconds) == .success }
         func wait(_ condition: () -> Bool) async throws {
             for _ in 0..<2000 { if condition() { return }; try await Task.sleep(nanoseconds: 1_000_000) }
-            throw CXError(message: "Runtime bounds fixture did not reach its gate.")
+            throw VCXError(message: "Runtime bounds fixture did not reach its gate.")
         }
         var backends: [String: Backend] = [:]
         let path = directory.appendingPathComponent("server.sock").path

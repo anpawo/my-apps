@@ -1,5 +1,5 @@
 'use strict';
-// The window around the transcript and the composer, as the Swift `CXView` draws it: the status line, the status bar
+// The window around the transcript and the composer, as the Swift `VCXView` draws it: the status line, the status bar
 // and its popovers, the permission prompt, the task bar, notices and the title. It reads the messages app.js reads.
 // Each element is one of his web templates (~/self/templates/web), named where its effect is copied.
 (() => {

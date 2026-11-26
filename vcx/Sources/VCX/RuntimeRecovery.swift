@@ -18,14 +18,14 @@ enum RuntimeRecovery {
     private static var directory: URL { RuntimeIdentity.directory.appendingPathComponent("recovery", isDirectory: true) }
 
     private static func file(_ sessionID: String, kind: String) throws -> URL {
-        guard let id = UUID(uuidString: sessionID) else { throw CXError(message: "Invalid recovery session identifier.") }
+        guard let id = UUID(uuidString: sessionID) else { throw VCXError(message: "Invalid recovery session identifier.") }
         try RuntimeIdentity.prepareDirectory()
         if !FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         }
         var info = stat()
         guard lstat(directory.path, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else {
-            throw CXError(message: "Recovery folder must be private and owned by your account.")
+            throw VCXError(message: "Recovery folder must be private and owned by your account.")
         }
         return directory.appendingPathComponent(id.uuidString + "." + kind + ".json")
     }
@@ -34,40 +34,40 @@ enum RuntimeRecovery {
         var info = stat()
         if lstat(file.path, &info) != 0 {
             if errno == ENOENT { return nil }
-            throw CXError(message: "Cannot inspect session recovery data.")
+            throw VCXError(message: "Cannot inspect session recovery data.")
         }
         guard info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0, info.st_size <= maximumBytes else {
-            throw CXError(message: "Session recovery data has unsafe ownership, permissions or size.")
+            throw VCXError(message: "Session recovery data has unsafe ownership, permissions or size.")
         }
         let fd = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw CXError(message: "Cannot open session recovery data.") }
+        guard fd >= 0 else { throw VCXError(message: "Cannot open session recovery data.") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var opened = stat()
         guard fstat(fd, &opened) == 0, opened.st_ino == info.st_ino, opened.st_dev == info.st_dev,
               let value = try JSONSerialization.jsonObject(with: handle.readDataToEndOfFile()) as? JSON else {
-            throw CXError(message: "Session recovery data is invalid.")
+            throw VCXError(message: "Session recovery data is invalid.")
         }
         return value
     }
 
     private static func write(_ value: JSON, to file: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
-        guard data.count <= maximumBytes else { throw CXError(message: "Session recovery data exceeds the size limit.") }
+        guard data.count <= maximumBytes else { throw VCXError(message: "Session recovery data exceeds the size limit.") }
         if let previous = try read(file), NSDictionary(dictionary: previous).isEqual(to: value) { return }
         let temporary = directory.appendingPathComponent(UUID().uuidString + ".tmp")
         let fd = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw CXError(message: "Cannot save session recovery data.") }
+        guard fd >= 0 else { throw VCXError(message: "Cannot save session recovery data.") }
         defer { Darwin.close(fd); unlink(temporary.path) }
         try data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
                 let written = Darwin.write(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
                 if written < 0, errno == EINTR { continue }
-                guard written > 0 else { throw CXError(message: "Cannot write session recovery data.") }
+                guard written > 0 else { throw VCXError(message: "Cannot write session recovery data.") }
                 offset += written
             }
         }
-        guard rename(temporary.path, file.path) == 0 else { throw CXError(message: "Cannot commit session recovery data.") }
+        guard rename(temporary.path, file.path) == 0 else { throw VCXError(message: "Cannot commit session recovery data.") }
     }
 
     private static func ownerStart(_ pid: pid_t) -> UInt64? {
@@ -90,7 +90,7 @@ enum RuntimeRecovery {
     }
 
     static func saveWindow(sessionID: String, socketPath: String, state: JSON, instanceID: String?) throws {
-        guard let cwd = state["cwd"] as? String, cwd.hasPrefix("/"), socketPath.hasPrefix("/") else { throw CXError(message: "Invalid recovery workspace.") }
+        guard let cwd = state["cwd"] as? String, cwd.hasPrefix("/"), socketPath.hasPrefix("/") else { throw VCXError(message: "Invalid recovery workspace.") }
         let destination = try file(sessionID, kind: "window")
         if try read(destination)?["closeRequested"] as? Bool == true { return }
         var value: JSON = ["sessionId": sessionID, "socket": socketPath, "ownerPID": Int(getpid()),
@@ -119,14 +119,14 @@ enum RuntimeRecovery {
         let destination = try file(sessionID, kind: "window")
         guard let value = try read(destination), value["ownerPID"] as? Int == Int(getpid()),
               value["ownerStart"] as? UInt64 == ownerStart(getpid()) else { return }
-        if unlink(destination.path) != 0, errno != ENOENT { throw CXError(message: "Cannot release session recovery data.") }
+        if unlink(destination.path) != 0, errno != ENOENT { throw VCXError(message: "Cannot release session recovery data.") }
     }
 
     static func remove(sessionID: String) throws {
         for kind in ["window", "checkpoint"] {
             let destination = try file(sessionID, kind: kind)
             _ = try read(destination)
-            if unlink(destination.path) != 0, errno != ENOENT { throw CXError(message: "Cannot remove ended session recovery data.") }
+            if unlink(destination.path) != 0, errno != ENOENT { throw VCXError(message: "Cannot remove ended session recovery data.") }
         }
     }
 
@@ -137,7 +137,7 @@ enum RuntimeRecovery {
     static func removeCheckpoint(sessionID: String) throws {
         let destination = try file(sessionID, kind: "checkpoint")
         _ = try read(destination)
-        if unlink(destination.path) != 0, errno != ENOENT { throw CXError(message: "Cannot remove ended session checkpoint.") }
+        if unlink(destination.path) != 0, errno != ENOENT { throw VCXError(message: "Cannot remove ended session checkpoint.") }
     }
 
     static func pending() throws -> [Entry] { try entries(closing: false) }
@@ -147,7 +147,7 @@ enum RuntimeRecovery {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         var entries: [Entry] = []
         for candidate in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where candidate.lastPathComponent.hasSuffix(".window.json") {
-            guard entries.count < 1024 else { throw CXError(message: "Too many sessions require recovery.") }
+            guard entries.count < 1024 else { throw VCXError(message: "Too many sessions require recovery.") }
             guard let value = try read(candidate), (value["closeRequested"] as? Bool == true) == closing,
                   let rawID = value["sessionId"] as? String, let id = UUID(uuidString: rawID),
                   candidate.lastPathComponent == id.uuidString + ".window.json",
@@ -192,11 +192,11 @@ enum RuntimeRecovery {
         guard let recordID = entry.state["recordID"] as? String, UUID(uuidString: recordID) != nil,
               let stateDirectory = entry.state["stateDirectory"] as? String, stateDirectory.hasPrefix("/") else { return false }
         let group = SHA256.hash(data: Data(entry.cwd.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24)
-        let path = URL(fileURLWithPath: StateHome.relocated(stateDirectory)).appendingPathComponent("native").appendingPathComponent(String(group)).appendingPathComponent(recordID + ".json")
+        let path = URL(fileURLWithPath: stateDirectory).appendingPathComponent("native").appendingPathComponent(String(group)).appendingPathComponent(recordID + ".json")
         let materialized = try? read(path)
         let record: JSON?
         if let materialized { record = materialized }
-        else { record = try? await ConversationArchive.record(recordID, state: URL(fileURLWithPath: StateHome.relocated(stateDirectory))) }
+        else { record = try? await ConversationArchive.record(recordID, state: URL(fileURLWithPath: stateDirectory)) }
         guard let record else { return false }
         return record["cwd"] as? String == entry.cwd && record["threadId"] as? String != nil && record["accountId"] as? String != nil
     }

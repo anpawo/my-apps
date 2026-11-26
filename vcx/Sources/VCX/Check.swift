@@ -15,7 +15,7 @@ enum Check {
             let result = try await claude.request("account/rateLimits/read")
             let session = Session(cwd: NSTemporaryDirectory())
             session.updateUsage(result["rateLimits"] as? JSON ?? [:])
-            guard !session.usage.isEmpty else { throw CXError(message: "Claude usage is empty.") }
+            guard !session.usage.isEmpty else { throw VCXError(message: "Claude usage is empty.") }
             print("Claude usage: " + session.usage)
         }
         catch { print("Claude subscription: " + error.localizedDescription); okay = false }
@@ -33,7 +33,7 @@ enum Check {
             let preferences = try JSONDecoder().decode(Preferences.self, from: JSONSerialization.data(withJSONObject: defaults.merging(stored) { _, value in value }))
             let network = try qwenNetwork(preferences)
             defer { network.invalidateAndCancel() }
-            guard var parts = URLComponents(string: preferences.qwenURL) else { throw CXError(message: "Invalid Qwen URL.") }
+            guard var parts = URLComponents(string: preferences.qwenURL) else { throw VCXError(message: "Invalid Qwen URL.") }
             parts.path = "/api/tags"
             var request = URLRequest(url: parts.url!); request.timeoutInterval = 10
             let (data, response) = try await network.data(for: request)
@@ -62,58 +62,6 @@ enum Check {
         // One async function this long took 17 GB to compile (LLVM copies it at every await), so its checks run in closures of their own.
         func part(_ body: @MainActor () async -> Void) async { await body() }
         func step(_ body: @MainActor () async -> Bool) async -> Bool { await body() }
-        do {
-            let parent = NSTemporaryDirectory() + "vcx-state-move-" + UUID().uuidString, manager = FileManager.default
-            func exists(_ path: String) -> Bool { (try? manager.attributesOfItem(atPath: path)) != nil }
-            try? manager.createDirectory(atPath: parent + "/cx/runtime", withIntermediateDirectories: true)
-            try? "{}".write(toFile: parent + "/cx/runtime/kept.json", atomically: true, encoding: .utf8)
-            let (realParent, realApps) = (StateHome.parent, StateHome.runningApps)
-            defer { StateHome.parent = realParent; StateHome.runningApps = realApps; try? manager.removeItem(atPath: parent) }
-            let older = Process(), replaced = parent + "/older/VCX"
-            try? manager.createDirectory(atPath: parent + "/older", withIntermediateDirectories: true)
-            try? manager.copyItem(atPath: "/bin/sleep", toPath: replaced)
-            older.executableURL = URL(fileURLWithPath: replaced); older.arguments = ["30"]
-            try? older.run()
-            try? manager.removeItem(atPath: replaced)
-            check(StateHome.appProcesses().contains(older.processIdentifier), "a VCX process whose binary an install replaced still counts as running")
-            StateHome.parent = parent; StateHome.runningApps = { [getpid(), older.processIdentifier] }
-            StateHome.adopt()
-            check((try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx" && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
-                  "the state move turns cx into a link to the vcx folder that now holds the state")
-            check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock" && StateHome.relocated(parent + "/cxa") == parent + "/cxa",
-                  "a path an older build saved under cx points into vcx")
-            check(StateHome.removeLegacyLinkIfUnused(), "the cx link stays while a process of an older build runs")
-            older.terminate(); older.waitUntilExit()
-            check(!StateHome.removeLegacyLinkIfUnused() && !exists(parent + "/cx") && !exists(parent + "/vcx/.moved") && manager.fileExists(atPath: parent + "/vcx/runtime/kept.json"),
-                  "the cx link goes once every running process knows vcx")
-            check(StateHome.relocated(parent + "/cx/runtime/a.sock") == parent + "/vcx/runtime/a.sock", "a saved cx path still points into vcx once the link is gone")
-            try? manager.createDirectory(atPath: parent + "/cx/native/key", withIntermediateDirectories: true)
-            try? "{}".write(toFile: parent + "/cx/native/key/record.json", atomically: true, encoding: .utf8)
-            try? manager.createDirectory(atPath: parent + "/cx/runtime", withIntermediateDirectories: true)
-            try? "old".write(toFile: parent + "/vcx/runtime/installed-build", atomically: true, encoding: .utf8)
-            try? manager.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: parent + "/vcx/runtime/installed-build")
-            try? "new".write(toFile: parent + "/cx/runtime/installed-build", atomically: true, encoding: .utf8)
-            for (folder, row) in [("vcx", "kept"), ("cx", "made again")] {
-                let sqlite = Process()
-                sqlite.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-                sqlite.arguments = [parent + "/" + folder + "/conversations.sqlite", "CREATE TABLE events (id INTEGER PRIMARY KEY, type TEXT); INSERT INTO events (type) VALUES ('\(row)')"]
-                try? sqlite.run(); sqlite.waitUntilExit()
-            }
-            check(StateHome.relocated(parent + "/cx/native/key/record.json") == parent + "/vcx/native/key/record.json",
-                  "a cx path points into vcx while a cx folder made again sits beside it")
-            StateHome.adopt()
-            let merged = Process(), out = Pipe()
-            merged.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-            merged.arguments = [parent + "/vcx/conversations.sqlite", "SELECT group_concat(type, ',') FROM (SELECT type FROM events ORDER BY id)"]
-            merged.standardOutput = out
-            try? merged.run(); merged.waitUntilExit()
-            check(manager.fileExists(atPath: parent + "/vcx/runtime/kept.json") && manager.fileExists(atPath: parent + "/vcx/native/key/record.json")
-                  && (!exists(parent + "/cx") || (try? manager.destinationOfSymbolicLink(atPath: parent + "/cx")) == "vcx")
-                  && String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "kept,made again",
-                  "a cx folder made again joins vcx, its records and rows included, and is no longer a folder")
-            check((try? String(contentsOfFile: parent + "/vcx/runtime/installed-build", encoding: .utf8)) == "new",
-                  "the installed-build marker written later in a cx folder made again replaces vcx's")
-        }
         Connectivity.online = { true }; Connectivity.poll = 10_000_000; Connectivity.grace = 50_000_000
         do {
             let project = ErrorsRecall.home + "/self/app"
@@ -178,7 +126,7 @@ enum Check {
             session.contextLimit = 258600
             check(session.contextLabel == "0% token - 259K", "context capacity rounds up at half a thousand")
             for width: CGFloat in [300, 540, 840] {
-                let host = NSHostingView(rootView: CXView(session: session).statusBar.frame(width: width))
+                let host = NSHostingView(rootView: VCXView(session: session).statusBar.frame(width: width))
                 host.layoutSubtreeIfNeeded()
                 let height = host.fittingSize.height
                 print("Status bar at \(Int(width)): \(height)pt")
@@ -253,7 +201,7 @@ enum Check {
             session.ready = true; session.status = "Ready"; session.model = "claude-opus-5-5"; session.providerLabel = "Claude"; session.effort = "high"
             session.activeMode = "bypass"; session.repository = "atlas"; session.branch = "main"; session.repositoryDirectory = "atlas"; session.repositoryStatus = "up to date"
             UpdateBuild.shared.build = .init(started: Date().addingTimeInterval(-60), words: "/resume hides conversations closed without a message", expected: 240)
-            let host = CXView.host(session)
+            let host = VCXView.host(session)
             host.appearance = NSAppearance(named: .aqua); host.frame = CGRect(x: 0, y: 0, width: 1280, height: 800)
             let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host
@@ -2166,7 +2114,7 @@ enum Check {
         let usageDisplay = Session(cwd: directory.path)
         await part {
             claudeContext.usageReader = { account in
-                guard account.name == "Fixture" else { throw CXError(message: "Incorrect usage profile") }
+                guard account.name == "Fixture" else { throw VCXError(message: "Incorrect usage profile") }
                 return ["five_hour": NSNull(), "seven_day": ["utilization": 100.0, "resets_at": "2099-11-04T00:59:59.934184+00:00"]]
             }
             do {
@@ -2193,7 +2141,7 @@ enum Check {
                 await usageDisplay.refreshUsage()
                 check(usageDisplay.usage == "18% usage - reset 2h50m - 32% wk" && usageDisplay.usagePercent == 32, "a failed usage refresh keeps the last reported quota")
                 check(!usageDisplay.usageLoading, "a failed usage refresh stops the loading indicator")
-                claudeContext.usageReader = { _ in throw CXError(message: "Usage unavailable: Claude returned HTTP 429.") }
+                claudeContext.usageReader = { _ in throw VCXError(message: "Usage unavailable: Claude returned HTTP 429.") }
                 let limitsBefore = Settings.shared.value.limits, rowsBefore = usageDisplay.rows.count
                 await usageDisplay.refreshUsage()
                 check(usageDisplay.account.provider == "claude" && Settings.shared.value.limits == limitsBefore && usageDisplay.rows.count == rowsBefore, "an HTTP 429 from the usage endpoint changes neither the provider nor the limits")
@@ -2596,14 +2544,14 @@ enum Render {
             let chatting = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-state"))
             chatting.ready = true; chatting.status = "Ready"
             chatting.show(["id": "chart-answer", "type": "agentMessage", "provider": "Claude", "text": "Here it is:\n\n```chart\n" + page + "\n```\n\nAfter."])
-            let inChat = shoot(CXView(session: chatting), CGSize(width: 1120, height: 820), "chart-chat.png")
+            let inChat = shoot(VCXView(session: chatting), CGSize(width: 1120, height: 820), "chart-chat.png")
             if abs(inChat.height - inChat.width * 200 / 600 - 16) > 4 { fputs("FAIL: a chart in the transcript takes its page's height (\(inChat))\n", stderr); exit(1) }
             // Live: the page asks VCX for Nasdaq's quote, which a page of origin null cannot fetch, and gets it again without a new message.
             let live = ##"<div style="font:13px sans-serif;padding:8px"><b>NVDA</b> <span id="p">…</span> <small id="n">0</small><svg viewBox="0 0 600 160" width="100%"><polyline fill="none" stroke="#16a34a" stroke-width="3" points="0,120 150,90 300,100 450,40 600,60"/></svg></div><script>let n = 0; vcx.live("https://api.nasdaq.com/api/quote/NVDA/info?assetclass=stocks", 5, d => { document.getElementById("p").textContent = d.data.primaryData.lastSalePrice; document.getElementById("n").textContent = ++n })</script>"##
             let pinning = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-pin-state"))
             pinning.ready = true; pinning.status = "Ready"
             pinning.show(["id": "chart-live", "type": "agentMessage", "provider": "Claude", "text": "Pinned, live:\n\n```chart pin\n" + live + "\n```\n\nAfter."])
-            let host = NSHostingView(rootView: CXView(session: pinning))
+            let host = NSHostingView(rootView: VCXView(session: pinning))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host
             func js(_ view: WKWebView, _ script: String) -> Any? {
@@ -2622,7 +2570,7 @@ enum Render {
             }
             func webs(_ view: NSView) -> [WKWebView] { (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webs) }
             RunLoop.main.run(until: Date().addingTimeInterval(13))
-            write(CXView(session: pinning), size: CGSize(width: 1120, height: 820), path: directory + "/chart-pinned.png")
+            write(VCXView(session: pinning), size: CGSize(width: 1120, height: 820), path: directory + "/chart-pinned.png")
             if pinning.chartPin.html != live { fputs("FAIL: a block tagged chart pin pins itself\n", stderr); exit(1) }
             let views = webs(host)
             if views.count != 2 { fputs("FAIL: a pinned chart is drawn above the transcript beside its block (\(views.count) web views)\n", stderr); exit(1) }
@@ -2650,7 +2598,7 @@ enum Render {
             let kit = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/chart-kit-state"))
             kit.ready = true; kit.status = "Ready"
             kit.show(["id": "chart-kit", "type": "agentMessage", "provider": "Claude", "text": "NVDA today:\n\n```chart\n<script>vcx.chart({symbol: \"NVDA\"}).then(c => window.kit = c)</script>\n```"])
-            let kitHost = NSHostingView(rootView: CXView(session: kit))
+            let kitHost = NSHostingView(rootView: VCXView(session: kit))
             let kitWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
             kitWindow.isReleasedWhenClosed = false; kitWindow.contentView = kitHost
             RunLoop.main.run(until: Date().addingTimeInterval(8))
@@ -2756,49 +2704,49 @@ enum Render {
         session.show(["id": "answer", "type": "agentMessage", "provider": "Claude", "text": "The workspace now uses native SwiftUI and AppKit, just like Jarvis.\n\n• Images stay in one compact card. Click to preview.\n• Actions stay folded so the conversation stays clear.\n• Scroll up to read; return to the bottom to follow.\n\n```swift\nlet workspace = Workspace(project: \"atlas\")\nworkspace.open()\n```\n\nType / to find commands, change settings, or resume a conversation."])
         let draft = NSMutableAttributedString(string: "Can you refine this? ", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black])
         session.draft = NSAttributedString(attributedString: draft)
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation-no-image.png")
         session.find.toggle(); session.find.query = "workspace"; session.find.search(session.rows, visible: [])
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find.png")
         session.find.move(-2)
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find-previous.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/find-previous.png")
         session.find.toggle()
         draft.append(NSAttributedString(attachment: ImageChip(path: imagePath, number: 1)))
         draft.append(NSAttributedString(string: "next characters"))
         session.draft = draft; session.draftRevision += 1
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/conversation.png")
         session.preview = imagePath
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/image-popup.png")
-        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/image-popup-narrow.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/image-popup.png")
+        write(VCXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/image-popup-narrow.png")
         session.preview = nil
         session.busy = true
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/thinking.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/thinking.png")
         session.event(["method": "item/started", "params": ["item": ["id": "active-tool", "type": "commandExecution", "command": "swift build", "status": "inProgress"]]])
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/action.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/action.png")
         session.busy = false
         session.showCommands("/")
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")
-        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/commands.png")
+        write(VCXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/commands-narrow.png")
         let chipped = NSMutableAttributedString(attachment: CommandChip(label: "/cd", value: "/claude:cd"))
         chipped.append(NSAttributedString(string: " ~/atlas then ui-tweak the footer, check model and /po", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]))
         session.draft = chipped; session.draftRevision += 1
         session.updateCommands(chipped.string, caret: chipped.length)
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/command-chips.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/command-chips.png")
         session.commandQuery = nil
         session.permissions = [Permission(rpcID: "question", method: "item/tool/requestUserInput", params: ["questions": [["id": "interface", "question": "Which interface should we keep?", "options": [["label": "Keep it native", "description": "Use SwiftUI and AppKit."], ["label": "Use a web view", "description": "Render the workspace in WebKit."]]]]])]
         session.draft = NSAttributedString(string: "/answer Keep it native", attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.black]); session.draftRevision += 1
-        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
+        write(VCXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-narrow.png")
         session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.permissions = [Permission(rpcID: "questions", method: "item/tool/requestUserInput", params: ["questions": [
             ["id": "service", "header": "Mail", "question": "The contact form sends through a server action, which needs a mail service behind it. Which one should send the messages?", "options": [["label": "Resend (Recommended)", "description": "Already coded. Needs the domain verified there, then RESEND_API_KEY set on Vercel."], ["label": "SMTP through the domain's mailbox", "description": "No new account. Needs the mailbox password as a Vercel secret."], ["label": "Formspree", "description": "No server code. Messages arrive from Formspree's address."]]],
             ["id": "copies", "header": "Copies", "question": "Who gets a copy of each message?", "multiSelect": true, "options": [["label": "The sender", "description": "A confirmation with their text."], ["label": "You", "description": "Sent to the site's address."]]]]])]
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question.png")
-        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-small.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question.png")
+        write(VCXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/question-small.png")
         _ = session.chooseOption(1); _ = session.chooseOption(2)
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question-second.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/question-second.png")
         let empty = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/empty"))
         empty.ready = true; empty.status = "Ready"; empty.model = "Claude"
-        write(CXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
-        write(CXView(session: empty), size: CGSize(width: 1280, height: 820), path: directory + "/empty-wide.png")
+        write(VCXView(session: empty), size: CGSize(width: 860, height: 640), path: directory + "/empty.png")
+        write(VCXView(session: empty), size: CGSize(width: 1280, height: 820), path: directory + "/empty-wide.png")
         let modelMenu = Session(cwd: "/Users/example/projects/atlas")
         modelMenu.model = "claude-opus-5-5"; modelMenu.effort = "high"
         modelMenu.models = ["claude-haiku-4-5", "claude-opus-5-5"]
@@ -2814,10 +2762,10 @@ enum Render {
             sticky.show(["id": "action-\(turn)", "type": "commandExecution", "command": "swift build", "status": "completed", "exitCode": 0])
             sticky.show(["id": "answer-\(turn)", "type": "agentMessage", "text": (1...20).map { "Step \($0) for question \(turn). This answer continues below the question, with enough detail to require scrolling." }.joined(separator: "\n\n")])
         }
-        write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
+        write(VCXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky.png", scrollOffsets: [0, 400, 1000, 0])
         // Under a pinned chart, the question pushed up by the next one slides under the chart, never over it.
         sticky.chartPin.offer("<div style=\"height:200px\"></div>")
-        write(CXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky-pinned.png", scrollOffsets: [900, 1000, 1100, 1200, 0])
+        write(VCXView(session: sticky), size: CGSize(width: 1120, height: 820), path: directory + "/sticky-pinned.png", scrollOffsets: [900, 1000, 1100, 1200, 0])
         sticky.chartPin.toggle("<div style=\"height:200px\"></div>")
         followKeepsEnd(session: sticky)
         opensOnAnswer(directory: directory)
@@ -2841,9 +2789,9 @@ enum Render {
         work.show(["id": "work-t5", "type": "agentMessage", "provider": "Claude", "text": "The labels use two different paddings; unifying them."])
         work.show(["id": "work-a9", "type": "commandExecution", "command": "swift build", "status": "inProgress"])
         work.busy = true
-        write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work.png")
+        write(VCXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work.png")
         expansion(directory: directory, session: work)
-        write(CXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work-open.png", scrollOffsets: [0])
+        write(VCXView(session: work), size: CGSize(width: 1120, height: 900), path: directory + "/work-open.png", scrollOffsets: [0])
         let peers = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/peers"))
         peers.ready = true; peers.status = "Ready"
         peers.show(["id": "peer-q", "type": "userMessage", "content": [["type": "text", "text": "If another session is on it, hand it the context."]]])
@@ -2851,15 +2799,15 @@ enum Render {
         peers.show(["id": "peer-answer", "type": "agentMessage", "provider": "Claude", "text": "Sent the findings to claude-92."])
         peers.show(["id": "peer-in", "type": "peerMessage", "direction": "received", "name": "claude-92", "status": "completed", "text": "Thanks, the old worker was the cause. Close your window when you are done."])
         peers.show(["id": "peer-reply", "type": "agentMessage", "provider": "Claude", "text": "Closing once this turn ends."])
-        write(CXView(session: peers), size: CGSize(width: 1120, height: 700), path: directory + "/peers.png")
+        write(VCXView(session: peers), size: CGSize(width: 1120, height: 700), path: directory + "/peers.png")
         session.permissions = []; session.draft = NSAttributedString(string: ""); session.draftRevision += 1
         session.providerLabel = "Codex"; session.model = "gpt-6.1-sol"; session.effort = "high"
         session.contextUsed = 0; session.contextLimit = 258400
         session.updateUsage(["primary": ["usedPercent": 11.0, "windowDurationMins": 10080, "resetsAt": 1794357394.0] as JSON])
         session.repositoryStatus = "uncommitted"
-        write(CXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
-        write(CXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
-        write(CXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
+        write(VCXView(session: session), size: CGSize(width: 1120, height: 820), path: directory + "/codex-footer.png")
+        write(VCXView(session: session), size: CGSize(width: 1280, height: 820), path: directory + "/codex-footer-wide.png")
+        write(VCXView(session: session), size: CGSize(width: 780, height: 560), path: directory + "/codex-footer-narrow.png")
         write(ProseView(text: "⟶ Your answer is ready.\n\n✓ Done: Changes verified.\n\n⟶ Next: Review the updated layout.").padding(24).background(Color.white), size: CGSize(width: 700, height: 240), path: directory + "/answer-highlights.png")
         write(ProseView(text: "⟶ This highlighted message wraps onto another line and fits its content without an empty line underneath.\n").padding(24).background(Color.white), size: CGSize(width: 500, height: 180), path: directory + "/green-height.png")
         let linkFixture = "Preview the installed logo, fused C and X, white on charcoal black, wrapping onto a second line here."
@@ -2872,7 +2820,7 @@ enum Render {
         print("Rendered conversation, command popup, narrow layout, inline question, and empty state offscreen")
     }
     static func followKeepsEnd(session: Session) {
-        let host = NSHostingView(rootView: CXView(session: session))
+        let host = NSHostingView(rootView: VCXView(session: session))
         host.appearance = NSAppearance(named: .aqua)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 1120, height: 820)
@@ -2945,7 +2893,7 @@ enum Render {
         let table = "| Item | What | Where |\n|---|---|---|\n" + (1...12).map { "| Item \($0) | a cell long enough to wrap onto a second line | source line \($0) |" }.joined(separator: "\n")
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/scroll"))
         session.status = "Starting"
-        let host = CXView.host(session)
+        let host = VCXView.host(session)
         host.appearance = NSAppearance(named: .aqua)
         host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -3022,7 +2970,7 @@ enum Render {
     static func opening(directory: String, name: String, show: (Session) -> Void) -> (NSBitmapImageRep, CGRect) {
         let session = Session(cwd: "/Users/example/projects/atlas", stateDirectory: URL(fileURLWithPath: directory + "/" + name))
         session.status = "Starting"
-        let host = NSHostingView(rootView: CXView(session: session))
+        let host = NSHostingView(rootView: VCXView(session: session))
         host.appearance = NSAppearance(named: .aqua)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803)
@@ -3048,7 +2996,7 @@ enum Render {
         return (rep, frame)
     }
     static func expansion(directory: String, session: Session) {
-        let host = NSHostingView(rootView: CXView(session: session))
+        let host = NSHostingView(rootView: VCXView(session: session))
         host.appearance = NSAppearance(named: .aqua)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 1120, height: 900)
@@ -3077,7 +3025,7 @@ enum Render {
             session.revision += 1
         }
         let animation = SendAnimation()
-        let host = NSHostingView(rootView: CXView(session: session, sending: animation))
+        let host = NSHostingView(rootView: VCXView(session: session, sending: animation))
         host.appearance = NSAppearance(named: .aqua)
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 780, height: 560)
@@ -3181,7 +3129,7 @@ final class FixtureConnection: Connection {
     var resumeModel: String?
     var pendingTurn = "fixture-turn"
     init(_ account: Account) { self.account = account }
-    func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw CXError(message: "Expected connection failure") } }
+    func start(command: [String]?) async throws { if startDelay > 0 { try await Task.sleep(nanoseconds: startDelay) }; if failStart { throw VCXError(message: "Expected connection failure") } }
     func request(_ method: String, _ params: JSON, timeout: Double) async throws -> JSON {
         switch method {
         case "thread/fork": return ["thread": ["id": forkID ?? "fixture-fork"]]
@@ -3192,10 +3140,10 @@ final class FixtureConnection: Connection {
         case "thread/start", "thread/resume":
             if routingFailures > 0 {
                 routingFailures -= 1; opened.append(params)
-                throw CXError(message: "workspace routing discovery timed out")
+                throw VCXError(message: "workspace routing discovery timed out")
             }
             if method == "thread/resume" {
-                if failResume { throw CXError(message: "Expected resume failure") }
+                if failResume { throw VCXError(message: "Expected resume failure") }
                 if let contextDuringResume { event(["method": "thread/tokenUsage/updated", "params": ["tokenUsage": ["modelContextWindow": contextDuringResume]]]) }
             }
             let id: String
@@ -3211,7 +3159,7 @@ final class FixtureConnection: Connection {
         case "turn/start", "turn/steer":
             sent.append(params)
             if sendDelay > 0 { try await Task.sleep(nanoseconds: sendDelay) }
-            if failSend { throw CXError(message: "Expected send failure") }
+            if failSend { throw VCXError(message: "Expected send failure") }
             event(["method": "turn/started", "params": ["turn": ["id": pendingTurn]]])
             Task { @MainActor in
                 await Task.yield()
@@ -3225,7 +3173,7 @@ final class FixtureConnection: Connection {
         case "turn/interrupt": event(["method": "turn/completed", "params": ["turn": ["id": pendingTurn, "status": "interrupted"]]]); return [:]
         case "vcx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
         case "account/rateLimits/read": usageReads += 1; return [:]
-        case "vcx/mode": if failMode { throw CXError(message: "bypass_not_launched") }; modes.append(params["mode"] as? String ?? ""); return [:]
+        case "vcx/mode": if failMode { throw VCXError(message: "bypass_not_launched") }; modes.append(params["mode"] as? String ?? ""); return [:]
         default: return [:]
         }
     }

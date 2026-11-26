@@ -17,7 +17,7 @@ enum InstantCloseCheck {
             if action == "close" {
                 closing = true
                 await withCheckedContinuation { release = $0 }
-                if failClose { throw CXError(message: "Expected close fixture failure.") }
+                if failClose { throw VCXError(message: "Expected close fixture failure.") }
             }
             return [:]
         }
@@ -53,12 +53,12 @@ enum InstantCloseCheck {
             try? FileManager.default.removeItem(at: root)
         }
         func check(_ value: Bool, _ message: String) throws {
-            guard value else { throw CXError(message: "Instant close: " + message) }; count += 1
+            guard value else { throw VCXError(message: "Instant close: " + message) }; count += 1
         }
         func wait(_ condition: () -> Bool) async throws {
             let deadline = Date().addingTimeInterval(timeout)
             while !condition() {
-                guard Date() < deadline else { throw CXError(message: "Instant close fixture timed out.") }
+                guard Date() < deadline else { throw VCXError(message: "Instant close fixture timed out.") }
                 try await Task.sleep(nanoseconds: pollDelay)
             }
         }
@@ -75,7 +75,7 @@ enum InstantCloseCheck {
         target.session.draft = NSAttributedString(string: "Preserved close draft")
         let menu = NSMenu(), appMenu = NSMenu()
         frontend.configureMenu(menu, appMenu: appMenu, fileMenu: NSMenu(), editMenu: NSMenu())
-        guard let shortcut = appMenu.items.first(where: { $0.keyEquivalent == "k" }) else { throw CXError(message: "Cmd+K close shortcut is missing.") }
+        guard let shortcut = appMenu.items.first(where: { $0.keyEquivalent == "k" }) else { throw VCXError(message: "Cmd+K close shortcut is missing.") }
         try check(shortcut.action == #selector(ComposerWindow.closeImmediately(_:)) && shortcut.keyEquivalentModifierMask == .command && shortcut.allowsKeyEquivalentWhenHidden, "Cmd+K did not route to the focused window")
         target.session.busy = true
         frontend.headless = false

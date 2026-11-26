@@ -15,20 +15,20 @@ struct LaunchOptions {
         while i < args.count {
             switch args[i] {
             case "--cwd", "-C":
-                i += 1; guard i < args.count else { throw CXError(message: "--cwd requires a folder.") }; cwd = (args[i] as NSString).expandingTildeInPath
+                i += 1; guard i < args.count else { throw VCXError(message: "--cwd requires a folder.") }; cwd = (args[i] as NSString).expandingTildeInPath
             case "--resume", "-r":
                 resume = "last"
                 if i + 1 < args.count, !args[i + 1].hasPrefix("-") { i += 1; resume = args[i] }
             case "--focus": focus = true
             case "--": words += args.dropFirst(i + 1); i = args.count
             default:
-                guard !args[i].hasPrefix("-") else { throw CXError(message: "Unknown option: " + args[i]) }
+                guard !args[i].hasPrefix("-") else { throw VCXError(message: "Unknown option: " + args[i]) }
                 words.append(args[i])
             }
             i += 1
         }
         var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Working folder does not exist.") }
+        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &directory), directory.boolValue else { throw VCXError(message: "Working folder does not exist.") }
         prompt = words.joined(separator: " ")
     }
 }
@@ -82,7 +82,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The Dock keeps its own icon cache that survives rebuilds (it served the old pink icon for weeks); the running tile reads the bundle instead.
         if !headless, let icon = Bundle.main.url(forResource: "VCX", withExtension: "icns").flatMap(NSImage.init(contentsOf:)) { NSApp.applicationIconImage = icon }
         if !headless { replaceFrontend(); FreezeTrace.start(); GraphDump.listen { FreezeTrace.folder }; UpdateBuild.shared.watch() }
-        if !headless { Timer.scheduledTimer(withTimeInterval: StateHome.linkCheckInterval, repeats: true) { timer in if !StateHome.removeLegacyLinkIfUnused() { timer.invalidate() } } }
     }
 
     func observeFrontendEvents() {
@@ -131,11 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let restoreFile {
             do {
                 let ticket = try RuntimeUpdate.readTicket(restoreFile, suffix: ".restore.json")
-                guard let entries = ticket["windows"] as? [JSON], !entries.isEmpty else { throw CXError(message: "No windows to restore.") }
+                guard let entries = ticket["windows"] as? [JSON], !entries.isEmpty else { throw VCXError(message: "No windows to restore.") }
                 restorePending = entries.count
                 for entry in verificationMode == "partial" ? Array(entries.prefix(1)) : entries {
                     guard let cwd = entry["cwd"] as? String, let id = entry["sessionId"] as? String, UUID(uuidString: id) != nil,
-                          let socket = entry["socket"] as? String else { throw CXError(message: "Invalid window restore entry.") }
+                          let socket = entry["socket"] as? String else { throw VCXError(message: "Invalid window restore entry.") }
                     var launch = try LaunchOptions(["--cwd", cwd])
                     launch.runtimeID = id; launch.socketPath = socket; launch.detached = entry["detached"] as? Bool == true
                     createWindow(launch, state: entry["windowState"] as? JSON ?? [:])
@@ -198,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .aqua)
         window.minSize = NSSize(width: 780 + taskBarWidth, height: 560)
-        window.contentView = CXView.host(session)
+        window.contentView = VCXView.host(session)
         window.backgroundColor = NSColor.white
         window.delegate = self; window.isReleasedWhenClosed = false
         // A window saved before the task bar opens once as a new one, so every window has room for the bar.
@@ -305,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updating = true; replacementAcknowledged = false
         replacementTask = Task {
             do {
-                guard windows.first?.session.runtimeClient != nil else { throw CXError(message: "No attached frontend session.") }
+                guard windows.first?.session.runtimeClient != nil else { throw VCXError(message: "No attached frontend session.") }
                 try await RuntimeClient.preflight(executable: replacementBinary)
                 var entries: [JSON] = []
                 // Front to back, so the replacement can put the window he was on back in front.
@@ -364,7 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         try await withCheckedThrowingContinuation { continuation in
             replacementWaiter = continuation
             let timeout = DispatchWorkItem { [weak self] in
-                self?.replacementWaiter?.resume(throwing: CXError(message: "The replacement frontend did not finish attaching."))
+                self?.replacementWaiter?.resume(throwing: VCXError(message: "The replacement frontend did not finish attaching."))
                 self?.replacementWaiter = nil
             }
             replacementDeadline = timeout
@@ -374,7 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 while let self, self.replacementWaiter != nil {
                     if self.replacement?.isTerminated() == true, !self.replacementAcknowledged {
                         self.replacementDeadline?.cancel(); self.replacementDeadline = nil
-                        self.replacementWaiter?.resume(throwing: CXError(message: "The replacement frontend quit before attaching (log: subsystem com.mr.vcx)."))
+                        self.replacementWaiter?.resume(throwing: VCXError(message: "The replacement frontend quit before attaching (log: subsystem com.mr.vcx)."))
                         self.replacementWaiter = nil
                         return
                     }
@@ -502,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     ended.append(entry.window)
                 }
                 for task in Array(closeTasks.values) { await task.value }
-                guard windows.allSatisfy({ $0.session.frontendReplacing }) else { throw CXError(message: "A session could not finish closing.") }
+                guard windows.allSatisfy({ $0.session.frontendReplacing }) else { throw VCXError(message: "A session could not finish closing.") }
                 terminating = true; (terminationReply ?? sender.reply(toApplicationShouldTerminate:))(true)
             } catch {
                 // Their sessions already ended: those windows go, the others stay open.
@@ -532,8 +531,7 @@ if rawArgs.contains(where: { ["--archive-safety-check", "--archive-fixture-prune
     setenv("VCX_RUNTIME_HOME", isolated + "/runtime", 1)
     setenv("VCX_ERRORS_HOME", isolated + "/errors", 1)
 }
-StateHome.migrate()
-let args = rawArgs.map { StateHome.relocated($0) }
+let args = rawArgs
 if let index = args.firstIndex(of: "--adopt-check"), index + 1 < args.count {
     do { _ = try RuntimeSwap.manifest(args[index + 1]); exit(0) }
     catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
@@ -714,7 +712,7 @@ if let index = args.firstIndex(of: "--verify-runtime"), index + 1 < args.count {
             else if args.contains("--runtime-recovery-check") { _ = try await RecoveryCheck.run() }
             else if args.contains("--runtime-swap-check") { print(try await RuntimeSwapCheck.run()) }
             else if let index = args.firstIndex(of: "--runtime-load-check"), index + 1 < args.count { _ = try await RuntimeLoadCheck.run(reportPath: args[index + 1]) }
-            else { throw CXError(message: "A load report path is required.") }
+            else { throw VCXError(message: "A load report path is required.") }
             exit(0)
         } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
     }

@@ -583,10 +583,10 @@ func opaqueCrop(_ image: CGImage) -> CGImage {
 
 func agentImage(_ path: String) throws -> (Data, String) {
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
-    guard data.count <= 20 * 1024 * 1024 else { throw CXError(message: "Image is larger than 20 MB. Use a smaller image.") }
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil), let type = CGImageSourceGetType(source) as String? else { throw CXError(message: "This file is not a supported image.") }
+    guard data.count <= 20 * 1024 * 1024 else { throw VCXError(message: "Image is larger than 20 MB. Use a smaller image.") }
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil), let type = CGImageSourceGetType(source) as String? else { throw VCXError(message: "This file is not a supported image.") }
     if let media = ["public.png": "image/png", "public.jpeg": "image/jpeg", "com.compuserve.gif": "image/gif", "org.webmproject.webp": "image/webp"][type] { return (data, media) }
-    guard let image = thumbnail(path, size: 2048), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) else { throw CXError(message: "Could not convert this image to PNG.") }
+    guard let image = thumbnail(path, size: 2048), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) else { throw VCXError(message: "Could not convert this image to PNG.") }
     return (png, "image/png")
 }
 

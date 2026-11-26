@@ -23,7 +23,7 @@ final class ProviderJSONReader: @unchecked Sendable {
         self.handle = handle; fd = handle.fileDescriptor; input = leftover
         self.receive = receive; self.invalid = invalid; self.disconnected = disconnected
         let flags = fcntl(fd, F_GETFL)
-        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { throw CXError(message: "Cannot configure provider output reader.") }
+        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { throw VCXError(message: "Cannot configure provider output reader.") }
     }
 
     var queuedMessages: Int { queue.sync { messages } }

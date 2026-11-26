@@ -4,7 +4,7 @@
    chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102, the button
    variants WT-033, the search field WT-030, the copy check WT-020, the tabs WT-105, the name and value blocks WT-055, the status line WT-120, the keyboard
    shortcuts WT-121. */
-/* Swift `CXView`: the session panel, 168 px, then the transcript over the composer, then the task bar. */
+/* Swift `VCXView`: the session panel, 168 px, then the transcript over the composer, then the task bar. */
 body { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
 #transcript { grid-column: 2; grid-row: 1; }
 footer { grid-column: 2; grid-row: 2; }

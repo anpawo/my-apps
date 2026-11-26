@@ -12,7 +12,7 @@ enum RuntimeCheck {
             for root in [resource, sources] {
                 if let path = root?.appendingPathComponent(name), FileManager.default.fileExists(atPath: path.path) { return path }
             }
-            throw CXError(message: "Runtime continuity fixture is missing: " + name)
+            throw VCXError(message: "Runtime continuity fixture is missing: " + name)
         }
         let peer = try fixture("runtime_peer.py"), probe = try fixture("runtime_probe.py")
         let command = directory.appendingPathComponent("command.json")
@@ -20,7 +20,7 @@ enum RuntimeCheck {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: command.path)
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32)!
         try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("attachment.png"))
-        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create runtime continuity fixture gate.") }
+        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw VCXError(message: "Cannot create runtime continuity fixture gate.") }
 
         let worker = Process(), client = Process(), output = Pipe()
         worker.executableURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
@@ -62,16 +62,16 @@ enum RuntimeCheck {
         }.value
         let report = (try? JSONSerialization.jsonObject(with: result.1)) as? JSON
         guard result.0 == 0, let count = report?["checks"] as? Int, count > 0 else {
-            throw CXError(message: "Runtime continuity failed: " + (report?["error"] as? String ?? "probe exited without a result"))
+            throw VCXError(message: "Runtime continuity failed: " + (report?["error"] as? String ?? "probe exited without a result"))
         }
         let sessionData = try Data(contentsOf: directory.appendingPathComponent("session.json"))
-        guard let sessionID = ((try JSONSerialization.jsonObject(with: sessionData)) as? JSON)?["sessionId"] as? String else { throw CXError(message: "Runtime continuity session identity is missing.") }
+        guard let sessionID = ((try JSONSerialization.jsonObject(with: sessionData)) as? JSON)?["sessionId"] as? String else { throw VCXError(message: "Runtime continuity session identity is missing.") }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("frontend"))
         let frontend = RuntimeClient(session: session, cwd: directory.path, resumeRuntimeID: sessionID, socketPath: directory.appendingPathComponent("worker.sock").path)
         defer { frontend.close(); session.close() }
         var total = count
         func check(_ condition: Bool, _ message: String) throws {
-            guard condition else { throw CXError(message: "Runtime client continuity failed: " + message) }
+            guard condition else { throw VCXError(message: "Runtime client continuity failed: " + message) }
             total += 1
         }
         try await frontend.connect(resume: nil)
@@ -143,7 +143,7 @@ enum RuntimeCheck {
         try await Task.sleep(nanoseconds: 300_000_000)
         func cpuTicks() throws -> UInt64 {
             var task = proc_taskinfo()
-            guard proc_pidinfo(worker.processIdentifier, PROC_PIDTASKINFO, 0, &task, Int32(MemoryLayout<proc_taskinfo>.size)) == Int32(MemoryLayout<proc_taskinfo>.size) else { throw CXError(message: "Cannot sample runtime worker CPU time.") }
+            guard proc_pidinfo(worker.processIdentifier, PROC_PIDTASKINFO, 0, &task, Int32(MemoryLayout<proc_taskinfo>.size)) == Int32(MemoryLayout<proc_taskinfo>.size) else { throw VCXError(message: "Cannot sample runtime worker CPU time.") }
             return task.pti_total_user + task.pti_total_system
         }
         let beforeCPU = try cpuTicks(), beforeWall = DispatchTime.now().uptimeNanoseconds

@@ -27,7 +27,7 @@ enum BugCheck {
                     check(commands.contains { $0.name == "compact" } && !commands.contains { $0.name == "theme" }, "the Commands sidebar includes supported Codex commands and excludes terminal actions")
                 }
             }
-            guard failures.isEmpty else { throw CXError(message: failures.joined(separator: "; ")) }
+            guard failures.isEmpty else { throw VCXError(message: failures.joined(separator: "; ")) }
         }
         func editor(_ session: Session) -> (ComposerText, Composer.Coordinator) {
             let storage = NSTextStorage(), manager = NSLayoutManager(), container = NSTextContainer(size: NSSize(width: 600, height: 150))
@@ -91,7 +91,7 @@ enum BugCheck {
             field.submit()
             await settle()
             check(connection.sent.count == 6 && sending.draft.length == 0, "the restored draft can be retried without editing it")
-            guard failures.isEmpty else { throw CXError(message: failures.joined(separator: "; ")) }
+            guard failures.isEmpty else { throw VCXError(message: failures.joined(separator: "; ")) }
         }
         do {
             let claude = Settings.shared.value.accounts.first { $0.provider == "claude" }!
@@ -168,9 +168,9 @@ enum BugCheck {
             let background = field.drawsBackground
             field.drawsBackground = true; field.backgroundColor = .white
             defer { field.drawsBackground = background }
-            guard let bitmap = field.bitmapImageRepForCachingDisplay(in: field.bounds) else { throw CXError(message: "Cannot render composer fixture.") }
+            guard let bitmap = field.bitmapImageRepForCachingDisplay(in: field.bounds) else { throw VCXError(message: "Cannot render composer fixture.") }
             field.cacheDisplay(in: field.bounds, to: bitmap)
-            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CXError(message: "Cannot encode composer fixture.") }
+            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw VCXError(message: "Cannot encode composer fixture.") }
             if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"] {
                 let folder = URL(fileURLWithPath: destination)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -328,7 +328,7 @@ enum BugCheck {
             check(ordered.rows.map(\.kind) == ["user", "activity", "assistant", "user"] && ordered.rows[1].items.count == 5,
                   "what the agent does before reading a queued prompt goes above it, its actions in the bar it was filling")
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(ordered)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(ordered)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             if let destination = ProcessInfo.processInfo.environment["VCX_BUG_RENDER_DIR"], let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
                 content.cacheDisplay(in: content.bounds, to: bitmap)
@@ -349,7 +349,7 @@ enum BugCheck {
             progress.show(["id": "progress-action", "type": "commandExecution", "command": "ls", "status": "completed"])
             progress.show(["id": "progress-second", "type": "agentMessage", "text": "⟶ Second visible progress note.\n\n✓ Done: Progress checked.\n\n⟶ Next: Continue when ready."])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(progress)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(progress)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             func shows(_ text: String, in view: NSView) -> Bool {
                 (view as? NSTextView)?.string.contains(text) == true || view.subviews.contains { shows(text, in: $0) }
@@ -418,7 +418,7 @@ enum BugCheck {
             let longest = ("Pick the chart colors for the dashboard" as NSString).size(withAttributes: [.font: font]).width
             check(TaskBar.width(for: mine.map(\.task)) >= longest + TaskBar.rowChrome && TaskBar.width(for: ["Fix it"]) == taskBarWidth, "the task bar widens to hold its longest task on one line, never below its base width")
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(open[0].session)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(open[0].session)
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             if let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
                 content.cacheDisplay(in: content.bounds, to: bitmap)
@@ -444,7 +444,7 @@ enum BugCheck {
             asking.ready = true; asking.status = "Ready"
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1470 + taskBarWidth, height: 895), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 780 + taskBarWidth, height: 560)
-            window.contentView = CXView.host(asking)
+            window.contentView = VCXView.host(asking)
             defer { window.close() }
             let before = window.frame.height
             let question = "Which part should keep the editor's font when a word is highlighted as a command: the gray chip's box, the tint that appears while typing, or the purple word in the transcript? Pick the one you meant."
@@ -537,7 +537,7 @@ enum BugCheck {
                 }
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(asking)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(asking)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             if let content = window.contentView, let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
@@ -612,7 +612,7 @@ enum BugCheck {
             tabled.show(["id": "table-q", "type": "userMessage", "content": [["type": "text", "text": "compare"]]])
             tabled.show(["id": "table-a", "type": "agentMessage", "text": "Here:\n\n| A | B | C | D | E |\n|---|---|---|---|---|\n" + String(repeating: "| " + String(repeating: "a long cell ", count: 4) + " ", count: 5) + "|\n| six | seven | eight | nine | ten |"])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(tabled)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
@@ -640,7 +640,7 @@ enum BugCheck {
                 tabled.show(["id": "a\(n)", "type": "agentMessage", "text": "Answer \(n):\n\n" + head + body + "\n\nAfter."])
             }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(tabled)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(tabled)
             defer { window.close() }
             await settle(); window.contentView?.layoutSubtreeIfNeeded()
             func scrollViews(_ view: NSView) -> [NSScrollView] { ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews) }
@@ -702,7 +702,7 @@ enum BugCheck {
             for n in 1...60 { working.show(["id": "work-c\(n)", "type": "commandExecution", "command": "ls step-\(n)", "aggregatedOutput": "", "status": "completed"]) }
             working.show(["id": "work-a", "type": "agentMessage", "text": "Done."])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = CXView.host(working)
+            window.isReleasedWhenClosed = false; window.contentView = VCXView.host(working)
             defer { window.close() }
             await settle()
             if let content = window.contentView {
@@ -849,7 +849,7 @@ enum BugCheck {
                 session.ready = true; session.status = "Ready"
                 RuntimeUpdate.adopt(state, session: session)
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
+                window.isReleasedWhenClosed = false; window.contentView = VCXView.host(session)
                 await settle(); window.contentView?.layoutSubtreeIfNeeded()
                 // connect applies the snapshot in a task of its own and restores once it resumes.
                 await Task { session.applyRuntimeSnapshot(snapshot) }.value
@@ -906,7 +906,7 @@ enum BugCheck {
                 session.ready = true; session.status = "Ready"
                 RuntimeUpdate.adopt(state, session: session)
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1176 + taskBarWidth, height: 803), styleMask: .borderless, backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false; window.contentView = CXView.host(session)
+                window.isReleasedWhenClosed = false; window.contentView = VCXView.host(session)
                 await settle(); window.contentView?.layoutSubtreeIfNeeded()
                 await Task { session.applyRuntimeSnapshot(tailSnapshot) }.value
                 RuntimeUpdate.restore(state, window: window, session: session)
@@ -1127,7 +1127,7 @@ enum BugCheck {
             }
         }
         print("\(count - failures.count)/\(count) reported-bug checks passed")
-        if !failures.isEmpty { throw CXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
+        if !failures.isEmpty { throw VCXError(message: "Reported-bug checks failed: " + failures.joined(separator: "; ")) }
     }
 }
 

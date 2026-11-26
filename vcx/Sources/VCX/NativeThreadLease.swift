@@ -67,13 +67,13 @@ final class NativeThreadLease {
 
     init(_ source: NativeSource) throws {
         self.source = source
-        guard try canonicalArchiveRoot(URL(fileURLWithPath: source.home)).path == source.home else { throw CXError(message: "Could not resolve the native conversation home.") }
+        guard try canonicalArchiveRoot(URL(fileURLWithPath: source.home)).path == source.home else { throw VCXError(message: "Could not resolve the native conversation home.") }
         try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let fd = Darwin.open(Self.directory.appendingPathComponent(source.key + ".lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw CXError(message: "Could not open the native conversation lock.") }
+        guard fd >= 0 else { throw VCXError(message: "Could not open the native conversation lock.") }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             Darwin.close(fd)
-            throw CXError(message: "This native conversation is already open in another window. Use that window, or start a new conversation here.")
+            throw VCXError(message: "This native conversation is already open in another window. Use that window, or start a new conversation here.")
         }
         descriptor = fd
     }

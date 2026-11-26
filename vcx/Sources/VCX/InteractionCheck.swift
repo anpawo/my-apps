@@ -21,7 +21,7 @@ enum InteractionCheck {
         let session = fixture(folder)
         typingCPU = []
         let sending = SendAnimation()
-        let host = NSHostingView(rootView: CXView(session: session, sending: sending))
+        let host = NSHostingView(rootView: VCXView(session: session, sending: sending))
         host.sizingOptions = []; host.appearance = NSAppearance(named: .aqua)
         host.frame = CGRect(x: 0, y: 0, width: 1120, height: 800)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)

@@ -25,7 +25,7 @@ enum RuntimeIdentity {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var info = stat()
         guard lstat(directory.path, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o077 == 0 else {
-            throw CXError(message: "Runtime folder must be private and owned by your account.")
+            throw VCXError(message: "Runtime folder must be private and owned by your account.")
         }
     }
 }
@@ -68,7 +68,7 @@ final class RuntimeClient {
         initialCwd = cwd
         resumingRuntime = resumeRuntimeID != nil
         sessionID = resumeRuntimeID.flatMap { UUID(uuidString: $0)?.uuidString } ?? UUID().uuidString
-        self.socketPath = socketPath.map { StateHome.relocated($0) } ?? RuntimeIdentity.socket(session: sessionID)
+        self.socketPath = socketPath ?? RuntimeIdentity.socket(session: sessionID)
         recoveryEntry = recovery
         if let recovery {
             recoveryState = recovery.state; windowState = recovery.windowState
@@ -104,7 +104,7 @@ final class RuntimeClient {
     }
 
     func reclaim() async throws {
-        guard !closed else { throw CXError(message: "This frontend is closed.") }
+        guard !closed else { throw VCXError(message: "This frontend is closed.") }
         superseded = false
         channel?.close(); channel = nil
         // A rollback that met a worker moving builds left the window detached for good.
@@ -119,7 +119,7 @@ final class RuntimeClient {
     }
 
     private func attach(resume: String?, prompt: String, launch: Bool) async throws {
-        guard !closed, !superseded else { throw CXError(message: "This window no longer owns the session.") }
+        guard !closed, !superseded else { throw VCXError(message: "This window no longer owns the session.") }
         let connection = try await openChannel(launch: launch)
         channel = connection
         connection.onMessage = { [weak self, weak connection] in
@@ -136,13 +136,13 @@ final class RuntimeClient {
         do {
             let hello = try await request("hello", ["protocol": 1], timeout: 10)
             try owns(connection)
-            guard hello["protocol"] as? Int == 1 else { throw CXError(message: "The frontend and runtime use incompatible protocols.") }
+            guard hello["protocol"] as? Int == 1 else { throw VCXError(message: "The frontend and runtime use incompatible protocols.") }
             workerInstanceID = RuntimeRecovery.workerInstance(hello)
             var params: JSON = ["sessionId": sessionID, "cwd": initialCwd, "prompt": prompt]
             params["resume"] = resume
             params["existingOnly"] = resumingRuntime || swapping
             if let recoveryEntry, let previous = recoveryEntry.instanceID, workerInstanceID != previous {
-                guard await RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw CXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
+                guard await RuntimeRecovery.hasSavedRecord(recoveryEntry), let saved = recoveryEntry.resume else { throw VCXError(message: "The runtime stopped and its saved conversation is unavailable. Recovery data was retained.") }
                 params["resume"] = saved; params["prompt"] = ""; params["cwd"] = recoveryEntry.cwd
                 params["recovery"] = recoveryEntry.state; params["existingOnly"] = false
                 coldRecoveryInProgress = true
@@ -150,7 +150,7 @@ final class RuntimeClient {
             let result = try await request("attach", params)
             try owns(connection)
             guard let nextLease = result["lease"] as? String, let state = result["state"] as? JSON, let nextRevision = result["revision"] as? Int else {
-                throw CXError(message: "The runtime returned an invalid session snapshot.")
+                throw VCXError(message: "The runtime returned an invalid session snapshot.")
             }
             lease = nextLease
             sequence = result["lastSequence"] as? Int ?? 0
@@ -183,19 +183,19 @@ final class RuntimeClient {
     func dropConnectionForCheck() { channel?.close() }
 
     private func owns(_ connection: RuntimeChannel) throws {
-        guard channel === connection, !closed, !superseded, !holdReconnect else { throw CXError(message: "A newer connection replaced this attach.") }
+        guard channel === connection, !closed, !superseded, !holdReconnect else { throw VCXError(message: "A newer connection replaced this attach.") }
     }
 
     private func openChannel(launch: Bool) async throws -> RuntimeChannel {
         if let channel = try? RuntimeChannel.connect(path: socketPath) { return channel }
-        guard launch else { throw CXError(message: "The session runtime stopped. Saved history remains available; running work was interrupted.") }
+        guard launch else { throw VCXError(message: "The session runtime stopped. Saved history remains available; running work was interrupted.") }
         try RuntimeIdentity.prepareDirectory()
         let lock = Darwin.open(socketPath + ".launch.lock", O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
-        guard lock >= 0 else { throw CXError(message: "Cannot lock runtime startup.") }
+        guard lock >= 0 else { throw VCXError(message: "Cannot lock runtime startup.") }
         defer { flock(lock, LOCK_UN); Darwin.close(lock) }
         var info = stat()
         guard fstat(lock, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0 else {
-            throw CXError(message: "Runtime startup lock is not private.")
+            throw VCXError(message: "Runtime startup lock is not private.")
         }
         var process: Process?
         for attempt in 0..<100 {
@@ -215,15 +215,15 @@ final class RuntimeClient {
                 try worker.run()
                 process = worker
             }
-            if let process, !process.isRunning { throw CXError(message: "The runtime could not start.") }
+            if let process, !process.isRunning { throw VCXError(message: "The runtime could not start.") }
             try await Task.sleep(nanoseconds: attempt < 10 ? 50_000_000 : 100_000_000)
         }
-        throw CXError(message: "Timed out waiting for the runtime to start.")
+        throw VCXError(message: "Timed out waiting for the runtime to start.")
     }
 
     func perform(_ action: String, _ params: JSON = [:], retried: Bool = false) async throws -> JSON {
         if swapping, let reconnectTask { await reconnectTask.value }
-        guard attached, !closed, !superseded else { throw CXError(message: "The session runtime is disconnected.") }
+        guard attached, !closed, !superseded else { throw VCXError(message: "The session runtime is disconnected.") }
         if action == "close" { try RuntimeRecovery.requestClose(sessionID: sessionID) }
         sequence += 1
         do {
@@ -287,17 +287,17 @@ final class RuntimeClient {
             return (check.terminationStatus, data)
         }.value
         guard result.0 == 0, String(data: result.1, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "1" else {
-            throw CXError(message: "The new frontend cannot attach to the running runtime.")
+            throw VCXError(message: "The new frontend cannot attach to the running runtime.")
         }
     }
 
     private func request(_ method: String, _ params: JSON, timeout: Double = 120) async throws -> JSON {
-        guard let channel, !closed else { throw CXError(message: "The session runtime is disconnected.") }
-        guard pending.count < 256 else { throw CXError(message: "The runtime request queue is full.") }
+        guard let channel, !closed else { throw VCXError(message: "The session runtime is disconnected.") }
+        guard pending.count < 256 else { throw VCXError(message: "The runtime request queue is full.") }
         let id = UUID().uuidString
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
-            let timer = DispatchWorkItem { [weak self] in self?.finish(id, result: .failure(CXError(message: "The runtime request timed out; it may still have been accepted. Reconnect before retrying."))) }
+            let timer = DispatchWorkItem { [weak self] in self?.finish(id, result: .failure(VCXError(message: "The runtime request timed out; it may still have been accepted. Reconnect before retrying."))) }
             timeouts[id] = timer
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
             do { try channel.send(["id": id, "method": method, "params": params]) }
@@ -320,7 +320,7 @@ final class RuntimeClient {
             reconnectTask?.cancel()
             session?.ready = false
             session?.status = "Session moved to another window."
-            failPending(CXError(message: "This window no longer owns the session."))
+            failPending(VCXError(message: "This window no longer owns the session."))
             channel?.close(); channel = nil
             onLeaseLost()
         } else if method == "session/update", attaching {
@@ -370,7 +370,7 @@ final class RuntimeClient {
     private func disconnected() {
         channel = nil
         attached = false
-        failPending(CXError(message: "Connection lost. Accepted actions continue in the runtime and will not be replayed."))
+        failPending(VCXError(message: "Connection lost. Accepted actions continue in the runtime and will not be replayed."))
         guard !closed, !superseded, !holdReconnect, reconnectTask == nil else { return }
         if !swapping {
             session?.ready = false
@@ -399,6 +399,6 @@ final class RuntimeClient {
         channel?.close()
         channel = nil
         attached = false
-        failPending(CXError(message: "Frontend detached; agent work remains in the runtime."))
+        failPending(VCXError(message: "Frontend detached; agent work remains in the runtime."))
     }
 }

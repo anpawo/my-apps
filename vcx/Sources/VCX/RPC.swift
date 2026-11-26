@@ -12,7 +12,7 @@ func codexContextWindow(model: String, home: String, configured: Int? = nil) -> 
     return window * percent / 100
 }
 
-struct CXError: LocalizedError {
+struct VCXError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
@@ -44,7 +44,7 @@ extension Connection {
             if children.allSatisfy({ !$0.isRunning }) { return }
             try await Task.sleep(nanoseconds: pollDelay)
         }
-        throw CXError(message: "The agent is still stopping; its native history has been kept.")
+        throw VCXError(message: "The agent is still stopping; its native history has been kept.")
     }
     func request(_ method: String, _ params: JSON = [:]) async throws -> JSON { try await request(method, params, timeout: 120) }
     var fleetFile: String? { get { nil } set {} }
@@ -92,7 +92,7 @@ final class RPC: Connection {
             let status = try await request("account/read", ["refreshToken": false])
             guard (status["account"] as? JSON)?["type"] as? String == "chatgpt" else {
                 close()
-                throw CXError(message: "Sign in with a ChatGPT subscription in Settings. vcx does not use API-key billing.")
+                throw VCXError(message: "Sign in with a ChatGPT subscription in Settings. vcx does not use API-key billing.")
             }
             let roots = ClaudeCompatibility(cwd: cwd ?? FileManager.default.currentDirectoryPath).skillRoots
             if !roots.isEmpty { _ = try await request("skills/extraRoots/set", ["extraRoots": roots]) }
@@ -112,7 +112,7 @@ final class RPC: Connection {
     }
 
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
-        guard !closed, process?.isRunning == true else { throw CXError(message: "Codex is disconnected.") }
+        guard !closed, process?.isRunning == true else { throw VCXError(message: "Codex is disconnected.") }
         nextID += 1
         let id = nextID
         return try await withCheckedThrowingContinuation { continuation in
@@ -120,7 +120,7 @@ final class RPC: Connection {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self, let waiting = pending.removeValue(forKey: id) else { return }
                 timeouts.removeValue(forKey: id)
-                waiting.resume(throwing: CXError(message: "Codex timed out while handling \(method)."))
+                waiting.resume(throwing: VCXError(message: "Codex timed out while handling \(method)."))
             }
             timeouts[id] = timer
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
@@ -135,7 +135,7 @@ final class RPC: Connection {
     }
 
     private func send(_ message: JSON) throws {
-        guard let input, !closed else { throw CXError(message: "Codex is disconnected.") }
+        guard let input, !closed else { throw VCXError(message: "Codex is disconnected.") }
         var data = try JSONSerialization.data(withJSONObject: message, options: [.fragmentsAllowed])
         data.append(10)
         try input.write(contentsOf: data)
@@ -145,7 +145,7 @@ final class RPC: Connection {
         if message["method"] != nil { event(message); return }
         guard let id = message["id"] as? Int else { return }
         if let error = message["error"] as? JSON {
-            finish(id, .failure(CXError(message: error["message"] as? String ?? "Codex request failed.")))
+            finish(id, .failure(VCXError(message: error["message"] as? String ?? "Codex request failed.")))
         } else { finish(id, .success(message["result"] as? JSON ?? [:])) }
     }
 
@@ -172,7 +172,7 @@ final class RPC: Connection {
         try? input?.close()
         input = nil
         if let process { endProcess(process) }
-        for id in Array(pending.keys) { finish(id, .failure(CXError(message: "Codex is disconnected."))) }
+        for id in Array(pending.keys) { finish(id, .failure(VCXError(message: "Codex is disconnected."))) }
         process = nil
     }
 }

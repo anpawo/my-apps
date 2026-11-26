@@ -189,20 +189,6 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(main.read_bytes(), original)
         self.assertTrue(extra.exists())
 
-    def test_roots_sealed_under_the_legacy_state_folder_load_under_the_new_one(self):
-        legacy, current = self.root / "cx", self.root / "vcx"
-        self.state = legacy
-        self.snapshot = self.state / "native/project" / (self.key + ".json")
-        self.fixture()
-        self.call("archive")
-        legacy.rename(current)
-        self.state = current
-
-        with patch.object(archive, "LEGACY_STATE", legacy), patch.object(archive, "CURRENT_STATE", current):
-            roots = self.call("read")["record"]["archiveRoots"]
-
-        self.assertEqual(roots["state"], str(current))
-
     def test_cleanup_retry_after_snapshot_unlink_uses_stored_manifest(self):
         main = self.fixture()
         real_sync = archive.sync_directory

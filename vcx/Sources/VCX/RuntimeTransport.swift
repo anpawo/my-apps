@@ -4,7 +4,7 @@ import Foundation
 private func runtimeAddress(_ path: String) throws -> sockaddr_un {
     var address = sockaddr_un()
     let bytes = Array(path.utf8) + [0]
-    guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw CXError(message: "Runtime socket path is too long.") }
+    guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw VCXError(message: "Runtime socket path is too long.") }
     address.sun_family = sa_family_t(AF_UNIX)
     address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
     withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
@@ -12,9 +12,9 @@ private func runtimeAddress(_ path: String) throws -> sockaddr_un {
 }
 
 private func runtimeDescriptor(_ fd: Int32) throws {
-    guard fd >= 0, fcntl(fd, F_SETFD, FD_CLOEXEC) == 0, fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else { throw CXError(message: "Cannot configure runtime socket.") }
+    guard fd >= 0, fcntl(fd, F_SETFD, FD_CLOEXEC) == 0, fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else { throw VCXError(message: "Cannot configure runtime socket.") }
     var enabled: Int32 = 1
-    guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout.size(ofValue: enabled))) == 0 else { throw CXError(message: "Cannot configure runtime socket.") }
+    guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout.size(ofValue: enabled))) == 0 else { throw VCXError(message: "Cannot configure runtime socket.") }
 }
 
 private func runtimePeer(_ fd: Int32) -> Bool {
@@ -52,24 +52,24 @@ final class RuntimeChannel: @unchecked Sendable {
     static func connect(path: String) throws -> RuntimeChannel {
         var info = stat()
         let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
-        guard lstat(parent, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { throw CXError(message: "Runtime directory must be private and owned by this user.") }
-        guard lstat(path, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFSOCK, info.st_mode & 0o077 == 0 else { throw CXError(message: "Runtime socket is unavailable or has unsafe ownership.") }
+        guard lstat(parent, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { throw VCXError(message: "Runtime directory must be private and owned by this user.") }
+        guard lstat(path, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFSOCK, info.st_mode & 0o077 == 0 else { throw VCXError(message: "Runtime socket is unavailable or has unsafe ownership.") }
         var address = try runtimeAddress(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw CXError(message: "Cannot create runtime socket.") }
+        guard fd >= 0 else { throw VCXError(message: "Cannot create runtime socket.") }
         do {
             try runtimeDescriptor(fd)
             let result = withUnsafePointer(to: &address) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
             }
             if result != 0 {
-                guard errno == EINPROGRESS || errno == EAGAIN else { throw CXError(message: "Cannot connect to runtime.") }
+                guard errno == EINPROGRESS || errno == EAGAIN else { throw VCXError(message: "Cannot connect to runtime.") }
                 var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                guard poll(&descriptor, 1, 2_000) > 0 else { throw CXError(message: "Runtime connection timed out.") }
+                guard poll(&descriptor, 1, 2_000) > 0 else { throw VCXError(message: "Runtime connection timed out.") }
                 var error: Int32 = 0, size = socklen_t(MemoryLayout<Int32>.size)
-                guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) == 0, error == 0 else { throw CXError(message: "Cannot connect to runtime.") }
+                guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) == 0, error == 0 else { throw VCXError(message: "Cannot connect to runtime.") }
             }
-            guard runtimePeer(fd) else { throw CXError(message: "Runtime peer belongs to another user.") }
+            guard runtimePeer(fd) else { throw VCXError(message: "Runtime peer belongs to another user.") }
             return RuntimeChannel(fd: fd)
         } catch { Darwin.close(fd); throw error }
     }
@@ -88,11 +88,11 @@ final class RuntimeChannel: @unchecked Sendable {
 
     func send(_ message: JSON) throws {
         var data = try JSONSerialization.data(withJSONObject: message, options: [.sortedKeys])
-        guard data.count <= Self.maximumFrame else { throw CXError(message: "Runtime frame exceeds the size limit.") }
+        guard data.count <= Self.maximumFrame else { throw VCXError(message: "Runtime frame exceeds the size limit.") }
         data.append(10)
         try synchronized {
-            guard !closed else { throw CXError(message: "Runtime is disconnected.") }
-            guard outputBytes + data.count <= Self.maximumBuffered, output.count - outputIndex < Self.maximumQueuedFrames else { finish(); throw CXError(message: "Runtime client cannot keep up with output.") }
+            guard !closed else { throw VCXError(message: "Runtime is disconnected.") }
+            guard outputBytes + data.count <= Self.maximumBuffered, output.count - outputIndex < Self.maximumQueuedFrames else { finish(); throw VCXError(message: "Runtime client cannot keep up with output.") }
             output.append(data); outputBytes += data.count
             write()
         }
@@ -208,28 +208,28 @@ final class RuntimeListener: @unchecked Sendable {
         let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
         if !FileManager.default.fileExists(atPath: parent) { try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         var info = stat()
-        guard lstat(parent, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { throw CXError(message: "Runtime directory must be private and owned by this user.") }
+        guard lstat(parent, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { throw VCXError(message: "Runtime directory must be private and owned by this user.") }
         var address = try runtimeAddress(path)
         let descriptor = Darwin.open(path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else { throw CXError(message: "Cannot open runtime ownership lock.") }
+        guard descriptor >= 0 else { throw VCXError(message: "Cannot open runtime ownership lock.") }
         guard fstat(descriptor, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0,
-              flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { Darwin.close(descriptor); throw CXError(message: "Runtime endpoint is already owned or has unsafe permissions.") }
+              flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { Darwin.close(descriptor); throw VCXError(message: "Runtime endpoint is already owned or has unsafe permissions.") }
         lock = descriptor
         do {
             if lstat(path, &info) == 0 {
-                guard info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFSOCK else { throw CXError(message: "Refusing to replace an unrelated runtime endpoint.") }
-                guard unlink(path) == 0 else { throw CXError(message: "Cannot remove stale runtime socket.") }
-            } else if errno != ENOENT { throw CXError(message: "Cannot inspect runtime socket.") }
+                guard info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFSOCK else { throw VCXError(message: "Refusing to replace an unrelated runtime endpoint.") }
+                guard unlink(path) == 0 else { throw VCXError(message: "Cannot remove stale runtime socket.") }
+            } else if errno != ENOENT { throw VCXError(message: "Cannot inspect runtime socket.") }
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { throw CXError(message: "Cannot create runtime listener.") }
+            guard fd >= 0 else { throw VCXError(message: "Cannot create runtime listener.") }
             do {
                 try runtimeDescriptor(fd)
                 let result = withUnsafePointer(to: &address) { pointer in
                     pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
                 }
-                guard result == 0 else { throw CXError(message: "Cannot bind runtime listener.") }
+                guard result == 0 else { throw VCXError(message: "Cannot bind runtime listener.") }
                 ownsEndpoint = true
-                guard chmod(path, 0o600) == 0, listen(fd, 64) == 0 else { throw CXError(message: "Cannot secure runtime listener.") }
+                guard chmod(path, 0o600) == 0, listen(fd, 64) == 0 else { throw VCXError(message: "Cannot secure runtime listener.") }
                 watch(fd)
             } catch { Darwin.close(fd); throw error }
         } catch { close(); throw error }
@@ -238,7 +238,7 @@ final class RuntimeListener: @unchecked Sendable {
     // A live update re-execs with the bound socket and the held lock inherited, so connects wait in the backlog.
     func adopt(listener fd: Int32, lock: Int32) throws {
         try runtimeDescriptor(fd)
-        guard fcntl(lock, F_SETFD, FD_CLOEXEC) == 0 else { throw CXError(message: "Cannot adopt runtime ownership lock.") }
+        guard fcntl(lock, F_SETFD, FD_CLOEXEC) == 0 else { throw VCXError(message: "Cannot adopt runtime ownership lock.") }
         self.lock = lock; ownsEndpoint = true
         watch(fd)
     }

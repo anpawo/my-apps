@@ -22,7 +22,7 @@ func readClaudeUsage(_ account: Account) async throws -> JSON {
     let data = stored.isEmpty ? (try? Data(contentsOf: URL(fileURLWithPath: directory + "/.credentials.json"))) ?? Data() : stored
     guard let credentials = try? JSONSerialization.jsonObject(with: data) as? JSON,
           let token = (credentials["claudeAiOauth"] as? JSON)?["accessToken"] as? String, !token.isEmpty else {
-        throw CXError(message: "Usage unavailable: sign in to this Claude profile.")
+        throw VCXError(message: "Usage unavailable: sign in to this Claude profile.")
     }
     var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
     request.timeoutInterval = 15
@@ -31,9 +31,9 @@ func readClaudeUsage(_ account: Account) async throws -> JSON {
     request.setValue("VibeCodeX/0.2.0", forHTTPHeaderField: "User-Agent")
     let (body, response) = try await URLSession.shared.data(for: request)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
-        throw CXError(message: "Usage unavailable: Claude returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0).")
+        throw VCXError(message: "Usage unavailable: Claude returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0).")
     }
-    guard let result = try JSONSerialization.jsonObject(with: body) as? JSON else { throw CXError(message: "Usage unavailable: invalid Claude response.") }
+    guard let result = try JSONSerialization.jsonObject(with: body) as? JSON else { throw VCXError(message: "Usage unavailable: invalid Claude response.") }
     return result
 }
 
@@ -42,7 +42,7 @@ func claudeRateLimits(_ usage: JSON) throws -> JSON {
     for (source, target, minutes) in [("five_hour", "primary", 300), ("seven_day", "secondary", 10080)] {
         guard let value = usage[source] else { continue }
         let window = value as? JSON
-        guard value is NSNull || window?["utilization"] is Double else { throw CXError(message: "Usage unavailable: invalid Claude window.") }
+        guard value is NSNull || window?["utilization"] is Double else { throw VCXError(message: "Usage unavailable: invalid Claude window.") }
         var rate: JSON = ["usedPercent": window?["utilization"] as? Double ?? 0, "windowDurationMins": minutes]
         if let reset = window?["resets_at"] as? String {
             let formatter = ISO8601DateFormatter()
@@ -51,7 +51,7 @@ func claudeRateLimits(_ usage: JSON) throws -> JSON {
         }
         limits[target] = rate
     }
-    guard !limits.isEmpty else { throw CXError(message: "Usage unavailable: Claude returned no usage windows.") }
+    guard !limits.isEmpty else { throw VCXError(message: "Usage unavailable: Claude returned no usage windows.") }
     return limits
 }
 
@@ -164,7 +164,7 @@ final class ClaudeConnection: Connection {
         timeout.cancel()
         guard let status = try? JSONSerialization.jsonObject(with: data) as? JSON,
               status["loggedIn"] as? Bool == true, status["authMethod"] as? String == "claude.ai" else {
-            throw CXError(message: "Sign in with a Claude subscription in Settings. vcx does not use API-key billing.")
+            throw VCXError(message: "Sign in with a Claude subscription in Settings. vcx does not use API-key billing.")
         }
     }
     private func launch(resume: Bool) throws {
@@ -225,7 +225,7 @@ final class ClaudeConnection: Connection {
         case "thread/resume":
             if let instructions = params["developerInstructions"] as? String { developerInstructions = instructions }
             if let approval = params["approvalPolicy"] as? String { mode = approval == "never" ? "bypass" : "ask" }
-            guard let id = params["threadId"] as? String else { throw CXError(message: "Missing Claude conversation ID.") }
+            guard let id = params["threadId"] as? String else { throw VCXError(message: "Missing Claude conversation ID.") }
             if let value = params["model"] as? String {
                 if process != nil {
                     if let effort = params["effort"] {
@@ -261,7 +261,7 @@ final class ClaudeConnection: Connection {
             if !steering, let effort = params["effort"] as? String {
                 _ = try await controlResult(["subtype": "apply_flag_settings", "settings": ["effortLevel": effort]], timeout: 15)
             }
-            if steering, params["expectedTurnId"] as? String != turn { throw CXError(message: "The Claude turn has changed. Your draft has been kept.") }
+            if steering, params["expectedTurnId"] as? String != turn { throw VCXError(message: "The Claude turn has changed. Your draft has been kept.") }
             if !steering {
                 turn = UUID().uuidString; stopped = false; lastAnswer = ""; limit = nil; rateLimited = false
                 tools.removeAll(); blocks.removeAll(); pendingUsers.removeAll(); steered.removeAll()
@@ -291,13 +291,13 @@ final class ClaudeConnection: Connection {
             mode = value; return result
         // Claude drops a prompt only while it waits in its queue; once the turn has taken it in, it answers cancelled: false.
         case "vcx/unsend":
-            guard let id = params["id"] as? String else { throw CXError(message: "Missing message ID.") }
+            guard let id = params["id"] as? String else { throw VCXError(message: "Missing message ID.") }
             let result = try await controlResult(["subtype": "cancel_async_message", "message_uuid": id], timeout: 5)
             if result["cancelled"] as? Bool == true { pendingUsers.removeAll { $0 == id } }
             return result
-        case "thread/compact/start": throw CXError(message: "Claude manages context compaction automatically.")
-        case "review/start": throw CXError(message: "Ask Claude to review your changes in a message.")
-        default: throw CXError(message: "Unsupported Claude action: \(method)")
+        case "thread/compact/start": throw VCXError(message: "Claude manages context compaction automatically.")
+        case "review/start": throw VCXError(message: "Ask Claude to review your changes in a message.")
+        default: throw VCXError(message: "Unsupported Claude action: \(method)")
         }
     }
     private func claudeContent(_ pieces: [JSON]) throws -> [JSON] {
@@ -395,7 +395,7 @@ final class ClaudeConnection: Connection {
             let response = message["response"] as? JSON ?? [:]
             if let id = response["request_id"] as? String {
                 timers.removeValue(forKey: id)?.cancel()
-                if response["subtype"] as? String == "error" { waiting.removeValue(forKey: id)?.resume(throwing: CXError(message: response["error"] as? String ?? "Claude rejected the control request.")) }
+                if response["subtype"] as? String == "error" { waiting.removeValue(forKey: id)?.resume(throwing: VCXError(message: response["error"] as? String ?? "Claude rejected the control request.")) }
                 else { waiting.removeValue(forKey: id)?.resume(returning: response["response"] as? JSON ?? [:]) }
             }
         case "system":
@@ -542,7 +542,7 @@ final class ClaudeConnection: Connection {
     }
     func respond(_ id: Any, _ result: JSON) throws {
         let key = String(describing: id)
-        guard let request = controls[key] else { throw CXError(message: "This Claude request has expired.") }
+        guard let request = controls[key] else { throw VCXError(message: "This Claude request has expired.") }
         var updated = request["input"] as? JSON ?? [:]
         var response: JSON
         if let answers = result["answers"] as? [String: JSON], !answers.isEmpty {
@@ -579,7 +579,7 @@ final class ClaudeConnection: Connection {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 timers.removeValue(forKey: id)
-                waiting.removeValue(forKey: id)?.resume(throwing: CXError(message: "Claude metadata request timed out."))
+                waiting.removeValue(forKey: id)?.resume(throwing: VCXError(message: "Claude metadata request timed out."))
             }
             timers[id] = timer; DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timer)
             do { try write(["type": "control_request", "request_id": id, "request": request]) }
@@ -588,13 +588,13 @@ final class ClaudeConnection: Connection {
     }
     private func control(_ request: JSON) throws { try write(["type": "control_request", "request_id": UUID().uuidString, "request": request]) }
     private func write(_ message: JSON) throws {
-        guard let input, process?.isRunning == true else { throw CXError(message: "Claude is disconnected.") }
+        guard let input, process?.isRunning == true else { throw VCXError(message: "Claude is disconnected.") }
         try input.write(contentsOf: JSONSerialization.data(withJSONObject: message) + Data([10]))
     }
     func close() {
         firstEvent?.cancel(); firstEvent = nil
         for timer in timers.values { timer.cancel() }; timers.removeAll()
-        for continuation in waiting.values { continuation.resume(throwing: CXError(message: "Claude is disconnected.")) }; waiting.removeAll()
+        for continuation in waiting.values { continuation.resume(throwing: VCXError(message: "Claude is disconnected.")) }; waiting.removeAll()
         closed = true; reader?.close(); reader = nil; try? input?.close(); input = nil; if let process { endProcess(process) }; process = nil }
 }
 
@@ -617,7 +617,7 @@ extension ClaudeConnection: AdoptableConnection {
 
     convenience init(adopting state: JSON) throws {
         guard let encoded = (state["account"] as? JSON).flatMap({ try? JSONSerialization.data(withJSONObject: $0) }), let account = try? JSONDecoder().decode(Account.self, from: encoded),
-              let cwd = state["cwd"] as? String, let initial = state["initialDirectory"] as? String, let thread = state["thread"] as? String else { throw CXError(message: "Invalid adopted Claude connection.") }
+              let cwd = state["cwd"] as? String, let initial = state["initialDirectory"] as? String, let thread = state["thread"] as? String else { throw VCXError(message: "Invalid adopted Claude connection.") }
         self.init(account: account, cwd: initial)
         self.cwd = cwd; self.thread = thread
         archiveClientVersion = state["archiveClientVersion"] as? String
@@ -720,7 +720,7 @@ final class QwenConnection: Connection {
         process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         try process.run()
         let status = await Task.detached { process.waitUntilExit(); return process.terminationStatus }.value
-        guard status == 0 else { throw CXError(message: "Qwen is unavailable. Check the remote machine and the Windows wake setting.") }
+        guard status == 0 else { throw VCXError(message: "Qwen is unavailable. Check the remote machine and the Windows wake setting.") }
     }
     func request(_ method: String, _ params: JSON = [:], timeout: Double = 120) async throws -> JSON {
         switch method {
@@ -735,13 +735,13 @@ final class QwenConnection: Connection {
         case "model/list": return ["data": [["id": preferences.qwenModel]]]
         case "turn/start":
             if let path = params["cwd"] as? String, let directory = workingDirectory(path, within: initialDirectory) { cwd = directory }
-            guard let url = URL(string: preferences.qwenURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { throw CXError(message: "Set a valid Ollama URL in Settings.") }
+            guard let url = URL(string: preferences.qwenURL), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { throw VCXError(message: "Set a valid Ollama URL in Settings.") }
             let pieces = params["input"] as? [JSON] ?? []
             let text = pieces.compactMap { $0["text"] as? String }.joined(separator: "\n")
             let images = try pieces.compactMap { piece -> String? in
                 guard let path = piece["path"] as? String else { return nil }
                 let data = try Data(contentsOf: URL(fileURLWithPath: path))
-                guard data.count <= 20 * 1024 * 1024 else { throw CXError(message: "Image is larger than 20 MB.") }
+                guard data.count <= 20 * 1024 * 1024 else { throw VCXError(message: "Image is larger than 20 MB.") }
                 return data.base64EncodedString()
             }
             var message: JSON = ["role": "user", "content": text]
@@ -810,12 +810,12 @@ final class QwenConnection: Connection {
                 task = nil
             }
             return ["turn": ["id": current]]
-        case "turn/steer": throw CXError(message: "Stop Qwen before sending another message. Your draft has been kept.")
+        case "turn/steer": throw VCXError(message: "Stop Qwen before sending another message. Your draft has been kept.")
         case "turn/interrupt":
             task?.cancel(); if let commandProcess { endProcess(commandProcess, signal: SIGKILL) }
             for continuation in permissions.values { continuation.resume(returning: false) }
             permissions.removeAll(); return [:]
-        default: throw CXError(message: "Qwen does not support this action. Send your request as a message.")
+        default: throw VCXError(message: "Qwen does not support this action. Send your request as a message.")
         }
     }
     private func emit(_ method: String, _ params: JSON) { var p = params; p["threadId"] = thread; event(["method": method, "params": p]) }
@@ -857,9 +857,9 @@ final class QwenConnection: Connection {
             let request = try chatRequest(url, ["model": model, "messages": messages + [["role": "user", "content": prompt]], "stream": false])
             let (data, response) = try await connection().data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200, let body = try JSONSerialization.jsonObject(with: data) as? JSON,
-                  let text = (body["message"] as? JSON)?["content"] as? String else { throw CXError(message: "Qwen returned no summary.") }
+                  let text = (body["message"] as? JSON)?["content"] as? String else { throw VCXError(message: "Qwen returned no summary.") }
             let summary = (text.components(separatedBy: "</think>").last ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !summary.isEmpty, let original = taskRequest else { throw CXError(message: "Qwen returned an empty summary.") }
+            guard !summary.isEmpty, let original = taskRequest else { throw VCXError(message: "Qwen returned an empty summary.") }
             messages = qwenCompacted(messages, request: original, summary: summary)
             contextTokens = 0
         } catch {
@@ -870,13 +870,13 @@ final class QwenConnection: Connection {
         let tool: JSON = ["type": "function", "function": ["name": "run_command", "description": "Run a shell command in the project folder using the configured permission mode. Use for inspecting or changing code. A command runs until it exits and gets no input: never start one that waits for input or runs forever (servers, watchers). Long outputs are cut to their head and tail.", "parameters": ["type": "object", "properties": ["command": ["type": "string"]], "required": ["command"]]]]
         let request = try chatRequest(url, ["model": model, "stream": true, "tools": [tool]])
         let (bytes, response) = try await connection().bytes(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VCXError(message: "Qwen server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0). Check Settings and the remote machine.") }
         var answer = "", calls: [JSON] = [], finished = false
         let id = item + "-" + UUID().uuidString
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard let event = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? JSON else { continue }
-            if let error = event["error"] as? String { throw CXError(message: error) }
+            if let error = event["error"] as? String { throw VCXError(message: error) }
             let message = event["message"] as? JSON ?? [:]
             let delta = message["content"] as? String ?? ""
             answer += delta
@@ -891,8 +891,8 @@ final class QwenConnection: Connection {
         }
         if !answer.isEmpty { emit("item/completed", ["item": ["id": id, "type": "agentMessage", "text": answer, "provider": "Qwen"]]) }
         // Ollama ends every answer with a done event; a stream closed before it was cut (runner reload, dropped proxy), not finished.
-        if !finished { throw CXError(message: "Qwen's answer was cut off: the server closed the stream before its final event. Send your message again.") }
-        if answer.isEmpty && calls.isEmpty { throw CXError(message: "Qwen returned an empty answer. Send your message again.") }
+        if !finished { throw VCXError(message: "Qwen's answer was cut off: the server closed the stream before its final event. Send your message again.") }
+        if answer.isEmpty && calls.isEmpty { throw VCXError(message: "Qwen returned an empty answer. Send your message again.") }
         return (answer, calls)
     }
 
@@ -1013,7 +1013,7 @@ func validQwenProxy(_ text: String) -> Bool {
 }
 
 func qwenNetwork(_ preferences: Preferences) throws -> URLSession {
-    guard preferences.qwenProxy.isEmpty || validQwenProxy(preferences.qwenProxy) else { throw CXError(message: "Invalid Qwen proxy. Set /qwen proxy socks5://host:port or /qwen proxy none. No request was sent.") }
+    guard preferences.qwenProxy.isEmpty || validQwenProxy(preferences.qwenProxy) else { throw VCXError(message: "Invalid Qwen proxy. Set /qwen proxy socks5://host:port or /qwen proxy none. No request was sent.") }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     if !preferences.qwenProxy.isEmpty, let proxy = URL(string: preferences.qwenProxy), let host = proxy.host, let port = proxy.port {

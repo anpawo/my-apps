@@ -80,7 +80,7 @@ final class RuntimeServer {
     }
 
     func start() throws {
-        guard listener == nil, !stopped else { throw CXError(message: "Runtime server is already started or stopped.") }
+        guard listener == nil, !stopped else { throw VCXError(message: "Runtime server is already started or stopped.") }
         let listener = RuntimeListener(path: socketPath) { [weak self] channel in self?.accept(channel) }
         try listener.start()
         self.listener = listener
@@ -349,7 +349,7 @@ final class RuntimeServer {
     }
 
     func adopt(listener descriptor: Int32, lock: Int32, closedIDs: [String], sessions: [(id: String, revision: Int, lastSequence: Int, backend: any RuntimeBackend)]) throws {
-        guard self.listener == nil, !stopped else { throw CXError(message: "Runtime server is already started or stopped.") }
+        guard self.listener == nil, !stopped else { throw VCXError(message: "Runtime server is already started or stopped.") }
         let listener = RuntimeListener(path: socketPath) { [weak self] channel in self?.accept(channel) }
         try listener.adopt(listener: descriptor, lock: lock)
         self.listener = listener

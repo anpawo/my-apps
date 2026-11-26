@@ -53,9 +53,9 @@ final class Settings: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let fd = Darwin.open(Self.directory.appendingPathComponent("settings.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-            guard fd >= 0 else { throw CXError(message: "Could not lock shared settings.") }
+            guard fd >= 0 else { throw VCXError(message: "Could not lock shared settings.") }
             defer { flock(fd, LOCK_UN); Darwin.close(fd) }
-            guard flock(fd, LOCK_EX) == 0 else { throw CXError(message: "Could not lock shared settings.") }
+            guard flock(fd, LOCK_EX) == 0 else { throw VCXError(message: "Could not lock shared settings.") }
             var latest = Self.read(url)
             if value.provider != saved.provider { latest.provider = value.provider }
             if value.mode != saved.mode { latest.mode = value.mode }
@@ -90,10 +90,10 @@ final class Settings: ObservableObject {
     func addProfile(provider: String, path: String) throws {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardized
         var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Profile directory does not exist.") }
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw VCXError(message: "Profile directory does not exist.") }
         guard !value.accounts.contains(where: { $0.home == url.path && $0.provider == provider }) else { return }
         value.accounts.append(Account(name: url.lastPathComponent, provider: provider, home: url.path)); save()
-        if !error.isEmpty { throw CXError(message: error) }
+        if !error.isEmpty { throw VCXError(message: error) }
     }
     func signIn(provider: String) {
         guard !signingIn else { return }

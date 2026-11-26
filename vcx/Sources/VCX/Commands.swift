@@ -397,7 +397,7 @@ extension Session {
             case "/provider", "/model", "/codex", "/fable", "/opus":
                 let shortcut = modelShortcuts[verb]
                 if argument.isEmpty, shortcut == nil { showCommands("/model ", preserveDraft: false); return }
-                guard !changing else { throw CXError(message: "A connection change is already in progress.") }
+                guard !changing else { throw VCXError(message: "A connection change is already in progress.") }
                 var args = ((shortcut.map { [$0] } ?? []) + [argument]).joined(separator: " ").split(separator: " ").map(String.init)
                 if busy {
                     // The current provider's model and effort menus open during a turn; only the final choice waits for it to end.
@@ -417,7 +417,7 @@ extension Session {
                     let candidates = provider == "auto" ? available : settings.candidates(provider).filter { $0.provider == provider }
                     guard let next = candidates.first(where: { provider != "auto" && $0.id == accountChoice }) ?? candidates.first else {
                         providerChoice = previousProvider
-                        throw CXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
+                        throw VCXError(message: "No enabled account is available for " + provider + ". Enable one with /account or add one with /login.")
                     }
                     if next.id != account.id || !ready {
                         do { try await activate(next, resume: nil, keepRows: true, reason: "provider changed") }
@@ -427,24 +427,24 @@ extension Session {
                     if provider != "auto", (settings.value.limits[next.id] ?? 0) > Date().timeIntervalSince1970 { settings.updateLimit(account: next.id, reset: 0) }
                     // /codex takes the newest model Codex lists, known only once Codex is connected.
                     if verb == "/codex" {
-                        guard let newest = latestModels.first else { throw CXError(message: "Codex listed no model.") }
+                        guard let newest = latestModels.first else { throw VCXError(message: "Codex listed no model.") }
                         args.insert(newest, at: 1)
                     }
                     if args.count == 1 { showCommands("/model " + provider + " ", preserveDraft: false); return }
-                    guard args.count <= 3, models.contains(args[1]) else { throw CXError(message: "Choose a model from the menu.") }
+                    guard args.count <= 3, models.contains(args[1]) else { throw VCXError(message: "Choose a model from the menu.") }
                     let efforts = modelEfforts[args[1]] ?? []
                     if args.count == 2, !efforts.isEmpty, shortcut == nil { showCommands("/model " + provider + " " + args[1] + " ", preserveDraft: false); return }
-                    guard args.count == 2 || efforts.contains(args[2]) else { throw CXError(message: "Choose an effort from the menu.") }
+                    guard args.count == 2 || efforts.contains(args[2]) else { throw VCXError(message: "Choose an effort from the menu.") }
                     // A shortcut keeps the effort chosen earlier when the new model has it, else the model's default.
                     await changeModel(args[1], effort: args.count == 3 ? args[2] : shortcut != nil && effort.map(efforts.contains) == true ? effort : nil)
                 } else {
-                    guard ready else { throw CXError(message: "Reconnect before changing models.") }
+                    guard ready else { throw VCXError(message: "Reconnect before changing models.") }
                     await changeModel(argument)
                 }
                 if draftGeneration == commandGeneration, draft.isEqual(to: commandDraft), draft.commandText.hasPrefix("/") { draft = NSAttributedString(string: ""); draftRevision += 1 }
             case "/perms":
                 guard !argument.isEmpty else { showCommands("/perms ", preserveDraft: false); return }
-                guard ["bypass", "yolo", "ask"].contains(argument) else { throw CXError(message: "Use /perms bypass or /perms ask.") }
+                guard ["bypass", "yolo", "ask"].contains(argument) else { throw VCXError(message: "Use /perms bypass or /perms ask.") }
                 try idle(); modeChoice = argument == "yolo" ? "bypass" : argument; await switchMode()
             case "/account":
                 guard !argument.isEmpty else { showCommands("/account ", preserveDraft: false); return }
@@ -452,9 +452,9 @@ extension Session {
                 let args = argument.split(separator: " ", maxSplits: 2).map(String.init)
                 let operation = ["enable", "disable", "rename"].contains(args[0]) ? args[0] : "use"
                 let id = operation == "use" ? argument : args.count > 1 ? args[1] : ""
-                guard let index = settings.value.accounts.firstIndex(where: { $0.id == id || $0.name.caseInsensitiveCompare(id) == .orderedSame }) else { throw CXError(message: "Choose an account from /account.") }
+                guard let index = settings.value.accounts.firstIndex(where: { $0.id == id || $0.name.caseInsensitiveCompare(id) == .orderedSame }) else { throw VCXError(message: "Choose an account from /account.") }
                 if operation == "rename" {
-                    guard args.count == 3, !args[2].isEmpty else { throw CXError(message: "Use /account rename <id> <name>.") }
+                    guard args.count == 3, !args[2].isEmpty else { throw VCXError(message: "Use /account rename <id> <name>.") }
                     settings.value.accounts[index].name = args[2]
                 } else if operation == "use" {
                     providerChoice = settings.value.accounts[index].provider; accountChoice = settings.value.accounts[index].id
@@ -465,21 +465,21 @@ extension Session {
                 if argument.isEmpty { notice(cwd + "\nUse /dir <folder> to change directory.") }
                 else { try await changeDirectory(unquoted(argument)) }
             case "/fork":
-                try idle(); guard ready, account.provider == "codex" else { throw CXError(message: "Fork is available for Codex conversations.") }
+                try idle(); guard ready, account.provider == "codex" else { throw VCXError(message: "Fork is available for Codex conversations.") }
                 let sourcePlanning = planning, sourceName = conversationName
                 let result = try await rpc.request("thread/fork", ["threadId": threadID ?? "", "excludeTurns": true])
-                guard let id = (result["thread"] as? JSON)?["id"] as? String else { throw CXError(message: "Codex did not return a forked conversation.") }
+                guard let id = (result["thread"] as? JSON)?["id"] as? String else { throw VCXError(message: "Codex did not return a forked conversation.") }
                 if await switchThread(id, fromCommand: true) { planning = sourcePlanning; conversationName = sourceName; save() }
                 return
             case "/rename":
-                try idle(); guard ready, !argument.isEmpty else { throw CXError(message: "Use /rename <name> in a connected conversation.") }
+                try idle(); guard ready, !argument.isEmpty else { throw VCXError(message: "Use /rename <name> in a connected conversation.") }
                 if account.provider == "codex" { _ = try await rpc.request("thread/name/set", ["threadId": threadID ?? "", "name": argument]) }
                 conversationName = argument
                 save(); await refreshCatalog()
             case "/plan":
-                try idle(); guard ready else { throw CXError(message: "Reconnect first.") }
+                try idle(); guard ready else { throw VCXError(message: "Reconnect first.") }
                 if account.provider == "claude" { await send(text: "/plan" + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true); return }
-                guard account.provider == "codex" else { throw CXError(message: providerLabel + " has no native plan mode in VCX.") }
+                guard account.provider == "codex" else { throw VCXError(message: providerLabel + " has no native plan mode in VCX.") }
                 planning = !["off", "execute", "default"].contains(argument)
                 if !argument.isEmpty, !["on", "off", "execute", "default"].contains(argument) {
                     await send(text: argument, images: [], commandHandled: true); return
@@ -487,12 +487,12 @@ extension Session {
                 notice(planning ? "Plan mode enabled. Use /plan off to implement." : "Implementation mode enabled.")
             case "/effort":
                 try idle()
-                guard (modelEfforts[model] ?? []).contains(argument) else { throw CXError(message: "Choose an effort supported by the active model: " + (modelEfforts[model] ?? []).joined(separator: ", ")) }
+                guard (modelEfforts[model] ?? []).contains(argument) else { throw VCXError(message: "Choose an effort supported by the active model: " + (modelEfforts[model] ?? []).joined(separator: ", ")) }
                 await changeModel(model, effort: argument)
             case "/window":
                 let path = argument.isEmpty ? cwd : resolvedPath(argument)
                 var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else { throw CXError(message: "Directory does not exist.") }
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else { throw VCXError(message: "Directory does not exist.") }
                 (NSApp.delegate as? AppDelegate)?.openWindow(cwd: path)
             case "/new", "/clear", "/resume":
                 try idle()
@@ -512,26 +512,26 @@ extension Session {
             case "/login":
                 if argument == "cancel" { settings.cancelSignIn(); settings.loginMessage = "" }
                 else if argument == "dismiss" { settings.loginMessage = "" }
-                else if ["claude", "codex"].contains(argument) { settings.signIn(provider: argument); if !settings.error.isEmpty { throw CXError(message: settings.error) } }
+                else if ["claude", "codex"].contains(argument) { settings.signIn(provider: argument); if !settings.error.isEmpty { throw VCXError(message: settings.error) } }
                 else { showCommands("/login ", preserveDraft: false); return }
             case "/profile":
                 let args = argument.split(separator: " ", maxSplits: 1).map(String.init)
-                guard args.count == 2, ["claude", "codex"].contains(args[0]) else { throw CXError(message: "Use /profile claude|codex <profile directory>.") }
+                guard args.count == 2, ["claude", "codex"].contains(args[0]) else { throw VCXError(message: "Use /profile claude|codex <profile directory>.") }
                 try settings.addProfile(provider: args[0], path: resolvedPath(args[1])); notice("Profile added. Select it with /account.")
             case "/qwen":
                 try idle()
                 let args = argument.split(separator: " ", maxSplits: 1).map(String.init)
                 guard args.count == 2, ["url", "proxy", "model", "host"].contains(args[0]) else { showCommands("/qwen ", preserveDraft: false); return }
                 let value = args[1] == "none" ? "" : args[1]
-                guard args[0] != "model" || !value.isEmpty else { throw CXError(message: "Model names cannot be empty.") }
+                guard args[0] != "model" || !value.isEmpty else { throw VCXError(message: "Model names cannot be empty.") }
                 if args[0] == "host" {
-                    guard let host = Preferences.qwenHosts[value] else { throw CXError(message: "Use /qwen host mac or /qwen host pc.") }
+                    guard let host = Preferences.qwenHosts[value] else { throw VCXError(message: "Use /qwen host mac or /qwen host pc.") }
                     settings.value.qwenURL = host.url; settings.value.qwenProxy = host.proxy
                 } else if args[0] == "url" {
-                    guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { throw CXError(message: "Enter an HTTP or HTTPS Ollama URL without credentials.") }
+                    guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { throw VCXError(message: "Enter an HTTP or HTTPS Ollama URL without credentials.") }
                     settings.value.qwenURL = value
                 } else if args[0] == "proxy" {
-                    guard value.isEmpty || validQwenProxy(value) else { throw CXError(message: "Use socks5://host:port without credentials, or none.") }
+                    guard value.isEmpty || validQwenProxy(value) else { throw VCXError(message: "Use socks5://host:port without credentials, or none.") }
                     settings.value.qwenProxy = value
                 } else { settings.value.qwenModel = value }
                 try saveSettings(); if account.provider == "qwen" { if args[0] == "model" { model = value }; await reconnect(reason: "Qwen settings changed") }; notice("Qwen setting saved.")
@@ -543,32 +543,32 @@ extension Session {
             case "/usage": await refreshUsage(); notice(usage.isEmpty ? "The provider has not reported subscription usage yet." : usage)
             case "/repo": await refreshRepository(); notice(([repository + " · " + repositoryLabel] + repositoryChanges).joined(separator: "\n"))
             case "/compact", "/review":
-                try idle(); guard ready else { throw CXError(message: "Reconnect first.") }
+                try idle(); guard ready else { throw VCXError(message: "Reconnect first.") }
                 if account.provider == "codex" {
                     if verb == "/compact" { _ = try await rpc.request("thread/compact/start", ["threadId": threadID ?? ""]) }
                     else { _ = try await rpc.request("review/start", ["threadId": threadID ?? "", "target": argument.isEmpty ? ["type": "uncommittedChanges"] : ["type": "custom", "instructions": argument], "delivery": "inline"]) }
                 } else if account.provider == "claude" { await send(text: verb + (argument.isEmpty ? "" : " " + argument), images: [], commandHandled: true); return }
-                else { throw CXError(message: "Qwen has no native compact/review command. Ask it to review in a message.") }
+                else { throw VCXError(message: "Qwen has no native compact/review command. Ask it to review in a message.") }
             case "/details", "/focus": details.toggle()
             case "/status": notice("Directory: \(cwd)\nProvider: \(providerLabel) · \(account.name)\nMode: \(mode)\nModel: \(model)\nTokens: \(tokens)\nUsage: \(usage.isEmpty ? "Not reported" : usage)\nRepository: \(repository) · \(branch)")
             case "/attach":
                 let path = resolvedPath(argument)
-                guard !argument.isEmpty, thumbnail(path) != nil else { throw CXError(message: "Use /attach <image path>.") }
+                guard !argument.isEmpty, thumbnail(path) != nil else { throw VCXError(message: "Use /attach <image path>.") }
                 let attached = NSMutableAttributedString(attributedString: savedCommandDraft ?? NSAttributedString(string: ""))
                 attached.append(NSAttributedString(attachment: ImageChip(path: path, number: 1)))
                 editDraft(attached); savedCommandDraft = nil
             case "/preview":
-                guard let path = rows.reversed().flatMap({ $0.items.reversed() }).flatMap({ $0.data["content"] as? [JSON] ?? [] }).compactMap({ $0["path"] as? String }).first else { throw CXError(message: "No image is available in this conversation.") }
+                guard let path = rows.reversed().flatMap({ $0.items.reversed() }).flatMap({ $0.data["content"] as? [JSON] ?? [] }).compactMap({ $0["path"] as? String }).first else { throw VCXError(message: "No image is available in this conversation.") }
                 preview = path
             case "/allow", "/decline", "/answer":
-                guard let pending = permissions.first else { throw CXError(message: "No pending question or approval.") }
+                guard let pending = permissions.first else { throw VCXError(message: "No pending question or approval.") }
                 if pending.method == "item/tool/requestUserInput", verb == "/decline" { answer(pending, result: ["answers": [:]]) }
                 else if pending.method == "item/tool/requestUserInput" {
-                    guard verb == "/answer", !argument.isEmpty else { throw CXError(message: "Use /answer <text> for the next question.") }
+                    guard verb == "/answer", !argument.isEmpty else { throw VCXError(message: "Use /answer <text> for the next question.") }
                     let questions = pending.params["questions"] as? [JSON] ?? []
                     if questions.count == 1, let id = questions.first?["id"] as? String { answer(pending, result: ["answers": [id: ["answers": [argument]]]]) }
                     else {
-                        guard let data = argument.data(using: .utf8), let values = try? JSONSerialization.jsonObject(with: data) as? [String: String], questions.allSatisfy({ q in (q["id"] as? String).flatMap { values[$0] }?.isEmpty == false }) else { throw CXError(message: "Use /answer followed by a JSON object mapping every question ID to an answer.") }
+                        guard let data = argument.data(using: .utf8), let values = try? JSONSerialization.jsonObject(with: data) as? [String: String], questions.allSatisfy({ q in (q["id"] as? String).flatMap { values[$0] }?.isEmpty == false }) else { throw VCXError(message: "Use /answer followed by a JSON object mapping every question ID to an answer.") }
                         answer(pending, result: ["answers": values.mapValues { ["answers": [$0]] }])
                     }
                 } else { answer(pending, result: ["decision": verb == "/allow" ? "accept" : "decline"]) }
@@ -581,14 +581,14 @@ extension Session {
                 if account.provider == "claude", claudeNativeNames.contains(String(verb.dropFirst())) {
                     notice("\(verb) is listed from the Claude CLI reference but is not implemented in vcx. It was not sent to the model. Use /help for available vcx actions."); break
                 }
-                throw CXError(message: "Unknown command. Type / to see the active provider’s commands and vcx settings.")
+                throw VCXError(message: "Unknown command. Type / to see the active provider’s commands and vcx settings.")
             }
             if draftGeneration == commandGeneration, draft.commandText == source { draft = NSAttributedString(string: ""); draftRevision += 1 }
             commandQuery = nil
         } catch { notice(error.localizedDescription); commandQuery = nil }
     }
-    private func idle() throws { if busy || changing { throw CXError(message: "Stop the current response before changing session settings.") } }
-    private func saveSettings() throws { Settings.shared.save(); if !Settings.shared.error.isEmpty { throw CXError(message: Settings.shared.error) } }
+    private func idle() throws { if busy || changing { throw VCXError(message: "Stop the current response before changing session settings.") } }
+    private func saveSettings() throws { Settings.shared.save(); if !Settings.shared.error.isEmpty { throw VCXError(message: Settings.shared.error) } }
     private func unquoted(_ text: String) -> String {
         if text.count >= 2, (text.first == "\"" && text.last == "\"") || (text.first == "'" && text.last == "'") { return String(text.dropFirst().dropLast()) }; return text
     }

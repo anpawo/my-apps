@@ -14,8 +14,8 @@ enum RetryCheck {
         session.connectionFactory = { _, _ in connection }
         let frontend = Session(cwd: folder.path)
         defer { frontend.close() }
-        guard ![StateHome.legacy, StateHome.current].contains(frontend.stateDirectory.path) else {
-            throw CXError(message: "FAIL: verification sessions use the real conversation history")
+        guard frontend.stateDirectory.path != StateHome.current else {
+            throw VCXError(message: "FAIL: verification sessions use the real conversation history")
         }
         try await session.activate(account, resume: nil, keepRows: false)
         await session.send(text: "Continue the task", images: [])
@@ -32,19 +32,19 @@ enum RetryCheck {
               session.rows.last?.id == row,
               session.rows.last?.items.first?.text == "Reconnecting... waiting for network",
               session.activityLabel == "Reconnecting…" else {
-            throw CXError(message: "FAIL: retry notice count \(session.rows.filter { $0.kind == "notice" }.count), stable row \(session.rows.last?.id == row), latest text \(session.rows.last?.items.first?.text == "Reconnecting... waiting for network"), activity \(session.activityLabel), sent \(connection.sent.count)")
+            throw VCXError(message: "FAIL: retry notice count \(session.rows.filter { $0.kind == "notice" }.count), stable row \(session.rows.last?.id == row), latest text \(session.rows.last?.items.first?.text == "Reconnecting... waiting for network"), activity \(session.activityLabel), sent \(connection.sent.count)")
         }
         try preservesRetryStatusAcrossFrontendReconnect(session)
         session.event(["method": "item/agentMessage/delta", "params": ["itemId": "answer", "delta": "Recovered"]])
         guard session.rows.filter({ $0.kind == "notice" }).map({ $0.items.first?.text }) == ["Keep this warning"],
               session.activityLabel == "Thinking", connection.sent.count == 1,
               session.draft.string == "Unsent draft" else {
-            throw CXError(message: "FAIL: recovery leaves retry notices, replays the prompt, or loses the draft")
+            throw VCXError(message: "FAIL: recovery leaves retry notices, replays the prompt, or loses the draft")
         }
         session.event(["method": "error", "params": ["willRetry": true, "error": ["message": "Reconnecting... 1/5"]]])
         session.event(["method": "error", "params": ["willRetry": false, "error": ["message": "Connection failed"]]])
         guard session.rows.filter({ $0.kind == "notice" }).map({ $0.items.first?.text }) == ["Keep this warning", "Connection failed"] else {
-            throw CXError(message: "FAIL: a terminal error is hidden by retry cleanup")
+            throw VCXError(message: "FAIL: a terminal error is hidden by retry cleanup")
         }
         try await clearsRetryStatusWhenTurnEnds(session)
         try await clearsRetryAfterSteering(session, connection: connection)
@@ -57,7 +57,7 @@ enum RetryCheck {
         frontend.applyRuntimeSnapshot(SessionBackend(session: session).snapshot())
         guard frontend.activityLabel == "Reconnecting…",
               frontend.rows.last?.items.first?.text == "Reconnecting... waiting for network" else {
-            throw CXError(message: "FAIL: a frontend reconnect loses the current retry status")
+            throw VCXError(message: "FAIL: a frontend reconnect loses the current retry status")
         }
     }
 
@@ -65,13 +65,13 @@ enum RetryCheck {
         session.event(["method": "error", "params": ["willRetry": true, "error": ["message": "Reconnecting... 1/5"]]])
         await session.stop(source: "Stop button")
         guard !session.busy, !session.rows.contains(where: { $0.items.first?.data["retry"] as? Bool == true }) else {
-            throw CXError(message: "FAIL: stopping a retry leaves a reconnect status behind")
+            throw VCXError(message: "FAIL: stopping a retry leaves a reconnect status behind")
         }
         session.event(["method": "turn/started", "params": ["turn": ["id": "completed-turn"]]])
         session.event(["method": "error", "params": ["willRetry": true, "error": ["message": "Reconnecting... 1/5"]]])
         session.event(["method": "turn/completed", "params": ["turn": ["status": "completed"]]])
         guard session.activityLabel == "Ready", !session.rows.contains(where: { $0.items.first?.data["retry"] as? Bool == true }) else {
-            throw CXError(message: "FAIL: completing a retry leaves a reconnect status behind")
+            throw VCXError(message: "FAIL: completing a retry leaves a reconnect status behind")
         }
     }
 
@@ -85,11 +85,11 @@ enum RetryCheck {
         defer { connection.event = event }
         await session.send(text: "Additional guidance", images: [])
         guard session.activityLabel == "Reconnecting…" else {
-            throw CXError(message: "FAIL: steering a retry falsely displays Thinking")
+            throw VCXError(message: "FAIL: steering a retry falsely displays Thinking")
         }
         session.event(["method": "item/agentMessage/delta", "params": ["itemId": "steered-answer", "delta": "Recovered"]])
         guard !session.rows.contains(where: { $0.items.first?.data["retry"] as? Bool == true }), connection.sent.count == sent + 1 else {
-            throw CXError(message: "FAIL: steering leaves a stale retry notice or replays the prompt")
+            throw VCXError(message: "FAIL: steering leaves a stale retry notice or replays the prompt")
         }
     }
 }

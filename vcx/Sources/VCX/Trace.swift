@@ -156,10 +156,10 @@ enum Trace {
                     if !store(directory, payload: payload, entry: entry) { failed[directory, default: []].append((payload, entry)) }
                 }
                 guard failed[directory, default: []].isEmpty else {
-                    result.resume(throwing: CXError(message: "Conversation diagnostics could not be saved; close was stopped to keep the pending events.")); return
+                    result.resume(throwing: VCXError(message: "Conversation diagnostics could not be saved; close was stopped to keep the pending events.")); return
                 }
                 if serializationFailures.remove(directory) != nil {
-                    result.resume(throwing: CXError(message: "A diagnostic event could not be encoded; retry close to acknowledge this diagnostic failure.")); return
+                    result.resume(throwing: VCXError(message: "A diagnostic event could not be encoded; retry close to acknowledge this diagnostic failure.")); return
                 }
                 result.resume()
             }

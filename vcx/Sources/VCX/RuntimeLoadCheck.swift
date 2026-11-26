@@ -10,7 +10,7 @@ enum RuntimeLoadCheck {
         init(_ pid: pid_t) throws {
             var info = proc_taskinfo()
             guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, Int32(MemoryLayout<proc_taskinfo>.size)) == Int32(MemoryLayout<proc_taskinfo>.size) else {
-                throw CXError(message: "Cannot sample a load-test process.")
+                throw VCXError(message: "Cannot sample a load-test process.")
             }
             cpu = info.pti_total_user + info.pti_total_system
             rss = info.pti_resident_size
@@ -23,14 +23,14 @@ enum RuntimeLoadCheck {
     private static func soakDuration(_ value: String?) throws -> Double {
         guard let value else { return 0 }
         guard let seconds = Double(value), seconds.isFinite, (0...300).contains(seconds) else {
-            throw CXError(message: "VCX_VERIFY_SOAK_SECONDS must be a finite duration between 0 and 300 seconds.")
+            throw VCXError(message: "VCX_VERIFY_SOAK_SECONDS must be a finite duration between 0 and 300 seconds.")
         }
         return seconds
     }
 
     static func worker(socketPath: String, directory: URL) throws -> RuntimeServer {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        guard Settings.directory.path.hasPrefix(directory.path + "/") else { throw CXError(message: "Load worker requires isolated configuration.") }
+        guard Settings.directory.path.hasPrefix(directory.path + "/") else { throw VCXError(message: "Load worker requires isolated configuration.") }
         try FileManager.default.createDirectory(at: Settings.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var preferences = Preferences()
         preferences.provider = "codex"
@@ -43,7 +43,7 @@ enum RuntimeLoadCheck {
             session.connectionFactory = { _, _ in connection }
             let backend = SessionBackend(session: session)
             await backend.start(params: params)
-            guard session.ready else { throw CXError(message: "Load fixture did not connect.") }
+            guard session.ready else { throw VCXError(message: "Load fixture did not connect.") }
             for index in 0..<(rowsPerSession / 2) {
                 session.show(["id": "history-user-\(index)", "type": "userMessage", "content": [["type": "text", "text": "Synthetic history question \(index)."]]])
                 session.show(["id": "history-answer-\(index)", "type": "agentMessage", "text": String(repeating: "Synthetic transcript content for native view measurement. ", count: 8)])
@@ -78,7 +78,7 @@ enum RuntimeLoadCheck {
                             "environment": environment,
                             "streamWorkload": "10 synthetic deltas per second per active session throughout each 3.3-second sample; streams stop afterward with a 30-second safety cap.",
                             "handoffScope": "Two complete native view and client generations overlap in one frontend process. Excludes a second frontend process and its additional framework mappings; overlap RSS is not a real two-process update peak.",
-                            "frontendScope": "Native Session, RuntimeClient, FleetPresence and initialized offscreen CXView hosting views; one view rasterized during stream phases. No compositor or Space transitions."]
+                            "frontendScope": "Native Session, RuntimeClient, FleetPresence and initialized offscreen VCXView hosting views; one view rasterized during stream phases. No compositor or Space transitions."]
         var results: [JSON] = [], checks = 0
         func save() throws {
             report["scenarios"] = results; report["checks"] = checks
@@ -132,11 +132,11 @@ enum RuntimeLoadCheck {
         }
         func check(_ condition: Bool, _ message: String) throws {
             checks += 1
-            guard condition else { throw CXError(message: "Load check: " + message) }
+            guard condition else { throw VCXError(message: "Load check: " + message) }
         }
         for attempt in 0..<100 {
             if FileManager.default.fileExists(atPath: socketPath) { break }
-            guard worker.isRunning, attempt < 99 else { throw CXError(message: "Load worker did not start.") }
+            guard worker.isRunning, attempt < 99 else { throw VCXError(message: "Load worker did not start.") }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         let baseline = try Sample(getpid()), workerBaseline = try Sample(worker.processIdentifier), startup = DispatchTime.now().uptimeNanoseconds
@@ -150,7 +150,7 @@ enum RuntimeLoadCheck {
             try await client.connect(resume: nil)
             attachTimes.append(milliseconds(since: start))
             try check(session.ready && session.rows.count == rowsPerSession, "session snapshot did not restore seeded history")
-            let host = NSHostingView(rootView: CXView(session: session))
+            let host = NSHostingView(rootView: VCXView(session: session))
             host.appearance = NSAppearance(named: .aqua)
             host.frame = NSRect(x: 0, y: 0, width: 1280, height: 820)
             host.layoutSubtreeIfNeeded()
@@ -198,7 +198,7 @@ enum RuntimeLoadCheck {
                     try await client.checkpoint(draft: [["text": "unsent load draft \(index)"]], generation: 10)
                     let ack = milliseconds(since: start)
                     for _ in 0..<400 where session.draftGeneration < 10 { try await Task.sleep(nanoseconds: 5_000_000) }
-                    guard session.draftGeneration == 10 else { throw CXError(message: "A load-test projection did not catch up.") }
+                    guard session.draftGeneration == 10 else { throw VCXError(message: "A load-test projection did not catch up.") }
                     return (ack, milliseconds(since: start))
                 }
             }
@@ -216,7 +216,7 @@ enum RuntimeLoadCheck {
                     let client = RuntimeClient(session: session, cwd: directory.path, resumeRuntimeID: previous.sessionID, socketPath: socketPath)
                     session.runtimeClient = client
                     let presence = FleetPresence(session: session)
-                    let host = NSHostingView(rootView: CXView(session: session))
+                    let host = NSHostingView(rootView: VCXView(session: session))
                     host.appearance = NSAppearance(named: .aqua)
                     host.frame = NSRect(x: 0, y: 0, width: 1280, height: 820)
                     host.layoutSubtreeIfNeeded()
@@ -265,7 +265,7 @@ enum RuntimeLoadCheck {
             if sessions.allSatisfy({ !$0.busy }) { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        throw CXError(message: "Synthetic streams did not finish.")
+        throw VCXError(message: "Synthetic streams did not finish.")
     }
 
     private static func measure(name: String, seconds: Double, worker: pid_t, client: RuntimeClient, host: NSView?, sampleMemory: Bool = false) async throws -> JSON {
@@ -275,8 +275,8 @@ enum RuntimeLoadCheck {
         var memorySamples: [JSON] = [], nextMemorySample = 1.0
         func recordMemory(_ elapsed: Double, _ front: Sample, _ backend: Sample) throws {
             let combined = front.rss + backend.rss
-            guard combined <= memoryLimit else { throw CXError(message: "Idle soak exceeded the combined 2 GiB memory limit.") }
-            guard memorySamples.count < 302 else { throw CXError(message: "Idle soak exceeded its bounded memory sample count.") }
+            guard combined <= memoryLimit else { throw VCXError(message: "Idle soak exceeded the combined 2 GiB memory limit.") }
+            guard memorySamples.count < 302 else { throw VCXError(message: "Idle soak exceeded its bounded memory sample count.") }
             memorySamples.append(["elapsedSeconds": elapsed, "combinedRSSBytes": combined])
         }
         if sampleMemory { try recordMemory(0, beforeFront, beforeWorker) }
@@ -291,7 +291,7 @@ enum RuntimeLoadCheck {
                 let frameStart = DispatchTime.now().uptimeNanoseconds
                 try autoreleasepool {
                     host.layoutSubtreeIfNeeded()
-                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw CXError(message: "Offscreen native frame could not render.") }
+                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw VCXError(message: "Offscreen native frame could not render.") }
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                 }
                 frames.append(milliseconds(since: frameStart))
@@ -313,7 +313,7 @@ enum RuntimeLoadCheck {
     private static func phase(name: String, elapsed: Double, frontBefore: Sample, frontAfter: Sample, workerBefore: Sample, workerAfter: Sample, childCPU: Double, frames: [Double]) throws -> JSON {
         var timebase = mach_timebase_info_data_t()
         guard mach_timebase_info(&timebase) == KERN_SUCCESS, timebase.denom > 0,
-              frontAfter.cpu >= frontBefore.cpu, workerAfter.cpu >= workerBefore.cpu, childCPU >= 0 else { throw CXError(message: "Invalid load-test CPU counters.") }
+              frontAfter.cpu >= frontBefore.cpu, workerAfter.cpu >= workerBefore.cpu, childCPU >= 0 else { throw VCXError(message: "Invalid load-test CPU counters.") }
         let frontCPU = Double(frontAfter.cpu - frontBefore.cpu) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
         let workerCPU = Double(workerAfter.cpu - workerBefore.cpu) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000
         return ["name": name, "wallSeconds": elapsed, "frontendCPUSeconds": frontCPU, "workerCPUSeconds": workerCPU,
@@ -344,7 +344,7 @@ enum RuntimeLoadCheck {
         func perform(action: String, params: JSON) async throws -> JSON {
             if action == "loadStats" {
                 var usage = rusage()
-                guard getrusage(RUSAGE_CHILDREN, &usage) == 0 else { throw CXError(message: "Cannot sample worker child CPU.") }
+                guard getrusage(RUSAGE_CHILDREN, &usage) == 0 else { throw VCXError(message: "Cannot sample worker child CPU.") }
                 return ["childCPUSeconds": Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000]
             }
             return try await backend.perform(action: action, params: params)

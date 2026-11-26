@@ -30,7 +30,7 @@ enum ProviderCheck {
               settings.value.limits["codex-default"] == nil, settings.value.limits["qwen"] == nil,
               session.rows.last?.items.first?.text == "Expected connection failure",
               session.draft.string == "Keep my prompt" else {
-            throw CXError(message: "FAIL: a Codex connection failure tried another provider or recorded a false usage limit; attempted: " + attempted.joined(separator: ", "))
+            throw VCXError(message: "FAIL: a Codex connection failure tried another provider or recorded a false usage limit; attempted: " + attempted.joined(separator: ", "))
         }
         print("Provider failure checks passed: Codex errors stay on Codex without false limits or lost drafts")
         var routingErrors: [String] = []
@@ -62,7 +62,7 @@ enum ProviderCheck {
         if unavailable.ready || unavailableConnection.opened.count != 2 || unavailable.activityLabel != "Not connected" || unavailable.modelLabel != "Not connected" || unavailable.draft.string != "Keep the failed draft" {
             routingErrors.append("a persistent routing failure must stop after one retry and preserve the draft")
         }
-        if !routingErrors.isEmpty { throw CXError(message: "FAIL: " + routingErrors.joined(separator: "; ")) }
+        if !routingErrors.isEmpty { throw VCXError(message: "FAIL: " + routingErrors.joined(separator: "; ")) }
         print("Routing checks passed: transient discovery failure reconnects without sending or losing the draft")
 
         let switching = Session(cwd: folder.path, stateDirectory: folder.appendingPathComponent("switching"))
@@ -94,7 +94,7 @@ enum ProviderCheck {
         if switching.account.provider != "codex" || connections.last?.sent.count != 1 {
             failures.append("the next prompt must stay on the explicitly selected provider")
         }
-        if !failures.isEmpty { throw CXError(message: "FAIL: " + failures.joined(separator: "; ")) }
+        if !failures.isEmpty { throw VCXError(message: "FAIL: " + failures.joined(separator: "; ")) }
         print("Provider switch checks passed: failed switches preserve the working session and explicit selections retry enabled accounts")
 
         let closing = Session(cwd: folder.path, stateDirectory: folder.appendingPathComponent("closing"))
@@ -106,9 +106,9 @@ enum ProviderCheck {
         closing.close()
         do {
             try await start.value
-            throw CXError(message: "FAIL: a closed session finished connecting")
-        } catch let error as CXError where !error.message.hasPrefix("FAIL:") {}
-        guard pending.closed, !closing.ready, !closing.changing else { throw CXError(message: "FAIL: closing a session must close its pending connection") }
+            throw VCXError(message: "FAIL: a closed session finished connecting")
+        } catch let error as VCXError where !error.message.hasPrefix("FAIL:") {}
+        guard pending.closed, !closing.ready, !closing.changing else { throw VCXError(message: "FAIL: closing a session must close its pending connection") }
         print("Provider close checks passed: closing during startup cancels the pending connection")
     }
 }

@@ -26,7 +26,7 @@ enum RecoveryCheck {
     private static func wait(_ description: String, until condition: () throws -> Bool) async throws {
         let deadline = Date().addingTimeInterval(10)
         while try !condition() {
-            guard Date() < deadline else { throw CXError(message: "Recovery check timed out: " + description) }
+            guard Date() < deadline else { throw VCXError(message: "Recovery check timed out: " + description) }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
@@ -34,7 +34,7 @@ enum RecoveryCheck {
     static func frontend(directory: URL, socketPath: String, stage: String) async throws {
         let newSession = stage == "first" || stage == "closing"
         let recovered = newSession ? nil : try RuntimeRecovery.pending().first
-        guard newSession || recovered != nil else { throw CXError(message: "Recovery registry did not restore the crashed frontend.") }
+        guard newSession || recovered != nil else { throw VCXError(message: "Recovery registry did not restore the crashed frontend.") }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("frontend-state"))
         let client = RuntimeClient(session: session, cwd: directory.path, resumeRuntimeID: recovered?.sessionID, socketPath: socketPath, recovery: recovered)
         session.runtimeClient = client
@@ -48,14 +48,14 @@ enum RecoveryCheck {
             session.editDraft(runtimeDraft([["text": "recovery unsent draft"], ["path": directory.appendingPathComponent("attachment.png").path]]))
             try await client.checkpointWindow(["follow": false, "frame": "{{10, 20}, {900, 700}}", "selection": [3, 2]])
         } else if stage == "second" {
-            guard session.busy else { throw CXError(message: "Frontend crash interrupted the tool.") }
+            guard session.busy else { throw VCXError(message: "Frontend crash interrupted the tool.") }
         } else {
             try await wait("pending approval") { session.permissions.count == 1 }
             let approval = session.permissions[0]
             _ = try await client.perform("answer", ["rpcID": approval.rpcID, "method": approval.method, "result": ["decision": "accept"]])
             try await wait("completed turn") { !session.busy && session.permissions.isEmpty }
         }
-        guard stage == "closing" || (session.draft.string.contains("recovery unsent draft") && draftContent(session.draft).count == 2) else { throw CXError(message: "Recovered draft or attachment was lost.") }
+        guard stage == "closing" || (session.draft.string.contains("recovery unsent draft") && draftContent(session.draft).count == 2) else { throw VCXError(message: "Recovered draft or attachment was lost.") }
         let provider = try value(directory.appendingPathComponent("provider.json"))
         try write(["sessionId": client.sessionID, "threadID": session.threadID ?? "", "providerPID": provider["pid"] ?? 0,
                    "draftGeneration": session.draftGeneration, "busy": session.busy], to: directory.appendingPathComponent(stage + "-ready.json"))
@@ -82,7 +82,7 @@ enum RecoveryCheck {
         try write(["defaultProvider": "codex", "mode": "ask", "accounts": [["id": "codex-default", "name": "Fixture", "provider": "codex", "enabled": true]]], to: config.appendingPathComponent("settings.json"))
         let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32)!
         try image.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("attachment.png"))
-        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create recovery fixture tool gate.") }
+        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw VCXError(message: "Cannot create recovery fixture tool gate.") }
         let socketPath = runtimeHome.appendingPathComponent("worker.sock").path
         var environment = ProcessInfo.processInfo.environment
         environment["VCX_CONFIG_HOME"] = config.path
@@ -102,7 +102,7 @@ enum RecoveryCheck {
         let worker = try launch(workerArguments)
         var count = 0
         func check(_ condition: Bool, _ description: String) throws {
-            guard condition else { throw CXError(message: "Recovery check failed: " + description) }; count += 1
+            guard condition else { throw VCXError(message: "Recovery check failed: " + description) }; count += 1
         }
         let legacyIdentity = RuntimeRecovery.workerInstance(["pid": Int(getpid())])
         try check(legacyIdentity?.hasPrefix("process:\(getpid()):") == true && legacyIdentity == RuntimeRecovery.workerInstance(["pid": Int(getpid())]), "legacy worker identity was not stable and tied to its process start")
@@ -125,9 +125,9 @@ enum RecoveryCheck {
             let report = try value(milestone)
             if stage == "first" {
                 original = report
-                guard let pid = report["providerPID"] as? Int32 else { throw CXError(message: "Fixture provider identity is missing.") }
+                guard let pid = report["providerPID"] as? Int32 else { throw VCXError(message: "Fixture provider identity is missing.") }
                 var info = proc_bsdinfo()
-                guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size), info.pbi_ppid == UInt32(worker.processIdentifier) else { throw CXError(message: "Fixture provider ownership was not established.") }
+                guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size), info.pbi_ppid == UInt32(worker.processIdentifier) else { throw VCXError(message: "Fixture provider ownership was not established.") }
                 providerIdentity = (pid, info.pbi_start_tvsec)
             } else {
                 try check(report["sessionId"] as? String == original["sessionId"] as? String, "crash changed the runtime session")
@@ -142,9 +142,9 @@ enum RecoveryCheck {
             try check((entries[0].state["draft"] as? [JSON])?.count == 2, "crash lost the text or image draft")
             if stage == "second" {
                 let gate = Darwin.open(directory.appendingPathComponent("release-tool").path, O_WRONLY | O_NONBLOCK)
-                guard gate >= 0 else { throw CXError(message: "Cannot release recovery fixture tool.") }
+                guard gate >= 0 else { throw VCXError(message: "Cannot release recovery fixture tool.") }
                 var byte: UInt8 = 1
-                guard Darwin.write(gate, &byte, 1) == 1 else { Darwin.close(gate); throw CXError(message: "Cannot release recovery fixture tool.") }
+                guard Darwin.write(gate, &byte, 1) == 1 else { Darwin.close(gate); throw VCXError(message: "Cannot release recovery fixture tool.") }
                 Darwin.close(gate)
                 try await wait("approval fixture") { FileManager.default.fileExists(atPath: directory.appendingPathComponent("approval-pending.json").path) }
             }

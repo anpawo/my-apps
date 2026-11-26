@@ -42,7 +42,7 @@ final class AgyConnection: Connection {
         process.standardInput = incoming; process.standardOutput = outgoing
         let errors = try agentLog(logFile)
         process.standardError = errors.writer
-        do { try process.run() } catch { throw CXError(message: "Antigravity is not installed: brew install --cask antigravity-cli") }
+        do { try process.run() } catch { throw VCXError(message: "Antigravity is not installed: brew install --cask antigravity-cli") }
         try? errors.writer.close()
         self.process = process; input = incoming.fileHandleForWriting
         let reader = try ProviderJSONReader(handle: outgoing.fileHandleForReading, leftover: Data(), receive: { [weak self] message in
@@ -76,7 +76,7 @@ final class AgyConnection: Connection {
             if let wanted { open["sessionId"] = wanted; result = try await call("session/resume", open, timeout: 60) }
             else { result = try await call("session/new", open, timeout: 60) }
             session = result["sessionId"] as? String ?? wanted ?? ""
-            guard !session.isEmpty else { throw CXError(message: "Antigravity did not return a conversation.") }
+            guard !session.isEmpty else { throw VCXError(message: "Antigravity did not return a conversation.") }
             thread = "agy:" + session
             let list = result["models"] as? JSON
             models = (list?["availableModels"] as? [JSON] ?? []).compactMap { $0["modelId"] as? String }
@@ -91,7 +91,7 @@ final class AgyConnection: Connection {
             bypass = params["mode"] as? String == "bypass"
             try await applyMode(); return [:]
         case "turn/start":
-            guard turn == nil else { throw CXError(message: "Stop Antigravity before sending another message. Your draft has been kept.") }
+            guard turn == nil else { throw VCXError(message: "Stop Antigravity before sending another message. Your draft has been kept.") }
             if let path = params["cwd"] as? String { cwd = path }
             let prompt = try (params["input"] as? [JSON] ?? []).compactMap { piece -> JSON? in
                 if let text = piece["text"] as? String { return ["type": "text", "text": text] }
@@ -105,11 +105,11 @@ final class AgyConnection: Connection {
             emit("turn/started", ["turn": ["id": current]])
             Task { await run(current, prompt) }
             return ["turn": ["id": current]]
-        case "turn/steer": throw CXError(message: "Stop Antigravity before sending another message. Your draft has been kept.")
+        case "turn/steer": throw VCXError(message: "Stop Antigravity before sending another message. Your draft has been kept.")
         case "turn/interrupt":
             if !session.isEmpty { try? send(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": session]]) }
             return [:]
-        default: throw CXError(message: "Antigravity does not support this action. Send your request as a message.")
+        default: throw VCXError(message: "Antigravity does not support this action. Send your request as a message.")
         }
     }
 
@@ -248,19 +248,19 @@ final class AgyConnection: Connection {
             try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "vcx does not support \(method)"]]); return
         }
         guard let id = message["id"] as? Int, let waiting = pending.removeValue(forKey: id) else { return }
-        if let error = message["error"] as? JSON { waiting.resume(throwing: CXError(message: "Antigravity: " + (error["message"] as? String ?? "request failed"))) }
+        if let error = message["error"] as? JSON { waiting.resume(throwing: VCXError(message: "Antigravity: " + (error["message"] as? String ?? "request failed"))) }
         else { waiting.resume(returning: message["result"] as? JSON ?? [:]) }
     }
 
     private func call(_ method: String, _ params: JSON, timeout: Double = AgyConnection.requestTimeout) async throws -> JSON {
-        guard !closed, process?.isRunning == true else { throw CXError(message: "Antigravity is disconnected.") }
+        guard !closed, process?.isRunning == true else { throw VCXError(message: "Antigravity is disconnected.") }
         nextID += 1
         let id = nextID
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             if timeout.isFinite {
                 DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
-                    self?.pending.removeValue(forKey: id)?.resume(throwing: CXError(message: "Antigravity timed out while handling \(method)."))
+                    self?.pending.removeValue(forKey: id)?.resume(throwing: VCXError(message: "Antigravity timed out while handling \(method)."))
                 }
             }
             do { try send(["jsonrpc": "2.0", "id": id, "method": method, "params": params]) }
@@ -269,7 +269,7 @@ final class AgyConnection: Connection {
     }
 
     private func send(_ message: JSON) throws {
-        guard let input, !closed else { throw CXError(message: "Antigravity is disconnected.") }
+        guard let input, !closed else { throw VCXError(message: "Antigravity is disconnected.") }
         var data = try JSONSerialization.data(withJSONObject: message)
         data.append(10)
         try input.write(contentsOf: data)
@@ -280,7 +280,7 @@ final class AgyConnection: Connection {
     func close() {
         guard !closed else { return }
         closed = true
-        for waiting in pending.values { waiting.resume(throwing: CXError(message: "Antigravity is disconnected.")) }
+        for waiting in pending.values { waiting.resume(throwing: VCXError(message: "Antigravity is disconnected.")) }
         pending.removeAll(); permissions.removeAll()
         try? input?.close()
         if let process, process.isRunning { endProcess(process) }

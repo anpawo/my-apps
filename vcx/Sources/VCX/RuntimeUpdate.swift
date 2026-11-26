@@ -30,25 +30,24 @@ enum RuntimeUpdate {
         try RuntimeIdentity.prepareDirectory()
         let file = RuntimeIdentity.directory.appendingPathComponent(UUID().uuidString + suffix)
         let data = try JSONSerialization.data(withJSONObject: value)
-        guard data.count <= maximumBytes else { throw CXError(message: "Frontend handoff is too large.") }
-        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CXError(message: "Cannot save frontend handoff.") }
+        guard data.count <= maximumBytes else { throw VCXError(message: "Frontend handoff is too large.") }
+        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw VCXError(message: "Cannot save frontend handoff.") }
         return file
     }
 
     static func readTicket(_ path: String, suffix: String, maximumBytes: Int = 1_048_576) throws -> JSON {
         let file = URL(fileURLWithPath: path).standardizedFileURL
         var info = stat()
-        // Listing a folder reached through a link (~/.local/state/cx -> vcx since 2026-11-25) returns the link's target.
         guard file.deletingLastPathComponent().resolvingSymlinksInPath() == RuntimeIdentity.directory.resolvingSymlinksInPath(),
               file.lastPathComponent.hasSuffix(suffix), lstat(file.path, &info) == 0,
               info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
-              info.st_mode & 0o077 == 0, info.st_size <= maximumBytes else { throw CXError(message: "Unsafe frontend handoff file.") }
+              info.st_mode & 0o077 == 0, info.st_size <= maximumBytes else { throw VCXError(message: "Unsafe frontend handoff file.") }
         let fd = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw CXError(message: "Cannot read frontend handoff.") }
+        guard fd >= 0 else { throw VCXError(message: "Cannot read frontend handoff.") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var opened = stat()
         guard fstat(fd, &opened) == 0, opened.st_ino == info.st_ino, opened.st_dev == info.st_dev,
-              let value = try JSONSerialization.jsonObject(with: handle.readDataToEndOfFile()) as? JSON else { throw CXError(message: "Invalid frontend handoff.") }
+              let value = try JSONSerialization.jsonObject(with: handle.readDataToEndOfFile()) as? JSON else { throw VCXError(message: "Invalid frontend handoff.") }
         return value
     }
 
@@ -62,7 +61,7 @@ enum RuntimeUpdate {
 
     // Any session or build may send this; it names the installed build, not the sender's own.
     static func requestUpdate() throws {
-        guard let installed = read("installed-build") else { throw CXError(message: "No installed VCX build has been published.") }
+        guard let installed = read("installed-build") else { throw VCXError(message: "No installed VCX build has been published.") }
         try write(installed, "update-request")
         DistributedNotificationCenter.default().postNotificationName(updateNotification, object: nil, userInfo: nil, deliverImmediately: true)
     }
@@ -90,7 +89,7 @@ enum RuntimeUpdate {
     static func acknowledge(_ ticket: String) throws {
         let file = URL(fileURLWithPath: ticket + ".ready.json")
         let data = try JSONSerialization.data(withJSONObject: ["pid": getpid()])
-        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CXError(message: "Cannot acknowledge frontend replacement.") }
+        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw VCXError(message: "Cannot acknowledge frontend replacement.") }
         DistributedNotificationCenter.default().postNotificationName(readyNotification, object: nil, userInfo: nil, deliverImmediately: true)
     }
 
@@ -98,9 +97,9 @@ enum RuntimeUpdate {
         try RuntimeIdentity.prepareDirectory()
         let descriptor = Darwin.open(RuntimeIdentity.directory.appendingPathComponent("frontend.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
         var info = stat()
-        guard descriptor >= 0 else { throw CXError(message: "Cannot lock frontend ownership.") }
+        guard descriptor >= 0 else { throw VCXError(message: "Cannot lock frontend ownership.") }
         guard fstat(descriptor, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0 else {
-            Darwin.close(descriptor); throw CXError(message: "Unsafe frontend ownership lock.")
+            Darwin.close(descriptor); throw VCXError(message: "Unsafe frontend ownership lock.")
         }
         if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return descriptor }
         Darwin.close(descriptor)

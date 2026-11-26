@@ -425,7 +425,7 @@ final class Session: ObservableObject {
         let directory = URL(fileURLWithPath: cwd).standardized.path
         self.cwd = directory
         conversationDirectory = directory
-        self.stateDirectory = stateDirectory.map { StateHome.relocated($0) } ?? StateHome.directory
+        self.stateDirectory = stateDirectory ?? StateHome.directory
         do { try FileManager.default.createDirectory(at: fleetContextFile.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
         catch { NSLog("VCX: could not create Fleet context directory: %@", error.localizedDescription) }
         Trace.migrate(self.stateDirectory)
@@ -526,7 +526,7 @@ final class Session: ObservableObject {
                 else {
                     var id = resume
                     if resume == "last" {
-                        guard let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON, let thread = saved["threadId"] as? String else { throw CXError(message: "No saved conversation in this folder.") }
+                        guard let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: pointer)) as? JSON, let thread = saved["threadId"] as? String else { throw VCXError(message: "No saved conversation in this folder.") }
                         id = thread
                     }
                     // A bare Claude session ID (vcx --resume <id>) went to Codex, which answered "no rollout found".
@@ -535,7 +535,7 @@ final class Session: ObservableObject {
                     if !id.contains(":"), ((try? FileManager.default.contentsOfDirectory(atPath: projects)) ?? []).contains(where: { FileManager.default.fileExists(atPath: projects + $0 + "/" + id + ".jsonl") }) { id = "claude:" + id }
                     let provider = id.hasPrefix("claude:") ? "claude" : id.hasPrefix("agy:") ? "agy" : "codex"
                     let profiles = Settings.shared.candidates(provider).filter { $0.provider == provider && $0.enabled }
-                    guard profiles.count == 1, let account = profiles.first else { throw CXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
+                    guard profiles.count == 1, let account = profiles.first else { throw VCXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
                     try await activate(account, resume: id, keepRows: false)
                 }
             } else {
@@ -632,8 +632,8 @@ final class Session: ObservableObject {
             result = try await rpc.request(method, params)
         }
         guard !closed, !Task.isCancelled else { throw CancellationError() }
-        guard let thread = result["thread"] as? JSON, let id = thread["id"] as? String else { throw CXError(message: "Codex did not return a conversation.") }
-        if let resume, id.split(separator: ":").last?.lowercased() != resume.split(separator: ":").last?.lowercased() { throw CXError(message: "The agent did not resume the exact requested native conversation.") }
+        guard let thread = result["thread"] as? JSON, let id = thread["id"] as? String else { throw VCXError(message: "Codex did not return a conversation.") }
+        if let resume, id.split(separator: ":").last?.lowercased() != resume.split(separator: ":").last?.lowercased() { throw VCXError(message: "The agent did not resume the exact requested native conversation.") }
         var history: [JSON] = []
         if resume != nil && !keepRows {
             var cursor: String?
@@ -1202,9 +1202,9 @@ final class Session: ObservableObject {
             else {
                 let provider = id?.hasPrefix("claude:") == true ? "claude" : id?.hasPrefix("agy:") == true ? "agy" : id?.hasPrefix("qwen:") == true ? "qwen" : "codex"
                 let profiles = Settings.shared.candidates(provider).filter { $0.provider == provider && $0.enabled }
-                if id != nil, profiles.count != 1 { throw CXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
+                if id != nil, profiles.count != 1 { throw VCXError(message: "Choose the exact saved conversation and profile to resume this native ID.") }
                 let next = id != nil ? profiles.first : available.first
-                guard let next else { throw CXError(message: "No enabled account available.") }
+                guard let next else { throw VCXError(message: "No enabled account available.") }
                 try await activate(next, resume: id, keepRows: false)
             }
             await archiveRetired(previous)
@@ -1231,7 +1231,7 @@ final class Session: ObservableObject {
 
     private func beginRecordTransition() throws -> RetiringRecord {
         flush()
-        if usesNativeHistory, threadID != nil, !save() { throw CXError(message: "Could not save the current conversation before switching.") }
+        if usesNativeHistory, threadID != nil, !save() { throw VCXError(message: "Could not save the current conversation before switching.") }
         let previous = RetiringRecord(id: recordID, path: snapshotURL, thread: threadID, historyPath: nativeHistoryPath, sources: nativeSources, leases: nativeLeases, clientVersions: archiveClientVersions, lock: recordLock, connection: rpc, processes: stoppingNativeProcesses + [rpc.archiveProcess].compactMap { $0 })
         recordID = UUID().uuidString; recordLock = nil; nativeSources = []; nativeLeases = [:]; nativeHistoryPath = nil; threadID = nil
         stoppingNativeProcesses = []; archivedForClose = false
@@ -1289,7 +1289,7 @@ final class Session: ObservableObject {
     }
 
     private func activateAvailable(keepRows: Bool) async throws {
-        var failure: Error = CXError(message: "No account is available. Enable accounts in Settings, or wait for their limits to reset.")
+        var failure: Error = VCXError(message: "No account is available. Enable accounts in Settings, or wait for their limits to reset.")
         for next in available {
             do { try await activate(next, resume: nil, keepRows: keepRows); return }
             catch {
@@ -1309,8 +1309,8 @@ final class Session: ObservableObject {
 
     func activate(_ next: Account, resume: String?, keepRows: Bool, reason: String? = nil) async throws {
         trace("activate", ["provider": next.provider, "resume": resume ?? "", "keepRows": keepRows, "reason": reason ?? ""])
-        guard !changing else { throw CXError(message: "A connection change is already in progress.") }
-        guard !closed, !Task.isCancelled, !archiving, !archivedForClose else { throw CXError(message: "This conversation is closing.") }
+        guard !changing else { throw VCXError(message: "A connection change is already in progress.") }
+        guard !closed, !Task.isCancelled, !archiving, !archivedForClose else { throw VCXError(message: "This conversation is closing.") }
         if let resume, usesNativeHistory {
             try claimCurrentRecord()
             try leaseNativeSource(nativeSource(resume, account: next))
@@ -1342,7 +1342,7 @@ final class Session: ObservableObject {
         connection.event = { startupEvents.append($0) }
         do {
             try await connection.start(command: nil)
-            guard !closed, !Task.isCancelled, startingConnection === connection else { throw CXError(message: "Connection change was cancelled.") }
+            guard !closed, !Task.isCancelled, startingConnection === connection else { throw VCXError(message: "Connection change was cancelled.") }
         }
         catch {
             connection.event = { _ in }; connection.close()
@@ -1609,10 +1609,10 @@ final class Session: ObservableObject {
         let directory = stateDirectory.appendingPathComponent("locks")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let fd = Darwin.open(directory.appendingPathComponent(id + ".lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw CXError(message: "Could not open the conversation lock.") }
+        guard fd >= 0 else { throw VCXError(message: "Could not open the conversation lock.") }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             Darwin.close(fd)
-            throw CXError(message: "This conversation is already open in another window. Use that window, or start a new conversation here.")
+            throw VCXError(message: "This conversation is already open in another window. Use that window, or start a new conversation here.")
         }
         return fd
     }
@@ -1704,13 +1704,13 @@ final class Session: ObservableObject {
                 if !matches.contains(where: { $0.id == id && $0.source?.key == source.key }) { matches.append(ConversationArchive.Resolution(id: id, source: source)) }
             }
         }
-        guard matches.count < 2 else { throw CXError(message: "More than one saved source uses this native ID. Choose its saved conversation and profile instead.") }
+        guard matches.count < 2 else { throw VCXError(message: "More than one saved source uses this native ID. Choose its saved conversation and profile instead.") }
         return matches.first
     }
 
     private func mergeSnapshotSources(_ paths: [URL]) throws {
         for path in paths {
-            guard let data = try? Data(contentsOf: path), let record = try? JSONSerialization.jsonObject(with: data) as? JSON else { throw CXError(message: "Could not read an earlier conversation snapshot.") }
+            guard let data = try? Data(contentsOf: path), let record = try? JSONSerialization.jsonObject(with: data) as? JSON else { throw VCXError(message: "Could not read an earlier conversation snapshot.") }
             var sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
             if sources.isEmpty, let thread = record["threadId"] as? String, let provider = savedProvider(record) {
                 let stored = restorableAccounts.first { $0.id == record["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
@@ -1756,7 +1756,7 @@ final class Session: ObservableObject {
     private func restore(_ id: String, source requestedSource: NativeSource? = nil, reason: String? = nil) async throws {
         guard !closed, !Task.isCancelled else { throw CancellationError() }
         trace("restore", ["id": id, "reason": reason ?? ""])
-        guard UUID(uuidString: id) != nil else { throw CXError(message: "Invalid saved conversation ID.") }
+        guard UUID(uuidString: id) != nil else { throw VCXError(message: "Invalid saved conversation ID.") }
         let claimed = recordLock?.0 == id ? nil : try claimRecord(id)
         let previousRecord = recordID, previousLock = recordLock
         let previousSources = nativeSources, previousLeases = nativeLeases
@@ -1781,7 +1781,7 @@ final class Session: ObservableObject {
         let materializedURL = nativeRecordURL(id)
         let materialized = await Task.detached { materializedURL.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON } }.value
         guard !closed, !Task.isCancelled else { throw CancellationError() }
-        guard let saved = materialized ?? archived else { throw CXError(message: "The saved conversation no longer exists.") }
+        guard let saved = materialized ?? archived else { throw VCXError(message: "The saved conversation no longer exists.") }
         nativeSources = (saved["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
         if let thread = saved["threadId"] as? String, let provider = savedProvider(saved) {
             let stored = restorableAccounts.first { $0.id == saved["accountId"] as? String } ?? Account(name: "Saved profile", provider: provider)
@@ -1793,19 +1793,19 @@ final class Session: ObservableObject {
         if let claimed { recordLock = (id, claimed); claimTransferred = true }
         try await ConversationArchive.restore(id, state: stateDirectory)
         guard !closed, !Task.isCancelled else { throw CancellationError() }
-        guard let url = nativeRecordURL(id) else { throw CXError(message: "The saved conversation no longer exists.") }
-        guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw CXError(message: "The saved conversation is invalid.") }
+        guard let url = nativeRecordURL(id) else { throw VCXError(message: "The saved conversation no longer exists.") }
+        guard let record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? JSON, let accountID = record["accountId"] as? String, let thread = record["threadId"] as? String else { throw VCXError(message: "The saved conversation is invalid.") }
         providerChoice = record["providerChoice"] as? String ?? providerChoice; accountChoice = record["accountChoice"] as? String ?? accountChoice; modeChoice = record["modeChoice"] as? String ?? modeChoice
         let rawThread = thread.split(separator: ":").last.map(String.init)?.lowercased()
         let currentSource = requestedSource ?? nativeSources.last { $0.provider == savedProvider(record) && $0.threadID.lowercased() == rawThread }
-        guard let currentSource else { throw CXError(message: "The saved native source is unavailable.") }
+        guard let currentSource else { throw VCXError(message: "The saved native source is unavailable.") }
         let sourceIsLatest = currentSource.provider == savedProvider(record) && currentSource.threadID.lowercased() == rawThread
         let savedAccountID = currentSource.accountID ?? (sourceIsLatest ? accountID : nil)
         let profiles = restorableAccounts.filter { $0.provider == currentSource.provider && $0.enabled }
         let selectedProfile: Account?
         if let savedAccountID { selectedProfile = profiles.first { $0.id == savedAccountID } }
         else { selectedProfile = { () -> Account? in let exact = profiles.filter { nativeSource(currentSource.threadID, account: $0).home == currentSource.home }; return exact.count == 1 ? exact[0] : nil }() }
-        guard var selected = selectedProfile else { throw CXError(message: "The saved account is unavailable. Enable its exact profile before resuming this conversation.") }
+        guard var selected = selectedProfile else { throw VCXError(message: "The saved account is unavailable. Enable its exact profile before resuming this conversation.") }
         if ["claude", "codex"].contains(selected.provider) { selected.home = currentSource.home }
         let pendingCreation = currentSource.pendingCreation
         let nativeThread = ["claude", "agy", "qwen"].contains(currentSource.provider) ? currentSource.provider + ":" + currentSource.threadID : currentSource.threadID
@@ -1813,7 +1813,7 @@ final class Session: ObservableObject {
         if usesNativeHistory, !pendingCreation, currentSource.provider != "qwen" {
             // Watcher reopens closed sessions, whose Claude transcripts chats.py deletes once chats.sqlite holds them.
             if currentSource.provider == "claude" { let thread = currentSource.threadID; await Task.detached { restoreClaudeTranscript(thread) }.value }
-            guard !(try await ConversationArchive.sourceFiles([currentSource], state: stateDirectory)).isEmpty else { throw CXError(message: "The exact saved native history is unavailable.") }
+            guard !(try await ConversationArchive.sourceFiles([currentSource], state: stateDirectory)).isEmpty else { throw VCXError(message: "The exact saved native history is unavailable.") }
             guard !closed, !Task.isCancelled else { throw CancellationError() }
         }
         providerChoice = selected.provider; accountChoice = selected.id
@@ -1859,21 +1859,21 @@ final class Session: ObservableObject {
     }
 
     func changeDirectory(_ path: String) async throws {
-        guard !busy, !changing, !closed, !switchingRecord else { throw CXError(message: "Stop the current turn before changing directory.") }
+        guard !busy, !changing, !closed, !switchingRecord else { throw VCXError(message: "Stop the current turn before changing directory.") }
         switchingRecord = true
         defer { switchingRecord = false }
         try await recoverIncompleteArchive()
         let expanded = (path as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: cwd, isDirectory: true)).standardized
         var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw CXError(message: "Directory does not exist.") }
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue else { throw VCXError(message: "Directory does not exist.") }
         if let saved = savedCommandDraft { draft = saved; savedCommandDraft = nil; draftRevision += 1 }
         else if draft.commandText.hasPrefix("/dir ") || draft.commandText.hasPrefix("/vcx:dir ") { draft = NSAttributedString(string: ""); draftRevision += 1 }
         let previous = (cwd, draft, draftGeneration, conversationDirectory)
         let retiring = try beginRecordTransition()
         cwd = url.path; conversationDirectory = cwd; draft = NSAttributedString(string: ""); draftRevision += 1
         do {
-            guard let next = available.first else { throw CXError(message: "No enabled account is available.") }
+            guard let next = available.first else { throw VCXError(message: "No enabled account is available.") }
             try await activate(next, resume: nil, keepRows: false)
             await archiveRetired(retiring)
             await refreshCatalog()
@@ -2188,11 +2188,11 @@ final class Session: ObservableObject {
         let leases = state["nativeLeases"] as? [JSON] ?? []
         for lease in leases {
             guard let value = lease["source"] as? JSON, NativeSource(value) != nil,
-                  let raw = lease["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw CXError(message: "Invalid native conversation lease in live update.") }
+                  let raw = lease["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw VCXError(message: "Invalid native conversation lease in live update.") }
         }
         if let lock = state["recordLock"] as? JSON {
             guard let id = lock["id"] as? String, id == snapshot["recordID"] as? String,
-                  let raw = lock["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw CXError(message: "Invalid conversation lock in live update.") }
+                  let raw = lock["descriptor"] as? Int, let fd = Int32(exactly: raw), fd > 2, fcntl(fd, F_GETFD) >= 0 else { throw VCXError(message: "Invalid conversation lock in live update.") }
             recordLock = (id, fd); _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         }
         for lease in leases {
@@ -2255,7 +2255,7 @@ final class Session: ObservableObject {
 
     private func recoverIncompleteArchive() async throws {
         guard archiveRecoveryNeeded else { return }
-        guard !recoveringArchive, !closed else { throw CXError(message: "The previous archive is still being recovered.") }
+        guard !recoveringArchive, !closed else { throw VCXError(message: "The previous archive is still being recovered.") }
         recoveringArchive = true
         defer { recoveringArchive = false }
         for source in nativeSources { try leaseNativeSource(source) }
@@ -2265,10 +2265,10 @@ final class Session: ObservableObject {
     }
 
     func prepareForClose() throws {
-        guard !closed, !archiving, !changing, !loading, !submitting, !transferring, !switchingRecord, !recoveringArchive, startingConnection == nil else { throw CXError(message: "Wait for the current connection change before closing this conversation.") }
+        guard !closed, !archiving, !changing, !loading, !submitting, !transferring, !switchingRecord, !recoveringArchive, startingConnection == nil else { throw VCXError(message: "Wait for the current connection change before closing this conversation.") }
         guard !archivedForClose, usesNativeHistory, threadID != nil else { return }
         flush()
-        guard save() else { throw CXError(message: "Could not save the current conversation before archiving. Native history has been kept.") }
+        guard save() else { throw VCXError(message: "Could not save the current conversation before archiving. Native history has been kept.") }
         if let process = rpc.archiveProcess, !stoppingNativeProcesses.contains(where: { $0 === process }) { stoppingNativeProcesses.append(process) }
     }
 

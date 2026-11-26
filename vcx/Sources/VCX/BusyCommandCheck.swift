@@ -9,7 +9,7 @@ enum BusyCommandCheck {
     static func run() async throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory() + "vcx-busy-command-" + UUID().uuidString.prefix(8))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create the tool gate.") }
+        guard mkfifo(directory.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw VCXError(message: "Cannot create the tool gate.") }
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/runtime_peer.py")
         let peer = Bundle.main.url(forResource: "runtime_peer", withExtension: "py") ?? source
         let command = directory.appendingPathComponent("command.json")
@@ -27,7 +27,7 @@ enum BusyCommandCheck {
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
-            throw CXError(message: "Busy command fixture timed out.")
+            throw VCXError(message: "Busy command fixture timed out.")
         }
         try await wait { FileManager.default.fileExists(atPath: socket) }
         let session = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("frontend-state"))
@@ -38,7 +38,7 @@ enum BusyCommandCheck {
         try await wait { session.ready }
         await session.send(text: "Start a long turn", images: [])
         try await wait { session.busy }
-        let host = NSHostingView(rootView: CXView(session: session, sending: SendAnimation()))
+        let host = NSHostingView(rootView: VCXView(session: session, sending: SendAnimation()))
         host.sizingOptions = []; host.appearance = NSAppearance(named: .aqua)
         host.frame = CGRect(x: 0, y: 0, width: 1120, height: 800)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -46,7 +46,7 @@ enum BusyCommandCheck {
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(nanoseconds: settleNanoseconds)
-        guard let field = editor(host) else { throw CXError(message: "Composer missing from the busy fixture.") }
+        guard let field = editor(host) else { throw VCXError(message: "Composer missing from the busy fixture.") }
         for character in "/model" { field.insertText(String(character), replacementRange: field.selectedRange()) }
         // Return on /model, on the current provider, on its model, then on its effort.
         let expected = ["/model ", "/model codex ", "/model codex fixture-model ", nil]

@@ -30,7 +30,7 @@ enum FrontendCheck {
             for process in candidates + workers where process.isRunning { process.terminate() }
         }
         func check(_ condition: Bool, _ message: String) throws {
-            guard condition else { throw CXError(message: "Frontend handoff failed: " + message) }
+            guard condition else { throw VCXError(message: "Frontend handoff failed: " + message) }
             count += 1
         }
         func wait(_ condition: () -> Bool) async throws {
@@ -38,12 +38,12 @@ enum FrontendCheck {
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
-            throw CXError(message: "Frontend handoff fixture timed out.")
+            throw VCXError(message: "Frontend handoff fixture timed out.")
         }
         for index in 0..<4 {
             let folder = directory.appendingPathComponent("session-\(index)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-            guard mkfifo(folder.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw CXError(message: "Cannot create handoff fixture gate.") }
+            guard mkfifo(folder.appendingPathComponent("release-tool").path, 0o600) == 0 else { throw VCXError(message: "Cannot create handoff fixture gate.") }
             let command = folder.appendingPathComponent("command.json")
             try JSONSerialization.data(withJSONObject: ["/usr/bin/python3", peer.path, folder.path]).write(to: command)
             let socket = folder.appendingPathComponent("worker.sock").path
@@ -109,7 +109,7 @@ enum FrontendCheck {
                 for entry in old { await entry.session.send(text: "handoff fixture work", images: []) }
                 try await wait { FileManager.default.fileExists(atPath: directory.appendingPathComponent("session-0/tool-started.json").path) && FileManager.default.fileExists(atPath: directory.appendingPathComponent("session-1/tool-started.json").path) }
                 let gate = Darwin.open(directory.appendingPathComponent("session-1/release-tool").path, O_WRONLY | O_NONBLOCK)
-                guard gate >= 0 else { throw CXError(message: "Cannot release handoff fixture tool.") }
+                guard gate >= 0 else { throw VCXError(message: "Cannot release handoff fixture tool.") }
                 var byte: UInt8 = 1
                 _ = Darwin.write(gate, &byte, 1); Darwin.close(gate)
                 try await wait { !old[1].session.permissions.isEmpty }
@@ -135,7 +135,7 @@ enum FrontendCheck {
                 let menu = NSMenu(), appMenu = NSMenu()
                 frontend.configureMenu(menu, appMenu: appMenu, fileMenu: NSMenu(), editMenu: NSMenu())
                 guard let quit = appMenu.items.first(where: { $0.keyEquivalent == "q" }) else {
-                    throw CXError(message: "Cmd+Q menu item is missing.")
+                    throw VCXError(message: "Cmd+Q menu item is missing.")
                 }
                 try check(quit.action == #selector(NSWindow.performClose(_:)), "Cmd+Q terminates every session instead of closing the focused window")
                 try check(quit.target == nil && quit.keyEquivalentModifierMask == .command, "Cmd+Q bypasses the focused responder")
@@ -157,7 +157,7 @@ enum FrontendCheck {
                 continue
             }
             if mode == "launch-failure" {
-                frontend.replacementLaunch = { _ in throw CXError(message: "Expected fixture launch failure.") }
+                frontend.replacementLaunch = { _ in throw VCXError(message: "Expected fixture launch failure.") }
             } else {
                 frontend.replacementLaunch = { ticket in
                     // A worker moving to a new build: unreachable for a moment while the replacement attaches.
@@ -180,7 +180,7 @@ enum FrontendCheck {
                 }
             }
             frontend.replaceFrontend()
-            guard let task = frontend.replacementTask else { throw CXError(message: "Frontend replacement did not start.") }
+            guard let task = frontend.replacementTask else { throw VCXError(message: "Frontend replacement did not start.") }
             await task.value
             if mode == "detached" { try FileManager.default.moveItem(atPath: sockets[1] + ".gone", toPath: sockets[1]) }
             if ["success", "moving", "detached"].contains(mode) {
@@ -189,12 +189,12 @@ enum FrontendCheck {
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 guard let file = files.first(where: { $0.lastPathComponent.hasSuffix(".verification.json") }),
                       let report = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? JSON,
-                      let restored = report["windows"] as? [JSON] else { throw CXError(message: "Replacement state report is missing.") }
+                      let restored = report["windows"] as? [JSON] else { throw VCXError(message: "Replacement state report is missing.") }
                 try FileManager.default.removeItem(at: file)
                 try check(report["restoreFinished"] as? Bool == true, "completed restoration still freezes new windows")
                 try check(restored.count == 2, "replacement lost a window")
                 for index in 0..<2 {
-                    guard let record = restored.first(where: { $0["sessionId"] as? String == ids[index] }) else { throw CXError(message: "Replacement session identity changed.") }
+                    guard let record = restored.first(where: { $0["sessionId"] as? String == ids[index] }) else { throw VCXError(message: "Replacement session identity changed.") }
                     // Its worker gone, it comes over detached, as it stood in the old frontend.
                     if mode == "detached", index == 1 { continue }
                     let state = record["state"] as? JSON ?? [:]
@@ -239,7 +239,7 @@ enum FrontendCheck {
             }
             try await wait { frontend.windows.count == 2 && frontend.windows.allSatisfy { $0.session.ready } }
             guard let live = frontend.windows.first(where: { $0.session.runtimeClient?.sessionID == ids[2] }),
-                  let gone = frontend.windows.first(where: { $0.session.runtimeClient?.sessionID == ids[3] }) else { throw CXError(message: "Quit fixture windows are missing.") }
+                  let gone = frontend.windows.first(where: { $0.session.runtimeClient?.sessionID == ids[3] }) else { throw VCXError(message: "Quit fixture windows are missing.") }
             // A peer message whose turn fails lands in the target's draft: its ticket is already gone.
             try Data().write(to: directory.appendingPathComponent("session-2/fail-turn"))
             let message = "claude from [fixture]: \"peer handoff message\""

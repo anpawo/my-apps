@@ -193,7 +193,7 @@ final class SessionBackend: RuntimeBackend {
 
     func perform(action: String, params: JSON) async throws -> JSON {
         if !["answer", "stop", "checkpoint"].contains(action), let startupTask { await startupTask.value }
-        guard !closed else { throw CXError(message: "This runtime session is closed.") }
+        guard !closed else { throw VCXError(message: "This runtime session is closed.") }
         if recoveryState != nil, startupTask == nil, session.ready { recoveryState = nil }
         if let pieces = params["draft"] as? [JSON], let generation = params["generation"] as? Int, generation >= session.draftGeneration, generation > consumedGeneration {
             let restored = runtimeDraft(pieces)
@@ -205,14 +205,14 @@ final class SessionBackend: RuntimeBackend {
         switch action {
         case "checkpoint":
             if let value = params["windowState"] as? JSON {
-                guard let data = try? JSONSerialization.data(withJSONObject: value), data.count <= 65536 else { throw CXError(message: "Window state is too large.") }
+                guard let data = try? JSONSerialization.data(withJSONObject: value), data.count <= 65536 else { throw VCXError(message: "Window state is too large.") }
                 windowState = value
             }
             try saveCheckpoint()
             schedule()
             return [:]
         case "send":
-            guard let text = params["text"] as? String, let images = params["images"] as? [String] else { throw CXError(message: "Invalid message payload.") }
+            guard let text = params["text"] as? String, let images = params["images"] as? [String] else { throw VCXError(message: "Invalid message payload.") }
             if text.hasPrefix("/"), images.isEmpty {
                 return try await perform(action: "command", params: ["text": text])
             }
@@ -226,15 +226,15 @@ final class SessionBackend: RuntimeBackend {
         case "answer":
             guard let rpcID = params["rpcID"], let method = params["method"] as? String, let result = params["result"] as? JSON,
                   let permission = session.permissions.first(where: { $0.method == method && NSDictionary(dictionary: ["id": $0.rpcID]).isEqual(to: ["id": rpcID]) }) else {
-                throw CXError(message: "This approval is no longer pending.")
+                throw VCXError(message: "This approval is no longer pending.")
             }
             session.answer(permission, result: result)
         case "command":
-            guard let text = params["text"] as? String else { throw CXError(message: "Invalid command payload.") }
+            guard let text = params["text"] as? String else { throw VCXError(message: "Invalid command payload.") }
             let token = String(text.split(whereSeparator: \.isWhitespace).first ?? "").lowercased()
             let verb = "/" + (token.split(separator: ":").last.map(String.init) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit"].contains(verb) else {
-                throw CXError(message: "This command belongs to the frontend.")
+                throw VCXError(message: "This command belongs to the frontend.")
             }
             Settings.shared.reload()
             let preservedDraft = session.savedCommandDraft ?? session.draft, generation = session.draftGeneration
@@ -250,14 +250,14 @@ final class SessionBackend: RuntimeBackend {
             }
         case "setModel":
             guard session.account.provider == "codex", !session.disabled,
-                  let model = params["model"] as? String, session.models.contains(model) else { throw CXError(message: "Codex session is busy or the model is unavailable.") }
+                  let model = params["model"] as? String, session.models.contains(model) else { throw VCXError(message: "Codex session is busy or the model is unavailable.") }
             let effort = params["effort"] as? String ?? session.effectiveEffort
-            guard effort.map({ session.modelEfforts[model, default: []].contains($0) }) ?? true else { throw CXError(message: "Reasoning effort is unavailable for this model.") }
+            guard effort.map({ session.modelEfforts[model, default: []].contains($0) }) ?? true else { throw VCXError(message: "Reasoning effort is unavailable for this model.") }
             await session.changeModel(model, effort: effort)
-            guard session.model == model, session.effectiveEffort == effort else { throw CXError(message: "Model change did not complete.") }
+            guard session.model == model, session.effectiveEffort == effort else { throw VCXError(message: "Model change did not complete.") }
             session.save()
         case "moveDirectory":
-            guard let path = params["path"] as? String, let directory = workingDirectory(path, within: "/") else { throw CXError(message: "Directory does not exist.") }
+            guard let path = params["path"] as? String, let directory = workingDirectory(path, within: "/") else { throw VCXError(message: "Directory does not exist.") }
             if directory != session.cwd { session.moveDirectory(directory) }
         case "refreshCatalog": await session.refreshCatalog()
         case "refreshUsage": await session.refreshUsage(force: params["force"] as? Bool ?? true)
@@ -274,7 +274,7 @@ final class SessionBackend: RuntimeBackend {
             try await Trace.drain(session.stateDirectory)
             if let runtimeID { try RuntimeRecovery.removeCheckpoint(sessionID: runtimeID) }
             close()
-        default: throw CXError(message: "Unknown runtime action.")
+        default: throw VCXError(message: "Unknown runtime action.")
         }
         publish()
         return [:]
@@ -296,7 +296,7 @@ final class SessionBackend: RuntimeBackend {
 
     convenience init(adopting state: JSON) throws {
         guard let value = state["snapshot"] as? JSON, let extras = state["session"] as? JSON, let connection = state["connection"] as? JSON,
-              let cwd = value["cwd"] as? String, let directory = value["stateDirectory"] as? String else { throw CXError(message: "Invalid live update session.") }
+              let cwd = value["cwd"] as? String, let directory = value["stateDirectory"] as? String else { throw VCXError(message: "Invalid live update session.") }
         let rpc = try adoptConnection(connection)
         self.init(session: Session(cwd: cwd, stateDirectory: URL(fileURLWithPath: directory, isDirectory: true)))
         configured = true

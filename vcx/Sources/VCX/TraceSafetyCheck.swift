@@ -44,7 +44,7 @@ enum TraceSafetyCheck {
                 if corrupt { try Data("synthetic corrupt database".utf8).write(to: file) }
                 else {
                     var connection: OpaquePointer?
-                    guard sqlite3_open(file.path, &connection) == SQLITE_OK else { throw CXError(message: "Fixture database open failed") }
+                    guard sqlite3_open(file.path, &connection) == SQLITE_OK else { throw VCXError(message: "Fixture database open failed") }
                     sqlite3_exec(connection, "CREATE TABLE foreign_data(value TEXT)", nil, nil, nil)
                     sqlite3_close(connection)
                 }

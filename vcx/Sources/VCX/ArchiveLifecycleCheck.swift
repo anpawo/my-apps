@@ -42,7 +42,7 @@ enum ArchiveLifecycleCheck {
     private static func wait(_ condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(deadline)
         while !condition() {
-            guard Date() < end else { throw CXError(message: "Archive lifecycle fixture timed out") }
+            guard Date() < end else { throw VCXError(message: "Archive lifecycle fixture timed out") }
             try await Task.sleep(nanoseconds: pollDelay)
         }
     }
@@ -61,10 +61,10 @@ enum ArchiveLifecycleCheck {
         try await wait { backend.gate.started }
         let closing = Task { try await client.perform("close") }
         try await Task.sleep(nanoseconds: observationDelay)
-        guard !backend.closeStarted else { throw CXError(message: "Close bypassed an ordered conversation switch") }
+        guard !backend.closeStarted else { throw VCXError(message: "Close bypassed an ordered conversation switch") }
         backend.gate.release()
         _ = try await switching.value; _ = try await closing.value
-        guard backend.switchFinished, backend.closeStarted else { throw CXError(message: "Ordered close did not finish") }
+        guard backend.switchFinished, backend.closeStarted else { throw VCXError(message: "Ordered close did not finish") }
     }
 
     private static func startupCannotOutliveClose(_ root: URL) async throws {
@@ -75,10 +75,10 @@ enum ArchiveLifecycleCheck {
         try await wait { connection.gate.started }
         let closing = Task { try await backend.perform(action: "close", params: [:]) }
         try await Task.sleep(nanoseconds: observationDelay)
-        guard !connection.didClose else { throw CXError(message: "Close interrupted an unfinished startup") }
+        guard !connection.didClose else { throw VCXError(message: "Close interrupted an unfinished startup") }
         connection.gate.release()
         _ = try await closing.value
-        guard connection.didClose, first.threadID != nil else { throw CXError(message: "Startup did not settle before close") }
+        guard connection.didClose, first.threadID != nil else { throw VCXError(message: "Startup did not settle before close") }
 
         let second = Session(cwd: root.path, stateDirectory: root.appendingPathComponent("second"))
         let abandoned = LifecycleConnection(gated: true), cancelled = SessionBackend(session: second)
@@ -88,7 +88,7 @@ enum ArchiveLifecycleCheck {
         cancelled.close(); abandoned.gate.release()
         try await wait { abandoned.startReturned }
         await Task.yield()
-        guard second.threadID == nil, abandoned.nativeOpens.isEmpty else { throw CXError(message: "Cancelled startup mutated a closed session") }
+        guard second.threadID == nil, abandoned.nativeOpens.isEmpty else { throw VCXError(message: "Cancelled startup mutated a closed session") }
     }
 
     private static func restoresExactEarlierSource(_ root: URL, fixtureRoot: URL) async throws {
@@ -113,7 +113,7 @@ enum ArchiveLifecycleCheck {
         first.archiveFixtureRoot = fixtureRoot.path
         try await first.archiveForClose(); first.close(); await Task.yield()
         let recovery = RuntimeRecovery.Entry(sessionID: UUID().uuidString, cwd: root.path, socketPath: root.appendingPathComponent("worker.sock").path, windowState: [:], state: ["recordID": recordID, "stateDirectory": state.path], instanceID: nil, resume: "native:" + recordID)
-        guard await RuntimeRecovery.hasSavedRecord(recovery) else { throw CXError(message: "Committed archive disappeared from cold recovery") }
+        guard await RuntimeRecovery.hasSavedRecord(recovery) else { throw VCXError(message: "Committed archive disappeared from cold recovery") }
         try await checkAliasResume(root, state: state, nativeID: nativeID, recordID: recordID)
     }
 
@@ -121,18 +121,18 @@ enum ArchiveLifecycleCheck {
         let connection = LifecycleConnection(), resumed = Session(cwd: root.path, stateDirectory: state)
         resumed.connectionFactory = { _, _ in connection }
         await resumed.connect(resume: "claude:" + nativeID)
-        guard resumed.ready, resumed.threadID == "claude:" + nativeID, resumed.currentConversationID == "native:" + recordID, connection.nativeOpens == ["claude:" + nativeID], resumed.account.id == "archive-old" else { throw CXError(message: "Earlier alias resumed the latest source or another profile") }
+        guard resumed.ready, resumed.threadID == "claude:" + nativeID, resumed.currentConversationID == "native:" + recordID, connection.nativeOpens == ["claude:" + nativeID], resumed.account.id == "archive-old" else { throw VCXError(message: "Earlier alias resumed the latest source or another profile") }
         resumed.close(); await Task.yield()
         let ambiguous = Session(cwd: root.path, stateDirectory: state), unknown = LifecycleConnection()
         ambiguous.connectionFactory = { _, _ in unknown }
         await ambiguous.connect(resume: nativeID)
-        guard !ambiguous.ready, unknown.nativeOpens.isEmpty else { throw CXError(message: "Ambiguous native alias started a source") }
+        guard !ambiguous.ready, unknown.nativeOpens.isEmpty else { throw VCXError(message: "Ambiguous native alias started a source") }
         ambiguous.close()
         Settings.shared.value.accounts[0].enabled = false
         let disabled = Session(cwd: root.path, stateDirectory: state), fallback = LifecycleConnection()
         disabled.connectionFactory = { _, _ in fallback }
         await disabled.connect(resume: "claude:" + nativeID)
-        guard !disabled.ready, fallback.nativeOpens.isEmpty else { throw CXError(message: "Unavailable account silently started a new thread") }
+        guard !disabled.ready, fallback.nativeOpens.isEmpty else { throw VCXError(message: "Unavailable account silently started a new thread") }
         disabled.close()
     }
 
@@ -145,26 +145,26 @@ enum ArchiveLifecycleCheck {
             let state = root.appendingPathComponent(provider), first = Session(cwd: root.path, stateDirectory: state)
             first.connectionFactory = { _, _ in LifecycleConnection() }
             first.providerChoice = provider
-            guard let account = settings.candidates(provider).first else { throw CXError(message: "Synthetic fixture account missing") }
+            guard let account = settings.candidates(provider).first else { throw VCXError(message: "Synthetic fixture account missing") }
             try await first.activate(account, resume: nil, keepRows: false)
             let id = first.currentConversationID
-            guard first.save() else { throw CXError(message: "Synthetic account fixture save failed") }
+            guard first.save() else { throw VCXError(message: "Synthetic account fixture save failed") }
             first.close()
             let resumed = Session(cwd: root.path, stateDirectory: state)
             resumed.connectionFactory = { _, _ in LifecycleConnection() }
             await resumed.connect(resume: id)
             defer { resumed.close() }
             guard resumed.ready, resumed.account.id == account.id, resumed.accountChoice == account.id,
-                  resumed.available.first?.id == account.id else { throw CXError(message: "Restored synthetic account selected a fallback") }
+                  resumed.available.first?.id == account.id else { throw VCXError(message: "Restored synthetic account selected a fallback") }
         }
         let disabled = Account(id: "archive-explicit", name: "Explicit fixture", provider: "claude", enabled: false)
         settings.value.accounts = [disabled]
         let selected = Session(cwd: root.path, stateDirectory: root.appendingPathComponent("explicit"))
         defer { selected.close() }
         selected.providerChoice = disabled.provider; selected.accountChoice = disabled.id
-        guard selected.available.first == disabled else { throw CXError(message: "Explicit persisted account preference changed") }
+        guard selected.available.first == disabled else { throw VCXError(message: "Explicit persisted account preference changed") }
         settings.value.limits[disabled.id] = Date().addingTimeInterval(deadline).timeIntervalSince1970
-        guard !selected.available.contains(where: { $0.id == disabled.id }) else { throw CXError(message: "Selected account bypassed its usage limit") }
+        guard !selected.available.contains(where: { $0.id == disabled.id }) else { throw VCXError(message: "Selected account bypassed its usage limit") }
     }
 }
 

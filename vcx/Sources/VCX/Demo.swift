@@ -12,7 +12,7 @@ enum Demo {
         let sending: SendAnimation
         @ObservedObject var key: Key
         var body: some View {
-            CXView(session: session, sending: sending)
+            VCXView(session: session, sending: sending)
                 .overlay(alignment: .bottomLeading) {
                     if let shown = key.shown {
                         Text(shown).font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(.white)

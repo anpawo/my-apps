@@ -31,7 +31,7 @@ enum RuntimeSwapCheck {
     private static func wait(_ description: String, seconds: Double = 10, until condition: () throws -> Bool) async throws {
         let deadline = Date().addingTimeInterval(seconds)
         while try !condition() {
-            guard Date() < deadline else { throw CXError(message: "Runtime live update check timed out: " + description) }
+            guard Date() < deadline else { throw VCXError(message: "Runtime live update check timed out: " + description) }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
     }
@@ -43,16 +43,16 @@ enum RuntimeSwapCheck {
         var replies: [String: CheckedContinuation<JSON, Error>] = [:]
         channel.onMessage = { message in
             guard let id = message["id"] as? String, let reply = replies.removeValue(forKey: id) else { return }
-            if let error = message["error"] as? JSON { reply.resume(throwing: CXError(message: error["message"] as? String ?? "Runtime probe failed.")) }
+            if let error = message["error"] as? JSON { reply.resume(throwing: VCXError(message: error["message"] as? String ?? "Runtime probe failed.")) }
             else { reply.resume(returning: message["result"] as? JSON ?? [:]) }
         }
-        channel.onClose = { for reply in replies.values { reply.resume(throwing: CXError(message: "Runtime probe disconnected.")) }; replies.removeAll() }
+        channel.onClose = { for reply in replies.values { reply.resume(throwing: VCXError(message: "Runtime probe disconnected.")) }; replies.removeAll() }
         channel.start()
         func call(_ method: String, _ params: JSON) async throws -> JSON {
             try await withCheckedThrowingContinuation { continuation in
                 let id = UUID().uuidString
                 replies[id] = continuation
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { replies.removeValue(forKey: id)?.resume(throwing: CXError(message: "Runtime probe timed out.")) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { replies.removeValue(forKey: id)?.resume(throwing: VCXError(message: "Runtime probe timed out.")) }
                 do { try channel.send(["id": id, "method": method, "params": params]) }
                 catch { replies.removeValue(forKey: id)?.resume(throwing: error) }
             }
@@ -83,7 +83,7 @@ enum RuntimeSwapCheck {
         let socket = directory.appendingPathComponent("worker.sock").path, log = directory.appendingPathComponent("worker.log")
         func logged(_ pattern: String) -> Bool { ((try? String(contentsOf: log, encoding: .utf8)) ?? "").range(of: pattern, options: .regularExpression) != nil }
         func manifests() throws -> [String] { try files.contentsOfDirectory(atPath: directory.appendingPathComponent("runtime").path).filter { $0.hasSuffix(RuntimeSwap.suffix) } }
-        guard files.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600]), let logHandle = FileHandle(forWritingAtPath: log.path) else { throw CXError(message: "Cannot create the live update worker log.") }
+        guard files.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600]), let logHandle = FileHandle(forWritingAtPath: log.path) else { throw VCXError(message: "Cannot create the live update worker log.") }
 
         let worker = Process()
         worker.executableURL = RuntimeIdentity.executable
@@ -111,7 +111,7 @@ enum RuntimeSwapCheck {
         }
         var count = 0
         func check(_ condition: Bool, _ message: String) throws {
-            guard condition else { throw CXError(message: "Runtime live update failed: " + message + " (log: " + log.path + ")") }
+            guard condition else { throw VCXError(message: "Runtime live update failed: " + message + " (log: " + log.path + ")") }
             count += 1
         }
 
@@ -120,7 +120,7 @@ enum RuntimeSwapCheck {
             first = try? await probe(socket)
             if first == nil { try await Task.sleep(nanoseconds: 20_000_000) }
         }
-        guard let first, let buildA = first["build"] as? String else { throw CXError(message: "Runtime live update worker did not start.") }
+        guard let first, let buildA = first["build"] as? String else { throw VCXError(message: "Runtime live update worker did not start.") }
         func frontend(_ folder: URL, _ name: String) async throws -> (Session, RuntimeClient) {
             let session = Session(cwd: folder.path, stateDirectory: directory.appendingPathComponent(name))
             let client = RuntimeClient(session: session, cwd: folder.path, socketPath: socket)
@@ -184,7 +184,7 @@ enum RuntimeSwapCheck {
             if let hello = try? await probe(socket), hello["build"] as? String == buildB { swapped = hello }
             else { try await Task.sleep(nanoseconds: 50_000_000) }
         }
-        guard let swapped else { throw CXError(message: "Runtime live update failed: the idle worker did not move to build B (log: " + log.path + ")") }
+        guard let swapped else { throw VCXError(message: "Runtime live update failed: the idle worker did not move to build B (log: " + log.path + ")") }
         let starts = try String(contentsOf: directory.appendingPathComponent("agent-starts"), encoding: .utf8).split(separator: "\n").compactMap { pid_t($0) }
         var info = proc_bsdinfo()
         let parents = starts.map { proc_pidinfo($0, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size) ? pid_t(info.pbi_ppid) : -1 }

@@ -22,9 +22,6 @@ MAX_CODEX_HEADER_BYTES = 8 * CHUNK_BYTES
 MAX_CLIENT_VERSION_LENGTH = 256
 APPLICATION_ID = 0x56435841
 SCHEMA_VERSION = 1
-# The state folder was ~/.local/state/cx until 25/11/2026: manifests sealed before the move name it in their roots.
-LEGACY_STATE = Path.home() / ".local/state/cx"
-CURRENT_STATE = Path.home() / ".local/state/vcx"
 SCHEMA = """CREATE TABLE IF NOT EXISTS conversations (
  id BLOB PRIMARY KEY CHECK(length(id)=16), record BLOB NOT NULL,
  updated_at INTEGER NOT NULL, native_thread TEXT NOT NULL, status TEXT NOT NULL, recent_summary TEXT NOT NULL DEFAULT '{}');
@@ -523,16 +520,7 @@ def record(connection, key):
     row = connection.execute("SELECT record FROM conversations WHERE id=?", (key,)).fetchone()
     if not row:
         return None
-    value = json.loads(zlib.decompress(row[0]))
-    if isinstance(value.get("archiveRoots"), dict):
-        value["archiveRoots"] = {name: relocated(base) for name, base in value["archiveRoots"].items()}
-    return value
-
-
-def relocated(base):
-    path = Path(base)
-    moved = LEGACY_STATE.is_symlink() or not LEGACY_STATE.is_dir()
-    return str(CURRENT_STATE / path.relative_to(LEGACY_STATE)) if moved and path.is_relative_to(LEGACY_STATE) else base
+    return json.loads(zlib.decompress(row[0]))
 
 
 def publish(path, mode, payload, compressed=False):

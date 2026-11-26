@@ -26,13 +26,13 @@ enum ArchiveResumeCheck {
             try await first.activate(account, resume: nil, keepRows: false)
             stage = "initial tool turn"
             try await turn(first, "Run printf '" + marker + "' with your terminal tool, then reply with just done.", provider: provider)
-            guard first.rows.flatMap(\.items).contains(where: { ($0.data["aggregatedOutput"] as? String ?? "").contains(marker) }) else { throw CXError(message: "Missing fixture tool result") }
+            guard first.rows.flatMap(\.items).contains(where: { ($0.data["aggregatedOutput"] as? String ?? "").contains(marker) }) else { throw VCXError(message: "Missing fixture tool result") }
             let id = first.currentConversationID, thread = first.threadID
             let record = try JSONSerialization.jsonObject(with: Data(contentsOf: first.snapshotURL)) as! JSON
             let sources = (record["nativeSources"] as? [JSON] ?? []).compactMap(NativeSource.init)
-            guard sources.count == 1, sources[0].managed, let version = sources[0].clientVersion else { throw CXError(message: "Fixture native provenance missing") }
+            guard sources.count == 1, sources[0].managed, let version = sources[0].clientVersion else { throw VCXError(message: "Fixture native provenance missing") }
             let nativePaths = try ConversationArchive.call("sourceFiles", state: state, values: ["sources": sources.map(\.json)])["paths"] as? [String] ?? []
-            guard !nativePaths.isEmpty else { throw CXError(message: "Fixture native artifacts missing") }
+            guard !nativePaths.isEmpty else { throw VCXError(message: "Fixture native artifacts missing") }
             if pruneFixture {
                 _ = try ConversationArchive.call("certifyProvider", state: state, values: ["provider": provider, "adapterRevision": adapterRevision, "clientVersion": version])
             }
@@ -40,16 +40,16 @@ enum ArchiveResumeCheck {
             try await first.archiveForClose()
             try await first.refreshArchiveCatalog()
             first.close()
-            guard !FileManager.default.fileExists(atPath: first.snapshotURL.path), first.nativeRecent().contains(where: { $0.id == id }) else { throw CXError(message: "Archive catalog missing") }
-            if pruneFixture, nativePaths.contains(where: { FileManager.default.fileExists(atPath: $0) }) { throw CXError(message: "Fixture native history was not pruned") }
+            guard !FileManager.default.fileExists(atPath: first.snapshotURL.path), first.nativeRecent().contains(where: { $0.id == id }) else { throw VCXError(message: "Archive catalog missing") }
+            if pruneFixture, nativePaths.contains(where: { FileManager.default.fileExists(atPath: $0) }) { throw VCXError(message: "Fixture native history was not pruned") }
             stage = "native resume"
             second.providerChoice = provider
             await Task.yield()
             await second.connect(resume: thread)
-            guard second.ready, second.threadID == thread, second.currentConversationID == id else { throw CXError(message: "Native resume failed") }
+            guard second.ready, second.threadID == thread, second.currentConversationID == id else { throw VCXError(message: "Native resume failed") }
             stage = "recalled tool result"
             try await turn(second, "What exact string did the first terminal command in this conversation print? Reply with only that string.", provider: provider)
-            guard second.rows.last(where: { $0.kind == "assistant" })?.items.contains(where: { ($0.data["text"] as? String ?? "").contains(marker) }) == true else { throw CXError(message: "Native state not recalled") }
+            guard second.rows.last(where: { $0.kind == "assistant" })?.items.contains(where: { ($0.data["text"] as? String ?? "").contains(marker) }) == true else { throw VCXError(message: "Native state not recalled") }
             stage = "second archive"
             try await second.archiveForClose()
             second.close()
@@ -64,13 +64,13 @@ enum ArchiveResumeCheck {
 
     private static func turn(_ session: Session, _ prompt: String, provider: String) async throws {
         let account = session.account, thread = session.threadID, record = session.currentConversationID
-        guard account.provider == provider else { throw CXError(message: "Fixture provider changed before turn") }
+        guard account.provider == provider else { throw VCXError(message: "Fixture provider changed before turn") }
         await session.send(text: prompt, images: [])
         let deadline = Date().addingTimeInterval(turnTimeout)
         repeat {
-            guard session.account == account, session.threadID == thread, session.currentConversationID == record else { throw CXError(message: "Fixture source changed during turn") }
+            guard session.account == account, session.threadID == thread, session.currentConversationID == record else { throw VCXError(message: "Fixture source changed during turn") }
             if session.busy { try await Task.sleep(nanoseconds: pollDelay) }
         } while session.busy && Date() < deadline
-        guard !session.busy, session.ready, !session.needsAttention else { throw CXError(message: "Fixture turn did not complete") }
+        guard !session.busy, session.ready, !session.needsAttention else { throw VCXError(message: "Fixture turn did not complete") }
     }
 }

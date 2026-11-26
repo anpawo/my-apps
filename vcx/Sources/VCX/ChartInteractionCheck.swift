@@ -94,7 +94,7 @@ enum ChartInteractionCheck {
         session.show(["id": "scroll-question", "type": "userMessage", "content": [["type": "text", "text": "Show forecast"]]])
         session.show(["id": "scroll-answer", "type": "agentMessage", "text": String(repeating: "Forecast details\n\n", count: 100)])
         session.chart = ChartZoom(html: html, size: CGSize(width: 640, height: 400))
-        let host = CXView.host(session)
+        let host = VCXView.host(session)
         let window = mount(host, size: CGSize(width: 1176 + taskBarWidth, height: 803))
         defer { window.close() }
         guard let view = web(host), let transcript = RuntimeUpdate.scrollView(in: host) else { return fail("preview and transcript exist") }
