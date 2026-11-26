@@ -79,7 +79,7 @@ fn reads_an_agy_turn_into_the_shared_steps_and_asks_before_the_command() {
     assert_eq!((method.as_str(), params["command"].as_str()), ("item/commandExecution/requestApproval", Some("echo vcx")));
     assert_eq!(answer.unwrap()["result"]["outcome"]["optionId"], "proceed_once");
     assert_eq!(steps, ["turn started", "message: I will run it once.", "command: vcx (completed)", "message: done", "turn Completed"]);
-    assert!(inbound.iter().any(|message| matches!(message, Inbound::Event(event) if event.method() == "cx/tokens")));
+    assert!(inbound.iter().any(|message| matches!(message, Inbound::Event(event) if event.method() == "vcx/tokens")));
 }
 
 #[test]

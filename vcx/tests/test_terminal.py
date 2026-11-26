@@ -16,9 +16,8 @@ from textual.containers import VerticalScroll
 from textual import events
 from textual.widgets import Button, Collapsible, Input
 
-from cx import BLUE, GREEN, ORANGE, CxApp, Prompt, Reply, RequestScreen, clean, prompt_input, reply_content, tool_content
+from terminal import BLUE, GREEN, ORANGE, TerminalApp, Prompt, Reply, RequestScreen, clean, prompt_input, reply_content, tool_content
 from rpc import CodexClient, RpcError
-import install
 
 
 def rendered(source):
@@ -62,27 +61,6 @@ class RenderingTests(unittest.TestCase):
                 {"type": "localImage", "path": str(image.resolve())},
             ])
 
-
-class InstallTests(unittest.TestCase):
-    def test_replaces_alias_without_writing_through_to_codex(self):
-        with tempfile.TemporaryDirectory(prefix="cx-install-") as tmp:
-            root = Path(tmp)
-            home = root / "home"
-            target = home / ".local/bin/cx"
-            target.parent.mkdir(parents=True)
-            codex = root / "codex"
-            codex.write_bytes(b"original executable")
-            target.symlink_to(codex)
-            with patch.object(Path, "home", return_value=home), patch.object(install.shutil, "which", return_value=str(codex)), patch.object(install.subprocess, "run"), patch.object(install.venv, "create"):
-                install.install()
-            self.assertFalse(target.is_symlink())
-            self.assertIn("# cx launcher\n", target.read_text())
-            self.assertEqual(codex.read_bytes(), b"original executable")
-            target.write_text("Unrelated command")
-            with patch.object(Path, "home", return_value=home), patch.object(install.subprocess, "run"), patch.object(install.venv, "create"):
-                with self.assertRaises(SystemExit):
-                    install.install()
-            self.assertEqual(target.read_text(), "Unrelated command")
 
 
 class RpcTests(unittest.IsolatedAsyncioTestCase):
@@ -142,7 +120,7 @@ class UiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.client = FakeClient()
-        self.app = CxApp(cwd=self.tmp.name, client=self.client, state_dir=self.tmp.name, offline=True)
+        self.app = TerminalApp(cwd=self.tmp.name, client=self.client, state_dir=self.tmp.name, offline=True)
 
     async def asyncTearDown(self):
         self.tmp.cleanup()

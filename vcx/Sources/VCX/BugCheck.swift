@@ -253,7 +253,7 @@ enum BugCheck {
             func queueLast(read: Bool = false) -> String {
                 let id = connection.sent.last?["clientUserMessageId"] as? String ?? ""
                 if !read { connection.unread.insert(id) }
-                connection.event(["method": "cx/userQueue", "params": ["id": id, "queued": !read]])
+                connection.event(["method": "vcx/userQueue", "params": ["id": id, "queued": !read]])
                 return id
             }
             func key(_ selector: Selector) async -> Bool { let handled = backCoordinator.textView(backField, doCommandBy: selector); await settle(); return handled }
@@ -303,7 +303,7 @@ enum BugCheck {
             let afterNow = connection.sent.count
             _ = try await backend.perform(action: "sendNow", params: [:]); await settle()
             check(connection.sent.count == afterNow && backendSession.busy, "Shift+Return does nothing once the prompt is the running turn's own")
-            connection.event(["method": "cx/userQueue", "params": ["id": raced, "queued": false]])
+            connection.event(["method": "vcx/userQueue", "params": ["id": raced, "queued": false]])
             backendSession.editDraft(NSAttributedString(string: ""))
             await backendSession.send(text: "held by Claude", images: [])
             _ = queueLast()
@@ -321,7 +321,7 @@ enum BugCheck {
             ordered.show(["id": "order-q1", "type": "userMessage", "content": [["type": "text", "text": "average internship salary"]]])
             act(1); act(2)
             ordered.rows.append(Row("user", [Item(["id": "order-q2", "type": "userMessage", "content": [["type": "text", "text": "and the average salary after graduating"]], "sentAt": Date().timeIntervalSince1970])]))
-            ordered.event(["method": "cx/userQueue", "params": ["id": "order-q2", "queued": true]])
+            ordered.event(["method": "vcx/userQueue", "params": ["id": "order-q2", "queued": true]])
             act(3); act(4); act(5)
             ordered.show(["id": "order-a1", "type": "agentMessage", "text": "Interns earn about this much."])
             print("Rows while the second prompt is unread: \(ordered.rows.map { "\($0.kind)(\($0.items.count))" }.joined(separator: " "))")
@@ -335,7 +335,7 @@ enum BugCheck {
                 try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: destination).appendingPathComponent("unread-order.png"))
             }
             window.close()
-            ordered.event(["method": "cx/userQueue", "params": ["id": "order-q2", "queued": false]])
+            ordered.event(["method": "vcx/userQueue", "params": ["id": "order-q2", "queued": false]])
             act(6)
             check(ordered.rows.map(\.kind) == ["user", "activity", "assistant", "user", "activity"] && ordered.rows[4].items.count == 1,
                   "once the agent reads the prompt, its next actions go under it")
@@ -998,7 +998,7 @@ enum BugCheck {
             var queued: [String: Bool] = [:], answer = "", done = false
             claude.event = { message in
                 let p = message["params"] as? JSON ?? [:]
-                if message["method"] as? String == "cx/userQueue", let id = p["id"] as? String { queued[id] = p["queued"] as? Bool }
+                if message["method"] as? String == "vcx/userQueue", let id = p["id"] as? String { queued[id] = p["queued"] as? Bool }
                 if message["method"] as? String == "item/completed", let item = p["item"] as? JSON { answer = item["text"] as? String ?? answer }
                 if message["method"] as? String == "turn/completed" { done = true }
             }
@@ -1008,13 +1008,13 @@ enum BugCheck {
             try await steer("first version", "unsent")
             for _ in 0..<200 where queued["unsent"] == nil { try await Task.sleep(nanoseconds: 10_000_000) }
             check(queued["unsent"] == true, "Claude reports a prompt sent during its turn as not read yet")
-            let withdrawn = try await claude.request("cx/unsend", ["id": "unsent"])
+            let withdrawn = try await claude.request("vcx/unsend", ["id": "unsent"])
             try await steer("edited version", "edited")
             try await steer("READ", "read")
             for _ in 0..<200 where !done { try await Task.sleep(nanoseconds: 10_000_000) }
             check(withdrawn["cancelled"] as? Bool == true && answer == "Read: edited version, READ", "a prompt withdrawn before Claude reads it never reaches Claude")
             check(queued["edited"] == false, "Claude reports a prompt its turn took in as read")
-            let late = try await claude.request("cx/unsend", ["id": "edited"])
+            let late = try await claude.request("vcx/unsend", ["id": "edited"])
             check(late["cancelled"] as? Bool == false, "a prompt Claude has read cannot be withdrawn")
             var completions: [JSON] = []
             claude.event = { message in
@@ -1024,7 +1024,7 @@ enum BugCheck {
             }
             let held = ((try await claude.request("turn/start", ["input": [["type": "text", "text": "WAIT"]]]))["turn"] as? JSON)?["id"] as? String ?? ""
             _ = try await claude.request("turn/steer", ["expectedTurnId": held, "clientUserMessageId": "now", "input": [["type": "text", "text": "do this now"]]])
-            let sentNow = try await claude.request("cx/sendNow", ["id": "now"])
+            let sentNow = try await claude.request("vcx/sendNow", ["id": "now"])
             for _ in 0..<200 where completions.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
             try await Task.sleep(nanoseconds: 100_000_000)
             check(sentNow["send_now"] as? String == "stopped" && answer == "Now: do this now" && completions.count == 1 && completions.first?["status"] as? String == "completed" && completions.first?["error"] == nil,

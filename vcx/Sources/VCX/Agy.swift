@@ -49,11 +49,11 @@ final class AgyConnection: Connection {
             guard let self, !closed else { return }; receive(message)
         }, invalid: { [weak self] text in
             guard let self, !closed else { return }
-            event(["method": "cx/error", "params": ["message": text.replacingOccurrences(of: "Provider", with: "Antigravity")]])
+            event(["method": "vcx/error", "params": ["message": text.replacingOccurrences(of: "Provider", with: "Antigravity")]])
         }, disconnected: { [weak self] in
             guard let self, !closed else { return }
             closed = true
-            event(["method": "cx/disconnected", "params": ["message": "Antigravity stopped."]])
+            event(["method": "vcx/disconnected", "params": ["message": "Antigravity stopped."]])
         })
         self.reader = reader; reader.start()
         _ = try await call("initialize", ["protocolVersion": 1, "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false],
@@ -87,7 +87,7 @@ final class AgyConnection: Connection {
         case "thread/turns/list", "thread/list": return ["data": []]
         case "account/rateLimits/read", "config/read": return [:]
         case "model/list": return ["data": models.map { ["id": $0] }]
-        case "cx/mode":
+        case "vcx/mode":
             bypass = params["mode"] as? String == "bypass"
             try await applyMode(); return [:]
         case "turn/start":
@@ -119,7 +119,7 @@ final class AgyConnection: Connection {
             // A turn runs as long as the agent works: no timeout here, Stop cancels it.
             let result = try await call("session/prompt", ["sessionId": session, "prompt": prompt], timeout: .infinity)
             if result["stopReason"] as? String == "cancelled" { status = "interrupted" }
-            if let usage = result["usage"] as? JSON, let input = usage["inputTokens"] as? Int, let output = usage["outputTokens"] as? Int { emit("cx/tokens", ["input": input, "output": output]) }
+            if let usage = result["usage"] as? JSON, let input = usage["inputTokens"] as? Int, let output = usage["outputTokens"] as? Int { emit("vcx/tokens", ["input": input, "output": output]) }
         } catch { status = "failed"; failure = error.localizedDescription }
         endMessage(); endThought()
         for (id, var item) in tools { item["status"] = status == "completed" ? "completed" : "failed"; tools[id] = nil; emit("item/completed", ["item": item]) }
@@ -167,9 +167,9 @@ final class AgyConnection: Connection {
             item["status"] = status
             emit("item/completed", ["item": item])
         case "usage_update":
-            emit("cx/context", ["used": value["used"] as? Int ?? 0, "limit": value["size"] as? Int ?? 0, "model": model])
+            emit("vcx/context", ["used": value["used"] as? Int ?? 0, "limit": value["size"] as? Int ?? 0, "model": model])
         case "current_model_update":
-            if let next = value["currentModelId"] as? String ?? value["modelId"] as? String { model = next; emit("cx/model", ["model": next]) }
+            if let next = value["currentModelId"] as? String ?? value["modelId"] as? String { model = next; emit("vcx/model", ["model": next]) }
         default: break
         }
     }
@@ -245,7 +245,7 @@ final class AgyConnection: Connection {
         if method == "session/request_permission", let id = message["id"] { permission(id, message["params"] as? JSON ?? [:]); return }
         if let method, let id = message["id"] {
             // No file system or terminal capability was offered, so agy has nothing else to ask.
-            try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "vcx does not support \(method)"]]); return
+            try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "vvcx does not support \(method)"]]); return
         }
         guard let id = message["id"] as? Int, let waiting = pending.removeValue(forKey: id) else { return }
         if let error = message["error"] as? JSON { waiting.resume(throwing: CXError(message: "Antigravity: " + (error["message"] as? String ?? "request failed"))) }

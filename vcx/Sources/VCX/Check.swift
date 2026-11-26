@@ -10,7 +10,7 @@ enum Check {
         let claude = ClaudeConnection(account: Account(name: "Default Claude", provider: "claude"), cwd: NSTemporaryDirectory())
         do {
             try await claude.start()
-            let catalog = try await claude.request("cx/catalog")
+            let catalog = try await claude.request("vcx/catalog")
             print("Claude subscription: ready; \((catalog["commands"] as? [JSON] ?? []).count) commands; \((catalog["models"] as? [JSON] ?? []).count) models; permission mode: \(catalog["current_permission_mode"] as? String ?? "not reported")")
             let result = try await claude.request("account/rateLimits/read")
             let session = Session(cwd: NSTemporaryDirectory())
@@ -742,7 +742,7 @@ enum Check {
             try! JSONSerialization.data(withJSONObject: ["claude-opus-5-5": 1000000]).write(to: directory.appendingPathComponent("effort-state/claude-context-windows.json"))
             effortSession.model = effortSession.providerLabel
             check(effortSession.modelLoading && effortSession.modelStatusLabel == "Loading…", "an unresolved Claude model shows loading, not the provider name with another model's effort")
-            effortSession.event(["method": "cx/model", "params": ["model": "claude-opus-5-5"]])
+            effortSession.event(["method": "vcx/model", "params": ["model": "claude-opus-5-5"]])
             check(effortSession.modelStatusLabel == "Opus 5.5 - xhigh", "Claude resolved models display per-model effort overrides")
             check(effortSession.contextLabel == "0% token - 1M", "a new Claude session shows its model's remembered window before the first reply, like Claude Code")
             effortSession.models = ["other-model"]
@@ -939,7 +939,7 @@ enum Check {
             for (code, ended) in [(143, true), (129, true), (1, false)] {
                 let exiting = ClaudeConnection(account: Account(id: "exit", name: "Exit", provider: "claude"), cwd: directory.path)
                 var disconnect: JSON?
-                exiting.event = { if $0["method"] as? String == "cx/disconnected" { disconnect = $0["params"] as? JSON } }
+                exiting.event = { if $0["method"] as? String == "vcx/disconnected" { disconnect = $0["params"] as? JSON } }
                 do {
                     try await exiting.start(command: ["/bin/sh", "-c", "read line; exit \(code)"])
                     _ = try await exiting.request("turn/start", ["input": [["type": "text", "text": "bye"]]])
@@ -953,8 +953,8 @@ enum Check {
                 missing.event = { methods.append($0["method"] as? String ?? "") }
                 try await missing.start(command: ["/bin/sh", "-c", "read line; echo 'No conversation found with session ID: x' >&2; exit 1"])
                 _ = try await missing.request("turn/start", ["input": [["type": "text", "text": "hi"]]])
-                for _ in 0..<300 where !methods.contains("cx/resumeFailed") { try await Task.sleep(nanoseconds: 10_000_000) }
-                check(methods.contains("cx/resumeFailed") && !methods.contains("cx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
+                for _ in 0..<300 where !methods.contains("vcx/resumeFailed") { try await Task.sleep(nanoseconds: 10_000_000) }
+                check(methods.contains("vcx/resumeFailed") && !methods.contains("vcx/disconnected"), "a resume ID Claude cannot find is reported as a failed resume, not a disconnect")
             } catch { check(false, "missing resume fixture: " + error.localizedDescription) }
             do {
                 let hung = ClaudeConnection(account: Account(id: "hung", name: "Hung", provider: "claude"), cwd: directory.path)
@@ -1012,14 +1012,14 @@ enum Check {
                 claude.fleetFile = "/tmp/vcx-fixture-fleet"
                 try await claude.start(command: ["python3", fixture, "claude"])
                 _ = try await claude.request("thread/start", ["developerInstructions": "Fleet fixture instruction"])
-                let catalog = try await claude.request("cx/catalog")
+                let catalog = try await claude.request("vcx/catalog")
                 check(catalog["appendedSystemPrompt"] as? String == "Fleet fixture instruction", "Claude receives Fleet instructions through its system prompt argument")
                 check(catalog["fleetContextFile"] as? String == "/tmp/vcx-fixture-fleet", "the Claude process runs with its session's FLEET_CONTEXT_FILE")
                 do {
                     let crashing = ClaudeConnection(account: Account(name: "Claude", provider: "claude"), cwd: directory.path)
                     var crash: JSON?
                     crashing.logFile = directory.appendingPathComponent("logs/crash.log").path
-                    crashing.event = { message in if message["method"] as? String == "cx/disconnected" { crash = message["params"] as? JSON } }
+                    crashing.event = { message in if message["method"] as? String == "vcx/disconnected" { crash = message["params"] as? JSON } }
                     try await crashing.start(command: ["python3", fixture, "claude"])
                     _ = try await crashing.request("thread/start", [:])
                     _ = try await crashing.request("turn/start", ["input": [["type": "text", "text": "CRASH"]]])
@@ -1028,7 +1028,7 @@ enum Check {
                           "a Claude crash reports its exit code, last error line and session log")
                     crashing.close()
                 }
-                let switched = try await claude.request("cx/mode", ["mode": "ask"]), followed = try await claude.request("cx/catalog")
+                let switched = try await claude.request("vcx/mode", ["mode": "ask"]), followed = try await claude.request("vcx/catalog")
                 check(switched["mode"] as? String == "default" && followed["current_permission_mode"] as? String == "default", "Claude switches to ask through set_permission_mode, and its catalog follows")
                 check((catalog["commands"] as? [JSON])?.first?["name"] as? String == "fixture-skill", "Claude command catalog uses initialize without a model turn")
                 check((catalog["mcp_servers"] as? [JSON])?.first?["name"] as? String == "fixture-mcp", "Claude MCP catalog uses control status")
@@ -1086,7 +1086,7 @@ enum Check {
                     var warned = false, queueIDs: [String] = []
                     stalled.event = {
                         if $0["method"] as? String == "warning" { warned = true }
-                        if $0["method"] as? String == "cx/userQueue", let id = ($0["params"] as? JSON)?["id"] as? String { queueIDs.append(id) }
+                        if $0["method"] as? String == "vcx/userQueue", let id = ($0["params"] as? JSON)?["id"] as? String { queueIDs.append(id) }
                     }
                     let previous = ClaudeConnection.firstEventTimeout; ClaudeConnection.firstEventTimeout = 0.3
                     // The second start echoes each prompt as a replay, as a resumed claude does for a prompt it will not run.
@@ -1293,9 +1293,9 @@ enum Check {
                     return session
                 }
                 let stuck = await retrying("stuck"), recovered = await retrying("recovered"), later = await retrying("later")
-                stuck.event(["method": "cx/apiRetry", "params": ["delay": 0]])
-                recovered.event(["method": "cx/apiRetry", "params": ["delay": 0]]); recovered.event(["method": "cx/apiRetry", "params": ["done": true]])
-                later.event(["method": "cx/apiRetry", "params": ["delay": 600_000]])
+                stuck.event(["method": "vcx/apiRetry", "params": ["delay": 0]])
+                recovered.event(["method": "vcx/apiRetry", "params": ["delay": 0]]); recovered.event(["method": "vcx/apiRetry", "params": ["done": true]])
+                later.event(["method": "vcx/apiRetry", "params": ["delay": 600_000]])
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 up = true
                 @MainActor func nudged(_ name: String) -> Bool { fixtures[name]?.sent.contains { ($0["input"] as? [JSON])?.first?["text"] as? String == Session.keepGoing } == true }
@@ -1342,7 +1342,7 @@ enum Check {
                 check(fixtures.count == 2 && fixtures.last?.opened.last?["threadId"] as? String == reconnecting.threadID && reason == "Reconnected to Claude: reconnect requested. Context kept." && resumedInput.first?["text"] as? String == "Second task",
                       "a reconnect resumes Claude's own thread without pasting the chat, and says why")
                 for _ in 0..<200 where reconnecting.busy { try? await Task.sleep(nanoseconds: 10_000_000) }
-                reconnecting.event(["method": "cx/resumeFailed", "params": [:]])
+                reconnecting.event(["method": "vcx/resumeFailed", "params": [:]])
                 for _ in 0..<200 where !reconnecting.rows.contains(where: { ($0.items.first?.data["text"] as? String)?.hasPrefix("Claude could not resume") == true }) { try? await Task.sleep(nanoseconds: 10_000_000) }
                 await reconnecting.send(text: "Third task", images: [])
                 let fallbackInput = fixtures.last?.sent.last?["input"] as? [JSON] ?? []
@@ -1364,7 +1364,7 @@ enum Check {
                 let thread = crashing.threadID
                 @MainActor func crash() async {
                     let count = crashing.rows.count
-                    crashing.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9", "line": "Error: out of memory", "log": crashing.agentLogFile]])
+                    crashing.event(["method": "vcx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9", "line": "Error: out of memory", "log": crashing.agentLogFile]])
                     for _ in 0..<200 where crashing.rows.count == count { try? await Task.sleep(nanoseconds: 10_000_000) }
                 }
                 await crash()
@@ -1375,7 +1375,7 @@ enum Check {
                 await crash()
                 check(fixtures.count == 2 && !crashing.ready && (crashing.rows.last?.items.first?.text.hasPrefix("Claude stopped (killed by signal 9). It stopped twice in 5 minutes, so VCX did not restart it.") ?? false),
                       "a second unexpected exit within 5 minutes is not restarted")
-                crashing.event(["method": "cx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
+                crashing.event(["method": "vcx/disconnected", "params": ["ended": true, "message": "Claude session ended."]])
                 check(fixtures.count == 2 && crashing.rows.last?.items.first?.text == "Claude session ended.", "a TERM or HUP stop is not a crash")
                 crashing.close()
             }
@@ -1393,7 +1393,7 @@ enum Check {
                 await crashed.connect(resume: nil); await fine.connect(resume: nil); await failing.connect(resume: nil)
                 let thread = crashed.threadID, quiet = fine.rows.count
                 @MainActor func text(_ session: Session) -> String? { session.rows.last?.items.first?.data["text"] as? String }
-                crashed.event(["method": "cx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9"]])
+                crashed.event(["method": "vcx/disconnected", "params": ["message": "Claude disconnected.", "reason": "killed by signal 9"]])
                 for _ in 0..<200 where text(crashed)?.hasSuffix("once the network is back.") != true { try? await Task.sleep(nanoseconds: 10_000_000) }
                 Connectivity.lost("the Mac woke", offline: true)
                 try? await Task.sleep(nanoseconds: 100_000_000)
@@ -1424,7 +1424,7 @@ enum Check {
                 check(agentCrash(stopped, log: nil).isEmpty, "a TERM stop is not reported as a crash")
                 let codex = RPC(); var codexCrash: JSON?
                 codex.logFile = directory.appendingPathComponent("logs/codex.log").path
-                codex.event = { message in if message["method"] as? String == "cx/disconnected" { codexCrash = message["params"] as? JSON } }
+                codex.event = { message in if message["method"] as? String == "vcx/disconnected" { codexCrash = message["params"] as? JSON } }
                 try? await codex.start(command: ["/bin/sh", "-c", "echo 'Error: codex fixture' >&2; kill -9 $$"])
                 for _ in 0..<300 where codexCrash == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
                 check(codexCrash?["reason"] as? String == "killed by signal 9" && codexCrash?["line"] as? String == "Error: codex fixture" && codexCrash?["log"] as? String == codex.logFile, "a Codex crash reports its signal, last error line and session log")
@@ -1768,7 +1768,7 @@ enum Check {
         let newRecord = staleRestore.currentConversationID
         await part {
             staleRestore.draft = NSAttributedString(string: "Draft in the new conversation")
-            staleRestore.event(["method": "cx/disconnected", "params": ["message": "Fixture disconnect"]])
+            staleRestore.event(["method": "vcx/disconnected", "params": ["message": "Fixture disconnect"]])
             await staleRestore.reconnect()
             check(staleRestore.ready && staleRestore.currentConversationID == newRecord && staleRestore.draft.string == "Draft in the new conversation", "new conversation clears a failed restore target before reconnect")
             staleRestore.close()
@@ -2222,13 +2222,13 @@ enum Check {
                 limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "message": ["content": [["type": "text", "text": "API Error: Request rejected (429)"]]]])
                 limited.receive(["type": "result", "is_error": true, "result": "API Error: Request rejected (429)"])
                 let transient = events.compactMap { $0["method"] as? String == "turn/completed" ? (($0["params"] as? JSON)?["turn"] as? JSON)?["error"] as? JSON : nil }.first
-                let retried = transient?["rateLimited"] as? Bool == true && !events.contains { $0["method"] as? String == "cx/limit" }
+                let retried = transient?["rateLimited"] as? Bool == true && !events.contains { $0["method"] as? String == "vcx/limit" }
                 events.removeAll()
                 limited.receive(["type": "assistant", "error": "rate_limit", "is_api_error_message": true, "api_error": "usage_limit_reached",
                                  "api_error_params": ["rate_limit_info": ["status": "rejected", "resetsAt": NSNumber(value: 4_102_444_800), "rateLimitType": "five_hour"]],
                                  "message": ["content": [["type": "text", "text": "You've hit your limit"]]]])
                 limited.receive(["type": "result", "is_error": true, "result": "You've hit your limit"])
-                let plan = events.first { $0["method"] as? String == "cx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
+                let plan = events.first { $0["method"] as? String == "vcx/limit" }.flatMap { ($0["params"] as? JSON)?["limit"] as? JSON }
                 check(retried && plan.map(limitReset) == 4_102_444_800 && !events.contains { $0["method"] as? String == "turn/completed" },
                       "only Claude's usage_limit_reached moves the session; another 429 fails the turn for a retry")
             }
@@ -2249,7 +2249,7 @@ enum Check {
             }
             do {
                 let fresh = Session(cwd: directory.path, stateDirectory: directory.appendingPathComponent("codex-commands"))
-                fresh.event(["method": "cx/context", "params": ["used": 50000, "model": "fixture-served"]])
+                fresh.event(["method": "vcx/context", "params": ["used": 50000, "model": "fixture-served"]])
                 check(fresh.contextLabel == "5% token - 1M", "a new Claude session shows the remembered window before its first turn ends")
             }
             codexCommands.applyClaudeCatalog(["commands": [["name": "fixture-skill", "description": "Fixture skill description"]]])
@@ -3215,7 +3215,7 @@ final class FixtureConnection: Connection {
             event(["method": "turn/started", "params": ["turn": ["id": pendingTurn]]])
             Task { @MainActor in
                 await Task.yield()
-                if self.limit { self.event(["method": "cx/limit", "params": ["limit": ["resetsAt": Date().timeIntervalSince1970 + 3600]]]) }
+                if self.limit { self.event(["method": "vcx/limit", "params": ["limit": ["resetsAt": Date().timeIntervalSince1970 + 3600]]]) }
                 else if !self.hold {
                     self.event(["method": "item/completed", "params": ["item": ["id": UUID().uuidString, "type": "agentMessage", "text": "Finished", "provider": self.account.provider]]])
                     self.event(["method": "turn/completed", "params": ["turn": ["id": self.pendingTurn, "status": "completed"]]])
@@ -3223,9 +3223,9 @@ final class FixtureConnection: Connection {
             }
             return ["turn": ["id": pendingTurn]]
         case "turn/interrupt": event(["method": "turn/completed", "params": ["turn": ["id": pendingTurn, "status": "interrupted"]]]); return [:]
-        case "cx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
+        case "vcx/unsend": return ["cancelled": unread.remove(params["id"] as? String ?? "") != nil]
         case "account/rateLimits/read": usageReads += 1; return [:]
-        case "cx/mode": if failMode { throw CXError(message: "bypass_not_launched") }; modes.append(params["mode"] as? String ?? ""); return [:]
+        case "vcx/mode": if failMode { throw CXError(message: "bypass_not_launched") }; modes.append(params["mode"] as? String ?? ""); return [:]
         default: return [:]
         }
     }

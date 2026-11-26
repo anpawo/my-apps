@@ -758,7 +758,7 @@ impl SessionBackend {
             match effect {
                 Effect::Decline { id, method } => {
                     if let Ok(agent) = self.agent() {
-                        let _ = agent.reject(&id, METHOD_NOT_FOUND, &format!("cx does not support {method}"));
+                        let _ = agent.reject(&id, METHOD_NOT_FOUND, &format!("vcx does not support {method}"));
                     }
                 }
                 Effect::Stop => {
@@ -1116,7 +1116,7 @@ impl SessionBackend {
         *self.mode_choice.borrow_mut() = Some(mode.to_owned());
         let codex = self.session.borrow().provider == "codex";
         if !codex {
-            self.request("cx/mode", json!({"mode": mode}), MODE_TIMEOUT).await?;
+            self.request("vcx/mode", json!({"mode": mode}), MODE_TIMEOUT).await?;
         }
         let mut session = self.session.borrow_mut();
         session.mode_override |= codex;

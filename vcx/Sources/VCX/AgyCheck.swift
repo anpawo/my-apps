@@ -39,7 +39,7 @@ enum AgyCheck {
             check(first?["status"] as? String == "completed", "a turn completes (status \(first?["status"] ?? "none"))")
             check(commands.contains { ($0["aggregatedOutput"] as? String ?? "").contains("vcx-agy-ok") && $0["exitCode"] as? Int == 0 }, "in bypass a command runs without asking and its output comes back")
             check(!items("agentMessage").isEmpty && events.contains { $0["method"] as? String == "item/agentMessage/delta" }, "the answer streams, then completes as a message")
-            check(events.contains { $0["method"] as? String == "cx/tokens" } && events.contains { $0["method"] as? String == "cx/context" }, "token use and context fill are reported")
+            check(events.contains { $0["method"] as? String == "vcx/tokens" } && events.contains { $0["method"] as? String == "vcx/context" }, "token use and context fill are reported")
             check(!events.contains { $0["method"] as? String == "item/commandExecution/requestApproval" }, "bypass never asks")
             agy.close()
             let again = AgyConnection(cwd: directory)

@@ -179,7 +179,7 @@ final class ClaudeConnection: Connection {
         let errors = try agentLog(logFile)
         process.standardInput = incoming; process.standardOutput = outgoing; process.standardError = errors.writer
         try process.run()
-        emit("cx/launch", ["arguments": process.arguments ?? [], "pid": process.processIdentifier])
+        emit("vcx/launch", ["arguments": process.arguments ?? [], "pid": process.processIdentifier])
         try? errors.writer.close()
         try attach(process, input: incoming.fileHandleForWriting, output: outgoing.fileHandleForReading, log: (errors.path, errors.start))
     }
@@ -189,7 +189,7 @@ final class ClaudeConnection: Connection {
             guard let self, !closed, self.process === process else { return }; receive(message)
         }, invalid: { [weak self] message in
             guard let self, !closed, self.process === process, message != "Provider sent invalid JSON." else { return }
-            emit("cx/error", ["message": message.replacingOccurrences(of: "Provider", with: "Claude")])
+            emit("vcx/error", ["message": message.replacingOccurrences(of: "Provider", with: "Claude")])
         }, disconnected: { [weak self] in
             guard let self, !closed, self.process === process else { return }
             self.process = nil
@@ -200,8 +200,8 @@ final class ClaudeConnection: Connection {
                     return (agentCrash(process, log: log), agentLogTail(log).contains("No conversation found"))
                 }.value
                 guard let self, !closed else { return }
-                if missing { emit("cx/resumeFailed", [:]); return }
-                emit("cx/disconnected", crash.isEmpty ? ["ended": true, "message": "Claude session ended."] : crash.merging(["message": "Claude disconnected. Reconnect to continue the saved conversation."]) { $1 })
+                if missing { emit("vcx/resumeFailed", [:]); return }
+                emit("vcx/disconnected", crash.isEmpty ? ["ended": true, "message": "Claude session ended."] : crash.merging(["message": "Claude disconnected. Reconnect to continue the saved conversation."]) { $1 })
             }
         })
         self.reader = reader; reader.start()
@@ -239,7 +239,7 @@ final class ClaudeConnection: Connection {
         case "model/list":
             let catalog = try await catalog()
             return ["data": (catalog["models"] as? [JSON] ?? []).compactMap { ($0["value"] as? String).map { ["id": $0] } }]
-        case "cx/catalog":
+        case "vcx/catalog":
             var result = try await catalog()
             // initialize lists skills as they were at launch; reload_skills rereads the user's and project's from disk
             // (and only those: plugin and account skills are missing from it, so they stay as initialize gave them).
@@ -275,7 +275,7 @@ final class ClaudeConnection: Connection {
             if !steering { emit("turn/started", ["turn": ["id": turn]]) }
             return ["turn": ["id": turn]]
         case "turn/interrupt": stopped = true; sendingNow = false; firstEvent?.cancel(); firstEvent = nil; try control(["subtype": "interrupt"]); watchStop(); return [:]
-        case "cx/sendNow":
+        case "vcx/sendNow":
             sendingNow = true
             do {
                 let result = try await controlResult(["subtype": "interrupt", "send_now": true, "message_uuid": params["id"] as? String ?? ""], timeout: 5)
@@ -284,13 +284,13 @@ final class ClaudeConnection: Connection {
                 return result
             } catch { sendingNow = false; throw error }
         // Claude refuses bypass live unless it was launched with --allow-dangerously-skip-permissions, which an older VCX build did not pass.
-        case "cx/mode":
+        case "vcx/mode":
             let value = params["mode"] as? String == "bypass" ? "bypass" : "ask", native = value == "bypass" ? "bypassPermissions" : "default"
             var result: JSON = [:]
             if process != nil { result = try await controlResult(["subtype": "set_permission_mode", "mode": native], timeout: 15); metadata?["current_permission_mode"] = native }
             mode = value; return result
         // Claude drops a prompt only while it waits in its queue; once the turn has taken it in, it answers cancelled: false.
-        case "cx/unsend":
+        case "vcx/unsend":
             guard let id = params["id"] as? String else { throw CXError(message: "Missing message ID.") }
             let result = try await controlResult(["subtype": "cancel_async_message", "message_uuid": id], timeout: 5)
             if result["cancelled"] as? Bool == true { pendingUsers.removeAll { $0 == id } }
@@ -377,7 +377,7 @@ final class ClaudeConnection: Connection {
                         try write(message); sent.append(message)
                     }
                     watchFirstEvent(sent[0], effort: effort, retried: true)
-                } catch { emit("cx/error", ["message": "Claude did not answer and could not be restarted: " + error.localizedDescription]) }
+                } catch { emit("vcx/error", ["message": "Claude did not answer and could not be restarted: " + error.localizedDescription]) }
             }
         }
         firstEvent = item; DispatchQueue.main.asyncAfter(deadline: .now() + Self.firstEventTimeout, execute: item)
@@ -388,8 +388,8 @@ final class ClaudeConnection: Connection {
         // The echo of a prompt is no answer: a resumed claude sends it for a prompt it will not run.
         let echo = kind == "user" && message["isReplay"] as? Bool == true
         if !echo, ["stream_event", "assistant", "result", "user", "control_request"].contains(kind) || (kind == "system" && message["subtype"] as? String == "api_retry") { firstEvent?.cancel(); firstEvent = nil }
-        if kind == "system", message["subtype"] as? String == "api_retry" { retrying = true; emit("cx/apiRetry", ["delay": message["retry_delay_ms"] as? Int ?? 0]) }
-        else if retrying, ["stream_event", "assistant", "result", "user"].contains(kind) { retrying = false; emit("cx/apiRetry", ["done": true]) }
+        if kind == "system", message["subtype"] as? String == "api_retry" { retrying = true; emit("vcx/apiRetry", ["delay": message["retry_delay_ms"] as? Int ?? 0]) }
+        else if retrying, ["stream_event", "assistant", "result", "user"].contains(kind) { retrying = false; emit("vcx/apiRetry", ["done": true]) }
         switch message["type"] as? String {
         case "control_response":
             let response = message["response"] as? JSON ?? [:]
@@ -399,13 +399,13 @@ final class ClaudeConnection: Connection {
                 else { waiting.removeValue(forKey: id)?.resume(returning: response["response"] as? JSON ?? [:]) }
             }
         case "system":
-            if message["subtype"] as? String == "init", let model = message["model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
-            if message["subtype"] as? String == "background_tasks_changed" { emit("cx/backgroundTasks", ["count": (message["tasks"] as? [Any])?.count ?? 0]) }
+            if message["subtype"] as? String == "init", let model = message["model"] as? String { self.model = model; emit("vcx/model", ["model": model]) }
+            if message["subtype"] as? String == "background_tasks_changed" { emit("vcx/backgroundTasks", ["count": (message["tasks"] as? [Any])?.count ?? 0]) }
             // A safeguard stop, a model fallback or a prompt a hook dropped; Claude Code keeps "info" lines for its transcript view.
             if ["informational", "model_fallback", "model_consent_fallback", "model_refusal_fallback", "model_refusal_no_fallback"].contains(message["subtype"] as? String ?? ""),
                message["level"] as? String != "info", let content = message["content"] as? String, !content.isEmpty { emit("warning", ["message": content]) }
             // A refusal fallback swaps the session's model unless only a subagent or side question fell back.
-            if message["subtype"] as? String == "model_refusal_fallback", message["scope"] as? String != "local", let model = message["fallback_model"] as? String { self.model = model; emit("cx/model", ["model": model]) }
+            if message["subtype"] as? String == "model_refusal_fallback", message["scope"] as? String != "local", let model = message["fallback_model"] as? String { self.model = model; emit("vcx/model", ["model": model]) }
             // Idle Claude answers a finished background task with a turn of its own.
             if message["subtype"] as? String == "task_notification", pendingUsers.isEmpty {
                 turn = UUID().uuidString; stopped = false; emit("turn/started", ["turn": ["id": turn]])
@@ -414,7 +414,7 @@ final class ClaudeConnection: Connection {
             if let id = message["request_id"] as? String { controls.removeValue(forKey: id); emit("serverRequest/resolved", ["requestId": id]) }
         // "queued" when a prompt waits for the running turn, "started" once the turn has taken it in.
         case "command_lifecycle":
-            if let id = message["command_uuid"] as? String { emit("cx/userQueue", ["id": resent[id] ?? id, "queued": message["state"] as? String == "queued"]) }
+            if let id = message["command_uuid"] as? String { emit("vcx/userQueue", ["id": resent[id] ?? id, "queued": message["state"] as? String == "queued"]) }
         case "control_request":
             guard let id = message["request_id"] as? String, let request = message["request"] as? JSON else { return }
             guard request["subtype"] as? String == "can_use_tool" else {
@@ -460,7 +460,7 @@ final class ClaudeConnection: Connection {
             if let usage = body["usage"] as? JSON {
                 let used = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
                 servedModel = body["model"] as? String ?? servedModel
-                emit("cx/context", ["used": used, "model": servedModel ?? model])
+                emit("vcx/context", ["used": used, "model": servedModel ?? model])
             }
             for (index, block) in (body["content"] as? [JSON] ?? []).enumerated() {
                 if block["type"] as? String == "text", let text = block["text"] as? String {
@@ -516,13 +516,13 @@ final class ClaudeConnection: Connection {
         case "result":
             // `model` can be "Claude" or an alias; modelUsage is keyed by the model that served the turn.
             let served = servedModel ?? model
-            if let models = message["modelUsage"] as? [String: JSON], let limit = (models[served] ?? models[model])?["contextWindow"] as? Int { emit("cx/context", ["limit": limit, "model": served]) }
+            if let models = message["modelUsage"] as? [String: JSON], let limit = (models[served] ?? models[model])?["contextWindow"] as? Int { emit("vcx/context", ["limit": limit, "model": served]) }
             if let usage = message["usage"] as? JSON {
                 let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
-                emit("cx/tokens", ["input": input, "output": usage["output_tokens"] as? Int ?? 0])
+                emit("vcx/tokens", ["input": input, "output": usage["output_tokens"] as? Int ?? 0])
             }
-            if let limit { emit("cx/limit", ["limit": limit]); return }
-            if usageLimit(message) { emit("cx/limit", ["limit": message]); return }
+            if let limit { emit("vcx/limit", ["limit": limit]); return }
+            if usageLimit(message) { emit("vcx/limit", ["limit": message]); return }
             let ids = message["user_message_uuids"] as? [String] ?? (message["user_message_uuid"] as? String).map { [$0] } ?? []
             if ids.isEmpty { if !pendingUsers.isEmpty { pendingUsers.removeFirst() } }
             else { pendingUsers.removeAll { ids.contains($0) } }
@@ -566,11 +566,11 @@ final class ClaudeConnection: Connection {
         if process == nil { try launch(resume: resumed) }
         var result = try await controlResult(["subtype": "initialize"], timeout: 20)
         let models = result["models"] as? [JSON] ?? []
-        if model == "Claude", let resolved = models.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String { model = resolved; emit("cx/model", ["model": resolved]) }
+        if model == "Claude", let resolved = models.first(where: { $0["value"] as? String == "default" })?["resolvedModel"] as? String { model = resolved; emit("vcx/model", ["model": resolved]) }
         // "default" duplicates the alias it resolves to; the menu highlights that alias instead.
         result["models"] = models.filter { $0["value"] as? String != "default" }
         metadata = result
-        emit("cx/catalog", result); return result
+        emit("vcx/catalog", result); return result
     }
     private func controlResult(_ request: JSON, timeout: Double) async throws -> JSON {
         let id = UUID().uuidString
@@ -731,7 +731,7 @@ final class QwenConnection: Connection {
             return ["thread": ["id": thread], "model": selectedModel ?? preferences.qwenModel]
         case "thread/turns/list", "thread/list": return ["data": []]
         case "account/rateLimits/read": return [:]
-        case "cx/mode": preferences.mode = params["mode"] as? String == "bypass" ? "bypass" : "ask"; return [:]
+        case "vcx/mode": preferences.mode = params["mode"] as? String == "bypass" ? "bypass" : "ask"; return [:]
         case "model/list": return ["data": [["id": preferences.qwenModel]]]
         case "turn/start":
             if let path = params["cwd"] as? String, let directory = workingDirectory(path, within: initialDirectory) { cwd = directory }
@@ -885,7 +885,7 @@ final class QwenConnection: Connection {
                 finished = true
                 let input = event["prompt_eval_count"] as? Int ?? 0, output = event["eval_count"] as? Int ?? 0
                 contextTokens = input + output
-                emit("cx/tokens", ["input": input, "output": output])
+                emit("vcx/tokens", ["input": input, "output": output])
             }
             emit("item/agentMessage/delta", ["itemId": id, "delta": delta])
         }

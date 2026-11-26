@@ -165,10 +165,10 @@ impl ClaudeStream {
         }
         if kind == "system" && subtype == "api_retry" {
             self.retrying = true;
-            out.push(self.event("cx/apiRetry", object(json!({"delay": int(message.get("retry_delay_ms")).unwrap_or(0)}))));
+            out.push(self.event("vcx/apiRetry", object(json!({"delay": int(message.get("retry_delay_ms")).unwrap_or(0)}))));
         } else if self.retrying && ["stream_event", "assistant", "result", "user"].contains(&kind) {
             self.retrying = false;
-            out.push(self.event("cx/apiRetry", object(json!({"done": true}))));
+            out.push(self.event("vcx/apiRetry", object(json!({"done": true}))));
         }
         match kind {
             "control_response" => self.control_response(message, &mut out),
@@ -183,7 +183,7 @@ impl ClaudeStream {
             "command_lifecycle" => {
                 if let Some(id) = text(message, "command_uuid") {
                     let id = self.resent.get(id).map_or(id, String::as_str);
-                    out.push(self.event("cx/userQueue", object(json!({"id": id, "queued": text(message, "state") == Some("queued")}))));
+                    out.push(self.event("vcx/userQueue", object(json!({"id": id, "queued": text(message, "state") == Some("queued")}))));
                 }
             }
             "control_request" => self.control_request(message, &mut out),
@@ -212,12 +212,12 @@ impl ClaudeStream {
         if subtype == "init" {
             if let Some(model) = text(message, "model") {
                 self.model = model.to_owned();
-                out.push(self.event("cx/model", object(json!({"model": model}))));
+                out.push(self.event("vcx/model", object(json!({"model": model}))));
             }
         }
         if subtype == "background_tasks_changed" {
             let count = message.get("tasks").and_then(Value::as_array).map_or(0, Vec::len);
-            out.push(self.event("cx/backgroundTasks", object(json!({"count": count}))));
+            out.push(self.event("vcx/backgroundTasks", object(json!({"count": count}))));
         }
         if NOTICES.contains(&subtype) && text(message, "level") != Some("info") {
             if let Some(content) = text(message, "content").filter(|content| !content.is_empty()) {
@@ -228,7 +228,7 @@ impl ClaudeStream {
         if subtype == "model_refusal_fallback" && text(message, "scope") != Some("local") {
             if let Some(model) = text(message, "fallback_model") {
                 self.model = model.to_owned();
-                out.push(self.event("cx/model", object(json!({"model": model}))));
+                out.push(self.event("vcx/model", object(json!({"model": model}))));
             }
         }
         // Idle Claude answers a finished background task with a turn of its own.
@@ -317,7 +317,7 @@ impl ClaudeStream {
         if let Some(usage) = body.get("usage").and_then(Value::as_object) {
             self.served_model = text(&body, "model").map(str::to_owned).or_else(|| self.served_model.clone());
             let model = self.served_model.clone().unwrap_or_else(|| self.model.clone());
-            out.push(self.event("cx/context", object(json!({"used": input_tokens(usage), "model": model}))));
+            out.push(self.event("vcx/context", object(json!({"used": input_tokens(usage), "model": model}))));
         }
         for (index, block) in body.get("content").and_then(Value::as_array).cloned().unwrap_or_default().iter().enumerate() {
             let block = obj(Some(block));
@@ -424,18 +424,18 @@ impl ClaudeStream {
         let served = self.served_model.clone().unwrap_or_else(|| self.model.clone());
         let usage_of = |key: &str| message.get("modelUsage").and_then(|m| m.get(key)).and_then(|m| m.get("contextWindow")).and_then(Value::as_i64);
         if let Some(limit) = usage_of(&served).or_else(|| usage_of(&self.model)) {
-            out.push(self.event("cx/context", object(json!({"limit": limit, "model": served}))));
+            out.push(self.event("vcx/context", object(json!({"limit": limit, "model": served}))));
         }
         if let Some(usage) = message.get("usage").and_then(Value::as_object) {
             let output = int(usage.get("output_tokens")).unwrap_or(0);
-            out.push(self.event("cx/tokens", object(json!({"input": input_tokens(usage), "output": output}))));
+            out.push(self.event("vcx/tokens", object(json!({"input": input_tokens(usage), "output": output}))));
         }
         if let Some(limit) = self.limit.clone() {
-            out.push(self.event("cx/limit", object(json!({"limit": limit}))));
+            out.push(self.event("vcx/limit", object(json!({"limit": limit}))));
             return;
         }
         if usage_limit(message) {
-            out.push(self.event("cx/limit", object(json!({"limit": message}))));
+            out.push(self.event("vcx/limit", object(json!({"limit": message}))));
             return;
         }
         let ids: Vec<String> = match message.get("user_message_uuids").and_then(Value::as_array) {

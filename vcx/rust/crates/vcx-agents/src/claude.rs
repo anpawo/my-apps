@@ -154,7 +154,7 @@ impl ClaudeConnection {
         let (process, lines) = Lines::spawn(launch).map_err(|error| failure(format!("Cannot start Claude: {error}")))?;
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
-        self.emit("cx/launch", json!({"arguments": arguments, "pid": process.pid}));
+        self.emit("vcx/launch", json!({"arguments": arguments, "pid": process.pid}));
         *self.process.borrow_mut() = Some(process);
         tokio::task::spawn_local(Rc::clone(self).read(lines, generation));
         if self.options.command.is_none() {
@@ -178,17 +178,17 @@ impl ClaudeConnection {
                     self.apply(effects);
                 }
                 Line::Invalid(_) => {}
-                Line::Failed(message) => self.emit("cx/error", json!({"message": message.replace("agent", "Claude")})),
+                Line::Failed(message) => self.emit("vcx/error", json!({"message": message.replace("agent", "Claude")})),
                 Line::Exited { crash, log_tail } => {
                     self.process.borrow_mut().take();
                     if log_tail.contains("No conversation found") {
-                        self.emit("cx/resumeFailed", json!({}));
+                        self.emit("vcx/resumeFailed", json!({}));
                     } else if crash.is_empty() {
-                        self.emit("cx/disconnected", json!({"ended": true, "message": "Claude session ended."}));
+                        self.emit("vcx/disconnected", json!({"ended": true, "message": "Claude session ended."}));
                     } else {
                         let mut notice = crash;
                         notice.insert("message".into(), "Claude disconnected. Reconnect to continue the saved conversation.".into());
-                        self.emit("cx/disconnected", Value::Object(notice));
+                        self.emit("vcx/disconnected", Value::Object(notice));
                     }
                 }
             }
@@ -250,12 +250,12 @@ impl ClaudeConnection {
         let resolved = models.iter().find(|model| model["value"] == "default").and_then(|model| model["resolvedModel"].as_str()).map(str::to_owned);
         if let Some(resolved) = resolved.filter(|_| self.stream.borrow().model == "Claude") {
             self.stream.borrow_mut().model = resolved.clone();
-            self.emit("cx/model", json!({"model": resolved}));
+            self.emit("vcx/model", json!({"model": resolved}));
         }
         // "default" duplicates the alias it resolves to; the menu highlights that alias instead.
         result.insert("models".into(), models.into_iter().filter(|model| model["value"] != "default").collect());
         self.stream.borrow_mut().metadata = Some(result.clone());
-        self.emit("cx/catalog", Value::Object(result.clone()));
+        self.emit("vcx/catalog", Value::Object(result.clone()));
         Ok(result)
     }
 
@@ -315,7 +315,7 @@ impl ClaudeConnection {
             "thread/turns/list" => Ok(json!({"data": []})),
             "thread/list" => Ok(json!({})),
             "model/list" => Ok(json!({"data": model_list(&self.catalog().await?)})),
-            "cx/catalog" => {
+            "vcx/catalog" => {
                 let mut result = self.catalog().await?;
                 // initialize lists skills as at launch; reload_skills rereads only the user's and project's from disk.
                 if let Ok(fresh) = self.control_result(json!({"subtype": "reload_skills"}), RELOAD_TIMEOUT).await {
@@ -348,7 +348,7 @@ impl ClaudeConnection {
                 self.watch_stop();
                 Ok(json!({}))
             }
-            "cx/sendNow" => {
+            "vcx/sendNow" => {
                 self.stream.borrow_mut().sending_now = true;
                 let request = json!({"subtype": "interrupt", "send_now": true, "message_uuid": text(&params, "id").unwrap_or_default()});
                 let result = self.control_result(request, QUICK_CONTROL_TIMEOUT).await;
@@ -358,7 +358,7 @@ impl ClaudeConnection {
                 }
                 result.map(Value::Object)
             }
-            "cx/mode" => {
+            "vcx/mode" => {
                 let value: String = if text(&params, "mode") == Some("bypass") { "bypass" } else { "ask" }.into();
                 let native = if value == "bypass" { "bypassPermissions" } else { "default" };
                 let mut result = Object::new();
@@ -372,7 +372,7 @@ impl ClaudeConnection {
                 Ok(Value::Object(result))
             }
             // Claude drops a prompt only while it waits in its queue; once the turn took it in, it answers cancelled: false.
-            "cx/unsend" => {
+            "vcx/unsend" => {
                 let id = text(&params, "id").ok_or_else(|| failure("Missing message ID."))?.to_owned();
                 let result = self.control_result(json!({"subtype": "cancel_async_message", "message_uuid": id}), QUICK_CONTROL_TIMEOUT).await?;
                 if result.get("cancelled") == Some(&Value::Bool(true)) {
@@ -454,7 +454,7 @@ impl ClaudeConnection {
             }
             connection.kill_process();
             if let Err(error) = connection.resend(prompt, effort).await {
-                connection.emit("cx/error", json!({"message": format!("Claude did not answer and could not be restarted: {error}")}));
+                connection.emit("vcx/error", json!({"message": format!("Claude did not answer and could not be restarted: {error}")}));
             }
         });
     }

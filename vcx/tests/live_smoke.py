@@ -9,7 +9,7 @@ from rpc import CodexClient
 
 async def main():
     client = CodexClient()
-    with tempfile.TemporaryDirectory(prefix="cx-live-") as cwd:
+    with tempfile.TemporaryDirectory(prefix="vcx-live-") as cwd:
         try:
             await client.start()
             result = await client.request("thread/start", {"cwd": cwd})

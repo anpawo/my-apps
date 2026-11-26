@@ -78,7 +78,7 @@ class NativeInstallTests(unittest.TestCase):
             commands.mkdir(parents=True)
             codex = commands / 'codex'
             codex.write_text('original codex')
-            (commands / 'cx').symlink_to(codex)
+            (commands / 'vcx').symlink_to(codex)
 
             def run(arguments, **kwargs):
                 if arguments[0] == '/usr/bin/ditto':
@@ -87,8 +87,8 @@ class NativeInstallTests(unittest.TestCase):
             with patch.object(installer.Path, 'home', return_value=home), patch.object(installer.shutil, 'which', return_value=str(codex)), patch.object(installer.subprocess, 'run', side_effect=run):
                 installer.install()
             self.assertEqual(codex.read_text(), 'original codex')
-            self.assertFalse((commands / 'cx').is_symlink())
-            for name in ['cx', 'vcx']:
+            self.assertFalse((commands / 'vcx').is_symlink())
+            for name in ['vcx']:
                 text = (commands / name).read_text()
                 self.assertIn('background=-g', text)
                 self.assertIn('--focus) background= ;;', text)
@@ -132,7 +132,7 @@ class NativeInstallTests(unittest.TestCase):
             commands.mkdir()
             dependency_marker = home / 'dependencies-installed'
             stub = commands / 'python3'
-            venv_program = '#!/bin/sh\nif [ "$1" = "-m" ]; then touch ' + shlex.quote(str(dependency_marker)) + '; exit 0; fi\necho "cx 0.1.0"\n'
+            venv_program = '#!/bin/sh\nif [ "$1" = "-m" ]; then touch ' + shlex.quote(str(dependency_marker)) + '; exit 0; fi\necho "vcx 0.1.0"\n'
             stub.write_text('#!' + sys.executable + '\nimport pathlib,sys\np=pathlib.Path(sys.argv[3])/"bin/python"\np.parent.mkdir(parents=True)\np.write_text(' + repr(venv_program) + ')\np.chmod(0o755)\n')
             stub.chmod(0o755)
 
@@ -142,8 +142,8 @@ class NativeInstallTests(unittest.TestCase):
 
             with patch.object(installer, '__file__', str(source / 'install-native.py')), patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
                 installer.install()
-            result = subprocess.run([str(home / '.local/bin/cx'), '--terminal', '--version'], env=dict(os.environ, PATH=str(commands) + ':/usr/bin:/bin'), capture_output=True, text=True, check=True)
-            self.assertIn('cx 0.1.0', result.stdout)
+            result = subprocess.run([str(home / '.local/bin/vcx'), '--terminal', '--version'], env=dict(os.environ, PATH=str(commands) + ':/usr/bin:/bin'), capture_output=True, text=True, check=True)
+            self.assertIn('vcx 0.1.0', result.stdout)
             self.assertTrue(dependency_marker.exists())
             self.assertTrue((source / '.venv/bin/python').is_file())
 
@@ -152,7 +152,7 @@ class NativeInstallTests(unittest.TestCase):
             home = Path(directory)
             main = home / 'repo/vcx'
             main.mkdir(parents=True)
-            (main / 'cx.py').write_text('')
+            (main / 'terminal.py').write_text('')
             (home / 'repo/.git/worktrees/scratch').mkdir(parents=True)
             tree = home / 'scratch/vcx'
             tree.mkdir(parents=True)
@@ -165,7 +165,7 @@ class NativeInstallTests(unittest.TestCase):
             with patch.object(installer, '__file__', str(tree / 'install-native.py')), patch.object(installer.Path, 'home', return_value=home), patch.object(installer.subprocess, 'run', side_effect=run):
                 installer.install()
             launcher = (home / '.local/bin/vcx').read_text()
-            self.assertIn(shlex.quote(str((main / 'cx.py').resolve())), launcher)
+            self.assertIn(shlex.quote(str((main / 'terminal.py').resolve())), launcher)
             self.assertNotIn('/scratch/', launcher)
 
     def test_unrelated_command_is_preserved(self):

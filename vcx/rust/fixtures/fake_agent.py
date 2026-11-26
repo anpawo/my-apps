@@ -136,8 +136,8 @@ def open_turn(thread, turn, params):
     event('turn/started', {'turn': {'id': turn}}, thread)
     event('item/started', {'item': {**HELD_TOOL, 'status': 'inProgress'}}, thread)
     if API_RETRY in prompt_text(params):
-        # Claude's announced API retry, which the adapters pass on as `cx/apiRetry`.
-        event('cx/apiRetry', {'delay': 0}, thread)
+        # Claude's announced API retry, which the adapters pass on as `vcx/apiRetry`.
+        event('vcx/apiRetry', {'delay': 0}, thread)
     if APPROVE in prompt_text(params):
         awaiting[APPROVAL_ID] = (thread, turn)
         request = {'threadId': thread, 'turnId': turn, 'itemId': HELD_TOOL['id'], 'command': HELD_TOOL['command']}

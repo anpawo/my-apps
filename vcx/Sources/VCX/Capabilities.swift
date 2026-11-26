@@ -193,7 +193,7 @@ extension Session {
             hooks = claudeHooks(home: base, folders: folders, flags: [claudeSettingsFile])
             instructions = ClaudeCompatibility(cwd: cwd, home: base).instructions().paths.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
             do {
-                let catalog = try await connection.request("cx/catalog", [:], timeout: 25)
+                let catalog = try await connection.request("vcx/catalog", [:], timeout: 25)
                 guard rpc === connection else { return }
                 applyClaudeCatalog(catalog)
             } catch { if rpc === connection { mcp = ["Catalog unavailable: " + error.localizedDescription] } }

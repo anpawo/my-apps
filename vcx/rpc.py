@@ -18,7 +18,7 @@ class CodexClient:
         self.closing = False
 
     async def start(self):
-        # Fleet must not attribute this server to the Claude session that installed cx.
+        # Fleet must not attribute this server to the Claude session that installed vcx.
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
         self.process = await asyncio.create_subprocess_exec(
             *self.command, stdin=asyncio.subprocess.PIPE,
@@ -27,14 +27,14 @@ class CodexClient:
         )
         self.tasks = [asyncio.create_task(self.read()), asyncio.create_task(self.drain_stderr())]
         await self.request("initialize", {
-            "clientInfo": {"name": "cx", "title": "cx", "version": "0.1.0"},
+            "clientInfo": {"name": "vcx", "title": "vcx", "version": "0.1.0"},
             "capabilities": {"experimentalApi": True},
         })
         await self.send({"method": "initialized", "params": {}})
 
     async def send(self, message):
         if not self.process or self.process.returncode is not None:
-            raise RpcError("Codex is disconnected. Restart cx with --resume to continue.")
+            raise RpcError("Codex is disconnected. Restart vcx --terminal with --resume to continue.")
         try:
             self.process.stdin.write((json.dumps(message) + "\n").encode())
             await self.process.stdin.drain()
@@ -56,7 +56,7 @@ class CodexClient:
         await self.send({"id": request_id, **({"error": error} if error else {"result": result})})
 
     async def read(self):
-        reason = "The connection to Codex closed. Use cx --resume to continue."
+        reason = "The connection to Codex closed. Use vcx --terminal --resume to continue."
         try:
             while line := await self.process.stdout.readline():
                 message = json.loads(line)
@@ -76,7 +76,7 @@ class CodexClient:
                 if not future.done():
                     future.set_exception(RpcError(reason))
             if not self.closing:
-                await self.events.put({"method": "cx/disconnected", "params": {"message": reason}})
+                await self.events.put({"method": "vcx/disconnected", "params": {"message": reason}})
 
     async def drain_stderr(self):
         while await self.process.stderr.read(65536):

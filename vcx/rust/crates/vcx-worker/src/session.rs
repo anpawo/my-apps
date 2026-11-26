@@ -450,10 +450,10 @@ impl Session {
             return Vec::new();
         }
         let (method, params) = (event.method(), event.params());
-        if method == "cx/limit" {
+        if method == "vcx/limit" {
             return vec![Effect::Limit(params.get("limit").and_then(Value::as_object).cloned().unwrap_or_default())];
         }
-        if ["error", "cx/error", "cx/disconnected"].contains(&method) && usage_limit(params) && self.busy && !self.stop_requested {
+        if ["error", "vcx/error", "vcx/disconnected"].contains(&method) && usage_limit(params) && self.busy && !self.stop_requested {
             return vec![Effect::Limit(params.clone())];
         }
         let turn = params.get("turn").and_then(Value::as_object);
@@ -538,10 +538,10 @@ impl Session {
             }
             Kind::RequestResolved { request_id } => self.permissions.retain(|permission| permission.rpc_id.to_string() != request_id.to_string()),
             Kind::RateLimits { limits } => self.rate_limits(limits),
-            Kind::Other if method == "cx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
-            Kind::Other if method == "cx/disconnected" => effects.extend(self.agent_stopped(params)),
-            Kind::Other if method == "cx/resumeFailed" => effects.push(Effect::ResumeFailed),
-            Kind::Other if method == "cx/apiRetry" => {
+            Kind::Other if method == "vcx/error" => self.notice(text(params, "message").unwrap_or("The agent reported an error.")),
+            Kind::Other if method == "vcx/disconnected" => effects.extend(self.agent_stopped(params)),
+            Kind::Other if method == "vcx/resumeFailed" => effects.push(Effect::ResumeFailed),
+            Kind::Other if method == "vcx/apiRetry" => {
                 if params.get("done") == Some(&Value::Bool(true)) {
                     self.retry_attempt = None;
                 } else {

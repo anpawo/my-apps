@@ -138,7 +138,7 @@ impl QwenConnection {
             }
             "thread/turns/list" | "thread/list" => Ok(json!({"data": []})),
             "account/rateLimits/read" => Ok(json!({})),
-            "cx/mode" => {
+            "vcx/mode" => {
                 self.state.borrow_mut().mode = if text(&params, "mode") == Some("bypass") { "bypass" } else { "ask" }.into();
                 Ok(json!({}))
             }
@@ -362,7 +362,7 @@ impl QwenConnection {
                 finished = true;
                 let (input, output) = (event["prompt_eval_count"].as_u64().unwrap_or(0), event["eval_count"].as_u64().unwrap_or(0));
                 self.state.borrow_mut().context_tokens = (input + output) as usize;
-                self.emit("cx/tokens", json!({"input": input, "output": output}));
+                self.emit("vcx/tokens", json!({"input": input, "output": output}));
             }
             self.emit("item/agentMessage/delta", json!({"itemId": id, "delta": delta}));
         }

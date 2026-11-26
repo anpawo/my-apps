@@ -80,7 +80,7 @@ impl AgyStream {
                 self.permission(id.clone(), &obj(message.get("params")), &mut out);
             } else {
                 // No file system or terminal capability was offered, so agy has nothing else to ask.
-                out.push(Effect::Write(object(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("vcx does not support {method}")}}))));
+                out.push(Effect::Write(object(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("vvcx does not support {method}")}}))));
             }
             return out;
         }
@@ -139,12 +139,12 @@ impl AgyStream {
             }
             "usage_update" => {
                 let (used, limit) = (int(value.get("used")).unwrap_or(0), int(value.get("size")).unwrap_or(0));
-                out.push(self.event("cx/context", object(json!({"used": used, "limit": limit, "model": self.model}))));
+                out.push(self.event("vcx/context", object(json!({"used": used, "limit": limit, "model": self.model}))));
             }
             "current_model_update" => {
                 if let Some(next) = text(value, "currentModelId").or_else(|| text(value, "modelId")) {
                     self.model = next.to_owned();
-                    out.push(self.event("cx/model", object(json!({"model": next}))));
+                    out.push(self.event("vcx/model", object(json!({"model": next}))));
                 }
             }
             _ => {}
@@ -223,7 +223,7 @@ impl AgyStream {
                 }
                 let usage = obj(result.get("usage"));
                 if let (Some(input), Some(output)) = (int(usage.get("inputTokens")), int(usage.get("outputTokens"))) {
-                    out.push(self.event("cx/tokens", object(json!({"input": input, "output": output}))));
+                    out.push(self.event("vcx/tokens", object(json!({"input": input, "output": output}))));
                 }
             }
             Err(message) => {

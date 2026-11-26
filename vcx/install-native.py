@@ -19,7 +19,7 @@ def checkout(root):
             pointer = git.read_text().strip().removeprefix('gitdir: ')
             if '/.git/worktrees/' in pointer:
                 main = (folder / pointer.split('/.git/worktrees/')[0]).resolve() / root.relative_to(folder)
-                if (main / 'cx.py').exists():
+                if (main / 'terminal.py').exists():
                     return main
         if git.exists():
             break
@@ -29,12 +29,12 @@ def checkout(root):
 def install():
     root = Path(__file__).resolve().parent
     target = Path.home() / 'Applications/Vibe Code X.app'
-    launchers = [Path.home() / '.local/bin' / name for name in ('vcx', 'cx')]
+    launchers = [Path.home() / '.local/bin/vcx']
     codex = shutil.which('codex')
     for launcher in launchers:
         if launcher.exists() or launcher.is_symlink():
             alias = launcher.is_symlink() and codex and launcher.resolve() == Path(codex).resolve()
-            owned = launcher.is_file() and not launcher.is_symlink() and any(marker in launcher.read_text() for marker in ('# cx launcher\n', '# vcx launcher\n'))
+            owned = launcher.is_file() and not launcher.is_symlink() and any(marker in launcher.read_text() for marker in ('# vcx launcher\n',))
             if not alias and not owned:
                 raise SystemExit(f'Refusing to replace an unrelated command: {launcher.name}')
     if target.exists():
@@ -91,7 +91,7 @@ case "$1" in
       python3 -m venv {shlex.quote(str(terminal / '.venv'))} || exit 1
       {shlex.quote(str(python))} -m pip install -r {shlex.quote(str(terminal / 'requirements.txt'))} || exit 1
     fi
-    exec {shlex.quote(str(python))} {shlex.quote(str(terminal / 'cx.py'))} "$@"
+    exec {shlex.quote(str(python))} {shlex.quote(str(terminal / 'terminal.py'))} "$@"
     ;;
   --send|--set-model|--set-dir|--close|--sessions|--version|--help|--check|--provider-check|--bug-check|--interaction-check|--runtime-check|--runtime-protocol|--frontend-check|--runtime-bounds-check|--runtime-recovery-check|--runtime-load-check|--verify-runtime|--update-now)
     exec {shlex.quote(str(binary))} "$@"

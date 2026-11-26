@@ -96,11 +96,11 @@ impl AgyConnection {
                     self.apply(effects);
                 }
                 Line::Invalid(_) => {}
-                Line::Failed(message) => self.notice("cx/error", json!({"message": message.replace("agent", "Antigravity")})),
+                Line::Failed(message) => self.notice("vcx/error", json!({"message": message.replace("agent", "Antigravity")})),
                 Line::Exited { .. } => {
                     self.closed.set(true);
                     self.fail_pending();
-                    self.notice("cx/disconnected", json!({"message": "Antigravity stopped."}));
+                    self.notice("vcx/disconnected", json!({"message": "Antigravity stopped."}));
                 }
             }
         }
@@ -164,7 +164,7 @@ impl AgyConnection {
             "thread/turns/list" | "thread/list" => Ok(json!({"data": []})),
             "account/rateLimits/read" | "config/read" => Ok(json!({})),
             "model/list" => Ok(json!({"data": self.stream.borrow().models.iter().map(|id| json!({"id": id, "model": id})).collect::<Vec<_>>()})),
-            "cx/mode" => {
+            "vcx/mode" => {
                 self.stream.borrow_mut().bypass = text(&params, "mode") == Some("bypass");
                 self.apply_mode().await?;
                 Ok(json!({}))

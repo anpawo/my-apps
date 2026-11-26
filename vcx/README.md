@@ -26,7 +26,7 @@ and instruction files apply as they do in the terminal; the sidebar lists them.
 
 ## Install
 
-`./install-native.py` builds the app into `~/Applications/Vibe Code X.app` and writes the `vcx` and `cx`
+`./install-native.py` builds the app into `~/Applications/Vibe Code X.app` and writes the `vcx`
 commands into `~/.local/bin`.
 
 To keep it current, copy `mac.vcx-update.plist` into `~/Library/LaunchAgents`: on every push from this checkout

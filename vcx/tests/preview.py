@@ -4,12 +4,12 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cx import CxApp
+from terminal import TerminalApp
 
 
 async def preview(destination):
-    with tempfile.TemporaryDirectory(prefix="cx-preview-") as state:
-        app = CxApp(cwd="/workspace/cx", offline=True, state_dir=state)
+    with tempfile.TemporaryDirectory(prefix="vcx-preview-") as state:
+        app = TerminalApp(cwd="/workspace/vcx", offline=True, state_dir=state)
         async with app.run_test(size=(110, 36)) as pilot:
             app.ready, app.model = True, "gpt-6.1-sol"
             app.update_bar()
@@ -20,14 +20,14 @@ async def preview(destination):
             await app.show_item({"type": "agentMessage", "id": "answer", "text": "⟶ Login now refreshes your session before redirecting.\n\n- The session refresh handles expired cookies.\n- All **8 login tests** pass.\n\n✓ Done: login flow fixed.\n\n⟶ Next: try signing in with an expired session."}, completed=True)
             app.status("Ready")
             await pilot.pause()
-            app.save_screenshot(filename="cx-focus.svg", path=destination)
+            app.save_screenshot(filename="vcx-focus.svg", path=destination)
             app.action_toggle_tools()
             await pilot.pause()
-            app.save_screenshot(filename="cx-details.svg", path=destination)
+            app.save_screenshot(filename="vcx-details.svg", path=destination)
             await pilot.resize_terminal(55, 26)
             app.action_toggle_tools()
             await pilot.pause()
-            app.save_screenshot(filename="cx-narrow.svg", path=destination)
+            app.save_screenshot(filename="vcx-narrow.svg", path=destination)
             print("Rendered focus, details, and narrow terminal previews.")
 
 

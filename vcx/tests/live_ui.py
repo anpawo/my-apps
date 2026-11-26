@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cx import CxApp, Prompt, Reply
+from terminal import TerminalApp, Prompt, Reply
 
 
 async def wait_for(predicate, timeout=120):
@@ -14,8 +14,8 @@ async def wait_for(predicate, timeout=120):
 
 
 async def main():
-    with tempfile.TemporaryDirectory(prefix="cx-ui-live-") as cwd:
-        app = CxApp(cwd=cwd, state_dir=Path(cwd) / "state")
+    with tempfile.TemporaryDirectory(prefix="vcx-ui-live-") as cwd:
+        app = TerminalApp(cwd=cwd, state_dir=Path(cwd) / "state")
         async with app.run_test(size=(100, 32)) as pilot:
             await wait_for(lambda: app.ready)
             app.query_one(Prompt).load_text("Run printf CX_UI_TOOL, then reply exactly CX_UI_REPLY. Do not edit files.")
@@ -34,7 +34,7 @@ async def main():
             await pilot.press("ctrl+c")
             await wait_for(lambda: not app.busy, timeout=15)
             print("PASS: Ctrl+C interrupts a real running Codex turn", flush=True)
-        resumed = CxApp(cwd=cwd, state_dir=Path(cwd) / "state", resume="last")
+        resumed = TerminalApp(cwd=cwd, state_dir=Path(cwd) / "state", resume="last")
         async with resumed.run_test(size=(100, 32)) as pilot:
             await wait_for(lambda: resumed.ready)
             assert any(isinstance(w, Reply) and "CX_UI_REPLY" in w.source for w in resumed.widgets.values())

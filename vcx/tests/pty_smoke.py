@@ -16,10 +16,10 @@ def main():
     env.update(TERM="xterm-256color", COLORTERM="truecolor")
     process = None
     try:
-        with tempfile.TemporaryDirectory(prefix="cx-terminal-") as cwd:
+        with tempfile.TemporaryDirectory(prefix="vcx-terminal-") as cwd:
             process = subprocess.Popen(
-                ["/bin/zsh", "-f", "-c", '"$@"; result=$?; printf "\\nCX_RETURNED:%s\\n" "$result"; read -r reply; test "$reply" = cx-shell-alive',
-                 "cx-smoke", str(Path.home() / ".local/bin/cx"), "--cwd", cwd],
+                ["/bin/zsh", "-f", "-c", '"$@"; result=$?; printf "\\nVCX_RETURNED:%s\\n" "$result"; read -r reply; test "$reply" = vcx-shell-alive',
+                 "vcx-smoke", str(Path.home() / ".local/bin/vcx"), "--terminal", "--cwd", cwd],
                 stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True,
             )
             os.close(slave)
@@ -32,8 +32,8 @@ def main():
                     if b"Ready" in output:
                         break
                 if process.poll() is not None:
-                    raise AssertionError("cx exited before connecting")
-            assert b"Ready" in output, "cx did not connect within 45 seconds"
+                    raise AssertionError("vcx --terminal exited before connecting")
+            assert b"Ready" in output, "vcx --terminal did not connect within 45 seconds"
             assert b"FOCUS" in output, "Focus header absent"
             assert b"\x1b[?1049h" in output, "Alternate screen absent"
             assert b"48;2;" in output, "Truecolor backgrounds absent"
@@ -46,15 +46,15 @@ def main():
                         output.extend(os.read(master, 65536))
                     except OSError:
                         break
-                    if b"CX_RETURNED:0" in output:
+                    if b"VCX_RETURNED:0" in output:
                         break
-            assert b"CX_RETURNED:0" in output, "Ctrl+C did not exit cx cleanly"
-            assert b"\x1b[?1049l" in output, "cx did not restore the terminal screen"
+            assert b"VCX_RETURNED:0" in output, "Ctrl+C did not exit vcx --terminal cleanly"
+            assert b"\x1b[?1049l" in output, "vcx --terminal did not restore the terminal screen"
             assert process.poll() is None, "Ctrl+C killed the shell"
-            os.write(master, b"cx-shell-alive\n")
+            os.write(master, b"vcx-shell-alive\n")
             process.wait(timeout=5)
-            assert process.returncode == 0, "Shell did not accept input after cx exited"
-            print("PASS: installed cx connects, Ctrl+C exits cleanly, and the shell still accepts input")
+            assert process.returncode == 0, "Shell did not accept input after vcx --terminal exited"
+            print("PASS: installed vcx --terminal connects, Ctrl+C exits cleanly, and the shell still accepts input")
     finally:
         if process and process.poll() is None:
             process.terminate()

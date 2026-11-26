@@ -106,7 +106,7 @@ final class RPC: Connection {
             guard let self, !closed else { return }; receive(message)
         }, invalid: { [weak self] message in
             guard let self, !closed else { return }
-            event(["method": "cx/error", "params": ["message": message.replacingOccurrences(of: "Provider", with: "Codex")]])
+            event(["method": "vcx/error", "params": ["message": message.replacingOccurrences(of: "Provider", with: "Codex")]])
         }, disconnected: { [weak self] in self?.disconnected() })
         self.reader = reader; reader.start()
     }
@@ -131,7 +131,7 @@ final class RPC: Connection {
 
     func respond(_ id: Any, _ result: JSON) throws { try send(["id": id, "result": result]) }
     func reject(_ id: Any, method: String) throws {
-        try send(["id": id, "error": ["code": -32601, "message": "cx does not support \(method)"]])
+        try send(["id": id, "error": ["code": -32601, "message": "vcx does not support \(method)"]])
     }
 
     private func send(_ message: JSON) throws {
@@ -161,7 +161,7 @@ final class RPC: Connection {
         Task { [weak self] in
             var params: JSON = ["message": "Codex disconnected. Reconnect to continue; your conversation is saved."]
             if let process { params.merge(await Task.detached { process.waitUntilExit(); return agentCrash(process, log: log) }.value) { $1 } }
-            self?.event(["method": "cx/disconnected", "params": params])
+            self?.event(["method": "vcx/disconnected", "params": params])
         }
     }
 

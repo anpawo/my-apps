@@ -53,7 +53,7 @@ pub struct Features {
     pub steer: bool,
     pub compact: bool,
     pub review: bool,
-    /// A queued message can interrupt the turn to go now (`cx/sendNow`) or be taken back (`cx/unsend`).
+    /// A queued message can interrupt the turn to go now (`vcx/sendNow`) or be taken back (`vcx/unsend`).
     pub send_now: bool,
     pub unsend: bool,
     pub images: bool,
@@ -140,7 +140,7 @@ pub fn hook_summary(hook: &Value, event: &str, matcher: Option<&str>, plugin: Op
     parts.join(" · ")
 }
 
-/// Claude's `cx/catalog`: its skills (commands not built in), its visible built-ins, its MCP servers and mode.
+/// Claude's `vcx/catalog`: its skills (commands not built in), its visible built-ins, its MCP servers and mode.
 pub fn claude_catalog(catalog: &Value) -> Catalog {
     let commands = catalog["commands"].as_array().cloned().unwrap_or_default();
     let names = |builtin: bool| -> Vec<String> {
@@ -158,7 +158,7 @@ pub fn claude_catalog(catalog: &Value) -> Catalog {
 /// its settings files, not here); agy and Qwen list none, so the notes say where theirs live.
 pub async fn catalog(connection: &Connection, provider: Provider, cwd: &str, thread: &str) -> Result<Catalog, AgentError> {
     match provider {
-        Provider::Claude => Ok(claude_catalog(&connection.request("cx/catalog", json!({}), CLAUDE_CATALOG_TIMEOUT).await?)),
+        Provider::Claude => Ok(claude_catalog(&connection.request("vcx/catalog", json!({}), CLAUDE_CATALOG_TIMEOUT).await?)),
         Provider::Agy => Ok(Catalog {
             hooks: vec!["GateGuard and session-start memory: ~/.gemini/config/hooks.json".into()],
             skills: vec!["~/.gemini/config/skills (Claude's skills)".into()],

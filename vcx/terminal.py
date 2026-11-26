@@ -258,9 +258,9 @@ class RequestScreen(ModalScreen):
         self.dismiss({"answers": {}} if self.method == "item/tool/requestUserInput" else {"decision": "cancel"})
 
 
-class CxApp(App):
-    TITLE = "cx"
-    CSS_PATH = "cx.tcss"
+class TerminalApp(App):
+    TITLE = "vcx"
+    CSS_PATH = "terminal.tcss"
     BINDINGS = [
         Binding("ctrl+c", "interrupt", "Stop / Quit", priority=True),
         Binding("ctrl+q", "leave", "Quit", priority=True),
@@ -324,7 +324,7 @@ class CxApp(App):
 
     def update_bar(self):
         mode = "FOCUS" if self.focus_view else "DETAILS"
-        self.query_one("#topbar", Static).update(f" cx   {Path(self.cwd).name or '/'}   ·   {self.model}   ·   {mode}{self.context}{self.usage}")
+        self.query_one("#topbar", Static).update(f" vcx   {Path(self.cwd).name or '/'}   ·   {self.model}   ·   {mode}{self.context}{self.usage}")
 
     def update_usage(self, limits):
         windows = []
@@ -371,7 +371,7 @@ class CxApp(App):
             resume = self.resume_id
             if resume == "last":
                 if not self.last_file.exists():
-                    raise RpcError("No cx session saved for this folder. Start with cx to create one.")
+                    raise RpcError("No vcx session saved for this folder. Start with vcx --terminal to create one.")
                 resume = json.loads(self.last_file.read_text())["threadId"]
             await self.open_thread(resume)
             if self.initial_prompt:
@@ -549,12 +549,12 @@ class CxApp(App):
                 await self.notice(turn["error"].get("message", "Turn failed"), error=True)
             self.status("Stopped" if turn.get("status") == "interrupted" else "Ready")
             self.update_groups()
-        elif method in ("error", "cx/disconnected"):
+        elif method in ("error", "vcx/disconnected"):
             error = p.get("error") or p
             await self.notice(error.get("message", "Codex reported an error"), error=True)
-            if method == "cx/disconnected":
+            if method == "vcx/disconnected":
                 self.ready, self.busy, self.turn_id = False, False, None
-                self.status("Disconnected. Restart with cx --resume.")
+                self.status("Disconnected. Restart with vcx --terminal --resume.")
         elif method in ("warning", "guardianWarning", "configWarning", "deprecationNotice"):
             await self.notice(p.get("message") or p.get("summary") or json.dumps(p, ensure_ascii=False))
         elif method == "thread/compacted":
@@ -582,13 +582,13 @@ class CxApp(App):
         except (RpcError, OSError, asyncio.TimeoutError) as exc:
             await self.notice(f"Could not send your answer to Codex: {exc}", error=True)
             if not self.ready:
-                self.status("Disconnected. Restart with cx --resume.")
+                self.status("Disconnected. Restart with vcx --terminal --resume.")
 
     async def answer_request(self, message):
         method, p = message["method"], dict(message.get("params", {}))
         if method not in ("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval"):
             await self.notice(f"Unsupported Codex request: {method}. The request was declined.", error=True)
-            await self.client.respond(message["id"], error={"code": -32601, "message": f"cx does not support {method}"})
+            await self.client.respond(message["id"], error={"code": -32601, "message": f"vcx does not support {method}"})
             return
         if method == "item/fileChange/requestApproval":
             p["changes"] = self.items.get(p.get("itemId"), {}).get("changes", [])
@@ -767,13 +767,13 @@ class CxApp(App):
 def main():
     parser = argparse.ArgumentParser(description="A focused terminal interface for Codex.")
     parser.add_argument("prompt", nargs="*", help="Initial prompt")
-    parser.add_argument("--resume", "-r", nargs="?", const="last", help="Resume the last cx chat in this folder, or a thread ID")
+    parser.add_argument("--resume", "-r", nargs="?", const="last", help="Resume the last vcx chat in this folder, or a thread ID")
     parser.add_argument("--cwd", "-C", help="Working folder")
-    parser.add_argument("--version", action="version", version="cx 0.1.0")
+    parser.add_argument("--version", action="version", version="vcx 0.1.0")
     args = parser.parse_args()
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        parser.error("cx needs an interactive terminal. Use codex exec for scripts.")
-    CxApp(cwd=args.cwd, resume=args.resume, initial_prompt=" ".join(args.prompt)).run()
+        parser.error("vcx --terminal needs an interactive terminal. Use codex exec for scripts.")
+    TerminalApp(cwd=args.cwd, resume=args.resume, initial_prompt=" ".join(args.prompt)).run()
 
 
 if __name__ == "__main__":

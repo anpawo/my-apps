@@ -795,34 +795,34 @@ final class Session: ObservableObject {
             return
         }
         switch method {
-        case "cx/limit":
+        case "vcx/limit":
             queueLimit(p["limit"] as? JSON ?? [:])
             return
-        case "cx/resumeFailed":
+        case "vcx/resumeFailed":
             Task { await resumeFailed() }
             return
-        case "cx/catalog": applyClaudeCatalog(p)
-        case "cx/tokens":
+        case "vcx/catalog": applyClaudeCatalog(p)
+        case "vcx/tokens":
             if let input = p["input"] as? Int, let output = p["output"] as? Int { tokens = "\(input.formatted()) in · \(output.formatted()) out" }
-        case "cx/context":
+        case "vcx/context":
             if let used = p["used"] as? Int { contextUsed = used }
             let served = p["model"] as? String
             if let limit = p["limit"] as? Int, limit > 0 {
                 contextLimit = limit
                 if let served, contextWindows[served] != limit { contextWindows[served] = limit }
             } else if let served, let known = contextWindows[served] { contextLimit = known }
-        case "cx/apiRetry":
+        case "vcx/apiRetry":
             if p["done"] as? Bool == true { retryAttempt = nil }
             else { retryAttempt = Date().addingTimeInterval(Double(p["delay"] as? Int ?? 0) / 1000); Connectivity.lost("an API retry") }
-        case "cx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
-        case "cx/userQueue":
+        case "vcx/backgroundTasks": backgroundTasks = p["count"] as? Int ?? 0
+        case "vcx/userQueue":
             if let id = p["id"] as? String, let item = userItem(id) {
                 let queued = p["queued"] as? Bool == true
                 // Read: what the agent does next goes under it.
                 if !queued, item.data["queued"] != nil { group = nil }
                 item.data["queued"] = queued ? true : nil
             }
-        case "cx/model":
+        case "vcx/model":
             model = p["model"] as? String ?? model
             if account.provider == "claude", let known = contextWindows[model] { contextLimit = known }
             defaultEffort = p["reasoningEffort"] as? String ?? (account.provider == "claude" ? configuredClaudeEffort(account: account, cwd: conversationDirectory, model: model) : nil)
@@ -908,7 +908,7 @@ final class Session: ObservableObject {
                 pendingModelCommand = nil
                 Task { self.showCommands(command); await self.command(command) }
             }
-        case "error", "cx/error", "cx/disconnected":
+        case "error", "vcx/error", "vcx/disconnected":
             if usageLimit(p), busy, !stopRequested { clearRetryNotice(); queueLimit(p); return }
             if method == "error", p["willRetry"] as? Bool == true {
                 retryNotice((p["error"] as? JSON)?["message"] as? String ?? "Reconnecting…")
@@ -916,9 +916,9 @@ final class Session: ObservableObject {
             }
             clearRetryNotice()
             // A fixture-command session has no agent of its own to restart.
-            let crashed = method == "cx/disconnected" && p["reason"] != nil && !testing
+            let crashed = method == "vcx/disconnected" && p["reason"] != nil && !testing
             if !crashed { notice(((p["error"] as? JSON) ?? p)["message"] as? String ?? "Codex reported an error.") }
-            if method == "cx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); lostConnection = !ended && !testing; save() }
+            if method == "vcx/disconnected" { let ended = p["ended"] as? Bool == true; needsAttention = !ended; ready = false; busy = false; backgroundTasks = 0; turnID = nil; status = ended ? "Ended" : "Disconnected"; permissions.removeAll(); lostConnection = !ended && !testing; save() }
             if crashed { Task { await restartAfterCrash(p) } }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             let text = p["message"] as? String ?? p["summary"] as? String ?? "Codex reported a configuration warning."
@@ -1518,7 +1518,7 @@ final class Session: ObservableObject {
         let next = preferredMode
         guard ready else { await reconnect(reason: "permission mode changed"); return }
         do {
-            if account.provider == "codex" { modeOverride = true } else { _ = try await rpc.request("cx/mode", ["mode": next], timeout: 20) }
+            if account.provider == "codex" { modeOverride = true } else { _ = try await rpc.request("vcx/mode", ["mode": next], timeout: 20) }
             activeMode = next; save()
             notice("Permission mode changed to " + mode + ".")
         } catch { await reconnect(reason: "permission mode changed") }
@@ -1949,7 +1949,7 @@ final class Session: ObservableObject {
         // Claude moves what the turn waits on to the background, or ends the turn, and takes the prompt in.
         if account.provider == "claude" {
             guard item.data["queued"] as? Bool == true else { return }
-            do { _ = try await rpc.request("cx/sendNow", ["id": item.id], timeout: 5) } catch { notice("Could not send now: " + error.localizedDescription) }
+            do { _ = try await rpc.request("vcx/sendNow", ["id": item.id], timeout: 5) } catch { notice("Could not send now: " + error.localizedDescription) }
             return
         }
         // Codex keeps an unread steer in the interrupted turn; a turn with no input then answers it.
@@ -2003,7 +2003,7 @@ final class Session: ObservableObject {
     private func userItem(_ id: String) -> Item? { rows.last { $0.kind == "user" && $0.items.first?.id == id }?.items.first }
 
     func unsend(_ id: String) async -> Bool {
-        guard let result = try? await rpc.request("cx/unsend", ["id": id], timeout: 5), result["cancelled"] as? Bool == true else { return false }
+        guard let result = try? await rpc.request("vcx/unsend", ["id": id], timeout: 5), result["cancelled"] as? Bool == true else { return false }
         let content = userItem(id)?.data["content"] as? [JSON] ?? []
         let guidance = "\n\nAdditional guidance: " + content.compactMap { $0["text"] as? String }.joined()
         if let input = pendingInput, input.0.hasSuffix(guidance) {
