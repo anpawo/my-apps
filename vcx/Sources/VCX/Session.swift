@@ -1811,6 +1811,8 @@ final class Session: ObservableObject {
         let nativeThread = ["claude", "agy", "qwen"].contains(currentSource.provider) ? currentSource.provider + ":" + currentSource.threadID : currentSource.threadID
         let resumeID = pendingCreation ? nil : nativeThread
         if usesNativeHistory, !pendingCreation, currentSource.provider != "qwen" {
+            // Watcher reopens closed sessions, whose Claude transcripts chats.py deletes once chats.sqlite holds them.
+            if currentSource.provider == "claude" { let thread = currentSource.threadID; await Task.detached { restoreClaudeTranscript(thread) }.value }
             guard !(try await ConversationArchive.sourceFiles([currentSource], state: stateDirectory)).isEmpty else { throw CXError(message: "The exact saved native history is unavailable.") }
             guard !closed, !Task.isCancelled else { throw CancellationError() }
         }
