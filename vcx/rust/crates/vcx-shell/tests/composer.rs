@@ -646,6 +646,20 @@ fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), St
     check(page.next("send")?["text"] == "q仮名", format!("sent other text: {clicked}"))
 }
 
+fn attach_asks_the_core_for_the_picture_instead_of_sending_the_command(page: &Page) -> Result<(), String> {
+    page.keys("/attach shots/a.png")?;
+    page.value("/attach shots/a.png")?;
+
+    page.press(Key::Return, NONE)?;
+
+    check(page.next("attachPath")?["path"] == "shots/a.png", "the path went to the core")?;
+    page.value("")?;
+    check(page.posted("send").is_empty(), "the command went out as a message")?;
+    page.deliver(json!({"type": "attach", "items": [{"kind": "image", "path": "/work/shots/a.png"}]}))?;
+    let state = page.value("[Image #1]")?;
+    check(state["chips"] == json!(["Image #1 · a.png"]), format!("{state}"))
+}
+
 fn offers_a_shell_block_and_runs_it_only_once_run_is_clicked(page: &Page) -> Result<(), String> {
     page.deliver(full(json!({"ready": true, "cwd": "/Users/someone/work"}), json!([])))?;
     page.show(RUNNABLE_REPLY, "figure.code")?;
@@ -709,7 +723,7 @@ fn opens_the_panel_from_an_inline_sudo_command_only(page: &Page) -> Result<(), S
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 28] = [
+const TESTS: [(&str, Test); 29] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
@@ -734,6 +748,7 @@ const TESTS: [(&str, Test); 28] = [
     ("pastes an image through the core and shows it in its chip", pastes_an_image_through_the_core_and_shows_it_in_its_chip),
     ("flies the sent message into its new bubble only", flies_the_sent_message_into_its_new_bubble_only),
     ("keeps marked text, paste, undo and focus together", keeps_marked_text_paste_undo_and_focus_together),
+    ("/attach asks the core for the picture instead of sending the command", attach_asks_the_core_for_the_picture_instead_of_sending_the_command),
     ("offers a shell block and runs it only once Run is clicked", offers_a_shell_block_and_runs_it_only_once_run_is_clicked),
     ("sends a password line to the run only and masks the field", sends_a_password_line_to_the_run_only_and_masks_the_field),
     ("shows the exit status and closes on Escape once finished", shows_the_exit_status_and_closes_on_escape_once_finished),

@@ -74,7 +74,7 @@ pub fn parse(body: &str) -> Option<FromPage> {
         "open" => Some(FromPage::Open { href: text("href")? }),
         "answer" => Some(FromPage::Answer { params: json!({"rpcID": message.get("rpcID")?, "method": text("method")?, "result": message.get("result").filter(|result| result.is_object())?}) }),
         "copy" => Some(FromPage::Copy { text: text("text")? }),
-        "draft" | "files" | "image" | "sendNow" | "dropped" | "run" | "runInput" | "runStop" => Some(FromPage::Composer(message)),
+        "draft" | "files" | "image" | "sendNow" | "dropped" | "attachPath" | "run" | "runInput" | "runStop" => Some(FromPage::Composer(message)),
         "command" => Some(FromPage::Command { text: text("text")? }),
         "title" => Some(FromPage::Title { text: text("text")? }),
         "focus" => Some(FromPage::Focus { id: text("id")? }),

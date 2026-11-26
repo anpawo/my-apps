@@ -20,6 +20,9 @@ const IMAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const STATE_VARIABLE: &str = "VCX_RUST_STATE_HOME";
 const STATE_DEFAULT: &str = ".local/state/vcx-rust";
 const ATTACHMENTS: &str = "attachments";
+const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff"];
+/// What `/attach` says when its argument is not a picture on disk, as Swift does.
+const ATTACH_USAGE: &str = "Use /attach <image path>.";
 
 #[derive(Debug, PartialEq)]
 pub struct Found {
@@ -111,7 +114,6 @@ pub fn image_attached(id: &Value, path: &Path) -> Value {
 
 /// The chips for paths dropped on the window: pictures by their extension, folders, and other files named from `cwd`.
 pub fn dropped(paths: &[PathBuf], cwd: &Path) -> Value {
-    const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff"];
     let items: Vec<Value> = paths
         .iter()
         .map(|path| {
@@ -124,6 +126,39 @@ pub fn dropped(paths: &[PathBuf], cwd: &Path) -> Value {
     json!({"type": "attach", "items": items})
 }
 
+/// `/attach <path>` read as Swift's `resolvedPath`: one pair of quotes off, `~` expanded, relative to `cwd`, `.` and
+/// `..` resolved.
+fn resolved(argument: &str, cwd: &Path) -> PathBuf {
+    let quoted = argument.len() >= 2 && ["\"", "'"].iter().any(|quote| argument.starts_with(quote) && argument.ends_with(quote));
+    let text = if quoted { &argument[1..argument.len() - 1] } else { argument };
+    let home = || std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let expanded = match text.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => home().join(rest.trim_start_matches('/')),
+        _ => PathBuf::from(text),
+    };
+    let mut path = PathBuf::new();
+    for part in cwd.join(expanded).components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                path.pop();
+            }
+            other => path.push(other),
+        }
+    }
+    path
+}
+
+/// The chip `/attach` puts in the composer, or the notice that says how to use it.
+fn attach_image(argument: &str, cwd: &Path) -> Value {
+    let path = resolved(argument.trim(), cwd);
+    let extension = path.extension().map(|extension| extension.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if argument.trim().is_empty() || !path.is_file() || !IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+        return json!({"type": "notice", "text": ATTACH_USAGE});
+    }
+    dropped(&[path], cwd)
+}
+
 /// Where pasted pictures are written.
 pub fn attachments_folder() -> PathBuf {
     let state = std::env::var_os(STATE_VARIABLE).filter(|value| !value.is_empty()).map(PathBuf::from);
@@ -132,7 +167,7 @@ pub fn attachments_folder() -> PathBuf {
 }
 
 /// The page's answer to a composer request the core serves: `files` (an `@` word's list, from `cwd`), `image` (a pasted
-/// picture, written into `attachments`) and `dropped` (paths dropped on the window). It reads the disk: call it off
+/// picture, written into `attachments`), `dropped` (paths dropped on the window) and `attachPath` (`/attach <path>`). It reads the disk: call it off
 /// the main thread. `None` for any other message.
 pub fn answer(message: &Value, cwd: &Path, attachments: &Path) -> Option<Value> {
     let text = |key: &str| message.get(key).and_then(Value::as_str);
@@ -149,6 +184,7 @@ pub fn answer(message: &Value, cwd: &Path, attachments: &Path) -> Option<Value> 
             let paths: Vec<PathBuf> = message.get("paths")?.as_array()?.iter().filter_map(Value::as_str).map(PathBuf::from).collect();
             (!paths.is_empty()).then(|| dropped(&paths, cwd))
         }
+        "attachPath" => Some(attach_image(text("path").unwrap_or_default(), cwd)),
         _ => None,
     }
 }
@@ -243,6 +279,26 @@ mod tests {
         assert_eq!(answer(&json!({"type": "draft"}), &root, &attachments), None);
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(attachments).unwrap();
+    }
+
+    #[test]
+    fn attaches_a_picture_named_by_attach_and_says_how_to_use_it_otherwise() {
+        let root = scratch("attach");
+        fs::create_dir_all(root.join("shots")).unwrap();
+        fs::write(root.join("shots/a b.png"), "").unwrap();
+        fs::write(root.join("notes.md"), "").unwrap();
+        let ask = |path: &str| answer(&json!({"type": "attachPath", "path": path}), &root.join("shots"), &root).unwrap();
+
+        let (quoted, relative) = (ask("\"a b.png\""), ask("../shots/./a b.png"));
+        let refused = [ask(""), ask("missing.png"), ask("../notes.md"), ask("..")];
+
+        let picture = root.join("shots/a b.png").to_string_lossy().into_owned();
+        for reply in [&quoted, &relative] {
+            assert_eq!((reply["items"][0]["kind"].clone(), reply["items"][0]["path"].clone()), (json!("image"), json!(picture)), "{reply}");
+        }
+        assert!(refused.iter().all(|reply| *reply == json!({"type": "notice", "text": ATTACH_USAGE})), "{refused:?}");
+        assert!(resolved("~/x.png", Path::new("/work")).ends_with("x.png") && !resolved("~/x.png", Path::new("/work")).starts_with("/work"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

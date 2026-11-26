@@ -18,6 +18,8 @@
   const PROVIDERS = ['claude', 'codex', 'qwen', 'agy'];
   // Their values run as soon as they are chosen; the others go into the composer to be read before Return.
   const RUN_AT_ONCE = ['/model ', '/provider ', '/perms ', '/resume '];
+  // Swift runs `/attach <image path>` in the window: the picture becomes a chip in the draft, never a message.
+  const ATTACH_COMMAND = /^\/attach(?:\s+([\s\S]*))?$/;
   // The commands VCX itself runs, from `Commands.swift` (`appCommands`): name, what it does, takes an argument.
   const APP_COMMANDS = [
     ['model', 'Choose provider, model, and reasoning effort', true], ['codex', 'Switch to Codex and its newest model', false],
@@ -560,6 +562,12 @@
   function submit() {
     const { text, images } = message();
     if (!text && images.length === 0) return;
+    const attaching = images.length === 0 && text.match(ATTACH_COMMAND);
+    if (attaching) {
+      post({ type: 'attachPath', path: attaching[1] || '' });
+      closePalette();
+      return setText('');
+    }
     // An open question card (questions.js) takes the typed text as its answer instead of a new message.
     const answered = Boolean(window.vcxQuestions?.open && text && images.length === 0 && window.vcxQuestions.reply(text));
     if (!answered) {
