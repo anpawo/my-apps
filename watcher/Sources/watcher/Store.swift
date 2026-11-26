@@ -123,9 +123,17 @@ enum Store {
             .filter { $0.activationPolicy != .prohibited }.map(\.processIdentifier)
     }
 
+    /// VCX Rust's records, in the same shape in its own state folder (vcx-app `fleet.rs`). Moved aside in the selftest.
+    nonisolated(unsafe) static var vcxRust = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".local/state/vcx-rust/fleet")
+    nonisolated(unsafe) static var vcxRustFrontends: () -> [pid_t] = {
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.mr.vcx.rust")
+            .filter { $0.activationPolicy != .prohibited }.map(\.processIdentifier)
+    }
+
     private static func vcxWindow(_ threads: Set<String>) -> String? {
-        for pid in vcxFrontends() {
-            guard let data = try? Data(contentsOf: vcx.appending(path: "\(pid).json")),
+        let frontends = vcxFrontends().map { (vcx, $0) } + vcxRustFrontends().map { (vcxRust, $0) }
+        for (folder, pid) in frontends {
+            guard let data = try? Data(contentsOf: folder.appending(path: "\(pid).json")),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             for record in root["sessions"] as? [[String: Any]] ?? [] where (record["pid"] as? NSNumber)?.int32Value == pid {
                 if let thread = record["threadId"] as? String, threads.contains(thread), let id = record["sessionId"] as? String { return id }

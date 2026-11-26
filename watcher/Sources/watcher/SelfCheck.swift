@@ -306,6 +306,16 @@ enum SelfCheck {
                "inbox: ↵ on a line whose session is open raises its window and sets the line aside")
         _ = lineInbox.key(UInt16(kVK_Return))
         expect(lineOpened == ["h"] && raised.count == 2, true, "inbox: ↵ on a line whose session is not open resumes it in a new window")
+        // The same session in a VCX Rust window, no Swift app running: its record in VCX Rust's own folder.
+        let (rust, rustFrontends) = (Store.vcxRust, Store.vcxRustFrontends)
+        let rustFolder = state.appending(path: "vcx-rust")
+        try? FileManager.default.createDirectory(at: rustFolder, withIntermediateDirectories: true)
+        try? Data(#"{"sessions":[{"pid":\#(getpid()),"sessionId":"R","threadId":"claude:live"}]}"#.utf8).write(to: rustFolder.appending(path: "\(getpid()).json"))
+        (Store.vcxFrontends, Store.vcxRust, Store.vcxRustFrontends) = ({ [] }, rustFolder, { [getpid()] })
+        raised = []
+        watcher.open(c)
+        expect(raised == [.vcx("R")] && resumed.count == 3, true, "checks: a click raises the VCX Rust window holding its session")
+        (Store.vcxRust, Store.vcxRustFrontends) = (rust, rustFrontends)
         (Store.vcx, Store.vcxFrontends) = (vcx, frontends)
         Store.claude = real
         press(kVK_DownArrow)
