@@ -58,7 +58,7 @@
     [['\u2191'], 'Withdraw the unread prompt, or recall the previous one'], [['\u2193'], 'Next prompt in history'], [['\u21e5'], 'Expand the last paste, or complete a command'],
     [['esc'], 'Close find, a preview or a panel, else stop the turn'], [['1\u20139'], 'Pick an option of the open question'],
     [['\u2318', 'F'], 'Find in the transcript'], [['\u2318', ','], 'Settings'], [['\u2318', '\u21e7', 'N'], 'New window'], [['\u2318', 'O'], 'Open project'],
-    [['\u2318', 'W'], 'Close window'], [['\u2318', 'Q'], 'Close session'], [['\u2325', 'click'], 'Define the word; drag to widen it'], [['\u2325'], 'Held, select the word under the pointer'],
+    [['\u2318', 'W'], 'Close window'], [['\u2318', 'Q'], 'Close session'], [['\u2303', 'click'], 'Define the word; drag to widen it'], [['\u2303'], 'Held, select the word under the pointer'],
   ];
 
   const $ = id => document.getElementById(id);

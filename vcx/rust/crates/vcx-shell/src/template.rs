@@ -36,6 +36,7 @@ const BUILT_IN: &[(&str, &[u8])] = &[
     ("composer.css", include_bytes!("../../../template/composer.css")),
     ("composer.js", include_bytes!("../../../template/composer.js")),
     ("find.js", include_bytes!("../../../template/find.js")),
+    ("define.js", include_bytes!("../../../template/define.js")),
     ("questions.js", include_bytes!("../../../template/questions.js")),
     ("chrome.css", include_bytes!("../../../template/chrome.css")),
     ("chrome.js", include_bytes!("../../../template/chrome.js")),

@@ -445,6 +445,61 @@ fn opens_every_action_on_details_and_folds_them_again_on_focus_without_asking_th
     assert!(drew_turns(&windows(&report)[0], 1), "a command reached the agent: {report:#}");
 }
 
+/// Control-held mouse events on words of the fixture's answer ("Done with **bold** text."), each at the middle of its
+/// word, as WebKit hands a Control-click to the page; the drag's last event is the release.
+fn control_mouse(steps: &[(&str, &str)]) -> String {
+    let steps: Vec<String> = steps.iter().map(|(kind, word)| format!("['{kind}', '{word}']")).collect();
+    format!("(() => {{
+        const at = word => {{
+            const walker = document.createTreeWalker(document.getElementById('rows'), NodeFilter.SHOW_TEXT);
+            for (let node; (node = walker.nextNode());) {{
+                const index = node.data.indexOf(word);
+                if (index < 0) continue;
+                node.parentElement.scrollIntoView({{block: 'center'}});
+                const range = document.createRange();
+                range.setStart(node, index);
+                range.setEnd(node, index + word.length);
+                const box = range.getBoundingClientRect();
+                return [box.x + box.width / 2, box.y + box.height / 2];
+            }}
+        }};
+        for (const [kind, word] of [{}]) {{
+            const [x, y] = at(word);
+            document.elementFromPoint(x, y).dispatchEvent(new MouseEvent(kind, {{bubbles: true, cancelable: true, ctrlKey: true, button: 0, clientX: x, clientY: y}}));
+        }}
+        return '';
+    }})()", steps.join(", "))
+}
+
+const LAST_PROMPT: &str = "[...document.querySelectorAll('.row[data-kind=\"user\"] .message')].pop()?.innerText ?? ''";
+
+fn asked_after_control(name: &str, steps: &[(&str, &str)]) -> Option<String> {
+    let mut run = Run::new(name)?;
+    let folder = run.folder(name);
+    run.start(&["--cwd", folder.to_str().unwrap(), "explain the answer"]);
+    let id = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1))["windows"][0]["sessionId"].as_str().unwrap().to_owned();
+    let evaluate = |script: &str| -> String { serde_json::from_str(run.ask(&json!({"evaluate": {"to": id, "script": script}})).unwrap()["result"].as_str().unwrap()).unwrap() };
+
+    evaluate(&control_mouse(steps));
+
+    run.wait_for(|report| drew_turns(&windows(report)[0], 2));
+    Some(evaluate(LAST_PROMPT))
+}
+
+#[test]
+fn asks_the_agent_to_define_the_word_control_clicked_in_the_answer() {
+    let Some(asked) = asked_after_control("define", &[("mousedown", "Done"), ("mouseup", "Done")]) else { return };
+
+    assert!(asked == "Define \"Done\" as used here, in at most 3 short lines.", "{asked}");
+}
+
+#[test]
+fn asks_about_every_word_a_control_drag_crosses() {
+    let Some(asked) = asked_after_control("definedrag", &[("mousedown", "Done"), ("mousemove", "bold"), ("mouseup", "bold")]) else { return };
+
+    assert!(asked == "Define \"Done with bold\" as used here, in at most 3 short lines.", "{asked}");
+}
+
 #[test]
 fn closes_the_front_session_on_command_q_and_offers_the_file_menu() {
     let Some(mut run) = Run::new("menus") else { return };
