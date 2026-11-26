@@ -22,6 +22,8 @@ use wry::{BackgroundThrottlingPolicy, DragDropEvent, WebView, WebViewBuilder};
 /// How long a freshly loaded page has to report ready before the last template that worked comes back.
 const READY_WAIT: Duration = Duration::from_secs(3);
 const LAST_GOOD: &str = "Showing the last template that worked.";
+/// What VCX runs itself, never the worker, which refuses them (Swift `RuntimeSession`'s frontend verbs).
+const FRONTEND_COMMANDS: [&str; 7] = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit"];
 
 /// Hands an event to the event loop, addressed to the pane it came from.
 pub type Emit = Arc<dyn Fn(PaneEvent) + Send + Sync>;
@@ -59,6 +61,8 @@ pub enum Note {
     ChooseDirectory,
     /// The Settings sheet opened: it asks for his accounts and what the session runs on.
     Settings,
+    /// A command the app runs, as typed: `/login claude`, `/window ~/projects`.
+    Local(String),
     Closed(String),
 }
 
@@ -189,6 +193,12 @@ impl Pane {
                 Vec::new()
             }
             FromPage::Ready { contract } => self.fall_back(&format!("The template's page speaks contract {contract}; this build speaks contract {CONTRACT_VERSION}.")),
+            FromPage::Send { text, images, draft, generation } if images.is_empty() && is_frontend(&text) => {
+                if let (Some(draft), Some(generation)) = (draft, generation) {
+                    self.tell(Message::Act { action: "checkpoint", params: json!({"draft": draft, "generation": generation}) });
+                }
+                vec![Note::Local(text)]
+            }
             FromPage::Send { text, images, draft, generation } => {
                 let mut params = json!({"text": text, "images": images});
                 if let (Some(draft), Some(generation)) = (draft, generation) {
@@ -239,6 +249,7 @@ impl Pane {
                 }
                 Vec::new()
             }
+            FromPage::Command { text } if is_frontend(&text) => vec![Note::Local(text)],
             FromPage::Command { text } => {
                 self.tell(Message::Act { action: "command", params: json!({"text": text}) });
                 Vec::new()
@@ -413,4 +424,25 @@ fn web_view(window: &Window, store: &Arc<Store>, emit: &Emit) -> Result<WebView,
         .with_url(template::HOME)
         .build(window)
         .map_err(|error| error.to_string())
+}
+
+/// The verb as the worker reads it: the first word, lower-cased, a plugin's `name:` prefix dropped.
+pub fn is_frontend(text: &str) -> bool {
+    let token = text.split_whitespace().next().unwrap_or_default().to_lowercase();
+    let verb = format!("/{}", token.rsplit(':').next().unwrap_or_default().trim_matches('/'));
+    text.starts_with('/') && FRONTEND_COMMANDS.contains(&verb.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_app_commands_from_the_worker() {
+        let texts = ["/login claude", "/WINDOW ~/p", "/quit", "/vcx:exit", "/model claude", "/loginx", "login claude", "/compact"];
+
+        let frontend: Vec<bool> = texts.iter().map(|text| is_frontend(text)).collect();
+
+        assert_eq!(frontend, [true, true, true, true, false, false, false, false]);
+    }
 }

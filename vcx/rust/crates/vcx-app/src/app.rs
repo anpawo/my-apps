@@ -5,7 +5,7 @@ use crate::control::{self, Request};
 use crate::settings::{self, Settings};
 use crate::windows::{self, Frame, Saved};
 use crate::worker::{self, Reaper};
-use crate::{fleet, folder, metrics, requests, sheet, tasks};
+use crate::{fleet, folder, local, login, metrics, requests, sheet, tasks};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
@@ -70,6 +70,8 @@ pub enum AppEvent {
     Tasks,
     /// The folder picked in window `key`'s panel.
     Chosen(u64, PathBuf),
+    /// The sign-in panel's new text.
+    Login(Value),
 }
 
 pub(crate) struct Win {
@@ -139,7 +141,7 @@ pub(crate) struct App {
     pub homes: Homes,
     settings: Settings,
     windowless: bool,
-    proxy: EventLoopProxy<AppEvent>,
+    pub(crate) proxy: EventLoopProxy<AppEvent>,
     reaper: Reaper,
     pub windows: BTreeMap<u64, Win>,
     keys: HashMap<WindowId, u64>,
@@ -155,6 +157,8 @@ pub(crate) struct App {
     started_at: u64,
     first: Option<Open>,
     notice: Option<String>,
+    pub(crate) login: Option<login::Running>,
+    login_message: Value,
     _lock: File,
 }
 
@@ -192,6 +196,8 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         started_at,
         first: options.open,
         notice,
+        login: None,
+        login_message: Value::Null,
         _lock: lock,
     };
     event_loop.run(move |event, target, flow| {
@@ -305,10 +311,14 @@ impl App {
         match event {
             AppEvent::Pane(key, event) => {
                 let notes = self.windows.get_mut(&key).map(|win| win.pane.on(event)).unwrap_or_default();
+                let mut exit = None;
                 for note in notes {
-                    self.noted(key, note);
+                    match note {
+                        Note::Local(text) => exit = exit.or(local::run(self, target, key, &text)),
+                        note => self.noted(key, note),
+                    }
                 }
-                None
+                exit
             }
             AppEvent::Control(request) => requests::handle(self, target, request),
             AppEvent::Dumped(key, page) => {
@@ -334,6 +344,10 @@ impl App {
             }
             AppEvent::Tasks => {
                 self.show_tasks();
+                None
+            }
+            AppEvent::Login(message) => {
+                self.show_login(message);
                 None
             }
             AppEvent::Chosen(key, path) => {
@@ -362,6 +376,9 @@ impl App {
             // The page has just been given the whole state: it gets the task bar again.
             Note::Shown(_) => {
                 win.tasks_shown = Value::Null;
+                if local::shown(&self.login_message) {
+                    win.pane.to_page(&self.login_message);
+                }
                 self.show_tasks();
             }
             Note::Title(text) => win.window.set_title(&text),
@@ -379,8 +396,21 @@ impl App {
                 }
                 Err(problem) => win.pane.note(problem),
             },
-            Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading => {}
+            Note::Settled(_) | Note::Sent | Note::Edited | Note::Reloading | Note::Local(_) => {}
         }
+    }
+
+    pub(crate) fn show_login(&mut self, message: Value) {
+        for win in self.windows.values() {
+            win.pane.to_page(&message);
+        }
+        self.login_message = message;
+    }
+
+    /// Ends the window's session; the app's exit code once its last window closed.
+    pub(crate) fn close_window(&mut self, key: u64) -> Option<i32> {
+        self.drop_window(key, true);
+        (self.windows.is_empty() && !self.windowless).then(|| self.quit())
     }
 
     fn summarized(&mut self, key: u64, summary: Summary) {
@@ -406,12 +436,7 @@ impl App {
     fn window_event(&mut self, id: WindowId, event: WindowEvent) -> Option<i32> {
         let key = *self.keys.get(&id)?;
         match event {
-            WindowEvent::CloseRequested => {
-                self.drop_window(key, true);
-                if self.windows.is_empty() && !self.windowless {
-                    return Some(self.quit());
-                }
-            }
+            WindowEvent::CloseRequested => return self.close_window(key),
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => self.schedule_save(),
             WindowEvent::Focused(true) => {
                 self.focused = Some(key);
