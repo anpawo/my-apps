@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 use vcx_testkit::SwiftWorker;
@@ -42,8 +42,8 @@ fn copy_template(folder: &Path) {
 /// Runs the shell windowless and gives back the report of what its page drew.
 fn check(scratch: &Path, arguments: &[&str]) -> Value {
     let report = scratch.join("report.json");
-    let status = Command::new(env!("CARGO_BIN_EXE_vcx-shell")).args(arguments).arg("--check").arg(&report).args(["--check-timeout", CHECK_TIMEOUT_SECONDS]).status().unwrap();
-    assert!(status.success(), "the shell ended with {status}");
+    let output = Command::new(env!("CARGO_BIN_EXE_vcx-shell")).args(arguments).arg("--check").arg(&report).args(["--check-timeout", CHECK_TIMEOUT_SECONDS]).stdin(Stdio::null()).output().unwrap();
+    assert!(output.status.success(), "the shell ended with {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
     serde_json::from_str(&fs::read_to_string(report).unwrap()).unwrap()
 }
 
