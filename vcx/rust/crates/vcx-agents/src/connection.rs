@@ -63,6 +63,11 @@ impl Connection {
         }
     }
 
+    /// The descriptors a frozen connection names: its worker keeps them open across the exec.
+    pub fn descriptors(state: &Value) -> Vec<std::os::fd::RawFd> {
+        Agent::descriptors(&state["agent"])
+    }
+
     pub fn adopt(state: &Value) -> std::io::Result<(Self, tokio::sync::mpsc::UnboundedReceiver<crate::rpc::Incoming>)> {
         if state["kind"] != "codex" {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "This agent connection cannot be adopted."));

@@ -48,6 +48,11 @@ pub trait Backend {
     fn perform(self: Rc<Self>, action: String, params: Object) -> Action;
     fn close(&self);
     fn set_on_change(&self, on_change: Option<Rc<dyn Fn(Object)>>);
+    /// What the next image of the worker needs to go on with the session (a live update, `swap.rs`), or `None`
+    /// while the session cannot leave this image. It changes nothing.
+    fn freeze(&self) -> Option<Value> {
+        None
+    }
 }
 
 pub type Factory = Box<dyn Fn(&Object) -> Result<Rc<dyn Backend>, String>>;
@@ -158,6 +163,58 @@ impl Server {
             request_bytes: Cell::new(0),
             idle: Cell::new(0),
         })
+    }
+
+    /// What the next image of this worker needs to go on serving, or `None` while a request, an action or a frame
+    /// is on its way: none of them survives an exec. Leases and receipts stay behind, as on the Swift worker: its
+    /// frontends attach again, and a sequence already accepted is refused. It changes nothing.
+    pub fn freeze(&self) -> Option<Value> {
+        let idle = self.peers.borrow().values().all(|peer| peer.requests.get() == 0 && peer.channel.drained());
+        if self.stopped.get() || !idle {
+            return None;
+        }
+        let mut sessions = Vec::new();
+        for entry in self.entries.borrow().values().filter(|entry| !entry.close_completed.get()) {
+            let settled = !entry.ended.get() && entry.receipts.borrow().values().all(|receipt| receipt.completed.get());
+            let backend = entry.backend.borrow().clone().filter(|_| settled)?;
+            sessions.push(json!({"sessionId": entry.id, "revision": entry.revision.get(), "lastSequence": entry.last_sequence.get(), "backend": backend.freeze()?}));
+        }
+        let closed: Vec<String> = self.closed_ids.borrow().iter().cloned().collect();
+        Some(json!({"sessions": sessions, "closedIDs": closed}))
+    }
+
+    /// Tells every frontend that the worker is about to continue in a new image, as the Swift worker does: told
+    /// before its socket closes, a frontend attaches again without reporting a stopped runtime.
+    pub fn announce_swap(&self) {
+        let swapping = json!({"method": "runtime/swapping", "params": {}});
+        for peer in self.peers.borrow().values() {
+            peer.channel.send_now(swapping.as_object().expect("an object literal"));
+        }
+    }
+
+    /// Closes every connection and keeps the sessions: frontends told of a swap that did not happen attach again.
+    pub fn close_peers(&self) {
+        let peers: Vec<Rc<Peer>> = self.peers.borrow().values().cloned().collect();
+        for peer in peers {
+            peer.channel.close();
+        }
+    }
+
+    /// Takes over what a previous image froze. `backend` rebuilds a session's runtime; one it cannot rebuild is
+    /// left out, and its frontend, finding it unknown, reopens it from its checkpoint.
+    pub fn adopt(self: &Rc<Self>, state: &Value, backend: impl Fn(&str, &Value) -> Option<Rc<dyn Backend>>) {
+        let closed = state["closedIDs"].as_array().into_iter().flatten().filter_map(Value::as_str);
+        self.closed_ids.borrow_mut().extend(closed.map(str::to_owned));
+        for session in state["sessions"].as_array().into_iter().flatten() {
+            let id = session["sessionId"].as_str().unwrap_or_default();
+            let Some(backend) = backend(id, &session["backend"]) else { continue };
+            let entry = Rc::new(Entry::new(id.to_owned()));
+            entry.revision.set(session["revision"].as_u64().unwrap_or(0));
+            entry.last_sequence.set(session["lastSequence"].as_u64().unwrap_or(0));
+            *entry.creation.borrow_mut() = Some(Rc::clone(&backend));
+            self.bind(&backend, &entry);
+            self.entries.borrow_mut().insert(id.to_owned(), entry);
+        }
     }
 
     /// Accepts frontends until the server stops. A connection from another user is dropped before any read.

@@ -162,6 +162,11 @@ impl Agent {
         Some(json!({"pid": pid, "input": input, "output": output, "next": inner.next.get(), "leftover": BASE64.encode(&*inner.unparsed.borrow())}))
     }
 
+    /// The two pipes a frozen state names.
+    pub fn descriptors(state: &Value) -> Vec<RawFd> {
+        ["input", "output"].iter().filter_map(|key| state[*key].as_i64().and_then(|value| RawFd::try_from(value).ok())).collect()
+    }
+
     /// Goes on with an agent a previous image of this process froze. The descriptors are taken over whether or not
     /// this succeeds: on an error they are closed, and the agent ends on its closed pipes.
     pub fn adopt(state: &Value) -> io::Result<(Self, mpsc::UnboundedReceiver<Incoming>)> {

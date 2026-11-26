@@ -18,14 +18,14 @@ const OWN_ROW_ITEMS: [&str; 3] = ["agentMessage", "plan", "userMessage"];
 const HIDDEN_ITEMS: [&str; 2] = ["hookPrompt", "contextCompaction"];
 pub const RECOVERED_NOTICE: &str = "Recovered saved conversation and unsent draft. The runtime was interrupted; previous tools were not replayed.";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Row {
     pub id: String,
     pub kind: String,
     pub items: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Permission {
     pub id: String,
     /// The agent's request id exactly as it came: a number stays a number.
@@ -59,7 +59,9 @@ pub struct Outgoing {
     saved_draft: Vec<Value>,
 }
 
-#[derive(Debug, Default)]
+// Serialized whole for a live update (`swap.rs`); a field the frozen image did not have starts at its default.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Session {
     pub cwd: String,
     pub conversation_directory: String,

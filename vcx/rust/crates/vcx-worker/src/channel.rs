@@ -4,7 +4,7 @@
 use std::cell::{Cell, RefCell};
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -35,6 +35,32 @@ pub struct Listener {
     pub listener: tokio::net::UnixListener,
     _lock: File,
     pub path: PathBuf,
+}
+
+impl Listener {
+    /// The socket and its lock, as the descriptors the next image of this worker goes on with.
+    pub fn descriptors(&self) -> (RawFd, RawFd) {
+        (self.listener.as_raw_fd(), self._lock.as_raw_fd())
+    }
+}
+
+/// Goes on listening on the socket a previous image of this worker bound and locked. Both descriptors are taken
+/// over whether or not this succeeds.
+pub fn adopt(path: &Path, listener: RawFd, lock: RawFd) -> io::Result<Listener> {
+    if listener <= libc::STDERR_FILENO || lock <= libc::STDERR_FILENO {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid adopted runtime socket."));
+    }
+    // SAFETY: the previous image left these two descriptors open for this one alone, and nothing else here owns them.
+    let (listener, lock) = unsafe { (std::os::unix::net::UnixListener::from_raw_fd(listener), File::from_raw_fd(lock)) };
+    for descriptor in [listener.as_raw_fd(), lock.as_raw_fd()] {
+        // SAFETY: both descriptors are open; an agent started later must not inherit them.
+        unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    if listener.local_addr()?.as_pathname() != Some(path) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "The adopted socket is not this worker's."));
+    }
+    listener.set_nonblocking(true)?;
+    Ok(Listener { listener: tokio::net::UnixListener::from_std(listener)?, _lock: lock, path: path.to_owned() })
 }
 
 /// Binds the socket once this worker holds its lock. A socket left by a dead worker is replaced.
@@ -105,6 +131,21 @@ impl Channel {
 
     pub fn is_closed(&self) -> bool {
         self.closed.get()
+    }
+
+    /// Every frame queued for the frontend has been written.
+    pub fn drained(&self) -> bool {
+        self.queued_bytes.get() == 0
+    }
+
+    /// Writes a frame to the socket at once, around the queue: the last word before an exec, which no task outlives.
+    /// A frontend whose socket has no room for it only sees the connection end.
+    pub fn send_now(&self, message: &Object) {
+        let Ok(data) = frame::encode(message) else { return };
+        if !self.closed.get() && self.drained() {
+            // SAFETY: `data` is valid for its length; the socket does not block, and SIGPIPE is ignored.
+            unsafe { libc::write(self.fd, data.as_ptr().cast(), data.len()) };
+        }
     }
 
     /// Shuts the socket both ways; the reader then sees its end and tells the server once.

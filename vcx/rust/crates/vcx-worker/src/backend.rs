@@ -18,6 +18,8 @@ use vcx_agents::rpc::METHOD_NOT_FOUND;
 use vcx_agents::{AgentError, Connection, Inbound, Incoming};
 use vcx_config::{Account, Settings, SettingsFile};
 
+pub mod carry;
+
 pub type Object = serde_json::Map<String, Value>;
 
 /// Patches are gathered this long, so a streamed answer goes out a few times a second rather than per word.
@@ -55,6 +57,8 @@ pub struct SessionBackend {
     config: Rc<Config>,
     session: RefCell<Session>,
     agent: RefCell<Option<Connection>>,
+    /// What the agent sent and `pump` has not taken yet, within reach of `frozen`: nothing may wait there at an exec.
+    incoming: RefCell<Option<carry::Stream>>,
     on_change: RefCell<Option<Rc<dyn Fn(Object)>>>,
     scheduled: Cell<bool>,
     closed: Cell<bool>,
@@ -81,6 +85,8 @@ pub struct SessionBackend {
     account_choice: RefCell<Option<String>>,
     /// When the agent last stopped on its own, in seconds since 1970.
     last_crash: Cell<Option<f64>>,
+    /// Work `apply` started on its own (a stop, a fallback, a retry) and that has not ended: an exec would lose it.
+    detached: Cell<usize>,
 }
 
 fn text<'a>(object: &'a Object, key: &str) -> Option<&'a str> {
@@ -119,6 +125,7 @@ impl SessionBackend {
             config,
             session: RefCell::new(session),
             agent: RefCell::default(),
+            incoming: RefCell::default(),
             on_change: RefCell::default(),
             scheduled: Cell::new(false),
             closed: Cell::new(false),
@@ -137,6 +144,7 @@ impl SessionBackend {
             pending_command: RefCell::default(),
             account_choice: RefCell::default(),
             last_crash: Cell::new(None),
+            detached: Cell::new(0),
         });
         let (starting, params) = (Rc::clone(&backend), params.clone());
         tokio::task::spawn_local(async move {
@@ -264,6 +272,8 @@ impl SessionBackend {
         }
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
+        let incoming = Rc::new(RefCell::new(incoming));
+        *self.incoming.borrow_mut() = Some(Rc::clone(&incoming));
         tokio::task::spawn_local(Rc::clone(self).pump(incoming, generation));
         let mut session = self.session.borrow_mut();
         session.provider = account.provider.clone();
@@ -603,8 +613,8 @@ impl SessionBackend {
         self.schedule();
     }
 
-    async fn pump(self: Rc<Self>, mut incoming: mpsc::UnboundedReceiver<Incoming>, generation: u64) {
-        while let Some(message) = incoming.recv().await {
+    async fn pump(self: Rc<Self>, incoming: carry::Stream, generation: u64) {
+        while let Some(message) = std::future::poll_fn(|context| incoming.borrow_mut().poll_recv(context)).await {
             if self.generation.get() != generation {
                 return;
             }
@@ -653,26 +663,26 @@ impl SessionBackend {
                 }
                 Effect::Stop => {
                     let backend = Rc::clone(self);
-                    tokio::task::spawn_local(async move { backend.stop("Stop command").await });
+                    self.detach(async move { backend.stop("Stop command").await });
                 }
                 Effect::Limit(info) => {
-                    tokio::task::spawn_local(Rc::clone(self).limit_reached(info));
+                    self.detach(Rc::clone(self).limit_reached(info));
                 }
                 Effect::RateLimited => {
-                    tokio::task::spawn_local(Rc::clone(self).retry_rate_limit());
+                    self.detach(Rc::clone(self).retry_rate_limit());
                 }
                 Effect::Crashed(params) => {
-                    tokio::task::spawn_local(Rc::clone(self).restart_after_crash(params));
+                    self.detach(Rc::clone(self).restart_after_crash(params));
                 }
                 Effect::ResumeFailed => {
-                    tokio::task::spawn_local(Rc::clone(self).resume_failed());
+                    self.detach(Rc::clone(self).resume_failed());
                 }
             }
         }
         let idle = !self.session.borrow().busy && !self.transferring.get();
         if let Some(command) = self.pending_command.borrow_mut().take_if(|_| idle) {
             let backend = Rc::clone(self);
-            tokio::task::spawn_local(async move {
+            self.detach(async move {
                 if let Err(error) = Rc::clone(&backend).command(&command).await {
                     backend.session.borrow_mut().notice(&error);
                     backend.schedule();
@@ -1017,5 +1027,9 @@ impl Backend for SessionBackend {
 
     fn set_on_change(&self, on_change: Option<Rc<dyn Fn(Object)>>) {
         *self.on_change.borrow_mut() = on_change;
+    }
+
+    fn freeze(&self) -> Option<Value> {
+        self.frozen()
     }
 }
