@@ -2,17 +2,17 @@
 //! session, runs the frontend's actions, publishes patches and keeps the checkpoint.
 
 use crate::checkpoint::Store;
+use crate::provider;
 use crate::server::{Action, Backend};
 use crate::session::{Effect, Session};
 use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use vcx_agents::rpc::METHOD_NOT_FOUND;
-use vcx_agents::{Agent, Inbound, Incoming};
+use vcx_agents::{Connection, Inbound, Incoming};
 
 pub type Object = serde_json::Map<String, Value>;
 
@@ -25,12 +25,16 @@ const TURNS_PAGE: u64 = 50;
 const CATALOG_LIMIT: u64 = 100;
 const FRONTEND_COMMANDS: [&str; 7] = ["/window", "/settings", "/login", "/attach", "/preview", "/quit", "/exit"];
 const INTERRUPTING_ACTIONS: [&str; 3] = ["answer", "stop", "checkpoint"];
+const CLAUDE_SETTINGS: &str = "claude-settings.json";
 
 /// How sessions start their agent.
 pub struct Config {
-    pub command: Vec<String>,
-    /// The fixture agent stands in for Codex: no account check, no catalog of its own.
-    pub fixture: bool,
+    /// A test's agent in place of the provider's command: no sign-in check and no usage read.
+    pub fixture: Option<Vec<String>>,
+    /// A test's provider; a fixture without one speaks Codex, as the Swift worker's always does.
+    pub provider: Option<String>,
+    /// His settings folder: the default provider, the accounts, the mode and Qwen's endpoint.
+    pub settings: PathBuf,
     pub store: Store,
     pub state_directory: PathBuf,
 }
@@ -39,7 +43,7 @@ pub struct SessionBackend {
     id: String,
     config: Rc<Config>,
     session: RefCell<Session>,
-    agent: RefCell<Option<Agent>>,
+    agent: RefCell<Option<Connection>>,
     on_change: RefCell<Option<Rc<dyn Fn(Object)>>>,
     scheduled: Cell<bool>,
     closed: Cell<bool>,
@@ -119,7 +123,7 @@ impl SessionBackend {
         Ok(backend)
     }
 
-    fn agent(&self) -> Result<Agent, String> {
+    fn agent(&self) -> Result<Connection, String> {
         self.agent.borrow().clone().filter(|agent| !agent.is_closed()).ok_or_else(|| "The agent is not running.".to_owned())
     }
 
@@ -149,17 +153,36 @@ impl SessionBackend {
 
     async fn open_agent(self: &Rc<Self>, params: &Object) -> Result<(), String> {
         let cwd = self.session.borrow().cwd.clone();
-        let (agent, incoming) = Agent::spawn(&self.config.command, Path::new(&cwd), Stdio::null()).map_err(|error| format!("Cannot start the agent: {error}"))?;
+        let settings = vcx_config::SettingsFile::new(&self.config.settings).load().unwrap_or_else(|error| {
+            self.session.borrow_mut().notice(&format!("Could not read the settings ({error}); the defaults are used."));
+            vcx_config::Settings::default()
+        });
+        let saved = self.recovery.borrow().as_ref().and_then(|state| text(state, "accountID")).map(str::to_owned);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
+        let account = provider::choose(&settings, self.config.provider.as_deref(), saved.as_deref(), now);
+        {
+            let mut session = self.session.borrow_mut();
+            session.provider = account.provider.clone();
+            session.provider_label = provider::label(&account.provider);
+            session.model = session.provider_label.clone();
+            session.account = json!({"id": account.id, "name": account.name, "provider": account.provider});
+            session.status = format!("Connecting to {}…", session.provider_label);
+        }
+        let start = provider::Start { account: &account, settings: &settings, claude_settings: self.config.settings.join(CLAUDE_SETTINGS), fixture: self.config.fixture.clone(), cwd: &cwd };
+        let (agent, incoming) = provider::connect(start).await?;
         *self.agent.borrow_mut() = Some(agent.clone());
         tokio::task::spawn_local(Rc::clone(self).pump(incoming));
-        let client = json!({"clientInfo": {"name": "vcx", "title": "Vibe Code X", "version": "0.2.0"}, "capabilities": {"experimentalApi": true}});
-        self.request("initialize", client, REQUEST_TIMEOUT).await?;
-        agent.notify("initialized", None).map_err(|error| error.message)?;
-        if !self.config.fixture {
-            let status = self.request("account/read", json!({"refreshToken": false}), REQUEST_TIMEOUT).await?;
-            if status["account"]["type"] != "chatgpt" {
-                agent.close();
-                return Err("Sign in with a ChatGPT subscription in Settings. vcx does not use API-key billing.".into());
+        // Only Codex is a JSON-RPC server to greet and to ask for its sign-in; the adapters answer the rest themselves.
+        if matches!(agent, Connection::Codex(_)) {
+            let client = json!({"clientInfo": {"name": "vcx", "title": "Vibe Code X", "version": "0.2.0"}, "capabilities": {"experimentalApi": true}});
+            self.request("initialize", client, REQUEST_TIMEOUT).await?;
+            agent.notify("initialized", None).map_err(|error| error.message)?;
+            if self.config.fixture.is_none() {
+                let status = self.request("account/read", json!({"refreshToken": false}), REQUEST_TIMEOUT).await?;
+                if status["account"]["type"] != "chatgpt" {
+                    agent.close();
+                    return Err("Sign in with a ChatGPT subscription in Settings. vcx does not use API-key billing.".into());
+                }
             }
         }
         let resume = self.resume_target(params);
@@ -191,7 +214,7 @@ impl SessionBackend {
         }
         let method = if resume.is_some() { "thread/resume" } else { "thread/start" };
         let result = object(self.request(method, params, REQUEST_TIMEOUT).await?);
-        let id = result.get("thread").and_then(|thread| thread.get("id")).and_then(Value::as_str).ok_or("Codex did not return a conversation.")?.to_owned();
+        let id = result.get("thread").and_then(|thread| thread.get("id")).and_then(Value::as_str).ok_or_else(|| format!("{} did not return a conversation.", self.session.borrow().provider_label))?.to_owned();
         if resume.is_some_and(|thread| thread.rsplit(':').next().map(str::to_lowercase) != id.rsplit(':').next().map(str::to_lowercase)) {
             return Err("The agent did not resume the exact requested native conversation.".into());
         }
@@ -218,7 +241,7 @@ impl SessionBackend {
     async fn refresh_catalog(self: &Rc<Self>) {
         let Ok(catalog) = self.request("model/list", json!({"limit": CATALOG_LIMIT}), REQUEST_TIMEOUT).await else { return };
         self.session.borrow_mut().apply_catalog(&object(catalog));
-        if !self.config.fixture {
+        if self.config.fixture.is_none() {
             if let Ok(limits) = self.request("account/rateLimits/read", json!({}), REQUEST_TIMEOUT).await {
                 let event = json!({"method": "account/rateLimits/updated", "params": {"rateLimits": limits["rateLimits"]}});
                 if let Inbound::Event(event) = vcx_agents::codex::parse(object(event)) {

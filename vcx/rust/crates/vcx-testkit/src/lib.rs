@@ -1,7 +1,7 @@
 //! Isolated runtime workers for tests, Swift or Rust: each has its own runtime, config and state folders, and the
 //! fixture agent in place of `codex app-server`, so a test never attaches to a session someone is working in.
 
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -36,7 +36,7 @@ impl SwiftWorker {
         let binary = swift_binary()?;
         let directory = private_folder("interop", name);
         let command = fixture_command(&directory, None);
-        let process = Process::watch(launch(&binary, &directory, &command), &directory);
+        let process = Process::watch(launch(&binary, &directory, &command, None), &directory);
         let worker = Self { process, socket: directory.join(SOCKET), directory };
         wait_for_socket(&worker.socket, "the Swift worker never opened its socket");
         Some(worker)
@@ -60,6 +60,7 @@ pub struct RustWorker {
     process: Process,
     binary: PathBuf,
     command: PathBuf,
+    provider: Option<String>,
     pub directory: PathBuf,
     pub socket: PathBuf,
 }
@@ -74,11 +75,30 @@ impl RustWorker {
         Self::start_in(binary, private_folder("rust", name), true)
     }
 
+    /// A worker whose sessions speak `provider` through `command` (a replayed recording; Qwen runs none), with
+    /// `settings` as his settings file and a home of its own, so the agent reads and writes nothing of his.
+    pub fn start_provider(binary: &Path, name: &str, provider: &str, command: &[String], settings: &Value) -> Self {
+        let directory = private_folder("rust", name);
+        let path = directory.join("command.json");
+        if !command.is_empty() {
+            fs::write(&path, json!(command).to_string()).unwrap();
+        }
+        for folder in [CONFIG, HOME] {
+            fs::create_dir(directory.join(folder)).unwrap();
+        }
+        fs::write(directory.join(CONFIG).join("settings.json"), settings.to_string()).unwrap();
+        Self::launched(binary, directory, path, Some(provider.to_owned()))
+    }
+
     fn start_in(binary: &Path, directory: PathBuf, history: bool) -> Self {
-        assert!(binary.exists(), "no Rust worker at {}", binary.display());
         let command = fixture_command(&directory, history.then(|| directory.join("history.json")));
-        let process = Process::watch(launch(binary, &directory, &command), &directory);
-        let worker = Self { process, binary: binary.to_owned(), command, socket: directory.join(SOCKET), directory };
+        Self::launched(binary, directory, command, None)
+    }
+
+    fn launched(binary: &Path, directory: PathBuf, command: PathBuf, provider: Option<String>) -> Self {
+        assert!(binary.exists(), "no Rust worker at {}", binary.display());
+        let process = Process::watch(launch(binary, &directory, &command, provider.as_deref()), &directory);
+        let worker = Self { process, binary: binary.to_owned(), command, provider, socket: directory.join(SOCKET), directory };
         wait_for_socket(&worker.socket, "the Rust worker never opened its socket");
         worker
     }
@@ -91,7 +111,7 @@ impl RustWorker {
     pub fn restart_after_kill(&mut self) {
         self.process.kill();
         let _ = fs::remove_file(self.directory.join(EXIT_MARKER));
-        self.process = Process::watch(launch(&self.binary, &self.directory, &self.command), &self.directory);
+        self.process = Process::watch(launch(&self.binary, &self.directory, &self.command, self.provider.as_deref()), &self.directory);
         let deadline = Instant::now() + SOCKET_WAIT;
         while serves(&self.socket).is_none() {
             assert!(Instant::now() < deadline, "the restarted Rust worker never served its socket");
@@ -108,6 +128,8 @@ impl Drop for RustWorker {
 }
 
 const SOCKET: &str = "worker.sock";
+const CONFIG: &str = "config";
+const HOME: &str = "home";
 
 /// A worker process reaped by its own thread, which writes the exit marker.
 struct Process {
@@ -160,12 +182,22 @@ fn fixture_command(directory: &Path, history: Option<PathBuf>) -> PathBuf {
     path
 }
 
-fn launch(binary: &Path, directory: &Path, command: &Path) -> Child {
-    Command::new(binary)
-        .args(["--runtime-worker", directory.join(SOCKET).to_str().unwrap(), "--runtime-test", "--runtime-fixture-command", command.to_str().unwrap()])
+fn launch(binary: &Path, directory: &Path, command: &Path, provider: Option<&str>) -> Child {
+    let mut worker = Command::new(binary);
+    worker
+        .args(["--runtime-worker", directory.join(SOCKET).to_str().unwrap(), "--runtime-test"])
         .env("VCX_RUNTIME_HOME", directory.join("runtime"))
-        .env("VCX_CONFIG_HOME", directory.join("config"))
-        .env("VCX_STATE_HOME", directory.join("state"))
+        .env("VCX_CONFIG_HOME", directory.join(CONFIG))
+        .env("VCX_STATE_HOME", directory.join("state"));
+    // A provider with no command of its own (Qwen speaks HTTP) is started without one.
+    if command.exists() {
+        worker.args(["--runtime-fixture-command", command.to_str().unwrap()]);
+    }
+    if let Some(provider) = provider {
+        // A login shell (Qwen's commands) reads no profile of his in a home of its own.
+        worker.args(["--runtime-fixture-provider", provider]).env("HOME", directory.join(HOME)).env("ZDOTDIR", directory.join(HOME));
+    }
+    worker
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

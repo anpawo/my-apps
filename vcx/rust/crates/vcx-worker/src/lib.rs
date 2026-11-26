@@ -1,5 +1,6 @@
 //! The VCX runtime worker in Rust. It takes the Swift worker's flags, so a frontend or a test starts either the same
-//! way: `vcx-worker --runtime-worker <socket> [--runtime-test --runtime-fixture-command <command.json>]`.
+//! way: `vcx-worker --runtime-worker <socket> [--runtime-test --runtime-fixture-command <command.json>]`. A test may
+//! add `--runtime-fixture-provider <provider>` for a fixture that speaks another provider than Codex.
 
 // The metadata object a frontend reads is one `json!` literal of about sixty keys.
 #![recursion_limit = "256"]
@@ -7,6 +8,7 @@
 pub mod backend;
 pub mod channel;
 pub mod checkpoint;
+pub mod provider;
 pub mod server;
 pub mod session;
 
@@ -17,14 +19,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 pub const BUILD: &str = concat!("rust-", env!("CARGO_PKG_VERSION"));
-const USAGE: &str = "usage: vcx-worker --runtime-worker <socket> [--runtime-test] [--runtime-fixture-command <command.json>]";
-const CODEX: [&str; 3] = ["/usr/bin/env", "codex", "app-server"];
+const USAGE: &str = "usage: vcx-worker --runtime-worker <socket> [--runtime-test] [--runtime-fixture-command <command.json>] [--runtime-fixture-provider <provider>]";
 
 #[derive(Debug, PartialEq)]
 pub struct Options {
     pub socket: PathBuf,
     pub test: bool,
     pub fixture: Option<Vec<String>>,
+    pub provider: Option<String>,
 }
 
 pub fn parse(args: &[String]) -> Result<Options, String> {
@@ -45,7 +47,11 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         }
         None => None,
     };
-    Ok(Options { socket: PathBuf::from(socket), test, fixture })
+    let provider = value("--runtime-fixture-provider").transpose()?;
+    if provider.as_ref().is_some_and(|provider| !test || !vcx_config::settings::PROVIDERS.contains(&provider.as_str())) {
+        return Err("Invalid runtime test provider.".into());
+    }
+    Ok(Options { socket: PathBuf::from(socket), test, fixture, provider })
 }
 
 /// Where this worker keeps checkpoints: never the Swift app's folder unless `VCX_RUNTIME_HOME` names it.
@@ -81,10 +87,11 @@ async fn serve(options: Options) -> i32 {
             return 1;
         }
     };
-    let home = runtime_home();
+    let homes = vcx_config::WorkerHomes::from_env();
+    let home = homes.runtime;
     let state_directory = if options.test { home.join("test-state") } else { home.join("state") };
-    let command = options.fixture.clone().unwrap_or_else(|| CODEX.map(str::to_owned).to_vec());
-    let config = Rc::new(Config { command, fixture: options.fixture.is_some(), store: Store::new(&home), state_directory });
+    let provider = options.provider.or_else(|| options.fixture.is_some().then(|| "codex".to_owned()));
+    let config = Rc::new(Config { fixture: options.fixture, provider, settings: homes.settings, store: Store::new(&home), state_directory });
     let factory: server::Factory = Box::new(move |params| SessionBackend::start(params, Rc::clone(&config)).map(|backend| backend as Rc<dyn Backend>));
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel::<()>();
     let server = Server::new(BUILD.to_owned(), uuid::Uuid::new_v4().to_string().to_uppercase(), factory, Box::new(move || { let _ = done.send(()); }));
@@ -127,7 +134,18 @@ mod tests {
     fn takes_the_swift_worker_flags() {
         let options = parse(&strings(&["--runtime-worker", "/tmp/w.sock", "--runtime-test"])).unwrap();
 
-        assert_eq!(options, Options { socket: "/tmp/w.sock".into(), test: true, fixture: None });
+        assert_eq!(options, Options { socket: "/tmp/w.sock".into(), test: true, fixture: None, provider: None });
+    }
+
+    #[test]
+    fn takes_a_fixture_provider_in_a_test_run_only() {
+        let taken = parse(&strings(&["--runtime-worker", "/tmp/w.sock", "--runtime-test", "--runtime-fixture-provider", "claude"])).unwrap();
+        let outside = parse(&strings(&["--runtime-worker", "/tmp/w.sock", "--runtime-fixture-provider", "claude"]));
+        let unknown = parse(&strings(&["--runtime-worker", "/tmp/w.sock", "--runtime-test", "--runtime-fixture-provider", "gpt"]));
+
+        assert_eq!(taken.provider.as_deref(), Some("claude"));
+        assert_eq!(outside.unwrap_err(), "Invalid runtime test provider.");
+        assert_eq!(unknown.unwrap_err(), "Invalid runtime test provider.");
     }
 
     #[test]
