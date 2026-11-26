@@ -2,8 +2,8 @@
 //! screen's width, centred, whatever size the last one was left at; the light look whatever the system's; and only a
 //! window he asked for in front, one opened from outside (spawn, Watcher, an update) behind his current window.
 
-use objc2_app_kit::{NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication, NSColor, NSScreen, NSWindow, NSWindowOrderingMode};
-use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+use objc2_app_kit::{NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSColor, NSRunningApplication, NSScreen, NSWindow, NSWindowOrderingMode};
+use objc2_foundation::{MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize};
 use tao::platform::macos::WindowExtMacOS;
 use tao::window::Window;
 
@@ -53,6 +53,17 @@ pub fn show(window: &Window, mtm: MainThreadMarker, place: bool, focus: bool) {
         #[allow(deprecated)]
         app.activateIgnoringOtherApps(true);
     }
+}
+
+/// A launch he asked to focus, forwarded to the app already running, hands it the focus: the running app cannot take
+/// it from the background (Swift `main.swift`: "activation count being 0" with another app in front, 13/11). Nothing
+/// happens outside the bundle, as in tests.
+pub fn hand_focus_to_running_app() {
+    let Some(bundle) = NSBundle::mainBundle().bundleIdentifier() else { return };
+    let own = std::process::id() as i32;
+    let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&bundle);
+    let Some(app) = running.iter().find(|app| app.processIdentifier() != own && app.activationPolicy() == NSApplicationActivationPolicy::Regular) else { return };
+    app.activateFromApplication_options(&NSRunningApplication::currentApplication(), NSApplicationActivationOptions::empty());
 }
 
 #[cfg(test)]

@@ -42,7 +42,12 @@ fn launch(homes: Homes, open: Option<app::Open>, windowless: bool) -> ExitCode {
             if let Some(answer) = control::ask(&homes.control(), &body) {
                 return match answer["error"].as_str() {
                     Some(problem) => fail(problem),
-                    None => ExitCode::SUCCESS,
+                    None => {
+                        if open.focus {
+                            vcx_app::placement::hand_focus_to_running_app();
+                        }
+                        ExitCode::SUCCESS
+                    }
                 };
             }
         }
