@@ -541,6 +541,21 @@ fn copies_a_cell_on_command_click_and_its_row_on_command_double_click(page: &Pag
     check(held >= COPIED_CELL_SHOWN, format!("the veil went after {held:?}"))
 }
 
+/// A cell one line tall measures a line plus a rounded border, never a second line.
+const ONE_LINE_SLACK: f64 = 1.5;
+
+fn scrolls_a_wide_table_sideways_keeping_its_short_columns_whole(page: &Page) -> Result<(), String> {
+    let long = "Each run recomputes the whole Break history inside the run's lock, so as history grows other runs give up.";
+    let table = format!("| Finding | Severity | My view |\n|---|---|---|\n| {long} | medium | {long} |\n| {long} | low | {long} |");
+    page.show(json!({"rows": [user("R1", "table"), assistant("R2", &table, true)]}))?;
+
+    let laid = page.eval("(() => { const card = document.querySelector('.prose .table'); const severity = card.querySelectorAll('thead th')[2]; return {line: parseFloat(getComputedStyle(severity).lineHeight), height: severity.getBoundingClientRect().height - parseFloat(getComputedStyle(severity).paddingTop) - parseFloat(getComputedStyle(severity).paddingBottom), scrolls: card.scrollWidth > card.clientWidth, bar: card.offsetHeight - card.clientHeight - 2, overflow: getComputedStyle(card).overflowX}; })()")?;
+
+    check(laid["height"].as_f64().unwrap_or(f64::MAX) < laid["line"].as_f64().unwrap_or(0.0) * ONE_LINE_SLACK, format!("the Severity header wraps: {laid}"))?;
+    check(laid["scrolls"] == true && laid["overflow"] == "auto", format!("the table does not scroll sideways: {laid}"))?;
+    check(laid["bar"].as_f64() == Some(0.0), format!("the table shows a scroll bar: {laid}"))
+}
+
 fn keeps_a_chart_frame_in_place_while_its_answer_streams(page: &Page) -> Result<(), String> {
     let snapshot = json!({"rows": [user("R1", "chart it"), assistant("R2", "Here:\n\n```chart\n<p>cards</p>\n```\n", false)]});
     let html = full(snapshot.clone())["rows"][1]["items"][0]["html"].as_str().unwrap_or_default().to_owned();
@@ -614,7 +629,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 20] = [
+const TESTS: [(&str, Test); 21] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -631,6 +646,7 @@ const TESTS: [(&str, Test); 20] = [
     ("copies_a_code_block_through_the_core_and_shows_it_was_copied", copies_a_code_block_through_the_core_and_shows_it_was_copied),
     ("copies_the_previewed_picture_on_a_click_and_shows_it_was_copied", copies_the_previewed_picture_on_a_click_and_shows_it_was_copied),
     ("copies_a_cell_on_command_click_and_its_row_on_command_double_click", copies_a_cell_on_command_click_and_its_row_on_command_double_click),
+    ("scrolls_a_wide_table_sideways_keeping_its_short_columns_whole", scrolls_a_wide_table_sideways_keeping_its_short_columns_whole),
     ("keeps_a_chart_frame_in_place_while_its_answer_streams", keeps_a_chart_frame_in_place_while_its_answer_streams),
     ("keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back", keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back),
     ("keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer", keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer),

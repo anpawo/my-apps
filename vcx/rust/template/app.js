@@ -610,8 +610,9 @@
     Promise.all(loads).then(() => post({ type: 'restyled', version }));
   }
 
-  // Laid out at its natural width first: when that is wider than the room, its long columns keep at least the floor
-  // and the card scrolls sideways, as Swift's `tableColumnWidths`.
+  // Laid out at its natural width first: when that is wider than the room, its long columns keep at least the floor,
+  // its short ones their whole width (else "Severity" wraps a letter a line), and the card scrolls sideways, as
+  // Swift's `tableColumnWidths`.
   function fitTable(card) {
     card.dataset.fitted = 'true';
     const table = card.querySelector('table');
@@ -622,7 +623,7 @@
     table.classList.remove('measuring');
     if (natural.reduce((sum, width) => sum + width, 0) <= card.clientWidth) return;
     [...head.cells].forEach((cell, index) => {
-      if (natural[index] > TABLE_COLUMN_FLOOR_PX) cell.style.minWidth = `${TABLE_COLUMN_FLOOR_PX}px`;
+      cell.style.minWidth = `${Math.min(natural[index], TABLE_COLUMN_FLOOR_PX)}px`;
     });
   }
 
