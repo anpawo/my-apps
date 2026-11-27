@@ -22,6 +22,8 @@ pub struct Summary {
     pub background_tasks: u64,
     /// The composer holds text or a picture not sent yet, as last checkpointed to the worker.
     pub draft: bool,
+    /// The generation of that draft: a draft newer than it, kept by the Swift app at the switch, is carried over.
+    pub draft_generation: i64,
     /// A permission the agent asked for waits on his answer.
     pub deciding: bool,
     pub prompt: Option<String>,
@@ -72,6 +74,7 @@ pub fn of(state: &SessionState) -> Summary {
         busy: flag("busy"),
         background_tasks: background,
         draft: state.draft.iter().any(|part| part.get("type").and_then(Value::as_str) != Some("text") || part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty())),
+        draft_generation: state.draft_generation,
         deciding: waiting,
         prompt: prompt.map(|prompt| clipped(&prompt)),
         last_prompt_at: user_items.last().and_then(|item| item.get("sentAt")).and_then(Value::as_f64),

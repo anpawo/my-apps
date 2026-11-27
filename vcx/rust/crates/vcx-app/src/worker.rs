@@ -45,12 +45,14 @@ pub fn keep_build_lock_out() {
     unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
 }
 
-pub fn ensure(settings: &Settings, homes: &Homes, socket: &Path, cwd: &str) -> Result<Option<Child>, String> {
+/// `state` is the worker's state folder: the app's own (`Homes::worker_state`), or the Swift app's for a session taken
+/// from it, whose conversation record lives there.
+pub fn ensure(settings: &Settings, homes: &Homes, socket: &Path, cwd: &str, state: &Path) -> Result<Option<Child>, String> {
     if UnixStream::connect(socket).is_ok() {
         return Ok(None);
     }
     vcx_config::private_folder(&homes.runtime())?;
-    let lock_path = PathBuf::from(format!("{}.launch.lock", socket.display()));
+    let lock_path = launch_lock(socket);
     let lock = OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&lock_path).map_err(|error| format!("Cannot lock the worker's start: {error}."))?;
     // SAFETY: the descriptor is open for as long as `lock` lives; LOCK_NB never blocks.
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
@@ -67,7 +69,7 @@ pub fn ensure(settings: &Settings, homes: &Homes, socket: &Path, cwd: &str) -> R
         .arg(socket)
         .args(&settings.worker_arguments)
         .env("VCX_RUNTIME_HOME", homes.runtime())
-        .env("VCX_STATE_HOME", homes.worker_state())
+        .env("VCX_STATE_HOME", state)
         .env("VCX_CONFIG_HOME", homes.worker_config())
         .env_remove("BUILD_STACK_FD")
         .current_dir(folder)
@@ -88,6 +90,17 @@ pub fn ensure(settings: &Settings, homes: &Homes, socket: &Path, cwd: &str) -> R
         drop(lock);
     });
     Ok(Some(child))
+}
+
+fn launch_lock(socket: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.launch.lock", socket.display()))
+}
+
+/// Another launch holds the start lock of `socket`'s worker: it is starting, not gone.
+pub fn launching(socket: &Path) -> bool {
+    let Ok(lock) = OpenOptions::new().write(true).custom_flags(libc::O_NOFOLLOW).open(launch_lock(socket)) else { return false };
+    // SAFETY: the descriptor is open for as long as `lock` lives; LOCK_NB never blocks, and the lock goes with it.
+    unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
 }
 
 /// Every session the app's workers hold, read by asking each socket in the runtime folder.

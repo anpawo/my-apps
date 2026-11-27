@@ -36,6 +36,10 @@ pub(crate) fn handle(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, re
         frame(app, place)
     } else if let Some(take) = body.get("takeOver") {
         take_over(app, target, take)
+    } else if let Some(windows) = body.get("retire") {
+        retire(app, windows)
+    } else if let Some(sessions) = body.get("release") {
+        release(app, sessions)
     } else if let Some(evaluate) = body.get("evaluate") {
         match page(app, evaluate) {
             Ok(key) => {
@@ -74,18 +78,50 @@ fn open(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, open: &Value) -
 
 /// The window `key` names: an id, an id prefix, or a name, matching one window only.
 /// At the switch from the Swift app: its windows whose frontend is gone reopen here (`from`: its recovery folder).
+/// Each window taken names the Swift session it came `from` and the session it runs as here (another one when cold).
 fn take_over(app: &mut App, target: &EventLoopWindowTarget<AppEvent>, take: &Value) -> Result<Value, String> {
-    let home = std::env::var_os("HOME").map_or_else(|| "/".into(), PathBuf::from);
-    let folder = take["from"].as_str().map_or_else(|| crate::takeover::default_folder(&home), PathBuf::from);
+    let folder = swift_folder(take);
     let mut taken = Vec::new();
     for entry in crate::takeover::pending(&folder)? {
-        let cwd = entry.cwd.clone();
+        let (from, cwd) = (entry.session_id.clone(), entry.cwd.clone());
         if let Some(session_id) = app.adopt(target, entry) {
-            taken.push(json!({"sessionId": session_id, "cwd": cwd}));
+            taken.push(json!({"from": from, "sessionId": session_id, "cwd": cwd}));
         }
     }
+    // Saved at once: a crash from here on reopens them in VCX Rust.
+    app.save_now();
     app.return_to_desktops();
     Ok(json!({"taken": taken}))
+}
+
+fn swift_folder(request: &Value) -> PathBuf {
+    let home = std::env::var_os("HOME").map_or_else(|| "/".into(), PathBuf::from);
+    request["from"].as_str().map_or_else(|| crate::takeover::default_folder(&home), PathBuf::from)
+}
+
+/// Once the switch has seen every window taken over show its session: the window list is written, then each Swift entry
+/// whose window here holds its session and its draft goes (`windows`: `{from, sessionId}` as `takeOver` answered).
+fn retire(app: &mut App, retire: &Value) -> Result<Value, String> {
+    let windows = retire["windows"].as_array().ok_or("retire takes the windows taken over.")?;
+    let folder = swift_folder(retire);
+    app.save_now();
+    let (mut retired, mut kept) = (Vec::new(), Vec::new());
+    for window in windows {
+        let (Some(from), Some(id)) = (window["from"].as_str(), window["sessionId"].as_str()) else { return Err("Each window retired names its from and sessionId.".into()) };
+        let held = app.windows.values().any(|win| win.session_id == id && win.summary.is_some() && win.carry.is_none());
+        if held && crate::takeover::retire(&folder, from)? {
+            retired.push(from);
+        } else {
+            kept.push(from);
+        }
+    }
+    Ok(json!({"retired": retired, "kept": kept}))
+}
+
+/// A switch that failed gives these sessions' windows back to the Swift app.
+fn release(app: &mut App, release: &Value) -> Result<Value, String> {
+    let sessions: Vec<&str> = release["sessions"].as_array().ok_or("release takes the sessions to give back.")?.iter().filter_map(Value::as_str).collect();
+    Ok(json!({"released": app.release(&sessions)}))
 }
 
 /// Only a windowless app, a check's, runs a script it is handed: a page he works in takes none from outside.

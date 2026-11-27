@@ -38,6 +38,12 @@ pub fn dress(window: &Window) {
     ns_window.setBackgroundColor(Some(&NSColor::whiteColor()));
 }
 
+/// Puts a window at a frame the Swift app saved: AppKit's, from the bottom left of the main screen, title bar included.
+pub fn set_frame(window: &Window, [x, y, width, height]: [f64; 4]) {
+    let Some(ns_window) = ns_window(window) else { return };
+    ns_window.setFrame_display(NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)), false);
+}
+
 /// Shows a window built hidden, first at its Swift place on the main screen when `place`: in front and active when
 /// he asked for it, behind his current window otherwise.
 pub fn show(window: &Window, mtm: MainThreadMarker, place: bool, focus: bool) {

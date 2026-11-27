@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::convert::Infallible;
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -132,6 +132,10 @@ pub(crate) struct Win {
     /// Where the transcript was scrolled before an update: read for the save, then put back in the new image.
     anchor: Option<Value>,
     scroll: Option<Value>,
+    /// The worker's state folder, where its conversation record is; the app's own unless taken from the Swift app.
+    state_directory: Option<PathBuf>,
+    /// A draft taken from a Swift window file that the worker has not got yet, with its generation.
+    pub carry: Option<(Value, i64)>,
 }
 
 struct Spec {
@@ -142,6 +146,10 @@ struct Spec {
     focus: bool,
     desktop: Option<usize>,
     scroll: Option<Value>,
+    state_directory: Option<PathBuf>,
+    carry: Option<(Value, i64)>,
+    /// The frame a Swift window had, in AppKit's terms, put on the new window as it is.
+    swift_frame: Option<[f64; 4]>,
 }
 
 struct Reopen {
@@ -161,11 +169,11 @@ fn plan(saved: &[Saved], running: &[worker::Running]) -> Vec<Reopen> {
             continue;
         }
         let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd.clone(), prompt: String::new(), resume: if live { None } else { resume }, existing_only: live };
-        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false, desktop: entry.desktop, scroll: entry.scroll.clone() }, start_worker: !live });
+        reopened.push(Reopen { spec: Spec { socket: entry.socket.clone(), request, frame: entry.frame, record_id: entry.record_id.clone(), focus: false, desktop: entry.desktop, scroll: entry.scroll.clone(), state_directory: entry.state_directory.clone(), carry: None, swift_frame: None }, start_worker: !live });
     }
     for session in running.iter().filter(|session| !session.attached && !saved.iter().any(|entry| entry.session_id == session.session_id)) {
         let request = AttachRequest { session_id: session.session_id.clone(), cwd: "/".into(), existing_only: true, ..AttachRequest::default() };
-        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false, desktop: None, scroll: None }, start_worker: false });
+        reopened.push(Reopen { spec: Spec { socket: session.socket.clone(), request, frame: None, record_id: None, focus: false, desktop: None, scroll: None, state_directory: None, carry: None, swift_frame: None }, start_worker: false });
     }
     reopened
 }
@@ -178,8 +186,13 @@ fn on_screen(window: &Window) -> bool {
     window.is_visible() && ns_window.occlusionState().contains(NSWindowOcclusionState::Visible)
 }
 
-fn answers(socket: &std::path::Path) -> bool {
-    vcx_proto::Client::connect(socket, |_| {}).and_then(|client| client.hello()).is_ok()
+/// Only a socket that is not there, or that nothing listens on, means its worker is gone: a worker slow to answer its
+/// hello (mid-turn) still holds the session, and one being started listens in a moment.
+fn gone(socket: &Path) -> bool {
+    match std::os::unix::net::UnixStream::connect(socket) {
+        Ok(_) => false,
+        Err(error) => matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused) && !worker::launching(socket),
+    }
 }
 
 pub(crate) struct Queued {
@@ -340,7 +353,8 @@ impl App {
         self.restore(target);
         match self.first.take() {
             Some(open) => drop(self.new_session(target, open)),
-            None if self.windows.is_empty() && !self.windowless => {
+            // A launch while Swift windows wait to be taken over (the switch starts the app before it asks) opens none.
+            None if self.windows.is_empty() && !self.windowless && !takeover::waiting(&takeover::default_folder(&vcx_config::homes::home_directory())) => {
                 let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
                 drop(self.new_session(target, Open { cwd: home, focus: true, ..Open::default() }));
             }
@@ -363,10 +377,10 @@ impl App {
         self.finish_closes(saved.iter().filter(|entry| entry.closing), &running);
         let first = self.next;
         for mut reopen in plan(&saved, &running) {
-            // A window taken from the Swift app keeps its worker's socket, which `running` does not list: still answering,
-            // it is live; gone, the cold reopen runs on one of the app's own, never in the Swift app's folders.
+            // A window taken from the Swift app keeps its worker's socket, which `running` does not list: still listening,
+            // it is live; gone, the cold reopen runs on a socket of the app's own, in the state folder its record is in.
             if reopen.start_worker && !reopen.spec.socket.starts_with(self.homes.runtime()) {
-                if answers(&reopen.spec.socket) {
+                if !gone(&reopen.spec.socket) {
                     reopen.start_worker = false;
                     reopen.spec.request.resume = None;
                     reopen.spec.request.existing_only = true;
@@ -375,7 +389,7 @@ impl App {
                 }
             }
             if reopen.start_worker {
-                self.start_worker(&reopen.spec.socket, &reopen.spec.request.cwd);
+                self.start_worker(&reopen.spec.socket, &reopen.spec.request.cwd, reopen.spec.state_directory.as_deref());
             }
             self.open_window(target, reopen.spec);
         }
@@ -389,7 +403,7 @@ impl App {
     /// Ends the sessions whose close a crash cut short, on their worker if it still runs; one gone has nothing to end.
     fn finish_closes<'a>(&mut self, closing: impl Iterator<Item = &'a Saved>, running: &[worker::Running]) {
         for entry in closing {
-            if !running.iter().any(|session| session.session_id == entry.session_id) && !answers(&entry.socket) {
+            if !running.iter().any(|session| session.session_id == entry.session_id) && gone(&entry.socket) {
                 continue;
             }
             self.closes.push(entry.clone());
@@ -439,38 +453,60 @@ impl App {
     }
 
     /// Reopens a window the Swift app left (`takeover`): on its live worker and session, or, that worker gone, cold
-    /// from its saved conversation in a new session of the app's own. The session id it runs as, none when skipped.
+    /// from its saved conversation in a new session of the app's own, whose worker runs in the Swift worker's state
+    /// folder, where the record is. The session id it runs as; none when skipped or when its window cannot open.
     pub(crate) fn adopt(&mut self, target: &EventLoopWindowTarget<AppEvent>, entry: takeover::Entry) -> Option<String> {
         if self.windows.values().any(|win| win.session_id == entry.session_id) {
-            return None;
-        }
-        if answers(&entry.socket) {
-            let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: None, existing_only: true };
-            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop, scroll: None });
-            self.schedule_save();
             return Some(entry.session_id);
         }
-        let resume = entry.record_id.map(|record| format!("native:{record}"))?;
-        let session_id = self.new_session(target, Open { cwd: entry.cwd, resume: Some(resume), ..Open::default() });
-        let key = self.windows.iter().find(|(_, win)| win.session_id == session_id).map(|(&key, _)| key);
-        if let (Some(key), Some(desktop), false) = (key, entry.desktop, self.windowless) {
-            self.restore_desktops.insert(key, desktop);
+        let (state_directory, carry) = (entry.state_directory, entry.draft);
+        if !gone(&entry.socket) {
+            let request = AttachRequest { session_id: entry.session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: None, existing_only: true };
+            self.open_window(target, Spec { socket: entry.socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop, scroll: None, state_directory, carry, swift_frame: entry.frame })?;
+            return Some(entry.session_id);
         }
+        let resume = entry.record_id.as_ref().map(|record| format!("native:{record}"))?;
+        let session_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+        let socket = worker::socket_for(&self.homes, &session_id);
+        self.start_worker(&socket, &entry.cwd, state_directory.as_deref());
+        let request = AttachRequest { session_id: session_id.clone(), cwd: entry.cwd, prompt: String::new(), resume: Some(resume), existing_only: false };
+        self.open_window(target, Spec { socket, request, frame: None, record_id: entry.record_id, focus: false, desktop: entry.desktop, scroll: None, state_directory, carry, swift_frame: entry.frame })?;
         Some(session_id)
+    }
+
+    /// Gives windows back at a failed switch: a session on a Swift worker is left to the frontend that takes it next,
+    /// one the app started for it ends here. The sessions given back.
+    pub(crate) fn release(&mut self, sessions: &[&str]) -> Vec<String> {
+        let runtime = self.homes.runtime();
+        let chosen: Vec<(u64, String, bool)> = self.windows.iter().filter(|(_, win)| sessions.contains(&win.session_id.as_str())).map(|(&key, win)| (key, win.session_id.clone(), win.socket.starts_with(&runtime))).collect();
+        for (key, _, own) in &chosen {
+            if *own {
+                self.close_window(*key);
+            } else {
+                self.drop_window(*key);
+            }
+        }
+        chosen.into_iter().map(|(_, session_id, _)| session_id).collect()
     }
 
     pub(crate) fn new_session(&mut self, target: &EventLoopWindowTarget<AppEvent>, open: Open) -> String {
         let session_id = uuid::Uuid::new_v4().to_string().to_uppercase();
         let socket = worker::socket_for(&self.homes, &session_id);
-        self.start_worker(&socket, &open.cwd);
+        self.start_worker(&socket, &open.cwd, None);
         let request = AttachRequest { session_id: session_id.clone(), cwd: open.cwd, prompt: open.prompt, resume: open.resume, existing_only: false };
-        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus, desktop: None, scroll: None });
+        self.open_window(target, Spec { socket, request, frame: None, record_id: None, focus: open.focus, desktop: None, scroll: None, state_directory: None, carry: None, swift_frame: None });
         self.schedule_save();
         session_id
     }
 
-    fn start_worker(&mut self, socket: &std::path::Path, cwd: &str) {
-        match worker::ensure(&self.settings, &self.homes, socket, cwd) {
+    /// Starts the worker of `socket` in `state`, the app's own state folder when none. The worker the settings file
+    /// names is read again each time: the switch names the Rust worker while the app runs, and moves the default, the
+    /// Swift app's binary, to the Trash.
+    fn start_worker(&mut self, socket: &Path, cwd: &str, state: Option<&Path>) {
+        let (fresh, _) = settings::read(&self.homes.settings());
+        (self.settings.worker, self.settings.worker_arguments) = (fresh.worker, fresh.worker_arguments);
+        let state = state.map_or_else(|| self.homes.worker_state(), Path::to_owned);
+        match worker::ensure(&self.settings, &self.homes, socket, cwd, &state) {
             Ok(Some(child)) => self.reaper.watch(child),
             Ok(None) => {}
             // The link keeps trying the socket and the window says it is not connected.
@@ -478,13 +514,18 @@ impl App {
         }
     }
 
-    fn open_window(&mut self, target: &EventLoopWindowTarget<AppEvent>, spec: Spec) {
-        let (width, height) = spec.frame.map(|frame| (frame.width, frame.height)).or(self.settings.window_size).unwrap_or(WINDOWLESS_SIZE);
+    /// The window's key, none when it cannot open.
+    fn open_window(&mut self, target: &EventLoopWindowTarget<AppEvent>, spec: Spec) -> Option<u64> {
+        let swift_size = spec.swift_frame.map(|[_, _, width, height]| (width, height));
+        let (width, height) = spec.frame.map(|frame| (frame.width, frame.height)).or(swift_size).or(self.settings.window_size).unwrap_or(WINDOWLESS_SIZE);
         // Built hidden: `placement::show` puts it at its place and order before it is ever on screen.
         let builder = WindowBuilder::new().with_title(title(&spec.request.cwd)).with_inner_size(LogicalSize::new(width, height)).with_min_inner_size(LogicalSize::new(MIN_WINDOW_SIZE.0, MIN_WINDOW_SIZE.1)).with_visible(false).with_focused(spec.focus && !self.windowless);
         let window = match builder.build(target) {
             Ok(window) => window,
-            Err(error) => return eprintln!("vcx-rust: cannot open a window: {error}"),
+            Err(error) => {
+                eprintln!("vcx-rust: cannot open a window: {error}");
+                return None;
+            }
         };
         let scale = window.scale_factor();
         let titlebar = window.outer_size().to_logical::<f64>(scale).height - window.inner_size().to_logical::<f64>(scale).height;
@@ -492,9 +533,12 @@ impl App {
         if let Some(frame) = spec.frame {
             window.set_outer_position(LogicalPosition::new(frame.x, frame.y));
         }
+        if let Some(frame) = spec.swift_frame {
+            placement::set_frame(&window, frame);
+        }
         placement::dress(&window);
         if let (false, Some(mtm)) = (self.windowless, objc2_foundation::MainThreadMarker::new()) {
-            placement::show(&window, mtm, spec.frame.is_none() && self.settings.window_size.is_none(), spec.focus);
+            placement::show(&window, mtm, spec.frame.is_none() && spec.swift_frame.is_none() && self.settings.window_size.is_none(), spec.focus);
         }
         let key = self.next;
         self.next += 1;
@@ -507,14 +551,18 @@ impl App {
         let (session_id, cwd) = (spec.request.session_id.clone(), spec.request.cwd.clone());
         let mut pane = match Pane::new(&window, Source::Worker { socket: spec.socket.clone(), request: spec.request }, &options, emit) {
             Ok(pane) => pane,
-            Err(problem) => return eprintln!("vcx-rust: cannot draw the window: {problem}"),
+            Err(problem) => {
+                eprintln!("vcx-rust: cannot draw the window: {problem}");
+                return None;
+            }
         };
         if let Some(notice) = &self.notice {
             pane.note(notice.clone());
         }
         self.keys.insert(window.id(), key);
-        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new(), desktop: None, anchor: None, scroll: spec.scroll });
+        self.windows.insert(key, Win { window, pane, session_id, socket: spec.socket, cwd, record_id: spec.record_id, summary: None, arrived: BTreeMap::new(), titlebar, tasks_shown: Value::Null, progress_shown: Value::Null, progress_samples: Vec::new(), desktop: None, anchor: None, scroll: spec.scroll, state_directory: spec.state_directory, carry: spec.carry });
         self.schedule_publish();
+        Some(key)
     }
 
     fn on(&mut self, event: AppEvent, target: &EventLoopWindowTarget<AppEvent>) -> Option<i32> {
@@ -821,6 +869,7 @@ impl App {
 
     fn summarized(&mut self, key: u64, summary: Summary) {
         let Some(win) = self.windows.get_mut(&key) else { return };
+        let attaching = win.summary.is_none();
         let moved = !summary.cwd.is_empty() && summary.cwd != win.cwd;
         if moved {
             win.cwd = summary.cwd.clone();
@@ -830,9 +879,22 @@ impl App {
         if recorded {
             win.record_id = summary.record_id.clone();
         }
+        let folder = summary.state_directory.as_ref().map(PathBuf::from);
+        let filed = folder.is_some() && folder != win.state_directory;
+        if filed {
+            win.state_directory = folder;
+        }
+        // The window file's newer draft goes to the worker at the attach; it is carried once the worker holds it.
+        if let Some((draft, generation)) = win.carry.clone() {
+            if summary.draft_generation >= generation {
+                win.carry = None;
+            } else if attaching {
+                win.pane.tell(Message::Act { action: "checkpoint", params: json!({"draft": draft, "generation": generation}) });
+            }
+        }
         win.summary = Some(summary);
         // Rare and needed to reopen the conversation after a crash: written at once, not after the save delay.
-        if moved || recorded {
+        if moved || recorded || filed {
             self.save_now();
         }
         self.schedule_publish();
@@ -1016,7 +1078,7 @@ impl App {
         }
     }
 
-    fn save_now(&self) {
+    pub(crate) fn save_now(&self) {
         let mut wins: Vec<&Win> = self.windows.values().collect();
         // Front to back, so the next launch stacks them again as they were (Swift `orderedWindows`).
         if let (false, Some(mtm)) = (self.windowless, objc2_foundation::MainThreadMarker::new()) {
@@ -1024,7 +1086,7 @@ impl App {
             wins.sort_by_key(|win| placement::rank(&order, desktops::window_number(&win.window)));
         }
         let closing = self.ending.values().map(|win| (win, true));
-        let mut saved: Vec<Saved> = wins.into_iter().map(|win| (win, false)).chain(closing).map(|(win, closing)| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), desktop: self.desktop_of(win), closing, scroll: win.anchor.clone() }).collect();
+        let mut saved: Vec<Saved> = wins.into_iter().map(|win| (win, false)).chain(closing).map(|(win, closing)| Saved { session_id: win.session_id.clone(), socket: win.socket.clone(), cwd: win.cwd.clone(), frame: Some(frame(win)), record_id: win.record_id.clone(), state_directory: win.state_directory.clone(), desktop: self.desktop_of(win), closing, scroll: win.anchor.clone() }).collect();
         saved.extend(self.closes.iter().cloned());
         if let Err(problem) = windows::write(&self.homes.windows(), &saved) {
             eprintln!("vcx-rust: {problem}");
@@ -1079,6 +1141,8 @@ fn describe(win: &Win, page: Option<Value>) -> Value {
     json!({
         "sessionId": win.session_id, "socket": win.socket, "cwd": win.cwd, "recordID": win.record_id,
         "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(), "desktop": win.desktop,
+        // A snapshot came from the worker: the switch counts a window taken over only then, and once its draft is carried.
+        "attached": win.summary.is_some(), "carried": win.carry.is_none(), "draftGeneration": summary.draft_generation,
         "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "progressFile": summary.progress_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
         "name": vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
         "page": page.unwrap_or(Value::Null),
@@ -1105,11 +1169,31 @@ mod tests {
     use worker::Running;
 
     fn saved(id: &str, record: Option<&str>) -> Saved {
-        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), desktop: None, closing: false, scroll: None }
+        Saved { session_id: id.into(), socket: format!("/r/{id}.sock").into(), cwd: format!("/work/{id}"), frame: None, record_id: record.map(str::to_owned), state_directory: None, desktop: None, closing: false, scroll: None }
     }
 
     fn running(id: &str, attached: bool) -> Running {
         Running { socket: format!("/r/{id}.sock").into(), session_id: id.into(), attached }
+    }
+
+    #[test]
+    fn takes_a_worker_slow_to_answer_or_being_started_for_alive_and_a_socket_nothing_listens_on_for_gone() {
+        let folder = PathBuf::from(format!("/tmp/vcx-app-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir(&folder).unwrap();
+        let (slow, left, starting, missing) = (folder.join("slow.sock"), folder.join("left.sock"), folder.join("starting.sock"), folder.join("missing.sock"));
+        // Bound and never accepted: a worker that does not answer its hello.
+        let _slow = std::os::unix::net::UnixListener::bind(&slow).unwrap();
+        drop(std::os::unix::net::UnixListener::bind(&left).unwrap());
+        drop(std::os::unix::net::UnixListener::bind(&starting).unwrap());
+        let lock = File::create(format!("{}.launch.lock", starting.display())).unwrap();
+        // SAFETY: the descriptor is open for as long as `lock` lives.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+
+        let seen = (gone(&slow), gone(&left), gone(&starting), gone(&missing));
+
+        std::fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(seen, (false, true, false, true));
     }
 
     #[test]

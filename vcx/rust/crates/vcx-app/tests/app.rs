@@ -14,6 +14,11 @@ use vcx_proto::Client;
 const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
 /// The Rust worker as the workspace builds it (`cargo build -p vcx-worker`).
 const RUST_WORKER: &str = "../../target/debug/vcx-worker";
+/// The fixture agent whose conversations a test worker saves as records (see `NATIVE_HISTORY_FLAG`).
+const RECORDS_AGENT: &str = "../vcx-worker/tests/records_agent.py";
+/// A test worker keeps saved conversations only once its runtime home holds this flag.
+const NATIVE_HISTORY_FLAG: &str = "native-history";
+const PRIVATE_FILE: u32 = 0o600;
 const PRIVATE_FOLDER: u32 = 0o700;
 const EXECUTABLE: u32 = 0o755;
 const WAIT: Duration = Duration::from_secs(40);
@@ -469,6 +474,66 @@ fn starts_a_new_worker_for_a_saved_window_whose_worker_ended_too() {
     assert_eq!((&new["sessionId"], &new["socket"], &new["cwd"]), (&old["sessionId"], &old["socket"], &json!(folder)));
     let new_workers = run.worker_pids();
     assert!(new_workers.len() == 1 && !old_workers.contains(&new_workers[0]), "{old_workers:?} then {new_workers:?}");
+}
+
+/// A Swift window taken over cold (its worker gone with the frontend): the new worker runs in the Swift app's state
+/// folder, the one its record names, so the conversation comes back, there again at the next launch.
+#[test]
+fn reopens_a_window_taken_from_the_swift_app_cold_from_the_state_folder_its_record_is_in() {
+    let Some(worker) = rust_worker() else {
+        return eprintln!("skipped: no Rust worker (cargo build -p vcx-worker)");
+    };
+    let mut run = Run::on("swift-state", &worker);
+    // A test worker keeps its records in `<runtime home>/test-state`, the stateDirectory it reports: its runtime home
+    // is put where the state folder it is handed says, as a real worker keeps its records in that folder.
+    let wrapper = run.root.join("worker");
+    let place = "case \"$VCX_STATE_HOME\" in */test-state) VCX_RUNTIME_HOME=\"${VCX_STATE_HOME%/test-state}\" ;; *) VCX_RUNTIME_HOME=\"$VCX_STATE_HOME/runtime\" ;; esac";
+    fs::write(&wrapper, format!("#!/bin/bash\n{place}\nexport VCX_RUNTIME_HOME\nexec '{}' \"$@\"\n", worker.display())).unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(EXECUTABLE)).unwrap();
+    let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join(RECORDS_AGENT).canonicalize().unwrap();
+    fs::write(run.root.join("command.json"), json!(["/usr/bin/python3", agent]).to_string()).unwrap();
+    let settings = json!({"worker": wrapper, "workerArguments": ["--runtime-test", "--runtime-fixture-command", run.root.join("command.json")]});
+    fs::write(run.root.join("config/settings.json"), settings.to_string()).unwrap();
+    let codex = run.root.join("state/worker/home/.codex");
+    for folder in [&codex, &run.root.join("state/runtime"), &run.root.join("state/worker/runtime"), &run.root.join("shared")] {
+        fs::create_dir_all(folder).unwrap();
+        fs::set_permissions(folder, fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
+    }
+    fs::set_permissions(run.root.join("state/worker"), fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
+    fs::write(run.root.join("state/worker/runtime").join(NATIVE_HISTORY_FLAG), "").unwrap();
+    fs::write(run.root.join("shared/settings.json"), json!({"accounts": [{"id": "codex-fixture", "name": "Fixture", "provider": "codex", "home": codex}]}).to_string()).unwrap();
+    let folder = run.folder("swift");
+    run.start(&["--cwd", folder.to_str().unwrap(), "remember this"]);
+    let before = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1) && windows(report)[0]["recordID"].is_string());
+    let record = windows(&before)[0]["recordID"].clone();
+    run.kill_app();
+    run.kill_workers();
+    fs::remove_file(run.root.join("state/windows.json")).unwrap();
+    let swift_state = run.root.join("swift-state");
+    fs::rename(run.root.join("state/worker"), &swift_state).unwrap();
+    // The record names the Codex home the conversation ran in, still there at the switch as ~/.codex is.
+    fs::create_dir(run.root.join("state/worker")).unwrap();
+    std::os::unix::fs::symlink(swift_state.join("home"), run.root.join("state/worker/home")).unwrap();
+    let recovery = run.root.join("recovery");
+    fs::create_dir_all(&recovery).unwrap();
+    fs::set_permissions(&recovery, fs::Permissions::from_mode(PRIVATE_FOLDER)).unwrap();
+    let id = vcx_testkit::session_id();
+    let entry = recovery.join(format!("{id}.window.json"));
+    let state = json!({"cwd": folder, "recordID": record, "stateDirectory": swift_state.join("runtime/test-state")});
+    fs::write(&entry, json!({"sessionId": id, "socket": run.root.join("gone.sock"), "ownerPID": 1, "ownerStart": 1, "state": state}).to_string()).unwrap();
+    fs::set_permissions(&entry, fs::Permissions::from_mode(PRIVATE_FILE)).unwrap();
+    run.start(&[]);
+
+    let taken = run.ask(&json!({"takeOver": {"from": recovery}})).unwrap();
+
+    assert_eq!(taken["taken"].as_array().map(Vec::len), Some(1), "{taken}");
+    let reopened = |report: &Value| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1) && windows(report)[0]["recordID"] == record;
+    run.wait_for(reopened);
+    run.kill_app();
+    run.kill_workers();
+    run.start(&[]);
+    run.wait_for(reopened);
+    assert!(!run.root.join("state/worker/runtime").exists(), "the conversation went to VCX Rust's own state folder");
 }
 
 #[test]
@@ -1102,7 +1167,7 @@ fn takes_over_a_window_the_swift_app_left_and_keeps_it_on_that_worker_after_a_re
     run.kill_app();
     run.start(&[]);
     let relaunched = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1));
-    assert_eq!(taken, json!({"taken": [{"sessionId": id, "cwd": worker.directory}]}));
+    assert_eq!(taken, json!({"taken": [{"from": id, "sessionId": id, "cwd": worker.directory}]}));
     for window in [&windows(&after)[0], &windows(&relaunched)[0]] {
         assert_eq!((&window["sessionId"], &window["socket"]), (&json!(id), &json!(worker.socket)));
     }

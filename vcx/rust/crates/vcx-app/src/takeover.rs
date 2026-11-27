@@ -18,7 +18,7 @@ const WINDOW_SUFFIX: &str = ".window.json";
 /// Where the Swift app keeps its recovery list, under his home.
 const SWIFT_RECOVERY: &str = "runtime/recovery";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub session_id: String,
     pub cwd: String,
@@ -26,6 +26,13 @@ pub struct Entry {
     pub record_id: Option<String>,
     /// The desktop the Swift window was on (its `windowState.desktop`, Swift `Desktops.index`).
     pub desktop: Option<usize>,
+    /// Its frame (`windowState.frame`, `NSStringFromRect`): x, y from the bottom left of the main screen, width, height.
+    pub frame: Option<[f64; 4]>,
+    /// The Swift worker's state folder, where the record is: a cold reopen must look there.
+    pub state_directory: Option<PathBuf>,
+    /// The window file's own draft and its generation: written before the worker's checkpoint, it can be newer than
+    /// the draft the worker holds (Swift `RuntimeRecovery.entries` keeps it when its generation is higher).
+    pub draft: Option<(Value, i64)>,
 }
 
 /// The Swift app's recovery folder on his Mac.
@@ -73,7 +80,38 @@ fn entry(folder: &Path, name: &str, value: &Value) -> Result<Option<Entry>, Stri
     // Only the window state is the window's own over the checkpoint's (Swift `RuntimeRecovery.pending`).
     let window_state = state.get("windowState").or_else(|| checkpoint.get("windowState"));
     let desktop = window_state.and_then(|window| window["desktop"].as_u64()).and_then(|index| usize::try_from(index).ok());
-    Ok(Some(Entry { session_id: id, cwd, socket: socket.into(), record_id, desktop }))
+    let frame = window_state.and_then(|window| window["frame"].as_str()).and_then(rect);
+    let state_directory = field("stateDirectory").filter(|folder| folder.starts_with('/')).map(PathBuf::from);
+    let draft = state.get("draft").filter(|draft| draft.is_array()).cloned().zip(state.get("draftGeneration").and_then(Value::as_i64));
+    Ok(Some(Entry { session_id: id, cwd, socket: socket.into(), record_id, desktop, frame, state_directory, draft }))
+}
+
+/// Whether windows the Swift app left wait in `folder` to be taken over.
+pub fn waiting(folder: &Path) -> bool {
+    pending(folder).is_ok_and(|entries| !entries.is_empty())
+}
+
+/// `NSStringFromRect`'s "{{x, y}, {width, height}}".
+fn rect(text: &str) -> Option<[f64; 4]> {
+    let numbers: Vec<f64> = text.split(['{', '}', ',', ' ']).filter(|part| !part.is_empty()).map(str::parse).collect::<Result<_, _>>().ok()?;
+    let rect: [f64; 4] = numbers.try_into().ok()?;
+    (rect[2] > 0.0 && rect[3] > 0.0).then_some(rect)
+}
+
+/// Once VCX Rust holds the window, its Swift entry goes (Swift `RuntimeRecovery.release`), or a later Swift launch
+/// would take the session back. Kept when a Swift frontend now owns it or asked to close it; true once it is gone.
+pub fn retire(folder: &Path, session_id: &str) -> Result<bool, String> {
+    let id = uuid_string(session_id).ok_or("Invalid recovery session identifier.")?;
+    let file = folder.join(format!("{id}{WINDOW_SUFFIX}"));
+    let Some(value) = read(&file)? else { return Ok(true) };
+    if value["closeRequested"] == Value::Bool(true) || owner_alive(&value) {
+        return Ok(false);
+    }
+    match fs::remove_file(&file) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(true),
+        Err(_) => Err("Cannot release session recovery data.".into()),
+    }
 }
 
 /// A frontend still running owns its window: the recorded pid started at the recorded time (Swift `ownerStart`).
@@ -153,7 +191,56 @@ mod tests {
         let listed = pending(&folder);
 
         fs::remove_dir_all(&folder).unwrap();
-        assert_eq!(listed, Ok(vec![Entry { session_id: ID.into(), cwd: "/tmp/moved".into(), socket: "/tmp/w.sock".into(), record_id: Some(RECORD.into()), desktop: None }]));
+        assert_eq!(listed, Ok(vec![Entry { session_id: ID.into(), cwd: "/tmp/moved".into(), socket: "/tmp/w.sock".into(), record_id: Some(RECORD.into()), desktop: None, frame: None, state_directory: None, draft: None }]));
+    }
+
+    #[test]
+    fn keeps_the_record_state_folder_the_frame_and_the_window_files_own_draft() {
+        let folder = folder("draft");
+        let mut window = window(1, 1);
+        window["state"]["stateDirectory"] = json!("/swift/state");
+        window["state"]["draft"] = json!([{"type": "text", "text": "typed at the kill"}]);
+        window["state"]["draftGeneration"] = json!(7);
+        window["state"]["windowState"] = json!({"frame": "{{120.5, 64}, {1100, 760}}", "desktop": 2});
+        write(&folder, &format!("{ID}.window.json"), &window);
+        write(&folder, &format!("{ID}.checkpoint.json"), &json!({"draft": [], "draftGeneration": 6}));
+
+        let listed = pending(&folder).unwrap();
+
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(listed[0].state_directory, Some(PathBuf::from("/swift/state")));
+        assert_eq!(listed[0].draft, Some((json!([{"type": "text", "text": "typed at the kill"}]), 7)));
+        assert_eq!((listed[0].frame, listed[0].desktop), (Some([120.5, 64.0, 1100.0, 760.0]), Some(2)));
+    }
+
+    #[test]
+    fn says_swift_windows_wait_only_while_one_whose_frontend_is_gone_is_listed() {
+        let folder = folder("waiting");
+        let empty = waiting(&folder);
+        write(&folder, &format!("{ID}.window.json"), &window(1, 1));
+
+        let listed = waiting(&folder);
+
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!((empty, listed, waiting(&folder)), (false, true, false));
+    }
+
+    #[test]
+    fn retires_an_entry_whose_frontend_is_gone_and_keeps_one_a_running_frontend_owns() {
+        let folder = folder("retire");
+        write(&folder, &format!("{ID}.window.json"), &window(1, 1));
+        let other = "0A1B2C3D-0000-4000-8000-000000000002";
+        let me = i64::from(std::process::id());
+        let mut owned = window(me, start_microseconds(me as i32).unwrap());
+        owned["sessionId"] = json!(other);
+        write(&folder, &format!("{other}.window.json"), &owned);
+
+        let retired = (retire(&folder, ID), retire(&folder, other));
+
+        let left = (folder.join(format!("{ID}.window.json")).exists(), folder.join(format!("{other}.window.json")).exists());
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(retired, (Ok(true), Ok(false)));
+        assert_eq!(left, (false, true));
     }
 
     #[test]

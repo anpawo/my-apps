@@ -21,6 +21,8 @@ pub struct Saved {
     pub frame: Option<Frame>,
     /// The worker's conversation record, to reopen the session cold when its worker is gone.
     pub record_id: Option<String>,
+    /// The worker's state folder that record lives in: a session taken from the Swift app keeps its conversation there.
+    pub state_directory: Option<PathBuf>,
     /// The window's desktop (macOS Space) as its place among the desktops, left to right (`desktops::index`).
     pub desktop: Option<usize>,
     /// Its close was asked and the worker had not confirmed it: the next launch finishes it instead of reopening it
@@ -43,7 +45,7 @@ fn entry(value: &Value) -> Option<Saved> {
         Some(Frame { x: number(0)?, y: number(1)?, width: number(2)?, height: number(3)? })
     });
     let desktop = value["desktop"].as_u64().and_then(|index| usize::try_from(index).ok());
-    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), desktop, closing: value["closing"] == true, scroll: value.get("scroll").filter(|scroll| scroll.is_object()).cloned() })
+    Some(Saved { session_id: text("sessionId")?, socket: text("socket")?.into(), cwd: text("cwd")?, frame, record_id: text("recordID"), state_directory: text("stateDirectory").map(PathBuf::from), desktop, closing: value["closing"] == true, scroll: value.get("scroll").filter(|scroll| scroll.is_object()).cloned() })
 }
 
 pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
@@ -59,6 +61,9 @@ pub fn write(file: &Path, windows: &[Saved]) -> Result<(), String> {
             }
             if let Some(record) = &saved.record_id {
                 value["recordID"] = json!(record);
+            }
+            if let Some(state) = &saved.state_directory {
+                value["stateDirectory"] = json!(state);
             }
             if let Some(desktop) = saved.desktop {
                 value["desktop"] = json!(desktop);
@@ -84,8 +89,8 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("vcx-app-windows-{}", std::process::id()));
         let file = folder.join("windows.json");
         let windows = [
-            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), desktop: Some(2), closing: false, scroll: Some(json!({"row": "item-4", "offset": -12.0})) },
-            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, desktop: None, closing: true, scroll: None },
+            Saved { session_id: "A".into(), socket: "/r/a.sock".into(), cwd: "/p".into(), frame: Some(Frame { x: 10.0, y: 20.0, width: 800.0, height: 600.0 }), record_id: Some("R".into()), state_directory: Some("/s".into()), desktop: Some(2), closing: false, scroll: Some(json!({"row": "item-4", "offset": -12.0})) },
+            Saved { session_id: "B".into(), socket: "/r/b.sock".into(), cwd: "/q".into(), frame: None, record_id: None, state_directory: None, desktop: None, closing: true, scroll: None },
         ];
 
         write(&file, &windows).unwrap();
