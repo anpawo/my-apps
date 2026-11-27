@@ -355,10 +355,10 @@
     const tasks = make('section');
     tasks.id = 'tasks';
     const header = make('header');
-    header.append(make('span', 'name', 'TASKS'), make('span', 'count'));
+    header.append(make('span', 'name', 'SESSIONS'), make('span', 'count'));
     const bar = make('div', 'bar');
     const empty = make('div', 'empty hidden');
-    empty.append(make('p', 'empty-title', 'No task yet.'));
+    empty.append(make('p', 'empty-title', 'No session yet.'));
     tasks.append(header, empty, bar);
     cardBar(bar, { onChoose: card => post({ type: 'focus', id: card.dataset.id }) });
     const layer = make('div', 'pop');

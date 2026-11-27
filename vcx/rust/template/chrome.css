@@ -7,6 +7,8 @@
 /* The side panel (Settings, then the task bar), as wide as its longest task name from 168 to 360 px, then the
    transcript over the composer. */
 body { display: grid; grid-template-columns: fit-content(360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+/* Only the transcript scrolls: a wheel over the side panel, or past the transcript's end, never bounces the page. */
+html, body { overflow: hidden; overscroll-behavior: none; }
 #transcript { grid-column: 2; grid-row: 1; }
 footer { grid-column: 2; grid-row: 2; }
 
@@ -211,9 +213,10 @@ footer { grid-column: 2; grid-row: 2; }
 #tasks .empty.hidden { display: none; }
 
 /* The session panel down the window's left side (Swift `sessionPanel`). */
-/* Not clipped: the Settings box widens over the transcript. */
+/* Not clipped: the Settings box widens over the transcript. A panel floating over the window, as one-text's side bar:
+   inset from its edges, rounded, the transcript running full bleed beside it. */
 #session { position: relative; z-index: 40; grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 168px; min-height: 0;
-  padding: 10px; border-right: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+  margin: 7px 0 7px 7px; padding: 10px; border: 1px solid rgb(0 0 0 / .1); border-radius: 12px; background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
 /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
 /* Nested under the panel, so the composer's own .b buttons keep their look. */
 :is(#session, #capability, #settings) {

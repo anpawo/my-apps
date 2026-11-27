@@ -18,6 +18,9 @@
   const unfolded = new Set();
   // The Swift `/details`: every work block and action shown open until `/focus` folds them again.
   let detailsOn = false;
+  // `sent`: a message just left the composer and its row is not drawn yet; `atEnd`: the reader is at the transcript's end.
+  let sent = false;
+  let atEnd = true;
   const DETAILED = /^(work|action)\b/;
   let meta = {};
 
@@ -452,8 +455,10 @@
 
   // Applied at once, with no requestAnimationFrame: a window that is hidden or covered gets no frames.
   function receive(message) {
-    const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    const pinned = sent || transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    const before = rows.size;
     apply(message);
+    if (rows.size > before) sent = false;
     $('empty').hidden = rows.size > 0;
     if (window.vcxFind) vcxFind.refresh();
     if (window.vcxQuestions) vcxQuestions.receive(message, meta);
@@ -554,8 +559,22 @@
   }, true);
   // Back to latest shows once the reader has scrolled away from the end.
   transcript.addEventListener('scroll', () => {
-    $('latest').hidden = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    atEnd = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    $('latest').hidden = atEnd;
   }, { passive: true });
+  // As the Swift window did: a sent message brings the transcript to its end and keeps it there until the message's row
+  // is drawn, and while the reader is at the end it stays there as the transcript shrinks (the composer growing as he
+  // types) or its rows grow after they are drawn (streamed text, pictures): no Back to latest for either.
+  document.addEventListener('vcx:sent', () => {
+    sent = true;
+    atEnd = true;
+    transcript.scrollTop = transcript.scrollHeight;
+  });
+  const follow = new ResizeObserver(() => {
+    if (atEnd) transcript.scrollTop = transcript.scrollHeight;
+  });
+  follow.observe(transcript);
+  follow.observe($('rows'));
 
   function toggleDetails() {
     detailsOn = !detailsOn;

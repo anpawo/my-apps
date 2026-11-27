@@ -432,7 +432,7 @@ fn says_when_there_is_no_task_yet(page: &Page) -> Result<(), String> {
 
     page.deliver(json!({"type": "tasks", "entries": []}))?;
 
-    same(&page.eval("document.querySelector('#tasks .empty').textContent")?, json!("No task yet."), "the empty words")?;
+    same(&page.eval("document.querySelector('#tasks .empty').textContent")?, json!("No session yet."), "the empty words")?;
     same(&page.dump()?["empty"], json!(true), "the empty task bar shown")
 }
 
