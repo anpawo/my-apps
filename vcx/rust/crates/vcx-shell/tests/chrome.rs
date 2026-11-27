@@ -556,6 +556,11 @@ fn settings() -> Value {
         "qwen": {"host": "pc", "url": "http://pc.local:11434/api/chat", "proxy": "", "model": "qwen3.5-9b-abl", "wake": false}})
 }
 
+fn settings_row(page: &Page, name: &str) -> Result<(), String> {
+    page.eval("(() => { const fold = document.getElementById('fold'); fold.style.setProperty('--open', '0ms'); fold.classList.add('open'); return true; })()")?;
+    page.click(&format!("#fold .fold-row[data-tab={name}]"))
+}
+
 fn tab(page: &Page, name: &str) -> Result<Value, String> {
     let index = ["Session", "Accounts", "Qwen", "Background", "Keys"].iter().position(|tab| *tab == name).ok_or("no such tab")? + 1;
     page.click(&format!("#settings .tb-trigger:nth-child({index})"))?;
@@ -566,7 +571,7 @@ fn tab(page: &Page, name: &str) -> Result<Value, String> {
 fn opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
 
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
 
     same(&page.wait_post("settings")?, json!({"type": "settings"}), "the settings post")?;
     let shown = page.dump()?["settings"].clone();
@@ -576,7 +581,7 @@ fn opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest(page: &P
 
 fn shows_the_accounts_and_qwen_the_core_sends(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
     let waiting = tab(page, "Accounts")?["rows"].clone();
 
     page.deliver(settings())?;
@@ -595,7 +600,7 @@ fn says_what_runs_in_the_background_and_on_which_account(page: &Page) -> Result<
     snapshot["cwd"] = json!("/Users/demo");
     snapshot["rows"] = json!([]);
     page.show(&snapshot)?;
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
     page.deliver(settings())?;
 
     let rows = tab(page, "Background")?["rows"].clone();
@@ -609,7 +614,7 @@ fn says_what_runs_in_the_background_and_on_which_account(page: &Page) -> Result<
 
 fn lists_the_keyboard_shortcuts(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
 
     let rows = tab(page, "Keys")?["rows"].clone();
 
@@ -619,13 +624,25 @@ fn lists_the_keyboard_shortcuts(page: &Page) -> Result<(), String> {
 
 fn puts_a_settings_command_in_the_composer_and_closes(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
 
     page.click("#settings .tb-panel.on dl:nth-child(4) .fact")?;
 
     same(&page.dump()?["settings"], Value::Null, "the sheet after the choice")?;
     same(&page.eval("document.getElementById('input').value")?, json!("/perms "), "the composer's command")?;
     same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")
+}
+
+fn opens_the_settings_on_the_tab_whose_row_is_clicked_and_leaves_the_head_inert(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.click("#fold .fold-head")?;
+    let after_head = page.dump()?["settings"].clone();
+    settings_row(page, "Keys")?;
+
+    same(&after_head, Value::Null, "the sheet after a click on the head")?;
+    same(&page.dump()?["settings"]["tab"], json!("Keys"), "the tab the Keys row opens")?;
+    same(&json!(page.dump()?["capabilities"].as_array().map(Vec::len)), json!(6), "the capability rows beside the settings rows")
 }
 
 fn opens_the_settings_with_command_comma_and_closes_them_on_escape(page: &Page) -> Result<(), String> {
@@ -644,7 +661,7 @@ fn keeps_the_sheet_480_by_520_and_each_value_inside_its_block(page: &Page) -> Re
     snapshot["cwd"] = json!("/Users/demo/projects/a-folder-name-long-enough-to-run-past-the-block-it-sits-in/and-deeper-still");
     page.show(&snapshot)?;
 
-    page.click("#settings-button")?;
+    settings_row(page, "Session")?;
 
     let size = page.eval("(r => [r.width, r.height])(document.getElementById('settings').getBoundingClientRect())")?;
     let inside = page.eval("[...document.querySelectorAll('#settings .tb-panel.on .fact')].every(block => { const b = block.getBoundingClientRect(), v = block.querySelector('.val').getBoundingClientRect(); return v.right <= b.right && v.left >= b.left; })")?;
@@ -684,7 +701,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 34] = [
+const TESTS: [(&str, Test); 35] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -710,6 +727,7 @@ const TESTS: [(&str, Test); 34] = [
     ("names a recalled line after its ERRORS section", names_a_recalled_line_after_its_errors_section),
     ("copies the session ID through the core", copies_the_session_id_through_the_core),
     ("opens the settings on the session tab and asks the core for the rest", opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest),
+    ("opens the settings on the tab whose row is clicked and leaves the head inert", opens_the_settings_on_the_tab_whose_row_is_clicked_and_leaves_the_head_inert),
     ("shows the accounts and Qwen the core sends", shows_the_accounts_and_qwen_the_core_sends),
     ("says what runs in the background and on which account", says_what_runs_in_the_background_and_on_which_account),
     ("lists the keyboard shortcuts", lists_the_keyboard_shortcuts),

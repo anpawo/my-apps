@@ -271,8 +271,8 @@ footer { grid-column: 2; grid-row: 2; }
   border: 1px solid #c5cbd3; border-radius: 12px; background: #fff; color: rgb(28 33 39 / .7);
   transition: width var(--open, 300ms) ease-out, box-shadow var(--open, 300ms) ease-out; }
 #fold .fold-head { display: flex; align-items: center; gap: 8px; width: max(var(--wide), 100%); height: 36px; padding: 0 12px; border: 0; background: none;
-  color: #1c2127; font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; white-space: nowrap; cursor: pointer; outline: none; }
-#fold .fold-head:focus-visible { box-shadow: inset 0 0 0 2px #4c90f0; border-radius: 12px; }
+  color: #1c2127; font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; white-space: nowrap; cursor: default; outline: none; }
+#fold hr { margin: 4px 6px; border: 0; border-top: 1px solid #e5e8eb; }
 #fold svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #fold .fold-body { display: grid; grid-template-rows: minmax(0, 0fr); opacity: 0;
   transition: grid-template-rows var(--open, 300ms) ease-out, opacity var(--open, 300ms) ease-out; }

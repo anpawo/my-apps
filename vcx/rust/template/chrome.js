@@ -58,11 +58,17 @@
     command: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>',
     server: '<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/>',
     file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
+    terminal: '<path d="m4 17 6-6-6-6M12 19h8"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>',
+    activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    keyboard: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>',
     brain: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
   };
   // An ERRORS line starts with its date, then a colon or a dash (Swift `capabilityItems`).
   const RULE_DATE = /^[0-9/, -]+?(: | \u2014 )/;
   const SETTINGS_TABS = ['Session', 'Accounts', 'Qwen', 'Background', 'Keys'];
+  const SETTINGS_GLYPHS = { Session: 'terminal', Accounts: 'user', Qwen: 'cpu', Background: 'activity', Keys: 'keyboard' };
   const QWEN_HOSTS = { mac: 'This Mac', pc: 'Windows PC' };
   // Swift `SettingsPopup`'s own figures: the resends after a dropped connection, the conversation a new turn is handed.
   const NETWORK_RESUMES = 3;
@@ -368,15 +374,13 @@
   }
 
   // The left side: Settings as the box that widens on hover (WT-031), dropping a row for each thing the session
-  // loaded, each opening its list beside it; under it every window's task, then the session's ID to copy.
+  // loaded, each opening its list beside it, then one per settings tab; under it every window's task, then the session's ID to copy.
   function sessionPanel(tasks) {
     const panel = make('aside');
     panel.id = 'session';
     const fold = make('div', 'fold');
     fold.id = 'fold';
-    const settings = button('fold-head', '', openSettings);
-    settings.id = 'settings-button';
-    settings.title = 'Settings (⌘,)';
+    const settings = make('div', 'fold-head');
     settings.innerHTML = `${icon('settings')}<b>SETTINGS</b>`;
     const body = make('div', 'fold-body');
     const rows = make('div');
@@ -392,6 +396,14 @@
       row.append(make('span', 'name', label), num);
       row.addEventListener('pointerenter', () => hoverCapability(title));
       row.addEventListener('pointerleave', () => leaveCapability(title));
+      return row;
+    }));
+    rows.append(make('hr'), ...SETTINGS_TABS.map(name => {
+      const row = button('fold-row', '', () => openSettings(name));
+      row.dataset.tab = name;
+      row.title = `${name} settings`;
+      row.innerHTML = icon(SETTINGS_GLYPHS[name], 'glyph');
+      row.append(make('span', 'name', name.toUpperCase()));
       return row;
     }));
     body.append(rows);
@@ -952,7 +964,7 @@
   }
 
   function drawSession() {
-    for (const card of $('fold').querySelectorAll('.fold-row')) {
+    for (const card of $('fold').querySelectorAll('.fold-row[data-card]')) {
       const count = String(capabilityCount(card.dataset.card));
       card.dataset.count = count;
       const digits = card.querySelector('.num > span');
@@ -986,7 +998,7 @@
     if (capability.open === title) return;
     capability.open = title;
     const row = $('fold').querySelector(`.fold-row[data-card="${title}"]`);
-    for (const other of $('fold').querySelectorAll('.fold-row')) other.ariaExpanded = String(other === row);
+    for (const other of $('fold').querySelectorAll('.fold-row[data-card]')) other.ariaExpanded = String(other === row);
     drawCapability(true);
     placeCapability();
   }
@@ -1004,7 +1016,7 @@
     capability.open = null;
     // A list closed under a card the pointer just reached stays closed until the pointer comes back.
     clearTimeout(capability.opening);
-    for (const row of $('fold').querySelectorAll('.fold-row')) row.ariaExpanded = 'false';
+    for (const row of $('fold').querySelectorAll('.fold-row[data-card]')) row.ariaExpanded = 'false';
     const panel = $('capability'), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const away = still ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: `${-CAPABILITY_SHIFT_PX}px 0` }];
     capability.closing = panel.animate(away, { duration: still ? REDUCED_MOTION_MS : CAPABILITY_MS, easing: CAPABILITY_EASING, fill: 'forwards' });
@@ -1132,14 +1144,14 @@
     return node;
   }
 
-  function openSettings() {
+  function openSettings(tab = SETTINGS_TABS[0]) {
     closeCapability();
     popover = null;
     drawPopover();
     sheet.open = true;
     sheet.signature = '';
     $('settings-veil').hidden = false;
-    $('settings').querySelector('.tb-trigger').click();
+    $('settings').querySelector(`.tb-trigger:nth-child(${SETTINGS_TABS.indexOf(tab) + 1})`).click();
     // The core answers with the accounts, the limits, Qwen and what runs in the background.
     post({ type: 'settings' });
     drawSettings();
@@ -1379,7 +1391,7 @@
       tasks: cards.map(node => ({ text: node.textContent, state: node.dataset.state, current: node.hasAttribute('aria-current') })),
       groups: [...$('tasks').querySelectorAll('.bar-head:not([data-ghost])')].map(node => node.textContent),
       empty: !$('tasks').querySelector('.empty').classList.contains('hidden'),
-      capabilities: [...$('fold').querySelectorAll('.fold-row')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.ariaExpanded === 'true' })),
+      capabilities: [...$('fold').querySelectorAll('.fold-row[data-card]')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.ariaExpanded === 'true' })),
       capability: capability.open && {
         title: capability.open,
         rows: [...$('capability').querySelectorAll('.item:not([hidden])')].map(node => node.innerText.trim().split('\n').filter(Boolean)),
