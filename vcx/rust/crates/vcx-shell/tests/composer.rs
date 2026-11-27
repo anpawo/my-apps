@@ -456,7 +456,7 @@ fn folds_a_long_paste_into_a_chip_and_sends_its_text(page: &Page) -> Result<(), 
     let folded = page.paste(LONG_PASTE, false)?;
 
     check(folded, "the long paste was left to WebKit")?;
-    let state = page.value("see [Paste #1]")?;
+    let state = page.value("see [Paste #1] ")?;
     check(state["chips"] == json!(["Paste #1 · 3 lines"]), format!("chips {}", state["chips"]))?;
     page.press(Key::Return, NONE)?;
     let sent = page.next("send")?;
@@ -473,7 +473,7 @@ fn leaves_a_short_paste_to_webkit(page: &Page) -> Result<(), String> {
 
 fn tab_right_after_a_folded_paste_puts_its_text_back(page: &Page) -> Result<(), String> {
     page.paste(LONG_PASTE, false)?;
-    page.value("[Paste #1]")?;
+    page.value("[Paste #1] ")?;
 
     page.press(Key::Tab, NONE)?;
 
@@ -485,12 +485,12 @@ fn undoes_and_redoes_typing_and_a_folded_paste_with_the_edit_menu(page: &Page) -
     page.keys("abc ")?;
     page.value("abc ")?;
     page.paste(LONG_PASTE, false)?;
-    page.value("abc [Paste #1]")?;
+    page.value("abc [Paste #1] ")?;
 
     page.press(Key::Char('z'), COMMAND)?;
     let undone = page.value("abc ")?;
     page.press(Key::Char('z'), COMMAND.union(SHIFT))?;
-    let redone = page.value("abc [Paste #1]")?;
+    let redone = page.value("abc [Paste #1] ")?;
 
     check(undone["chips"] == json!([]), "the undone paste kept its chip")?;
     check(redone["chips"] == json!(["Paste #1 · 3 lines"]), format!("the redone paste has chips {}", redone["chips"]))?;
@@ -661,7 +661,7 @@ fn pastes_an_image_through_the_core_and_shows_it_in_its_chip(page: &Page) -> Res
     check(folded && image["data"] == PNG && image["name"] == "shot.png", format!("posted {image}"))?;
     page.deliver(json!({"type": "attach", "items": [{"kind": "image", "id": image["id"], "path": "/attachments/shot.png"}]}))?;
 
-    let state = page.value("[Image #1]")?;
+    let state = page.value("[Image #1] ")?;
     check(state["chips"] == json!(["Image #1 · shot.png"]) && state["previews"] == 1, format!("{state}"))
 }
 
@@ -675,7 +675,7 @@ fn makes_a_chip_of_image_data_dropped_with_no_file(page: &Page) -> Result<(), St
     let image = page.next("image")?;
     check(taken == json!(true) && image["data"] == PNG && image["name"] == "dragged.png", format!("taken {taken}, posted {image}"))?;
     page.deliver(json!({"type": "attach", "items": [{"kind": "image", "id": image["id"], "path": "/attachments/dragged.png"}]}))?;
-    let state = page.value("[Image #1]")?;
+    let state = page.value("[Image #1] ")?;
     check(state["chips"] == json!(["Image #1 · dragged.png"]), format!("{state}"))
 }
 
@@ -711,7 +711,7 @@ fn keeps_marked_text_paste_undo_and_focus_together(page: &Page) -> Result<(), St
     page.value("q仮名")?;
 
     page.paste(LONG_PASTE, false)?;
-    page.value("q仮名[Paste #1]")?;
+    page.value("q仮名[Paste #1] ")?;
     page.press(Key::Char('z'), COMMAND)?;
     page.value("q仮名")?;
     page.eval("document.getElementById('input').blur()")?;
@@ -733,7 +733,7 @@ fn attach_asks_the_core_for_the_picture_instead_of_sending_the_command(page: &Pa
     page.value("")?;
     check(page.posted("send").is_empty(), "the command went out as a message")?;
     page.deliver(json!({"type": "attach", "items": [{"kind": "image", "path": "/work/shots/a.png"}]}))?;
-    let state = page.value("[Image #1]")?;
+    let state = page.value("[Image #1] ")?;
     check(state["chips"] == json!(["Image #1 · a.png"]), format!("{state}"))
 }
 
@@ -948,7 +948,7 @@ fn shows_the_draft_pictures_above_the_composer_with_their_numbers(page: &Page) -
     let items = json!([{"kind": "image", "path": "/tmp/a.png"}, {"kind": "image", "path": "/tmp/b.png"}]);
 
     page.deliver(json!({"type": "attach", "items": items}))?;
-    page.value("[Image #1] [Image #2]")?;
+    page.value("[Image #1] [Image #2] ")?;
 
     let names = page.eval("(() => { const row = document.getElementById('draft-pictures'); return row.hidden ? null : [...row.querySelectorAll('.picture .name')].map(name => name.textContent); })()")?;
     check(names == json!(["Image #1", "Image #2"]), format!("pictures {names}"))

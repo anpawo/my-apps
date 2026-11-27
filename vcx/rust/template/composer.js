@@ -720,8 +720,10 @@
     if (caret !== input.selectionEnd) return false;
     const before = input.value.slice(0, caret);
     for (const [token, chip] of chips) {
-      if (chip.kind === 'paste' && before.endsWith(token)) {
-        replace(caret - token.length, caret, chip.text);
+      // The space a fold puts after its token goes back with it.
+      const folded = before.endsWith(`${token} `) ? `${token} ` : token;
+      if (chip.kind === 'paste' && before.endsWith(folded)) {
+        replace(caret - folded.length, caret, chip.text);
         return true;
       }
     }
@@ -731,7 +733,7 @@
   function fold(text) {
     const number = nextNumber('paste');
     chips.set(pasteToken(number), { kind: 'paste', text, number });
-    replace(input.selectionStart, input.selectionEnd, pasteToken(number));
+    replace(input.selectionStart, input.selectionEnd, `${pasteToken(number)} `);
   }
 
   function keydown(event) {
@@ -800,7 +802,7 @@
         const number = nextNumber('image');
         chips.set(imageToken(number), { kind: 'image', path: item.path, number, preview: previews.get(item.id) || item.src });
         previews.delete(item.id);
-        insert(imageToken(number));
+        insert(`${imageToken(number)} `);
       } else {
         const folder = item.kind === 'folder';
         const token = mentionToken(item.relative || item.path, folder);
