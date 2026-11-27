@@ -646,7 +646,8 @@ fn attaches_dropped_files_folders_and_images_as_chips(page: &Page) -> Result<(),
 
     let state = page.value("[Image #1] @notes.md @\"my docs/\" ")?;
     check(state["chips"] == json!(["Image #1 · c.png", "notes.md", "my docs/"]), format!("chips {}", state["chips"]))?;
-    page.click(".attachment.file .attachment-remove")?;
+    // As in the Swift composer, a chip goes with its token: no pill with a remove button shows above the text.
+    page.eval("(() => { const input = document.getElementById('input'), at = input.value.indexOf('@notes.md '); input.setSelectionRange(at, at + '@notes.md '.length); document.execCommand('delete'); })()")?;
     let removed = page.value("[Image #1] @\"my docs/\" ")?;
     check(removed["chips"].as_array().is_some_and(|chips| chips.len() == 2) && removed["focused"] == true, format!("{removed}"))?;
     page.press(Key::Return, NONE)?;

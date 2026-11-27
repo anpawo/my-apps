@@ -45,7 +45,8 @@ footer { position: relative; }
    folder, violet for a picture, green for a folded paste. */
 .attachments { display: flex; flex-wrap: wrap; flex-basis: 100%; align-items: center; gap: 4px; min-width: 0; margin: 0; padding-top: 2px; line-height: 24px;
   font: 12px/24px Inter, -apple-system, system-ui, sans-serif; }
-.attachments[hidden] { display: none; }
+/* As in the Swift composer, an image or a paste shows only as its token in the text ("[Image #1]"): no pill above it. */
+.attachments, .attachments[hidden] { display: none; }
 .attachment { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 4px 2px 10px; border-radius: 999px; line-height: 20px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1c2127; }
 .attachment.file { background: rgb(28 33 39 / .08); }
