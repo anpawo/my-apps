@@ -1002,7 +1002,7 @@
   // Beside the widened box, its middle level with the row's, never above the box's top nor below the window.
   function placeCapability(row) {
     const panel = $('capability'), fold = $('fold'), box = fold.getBoundingClientRect(), at = row.getBoundingClientRect();
-    const wide = parseFloat(getComputedStyle(fold).getPropertyValue('--wide'));
+    const wide = Math.max(parseFloat(getComputedStyle(fold).getPropertyValue('--wide')), fold.parentElement.offsetWidth);
     const middle = at.top + at.height / 2 - panel.offsetHeight / 2;
     const top = Math.max(CAPABILITY_EDGE_PX, Math.min(Math.max(box.top, middle), innerHeight - panel.offsetHeight - CAPABILITY_EDGE_PX));
     panel.style.left = `${box.left + wide + CAPABILITY_GAP_PX}px`;

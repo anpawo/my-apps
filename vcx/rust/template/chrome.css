@@ -4,8 +4,9 @@
    chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102, the button
    variants WT-033, the search field WT-030, the copy check WT-020, the tabs WT-105, the name and value blocks WT-055, the status line WT-120, the keyboard
    shortcuts WT-121. */
-/* The side panel, 168 px (Settings, then the task bar), then the transcript over the composer. */
-body { display: grid; grid-template-columns: 168px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+/* The side panel (Settings, then the task bar), as wide as its longest task name from 168 to 360 px, then the
+   transcript over the composer. */
+body { display: grid; grid-template-columns: fit-content(360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
 #transcript { grid-column: 2; grid-row: 1; }
 footer { grid-column: 2; grid-row: 2; }
 
@@ -211,7 +212,7 @@ footer { grid-column: 2; grid-row: 2; }
 
 /* The session panel down the window's left side (Swift `sessionPanel`). */
 /* Not clipped: the Settings box widens over the transcript. */
-#session { position: relative; z-index: 40; grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
+#session { position: relative; z-index: 40; grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 168px; min-height: 0;
   padding: 10px; border-right: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
 /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
 /* Nested under the panel, so the composer's own .b buttons keep their look. */
@@ -263,14 +264,15 @@ footer { grid-column: 2; grid-row: 2; }
 #fold { --wide: 236px; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; width: 100%; overflow: hidden;
   border: 1px solid #c5cbd3; border-radius: 12px; background: #fff; color: rgb(28 33 39 / .7);
   transition: width var(--open, 300ms) ease-out, box-shadow var(--open, 300ms) ease-out; }
-#fold .fold-head { display: flex; align-items: center; gap: 8px; width: var(--wide); height: 36px; padding: 0 12px; border: 0; background: none;
+#fold .fold-head { display: flex; align-items: center; gap: 8px; width: max(var(--wide), 100%); height: 36px; padding: 0 12px; border: 0; background: none;
   color: #1c2127; font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; white-space: nowrap; cursor: pointer; outline: none; }
 #fold .fold-head:focus-visible { box-shadow: inset 0 0 0 2px #4c90f0; border-radius: 12px; }
 #fold svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #fold .fold-body { display: grid; grid-template-rows: minmax(0, 0fr); opacity: 0;
   transition: grid-template-rows var(--open, 300ms) ease-out, opacity var(--open, 300ms) ease-out; }
-#fold .fold-body > div { display: flex; flex-direction: column; gap: 2px; width: calc(var(--wide) - 2px); min-height: 0; overflow: hidden; padding: 0 6px 6px; }
-#fold.open, #fold:has(:focus-visible) { width: var(--wide); box-shadow: 0 12px 32px -4px rgb(0 0 0 / .18), 0 4px 10px rgb(0 0 0 / .08); }
+#fold .fold-body > div { display: flex; flex-direction: column; gap: 2px; width: calc(max(var(--wide), 100%) - 2px); min-height: 0; overflow: hidden; padding: 0 6px 6px; }
+/* never narrower than the panel it starts from */
+#fold.open, #fold:has(:focus-visible) { width: max(var(--wide), 100%); box-shadow: 0 12px 32px -4px rgb(0 0 0 / .18), 0 4px 10px rgb(0 0 0 / .08); }
 #fold.open .fold-body, #fold:has(:focus-visible) .fold-body { grid-template-rows: minmax(0, 1fr); opacity: 1; }
 #fold .fold-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px; border: 0; border-radius: 6px; background: none; color: inherit;
   font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; cursor: pointer; outline: none;
