@@ -573,7 +573,9 @@
 
   // Applied at once, with no requestAnimationFrame: a window that is hidden or covered gets no frames.
   function receive(message) {
-    const pinned = sent || endTop() - transcript.scrollTop < PINNED_DISTANCE_PX;
+    // A draft saved as he types comes back as a patch with no rows: it must not pull a reader near the end down to it.
+    const redraws = message.type === 'full' || Boolean(message.rows || message.order);
+    const pinned = sent || (redraws && endTop() - transcript.scrollTop < PINNED_DISTANCE_PX);
     const before = rows.size;
     apply(message);
     if (rows.size > before) sent = false;

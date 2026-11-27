@@ -267,6 +267,8 @@
   // The text area takes its text's height on each input: measured at no height, then eased from the old one. Past
   // INPUT_MAX_HEIGHT_PX it stops growing and scrolls.
   function grow(instant = false) {
+    // Measuring at no height lets the transcript grow for one layout, and WebKit clamps its scroll there: kept as it was.
+    const transcript = document.getElementById('transcript'), scrolled = transcript.scrollTop;
     const was = instant ? '' : input.style.height;
     input.style.transition = 'none';
     input.style.height = '0';
@@ -274,6 +276,7 @@
     const tall = `${Math.min(full, INPUT_MAX_HEIGHT_PX)}px`;
     input.style.height = was || tall;
     void input.offsetHeight;
+    transcript.scrollTop = scrolled;
     input.style.transition = '';
     input.style.height = tall;
     input.style.overflowY = full > INPUT_MAX_HEIGHT_PX ? 'auto' : 'hidden';

@@ -47,7 +47,7 @@ footer { grid-column: 2; grid-row: 2; }
 /* The status bar, as the Swift window drew it: each chip's words in its colour on that colour at 8 % over white, small
    corners, no border, lifted by a soft shadow, in 10.5 px monospaced type. */
 /* Swift's bar is a horizontal ScrollView padded 8 then pulled back 8, so chips never wrap and their shadows are not clipped. */
-#chips { position: relative; align-items: center; gap: 12px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px; margin: 0 -8px -8px; }
+#chips { position: relative; align-items: center; gap: 12px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; width: auto; padding: 8px; margin: 0 -8px -8px; }
 #chips::-webkit-scrollbar { display: none; }
 #chips > * { flex: none; }
 /* Swift `statusBar.separator`. */
