@@ -347,6 +347,8 @@ fn folds_a_sections_actions_into_one_block_with_each_actions_detail(page: &Page)
 
     let block = page.eval("({count: document.querySelectorAll('.work').length, title: document.querySelector('.work > summary').innerText.trim(), open: document.querySelector('.work').open})")?;
     page.click(".work > summary")?;
+    // The block glides open: in a window that draws no frames, the test ends its motion.
+    page.eval(FINISH_MOTION)?;
     page.click(".action > summary")?;
     let action = page.eval("[...document.querySelectorAll('.action')].map(a => ({title: a.querySelector('.title').textContent, failed: a.classList.contains('failed'), clock: a.querySelector('.clock') && a.querySelector('.clock').textContent, detail: [...a.querySelectorAll('pre')].map(p => p.textContent), open: a.open}))")?;
     let order = page.eval("[...document.querySelector('.turn:last-child').children].map(node => node.dataset.kind || node.className.split(' ')[0])")?;
@@ -454,11 +456,12 @@ fn copies_a_code_block_through_the_core_and_shows_it_was_copied(page: &Page) -> 
     page.show(json!({"rows": [user("R1", "code"), assistant("R2", "```sh\necho \"hi\"\n```\n\n````\n# Plan\n\n```js\nx()\n```\n````", true)]}))?;
 
     let heads = page.eval("[...document.querySelectorAll('figure.code')].map(f => f.querySelector('.language').textContent)")?;
-    page.click("figure.code button.copy")?;
+    // The whole header band copies, as Swift's.
+    page.click("figure.code > figcaption > .language")?;
     let copied = page.heard("copy")?;
     let marked = page.eval("document.querySelector('figure.code button.copy').classList.contains('copied')")?;
     page.posts.lock().unwrap().clear();
-    page.click("figure.code.markdown button.copy")?;
+    page.click("figure.code.markdown > figcaption > .language")?;
     let source = page.heard("copy")?;
 
     check(heads == json!(["sh", "Markdown", "js"]), format!("the code blocks are labelled {heads}"))?;

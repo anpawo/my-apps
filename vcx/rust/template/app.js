@@ -5,6 +5,15 @@
   const PINNED_DISTANCE_PX = 48;
   // How long a code block's copy button shows its check mark, as in the Swift `CodeBlock`.
   const COPIED_MS = 5000;
+  // Swift's tables: a column too wide for the room shares it with the other long ones, never narrower than this.
+  const TABLE_COLUMN_FLOOR_PX = 320;
+  // Swift's folds: the work block opens and shuts in 0.28 s, an action in 0.25 s; left while scrolled inside, the
+  // transcript rises to the block's header in 0.3 s before it shuts.
+  const WORK_GLIDE_MS = 280;
+  const ACTION_GLIDE_MS = 250;
+  const REVEAL_MS = 300;
+  const GLIDE_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
   const $ = id => document.getElementById(id);
   // Every message also goes out as a DOM event, which a windowless test listens to: window.ipc cannot be wrapped.
@@ -37,15 +46,51 @@
     return node;
   }
 
-  // A fold remembers that the reader opened it, so a redraw of its row does not close it.
+  // A fold remembers that the reader opened it, so a redraw of its row does not close it. `opened` is where it is
+  // going: a fold shutting stays open until its glide ends.
   function fold(key, className, ...title) {
     const details = make('details', className);
     details.open = unfolded.has(key) || (detailsOn && DETAILED.test(className));
-    details.addEventListener('toggle', () => (details.open ? unfolded.add(key) : unfolded.delete(key)));
+    details.classList.toggle('opened', details.open);
+    details.addEventListener('toggle', () => {
+      if (!details.classList.contains('gliding')) details.classList.toggle('opened', details.open);
+      if (details.classList.contains('opened')) unfolded.add(key);
+      else unfolded.delete(key);
+    });
     const summary = make('summary');
     summary.append(...title);
     details.append(summary);
+    summary.addEventListener('click', event => {
+      event.preventDefault();
+      // Opened by the hover, a click keeps the work block open instead of shutting it.
+      if (details.dataset.hovered === 'true') return void delete details.dataset.hovered;
+      glide(details, !details.classList.contains('opened'));
+    });
     return details;
+  }
+
+  // Opens or shuts a fold smoothly, its height and its content's opacity on one clock, as Swift's `.smooth`.
+  function glide(details, open, done) {
+    const ms = details.classList.contains('work') ? WORK_GLIDE_MS : ACTION_GLIDE_MS;
+    details.classList.toggle('opened', open);
+    if (reducedMotion.matches || !details.isConnected) {
+      details.open = open;
+      if (done) done();
+      return;
+    }
+    const from = details.getBoundingClientRect().height;
+    details.getAnimations().forEach(motion => motion.cancel());
+    details.classList.add('gliding');
+    details.open = open;
+    const to = details.getBoundingClientRect().height;
+    details.open = true;
+    const timing = { duration: ms, easing: GLIDE_EASING };
+    for (const child of [...details.children].slice(1)) child.animate({ opacity: open ? [0, 1] : [1, 0] }, timing);
+    details.animate({ height: [`${from}px`, `${to}px`] }, timing).onfinish = () => {
+      details.classList.remove('gliding');
+      details.open = open;
+      if (done) done();
+    };
   }
 
   // A question longer than this many lines shows folded behind its arrow, as the Swift bubble does.
@@ -348,20 +393,24 @@
   function hoverOpens(block) {
     const summary = block.firstElementChild;
     summary.firstElementChild.addEventListener('pointerenter', () => {
-      if (block.open) return;
+      if (block.classList.contains('opened')) return;
       block.dataset.hovered = 'true';
-      block.open = true;
+      glide(block, true);
     });
     block.addEventListener('pointerleave', () => {
       if (block.dataset.hovered !== 'true') return;
       delete block.dataset.hovered;
-      block.open = false;
-    });
-    // Opened by the hover, a click keeps it open instead of shutting it.
-    summary.addEventListener('click', event => {
-      if (block.dataset.hovered !== 'true') return;
-      event.preventDefault();
-      delete block.dataset.hovered;
+      // Scrolled inside it, the transcript rises to its section's top first, then it shuts: shut at once, the view
+      // went blank under that offset until the scroll caught up.
+      const section = block.closest('.turn') || block;
+      const above = section.getBoundingClientRect().top - transcript.getBoundingClientRect().top - parseFloat(getComputedStyle(transcript).paddingTop);
+      if (block.getBoundingClientRect().top >= transcript.getBoundingClientRect().top) return glide(block, false);
+      if (reducedMotion.matches) {
+        transcript.scrollTop += above;
+        return glide(block, false);
+      }
+      transcript.scrollTo({ top: transcript.scrollTop + above, behavior: 'smooth' });
+      setTimeout(() => { if (block.dataset.hovered !== 'true') glide(block, false); }, REVEAL_MS);
     });
   }
 
@@ -399,6 +448,7 @@
       node.classList.toggle('lead', at === 0);
       node.classList.toggle('final', final);
       node.classList.toggle('thought', final ? working && !ended(row) : !ended(row));
+      node.classList.toggle('settled', final && !working);
       children.push(node);
     });
     if (part.sent.length) {
@@ -468,6 +518,7 @@
     $('empty').hidden = rows.size > 0;
     if (window.vcxFind) vcxFind.refresh();
     if (window.vcxQuestions) vcxQuestions.receive(message, meta);
+    for (const card of list.querySelectorAll('.prose .table:not([data-fitted])')) fitTable(card);
     if (pinned) transcript.scrollTop = endTop();
     post({ type: 'rendered', serial: message.serial });
   }
@@ -480,6 +531,22 @@
       link.href = `${link.href.split('?')[0]}?v=${version}`;
     }));
     Promise.all(loads).then(() => post({ type: 'restyled', version }));
+  }
+
+  // Laid out at its natural width first: when that is wider than the room, its long columns keep at least the floor
+  // and the card scrolls sideways, as Swift's `tableColumnWidths`.
+  function fitTable(card) {
+    card.dataset.fitted = 'true';
+    const table = card.querySelector('table');
+    const head = table && table.rows[0];
+    if (!head) return;
+    table.classList.add('measuring');
+    const natural = [...head.cells].map(cell => cell.getBoundingClientRect().width);
+    table.classList.remove('measuring');
+    if (natural.reduce((sum, width) => sum + width, 0) <= card.clientWidth) return;
+    [...head.cells].forEach((cell, index) => {
+      if (natural[index] > TABLE_COLUMN_FLOOR_PX) cell.style.minWidth = `${TABLE_COLUMN_FLOOR_PX}px`;
+    });
   }
 
   function copyCode(button) {
@@ -512,6 +579,10 @@
   function preview(source) {
     const overlay = $('preview');
     overlay.querySelector('img').src = source;
+    // A close still running is dropped, or its end would hide the popup just opened.
+    if (overlay.closing) overlay.getAnimations({ subtree: true }).forEach(motion => motion.cancel());
+    overlay.closing = null;
+    overlay.classList.remove('closing');
     overlay.hidden = false;
     zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), true);
   }
@@ -524,19 +595,25 @@
     return true;
   }
 
-  // Hidden once the popup has shrunk away, so a click during the close does not reach the transcript under it.
+  // Closing, it lets clicks through to the transcript, as Swift's: an image card clicked again during the fade opens it again.
   function closePreview() {
     const overlay = $('preview');
     if (overlay.closing) return;
-    overlay.closing = zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), false).then(() => {
+    overlay.classList.add('closing');
+    const closing = zoomPop(overlay.querySelector('.glass'), overlay.querySelector('.veil'), false).then(() => {
+      if (overlay.closing !== closing) return;
       overlay.hidden = true;
+      overlay.classList.remove('closing');
       overlay.closing = null;
-    });
+    }, () => {});
+    overlay.closing = closing;
   }
 
   document.addEventListener('click', event => {
     const link = event.target.closest('a[href]');
-    const copy = event.target.closest('figure.code button.copy');
+    // The whole header band copies, as Swift's: its other buttons (edit, run) keep their own clicks.
+    const head = !event.target.closest('button:not(.copy)') && event.target.closest('figure.code > figcaption');
+    const copy = head && head.querySelector('button.copy');
     const picture = event.target.closest('button.picture[data-src]');
     const unfold = event.target.closest('.bubble.long .unfold');
     if (link) {
@@ -584,7 +661,12 @@
 
   function toggleDetails() {
     detailsOn = !detailsOn;
-    for (const fold of list.querySelectorAll('details.work, details.action')) fold.open = detailsOn;
+    for (const fold of list.querySelectorAll('details.work, details.action')) {
+      fold.getAnimations().forEach(motion => motion.cancel());
+      fold.classList.remove('gliding');
+      fold.open = detailsOn;
+      fold.classList.toggle('opened', detailsOn);
+    }
     return true;
   }
 

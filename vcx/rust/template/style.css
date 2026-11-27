@@ -20,7 +20,8 @@
   --done-band: #ffe1c3;
   --next-band: #d6e6ff;
   --enter: 240ms;
-  font: 13px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
+  /* The Swift chat text: 12 pt mono with 6 pt between its lines. */
+  font: 12px/20px ui-monospace, "SF Mono", Menlo, monospace;
   color: var(--ink);
   background: var(--page);
 }
@@ -42,7 +43,9 @@ body { display: flex; flex-direction: column; }
 .turn { display: flex; flex-direction: column; gap: 12px; }
 /* A sticky box stops at the scroller's padding: the question pins to the top edge, as the Swift header does. */
 .turn > .row.heading { position: sticky; top: calc(-1 * var(--transcript-top)); z-index: 2; }
-.turn > .row.final:not(.lead) { margin-top: 12px; }
+/* Once the turn is done, the answer stands 12 px further from the notes above it, easing in as Swift's does. */
+.turn > .row.final:not(.lead) { margin-top: 0; transition: margin-top 350ms ease-out; }
+.turn > .row.final.settled:not(.lead) { margin-top: 12px; }
 
 .question { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; margin-left: auto; max-width: 85%; }
 .bubble { position: relative; padding: 16px; border-radius: 17px; background: linear-gradient(var(--accent-wash), var(--accent-wash)), var(--page); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -74,6 +77,7 @@ body { display: flex; flex-direction: column; }
 /* A picture's preview is the zoom and blur popup (WT-118), its image on the glass. */
 #preview { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; cursor: zoom-out; }
 #preview[hidden] { display: none; }
+#preview.closing, #preview.closing * { pointer-events: none; }
 /* ---- Effect: zoom and blur popup. Copy from here ---- */
 #preview .veil { position: fixed; inset: 0; background: rgb(0 0 0 / var(--dim, .3));
   -webkit-backdrop-filter: blur(var(--veil-blur, 4px)); backdrop-filter: blur(var(--veil-blur, 4px)); }
@@ -93,55 +97,81 @@ body { display: flex; flex-direction: column; }
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 .prose h1, .prose h2, .prose h3 { margin: 16px 0 6px; font-size: 14px; }
-.prose p, .prose ul, .prose ol, .prose pre, .prose table, .prose blockquote, .prose figure { margin: 8px 0; }
+.prose p, .prose ul, .prose ol, .prose pre, .prose .table, .prose blockquote, .prose figure { margin: 12px 0; }
 .prose ul, .prose ol { padding-left: 22px; }
-.prose a { color: #5b4bd6; }
+.prose a { color: var(--accent); text-decoration: none; cursor: pointer; }
 .prose code { padding: 1px 5px; border-radius: 5px; background: var(--code); }
 .prose pre { padding: 10px 12px; border-radius: 10px; background: var(--code); overflow-x: auto; }
 .prose pre code { padding: 0; background: none; }
 .prose blockquote { padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.prose code, .prose pre { font-size: 12px; }
+/* The recon dashboard's grid table, light, as Swift draws it: a white card, a header bar, every second row banded,
+   the row under the pointer veiled, rules between rows only. Too wide, it scrolls sideways with no scrollbar. */
+.prose .table { width: fit-content; max-width: 100%; overflow-x: auto; scrollbar-width: none; border: 1px solid rgb(0 0 0 / 0.12); border-radius: 10px; background: #fff; }
+.prose .table::-webkit-scrollbar { display: none; }
 .prose table { border-collapse: collapse; }
-.prose th, .prose td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; }
-.prose th { background: var(--panel); }
+.prose th, .prose td { padding: 6px 12px; line-height: 16px; text-align: left; vertical-align: top; }
+.prose th { padding-block: 7px; font-weight: 600; }
+.prose thead tr { background: rgb(0 0 0 / 0.06); }
+.prose tbody tr { border-top: 1px solid rgb(0 0 0 / 0.06); transition: background-color 300ms ease-out; }
+.prose tbody tr:nth-child(2n) { background: rgb(0 0 0 / 0.025); }
+.prose tbody tr:hover { background: rgb(0 0 0 / 0.05); }
+.prose tbody tr:nth-child(2n):hover { background: rgb(0 0 0 / 0.075); }
+.prose :is(th, td).number { color: rgb(0 0 0 / 0.4); text-align: right; }
+.prose table.measuring { width: max-content; }
 
 /* The answer lines, each in its own band: the short answer green, Done orange, Next blue. */
-.prose p.answer { padding: 12px 14px; border-radius: 10px; font-weight: 500; }
+/* Swift's band: 12 px of colour above and beside the text, 14 below, where descenders read short. */
+.prose p.answer { padding: 12px 12px 14px; border-radius: 10px; font-weight: 500; }
 .prose p.answer.short { background: var(--short-band); }
 .prose p.answer.done { background: var(--done-band); }
 .prose p.answer.next { background: var(--next-band); }
 /* A thought (a note before the answer, or the answer still being written): each paragraph in its own lavender bubble. */
-.row.thought .prose > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { padding: 12px 14px; border-radius: 10px; background: var(--thought-band); }
+.row.thought .prose > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { padding: 12px 12px 14px; border-radius: 10px; background: var(--thought-band); }
 .row.thought .prose > ul, .row.thought .prose > ol { padding-left: 34px; }
 .row.thought .prose > p.answer.short { background: var(--thought-band); }
 .row.thought .prose > p.answer.done { background: var(--done-band); }
 .row.thought .prose > p.answer.next { background: var(--next-band); }
 
-figure.code { border-radius: 10px; background: var(--code); overflow: hidden; }
-figure.code > figcaption { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 12px; color: var(--muted); font-size: 11px; }
-figure.code pre { margin: 0; background: none; }
-figure.code.markdown > .prose { padding: 4px 12px 10px; }
-figure.code button.copy { width: 26px; height: 26px; color: var(--muted); }
+/* Swift's CodeBlock: a faint card with a hairline, its header band the copy button, the code wrapped. */
+figure.code { border: 1px solid rgb(0 0 0 / 0.06); border-radius: 12px; background: rgb(0 0 0 / 0.045); overflow: hidden; }
+figure.code > figcaption { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; background: rgb(0 0 0 / 0.025);
+  color: rgb(0 0 0 / 0.6); font-size: 10px; line-height: 18px; cursor: pointer; transition: background-color 120ms ease-out; }
+figure.code > figcaption:hover { background: rgb(0 0 0 / 0.075); }
+figure.code > figcaption:active { background: rgb(0 0 0 / 0.125); transition-duration: 80ms; }
+figure.code pre { margin: 0; padding: 14px; background: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+figure.code.markdown > .prose { padding: 14px; }
+:where(figure.code) button.copy.b { width: 18px; height: 18px; padding: 0; border: 0; background: none; color: rgb(0 0 0 / 0.6); pointer-events: none; }
+/* The header's other buttons (edit, run) keep Swift's 18 px row. */
+figure.code > figcaption > button.b { height: 18px; }
+figure.code button.copy svg { width: 13px; height: 13px; stroke-width: 1.8; }
+figure.code button.copy .done { width: 19px; height: 19px; stroke-width: 1.2; }
 figure.code button.copy .done, figure.code button.copy.copied .ready { display: none; }
 figure.code button.copy.copied .done { display: block; }
-figure.code button.copy.copied { color: var(--ready); }
+figure.code button.copy.copied { color: var(--ink); }
 
 details > summary { list-style: none; cursor: pointer; user-select: none; }
 details > summary::-webkit-details-marker { display: none; }
 
-.work { border-radius: 12px; background: rgb(0 0 0 / 0.025); }
+.work { border-radius: 12px; background: rgb(0 0 0 / 0.025); overflow: hidden; }
+/* Swift's reactive header: tinted under the pointer, darker and a touch smaller while pressed. */
+:is(.work, .action) > summary { transition: background-color 120ms ease-out, scale 80ms ease-out; }
+:is(.work, .action) > summary:hover { background: rgb(0 0 0 / 0.05); }
+:is(.work, .action) > summary:active { background: rgb(0 0 0 / 0.1); scale: 0.99; transition-duration: 80ms; }
+.gliding { overflow: hidden; }
 .work > summary { display: flex; align-items: center; gap: 12px; height: 40px; color: rgb(0 0 0 / 0.6); font-size: 12px; font-weight: 500; }
-.work > summary .chevron { display: grid; place-items: center; align-self: stretch; width: 44px; transition: background 160ms ease-out; }
-.work > summary .chevron::before { content: "›"; font-size: 14px; transition: transform 160ms ease-out; }
-.work[open] > summary .chevron { background: var(--accent-hover); }
-.work[open] > summary .chevron::before { transform: rotate(90deg); }
+.work > summary .chevron { display: grid; place-items: center; align-self: stretch; width: 44px; transition: background 280ms ease-out; }
+.work > summary .chevron::before { content: "›"; font-size: 14px; transition: transform 280ms ease-out; }
+.work.opened > summary .chevron { background: var(--accent-hover); }
+.work.opened > summary .chevron::before { transform: rotate(90deg); }
 .work > .row { margin: 0 14px 10px; }
 .work > .row:last-child { margin-bottom: 14px; }
 .work > .row[data-kind="activity"] { display: flex; flex-direction: column; gap: 10px; }
 
-.action { border-radius: 8px; background: rgb(0 0 0 / 0.035); color: rgb(0 0 0 / 0.65); font-size: 12px; }
+.action { border-radius: 8px; background: rgb(0 0 0 / 0.035); color: rgb(0 0 0 / 0.65); font-size: 12px; overflow: hidden; }
 .action > summary { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
-.action > summary .icon::before { content: "›"; display: inline-block; transition: transform 160ms ease-out; }
-.action[open] > summary .icon::before { transform: rotate(90deg); }
+.action > summary .icon::before { content: "›"; display: inline-block; transition: transform 250ms ease-out; }
+.action.opened > summary .icon::before { transform: rotate(90deg); }
 .action.failed { color: rgb(166 82 10); }
 .action.failed > summary .icon::before { content: "!"; transform: none; display: inline-grid; place-items: center; width: 13px; height: 13px; border: 1px solid currentColor; border-radius: 50%; font-size: 9px; }
 .action .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -246,6 +276,7 @@ footer { padding: 6px 24px 14px; }
   .row.enter { animation: fade 120ms linear; }
   #dot.busy { animation: none; }
   .work > summary .chevron, .work > summary .chevron::before, .action > summary .icon::before, #dot { transition: none; }
+  :is(.work, .action) > summary:active { scale: none; }
 }
 
 /* The page's own buttons (find, Back to latest, a question's Cancel, a code block's copy) are the dashboard's

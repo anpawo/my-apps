@@ -38,6 +38,7 @@ pub fn to_html(markdown: &str) -> String {
         }
     }
     mark_answer_lines(&mut events);
+    let events = number_tables(events);
     let mut output = String::with_capacity(markdown.len() * 3 / 2);
     html::push_html(&mut output, events.into_iter());
     output
@@ -54,6 +55,52 @@ fn mark_answer_lines(events: &mut [Event<'_>]) {
         events[index] = Event::Text(rest.into());
         events[index - 1] = Event::Html(format!("<p class=\"answer {class}\">").into());
     }
+}
+
+/// Each table in its card, its rows numbered so Marius can answer "row 3", as Swift's `numberedTable`; a table whose
+/// first header is already `#` keeps its own numbers.
+fn number_tables(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut numbered = Vec::with_capacity(events.len());
+    let mut own_numbers = false;
+    let mut row = 0;
+    let mut events = events.into_iter().peekable();
+    while let Some(event) = events.next() {
+        match event {
+            Event::Start(Tag::Table(_)) => {
+                numbered.push(Event::Html("<div class=\"table\">".into()));
+                numbered.push(event);
+                row = 0;
+                own_numbers = false;
+            }
+            Event::End(TagEnd::Table) => {
+                numbered.push(event);
+                numbered.push(Event::Html("</div>".into()));
+            }
+            Event::Start(Tag::TableHead) => {
+                numbered.push(event);
+                if let Some(Event::Start(Tag::TableCell)) = events.peek() {
+                    numbered.push(events.next().expect("peeked"));
+                    let first: Vec<Event<'_>> = std::iter::from_fn(|| events.next_if(|next| !matches!(next, Event::End(TagEnd::TableCell)))).collect();
+                    own_numbers = matches!(first.as_slice(), [Event::Text(text)] if text.trim() == "#");
+                    if !own_numbers {
+                        let cell = numbered.pop().expect("the first cell");
+                        numbered.push(Event::Html("<th class=\"number\">#</th>".into()));
+                        numbered.push(cell);
+                    }
+                    numbered.extend(first);
+                }
+            }
+            Event::Start(Tag::TableRow) => {
+                numbered.push(event);
+                row += 1;
+                if !own_numbers {
+                    numbered.push(Event::Html(format!("<td class=\"number\">{row}</td>").into()));
+                }
+            }
+            other => numbered.push(other),
+        }
+    }
+    numbered
 }
 
 fn code_block(kind: &CodeBlockKind<'_>, code: &str, source: &str) -> String {
@@ -122,8 +169,18 @@ mod tests {
     fn renders_a_table_and_a_code_block() {
         let html = to_html("| a | b |\n|---|---|\n| 1 | 2 |\n\n```rust\nlet x = 1;\n```\n");
 
-        assert!(html.contains("<table>"), "{html}");
+        assert!(html.contains("<div class=\"table\"><table>"), "{html}");
+        assert!(html.contains("<th class=\"number\">#</th><th>a</th>"), "{html}");
+        assert!(html.contains("<tr><td class=\"number\">1</td><td>1</td>"), "{html}");
         assert!(html.contains("<code class=\"language-rust\">let x = 1;"), "{html}");
+    }
+
+    #[test]
+    fn keeps_the_row_numbers_of_a_table_that_already_has_them() {
+        let html = to_html("| # | a |\n|---|---|\n| 7 | x |\n");
+
+        assert!(!html.contains("class=\"number\""), "{html}");
+        assert!(html.contains("<th>#</th><th>a</th>"), "{html}");
     }
 
     #[test]
