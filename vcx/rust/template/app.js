@@ -105,6 +105,7 @@
   // Swift's thumbnail trims a screenshot's shadow: the picture is cut to its pixels at least this opaque.
   const OPAQUE_ALPHA = 230;
   const THUMBNAIL_PX = 360;
+  const RECALL_NOTE_HEAD = "VCX note, not part of the request: past mistakes from Marius's ERRORS files that may apply to it.";
   const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
   const SPARKLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10z"/></svg>';
   const PHOTO = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></svg>';
@@ -140,12 +141,9 @@
     arrow.setAttribute('aria-label', 'Show the whole message');
     bubble.append(arrow);
     if (item.recalled) {
-      const count = make('span', 'count', String(item.recalled.length));
-      const turn = make('span', 'turn');
-      turn.innerHTML = CHEVRON;
-      const recall = fold(`${item.id}:recalled`, 'recalled', count, turn);
-      recall.title = 'ERRORS lines VCX added to this prompt';
-      recall.append(make('p', 'recall-head', 'ERRORS lines VCX added'), ...item.recalled.map(line => make('p', 'recall-line', line)));
+      // No mark on the bubble: a click on it shows the note under the prompt, worded as the agent reads it.
+      const recall = fold(`${item.id}:recalled`, 'recalled');
+      recall.append(make('p', 'recall-note', recallNote(item.recalled)));
       bubble.classList.add('recall');
       bubble.append(recall);
     }
@@ -153,6 +151,11 @@
     column.append(bubble);
     if (item.queued) column.append(queuedHint());
     return column;
+  }
+
+  // The worker's `recall::note`, which the prompt carries after a blank line.
+  function recallNote(lines) {
+    return [RECALL_NOTE_HEAD, ...lines.map(line => `- ${line}`)].join('\n');
   }
 
   function queuedHint() {
@@ -754,6 +757,12 @@
     if (!bubble) return;
     clearTimeout(bubble.closing);
     if (event.target.closest('.unfold')) openQuestion(bubble, true);
+  });
+  list.addEventListener('click', event => {
+    const bubble = event.target.closest('.bubble.recall');
+    if (!bubble || event.target.closest('button, a') || getSelection().toString()) return;
+    const recall = bubble.querySelector(':scope > .recalled');
+    glide(recall, !recall.classList.contains('opened'));
   });
   list.addEventListener('pointerout', event => {
     const bubble = event.target.closest('.bubble.long.open');

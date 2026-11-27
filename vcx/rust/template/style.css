@@ -69,22 +69,17 @@ body { display: flex; flex-direction: column; }
 .bubble.long:not(.open) .message { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
 .bubble.long.open .message { overflow-y: auto; }
 .bubble .message { overflow: hidden; }
-.bubble:is(.long:not(.open), .recall) { padding-bottom: 37px; }
+.bubble.long:not(.open) { padding-bottom: 37px; }
 .bubble .unfold { position: absolute; left: 16px; bottom: 16px; display: none; width: 28px; height: 15px; padding: 0; border: 0; background: none; color: var(--tint, var(--accent)); cursor: pointer; }
 .bubble.long:not(.open) .unfold { display: flex; align-items: center; }
-.bubble .unfold svg, .recalled > summary svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.bubble .unfold svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .from { display: block; width: fit-content; margin-bottom: 10px; padding: 4px 8px; border-radius: 7px; background: rgb(235 56 143 / 0.14); color: rgb(235 56 143); font-size: 11px; font-weight: 600; line-height: 14px; }
 .unread { display: flex; align-items: center; gap: 4px; margin: 0 6px 0 0; color: rgb(0 0 0 / 0.45); font-size: 11px; }
 .unread kbd { display: inline-grid; place-items: center; min-width: 15px; min-height: 15px; padding: 0 3px; border: 0.5px solid rgb(0 0 0 / 0.2); border-radius: 4px; background: rgb(0 0 0 / 0.04); font: 500 9px/15px inherit; }
 .unread kbd.apart { margin-left: 6px; }
-/* The ERRORS lines sent with the prompt, folded behind their count at the bubble's bottom right. */
-.recalled { margin-top: 6px; font-size: 11px; white-space: normal; }
-.recalled > summary { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 4px; height: 15px; color: rgb(110 59 191 / 0.7); font-size: 10px; font-weight: 600; }
-.recalled > summary .turn { display: flex; transition: transform 300ms ease-out; }
-.recalled.opened > summary .turn { transform: rotate(180deg); }
-.recall-head { margin: 4px 0; color: var(--accent); font-size: 10px; font-weight: 600; }
-.recall-line { display: grid; grid-template-columns: auto 1fr; gap: 4px; margin: 4px 0 0; color: rgb(0 0 0 / 0.6); }
-.recall-line::before { content: "•"; }
+/* The ERRORS note sent with the prompt, hidden until the bubble is clicked, then shown as the prompt's text went on. */
+.recalled > summary { display: none; }
+.recall-note { margin: 1lh 0 0; white-space: pre-wrap; color: rgb(0 0 0 / 0.6); }
 
 .pictures { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; white-space: normal; }
 .picture { display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; border-radius: 11px; background: rgb(0 0 0 / 0.1); color: inherit; font: inherit; text-align: left; cursor: zoom-in; }

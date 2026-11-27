@@ -275,16 +275,18 @@ fn shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it(page: &Page)
 }
 
 fn draws_a_waiting_prompt_and_a_message_from_another_window(page: &Page) -> Result<(), String> {
-    let queued = json!({"id": "u1", "type": "userMessage", "queued": true, "recalled": ["- 24/11: one rule"], "content": [{"type": "text", "text": "next step"}]});
+    let queued = json!({"id": "u1", "type": "userMessage", "queued": true, "recalled": ["24/11: one rule"], "content": [{"type": "text", "text": "next step"}]});
     let peer = json!({"id": "u2", "type": "userMessage", "content": [{"type": "text", "text": "claude from [Rust app]: \"rebuilt\""}]});
     page.show(json!({"rows": [{"id": "R1", "kind": "user", "items": [queued]}, {"id": "R2", "kind": "user", "items": [peer]}]}))?;
 
-    let drawn = page.eval("[...document.querySelectorAll('.question')].map(q => ({text: q.querySelector('.message').innerText, from: q.querySelector('.from') && q.querySelector('.from').textContent, unread: q.querySelector('.unread') && q.querySelector('.unread').innerText, queued: q.querySelector('.bubble').classList.contains('queued'), recalled: q.querySelector('.recalled > summary') && q.querySelector('.recalled > summary').textContent}))")?;
-    page.click(".recalled > summary")?;
-    let recall = page.eval("document.querySelector('.recalled').open && document.querySelector('.recall-line').textContent")?;
+    let drawn = page.eval("[...document.querySelectorAll('.question')].map(q => ({text: q.querySelector('.message').innerText, from: q.querySelector('.from') && q.querySelector('.from').textContent, unread: q.querySelector('.unread') && q.querySelector('.unread').innerText, queued: q.querySelector('.bubble').classList.contains('queued'), shown: !!q.querySelector('.recalled') && q.querySelector('.recalled').getBoundingClientRect().height}))")?;
+    page.click(".bubble.recall .message")?;
+    page.eval(FINISH_MOTION)?;
+    let recall = page.eval("document.querySelector('.recalled').open && document.querySelector('.recall-note').textContent")?;
 
     check(drawn[0]["queued"] == true && drawn[0]["unread"].as_str().is_some_and(|text| text.starts_with("Not read yet")), format!("the waiting prompt reads {}", drawn[0]))?;
-    check(drawn[0]["recalled"] == "1" && recall == "- 24/11: one rule", format!("the recalled lines read {recall}"))?;
+    check(drawn[0]["shown"] == 0, format!("the recall note shows before a click: {}", drawn[0]))?;
+    check(recall == "VCX note, not part of the request: past mistakes from Marius's ERRORS files that may apply to it.\n- 24/11: one rule", format!("the recall note reads {recall}"))?;
     check(drawn[1]["from"] == "from claude-Rust app" && drawn[1]["text"] == "rebuilt", format!("the message from another window reads {}", drawn[1]))
 }
 
