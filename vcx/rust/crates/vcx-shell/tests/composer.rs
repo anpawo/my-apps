@@ -571,6 +571,19 @@ fn escape_closes_the_palette_until_the_query_changes(page: &Page) -> Result<(), 
     page.state("the palette open again for /hel", |state| state["palette"]["options"][0] == "/help").map(drop)
 }
 
+fn keeps_the_palette_within_the_composer_column_while_its_rows_are_walked(page: &Page) -> Result<(), String> {
+    page.keys("/")?;
+    page.state("the palette", |state| state["palette"].is_object())?;
+
+    for _ in 0..4 {
+        page.press(Key::Down, NONE)?;
+    }
+    page.state("the fifth row highlighted", |state| state["palette"]["selected"] == 4)?;
+
+    let place = page.eval("(() => { const panel = document.getElementById('palette').getBoundingClientRect(); const box = document.getElementById('composer').getBoundingClientRect(); return { left: panel.left - box.left, right: box.right - panel.right, scrolled: document.scrollingElement.scrollLeft + document.body.scrollLeft }; })()")?;
+    check(place["left"] == 0 && place["right"] == 0 && place["scrolled"] == 0, format!("the palette overflowed or slid the page: {place}"))
+}
+
 fn lists_provider_skills_beside_the_commands_of_vcx(page: &Page) -> Result<(), String> {
     let skill = json!({"name": "/sm", "detail": "Summarize briefly", "source": "Claude", "insert": "/sm"});
     page.deliver(json!({"type": "patch", "meta": {"providerLabel": "Claude", "providerCommands": [skill]}}))?;
@@ -993,7 +1006,7 @@ fn names_what_a_model_alias_runs_in_the_model_palette(page: &Page) -> Result<(),
     check(models["palette"]["selected"] == 0 && detail == "claude-opus-5-5", format!("{models}, detail {detail}"))
 }
 
-const TESTS: [(&str, Test); 43] = [
+const TESTS: [(&str, Test); 44] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
@@ -1014,6 +1027,7 @@ const TESTS: [(&str, Test); 43] = [
     ("opens the command palette on a slash and runs a value chosen with Tab", opens_the_command_palette_on_a_slash_and_runs_a_value_chosen_with_tab),
     ("Return runs a command typed in full and completes a partial one", return_runs_a_command_typed_in_full_and_completes_a_partial_one),
     ("Escape closes the palette until the query changes", escape_closes_the_palette_until_the_query_changes),
+    ("keeps the palette within the composer column while its rows are walked", keeps_the_palette_within_the_composer_column_while_its_rows_are_walked),
     ("lists provider skills beside the commands of VCX", lists_provider_skills_beside_the_commands_of_vcx),
     ("completes a file after an at sign from the list the core gives", completes_a_file_after_an_at_sign_from_the_list_the_core_gives),
     ("brings back sent prompts with the up arrow", brings_back_sent_prompts_with_the_up_arrow),

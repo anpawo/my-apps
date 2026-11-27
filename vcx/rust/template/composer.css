@@ -51,7 +51,7 @@ footer { position: relative; }
 .attachments, .attachments[hidden] { display: none; }
 
 /* The command palette: white, radius 14, an accent hairline, a soft shadow, monospaced names. */
-#palette { position: absolute; z-index: 50; left: var(--side-gap, 24px); right: var(--side-gap, 24px); bottom: calc(100% + 8px); max-width: var(--column); margin-inline: auto; overflow: hidden;
+#palette { position: absolute; z-index: 50; left: var(--side-gap, 24px); right: var(--side-gap, 24px); bottom: calc(100% + 8px); width: auto; max-width: var(--column); margin-inline: auto; overflow: hidden;
   border: 1px solid rgb(110 59 191 / .22); border-radius: 14px; background: #fff; color: #000; box-shadow: 0 8px 44px rgb(0 0 0 / .12);
   font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
 #palette:not(.open) { display: none; }
