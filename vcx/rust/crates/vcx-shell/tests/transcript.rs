@@ -256,6 +256,24 @@ fn shows_a_pasted_picture_served_by_the_core_and_previews_it(page: &Page) -> Res
     check(none == false, "/preview finds no picture in a conversation without one")
 }
 
+fn shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it(page: &Page) -> Result<(), String> {
+    let picture = page.picture();
+    let text = page.file("notes.txt", b"text");
+    let answer = format!("Here: ![shot](file://{}) and ![notes](file://{})", picture.display(), text.display());
+    page.show(json!({"rows": [assistant("R1", &answer, true)]}))?;
+
+    let drawn = page.until("the answer's picture to load", "[...document.querySelectorAll('.prose img')].map(image => ({src: image.getAttribute('src'), loaded: image.naturalWidth, fits: image.getBoundingClientRect().width <= image.closest('.prose').getBoundingClientRect().width}))", |images| images[0]["loaded"] == 1)?;
+    page.click(".prose img[src^='vcx://image/']")?;
+    page.eval(FINISH_MOTION)?;
+    let opened = page.eval("({shown: !document.getElementById('preview').hidden, src: document.querySelector('#preview img').getAttribute('src')})")?;
+    page.press(Key::Escape, NONE)?;
+    page.eval(FINISH_MOTION)?;
+
+    check(drawn[0]["src"].as_str().is_some_and(|src| src.starts_with("vcx://image/")) && drawn[0]["fits"] == true, format!("the answer's picture is {drawn}"))?;
+    check(drawn[1]["src"].as_str().is_some_and(|src| src.starts_with("file://")) && drawn[1]["loaded"] == 0, format!("a text file stays refused: {drawn}"))?;
+    check(opened["shown"] == true && opened["src"] == drawn[0]["src"], format!("the preview is {opened}"))
+}
+
 fn draws_a_waiting_prompt_and_a_message_from_another_window(page: &Page) -> Result<(), String> {
     let queued = json!({"id": "u1", "type": "userMessage", "queued": true, "recalled": ["- 24/11: one rule"], "content": [{"type": "text", "text": "next step"}]});
     let peer = json!({"id": "u2", "type": "userMessage", "content": [{"type": "text", "text": "claude from [Rust app]: \"rebuilt\""}]});
@@ -563,7 +581,8 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 18] = [
+const TESTS: [(&str, Test); 19] = [
+    ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
     ("answers_a_question_card_by_click_and_by_number", answers_a_question_card_by_click_and_by_number),

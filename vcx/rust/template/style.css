@@ -129,6 +129,7 @@ body { display: flex; flex-direction: column; }
 .prose code { padding: 1px 5px; border-radius: 5px; background: var(--code); }
 .prose pre { padding: 10px 12px; border-radius: 10px; background: var(--code); overflow-x: auto; }
 .prose pre code { padding: 0; background: none; }
+.prose img[src^="vcx://image/"] { display: block; max-width: 100%; border-radius: 10px; cursor: zoom-in; }
 .prose blockquote { padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
 .prose code, .prose pre { font-size: 12px; }
 /* The recon dashboard's grid table, light, as Swift draws it: a white card, a header bar, every second row banded,

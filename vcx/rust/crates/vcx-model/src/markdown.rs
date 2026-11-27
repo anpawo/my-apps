@@ -1,9 +1,12 @@
 use crate::assets;
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
+use std::path::Path;
 
 /// Link targets the page may follow; anything else (`javascript:`, `data:`) is cut.
 const SAFE_SCHEMES: [&str; 4] = ["http://", "https://", "mailto:", "file://"];
 const BLOCKED_TARGET: &str = "#";
+/// Local pictures an answer may show inline, served by the core under a registered name as the user's are.
+const IMAGE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 /// A fence longer than three marks exists only to hold nested fences: its content is a Markdown document.
 const PLAIN_FENCE: usize = 3;
 const MARKDOWN_LANGUAGES: [&str; 2] = ["md", "markdown"];
@@ -33,7 +36,7 @@ pub fn to_html(markdown: &str) -> String {
             }
             Event::Html(raw) | Event::InlineHtml(raw) => events.push(Event::Text(raw)),
             Event::Start(Tag::Link { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Link { link_type, dest_url: safe_target(dest_url), title, id })),
-            Event::Start(Tag::Image { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Image { link_type, dest_url: safe_target(dest_url), title, id })),
+            Event::Start(Tag::Image { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Image { link_type, dest_url: image_target(dest_url), title, id })),
             other => events.push(other),
         }
     }
@@ -161,6 +164,40 @@ fn safe_target(target: CowStr<'_>) -> CowStr<'_> {
     if !has_scheme || SAFE_SCHEMES.iter().any(|scheme| lowered.starts_with(scheme)) { target } else { CowStr::Borrowed(BLOCKED_TARGET) }
 }
 
+fn image_target(target: CowStr<'_>) -> CowStr<'_> {
+    match local_image(&target) {
+        Some(path) => format!("vcx://image/{}", assets::image(&path)).into(),
+        None => safe_target(target),
+    }
+}
+
+/// A `file://` address or an absolute path naming an existing picture file; the page cannot load either by itself.
+fn local_image(target: &str) -> Option<String> {
+    let path = match target.strip_prefix("file://") {
+        Some(rest) => percent_decoded(rest)?,
+        None => target.to_owned(),
+    };
+    let extension = Path::new(&path).extension()?.to_str()?.to_ascii_lowercase();
+    (path.starts_with('/') && IMAGE_EXTENSIONS.contains(&extension.as_str()) && Path::new(&path).is_file()).then_some(path)
+}
+
+fn percent_decoded(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +278,25 @@ mod tests {
 
         assert!(!html.contains("<iframe"), "{html}");
         assert!(html.contains("<span class=\"language\">chart</span>"), "{html}");
+    }
+
+    #[test]
+    fn serves_a_local_picture_of_an_answer_by_a_registered_name_and_refuses_other_files() {
+        let folder = std::env::temp_dir().join(format!("vcx-markdown-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let picture = folder.join("a shot.png");
+        let notes = folder.join("notes.txt");
+        std::fs::write(&picture, b"png").unwrap();
+        std::fs::write(&notes, b"text").unwrap();
+        let path = picture.to_str().unwrap();
+        let source = format!("![by url](file://{}) ![by path](<{path}>) ![text](file://{}) ![gone]({})", path.replace(' ', "%20"), notes.display(), folder.join("gone.png").display());
+
+        let html = to_html(&source);
+
+        let served = format!("src=\"vcx://image/{}\"", assets::image(path));
+        assert_eq!(html.matches(&served).count(), 2, "{html}");
+        assert_eq!(html.matches("vcx://image/").count(), 2, "{html}");
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

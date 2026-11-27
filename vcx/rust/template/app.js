@@ -719,6 +719,7 @@
     const head = !event.target.closest('button:not(.copy)') && event.target.closest('figure.code > figcaption');
     const copy = head && head.querySelector('button.copy');
     const picture = event.target.closest('button.picture[data-src]');
+    const shown = event.target.closest('.prose img[src^="vcx://image/"]');
     if (link) {
       event.preventDefault();
       post({ type: 'open', href: link.getAttribute('href') });
@@ -726,6 +727,8 @@
       copyCode(copy);
     } else if (picture) {
       preview(picture.dataset.src);
+    } else if (shown) {
+      preview(shown.getAttribute('src'));
     } else if (event.target.closest('#preview')) {
       closePreview();
     } else if (event.target.closest('#latest')) {
