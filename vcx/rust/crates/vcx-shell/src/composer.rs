@@ -113,6 +113,7 @@ pub fn image_attached(id: &Value, path: &Path) -> Value {
 }
 
 /// The chips for paths dropped on the window: pictures by their extension, folders, and other files named from `cwd`.
+/// A picture also carries the address the page shows its thumbnail from.
 pub fn dropped(paths: &[PathBuf], cwd: &Path) -> Value {
     let items: Vec<Value> = paths
         .iter()
@@ -120,7 +121,11 @@ pub fn dropped(paths: &[PathBuf], cwd: &Path) -> Value {
             let extension = path.extension().map(|extension| extension.to_string_lossy().to_lowercase()).unwrap_or_default();
             let kind = if path.is_dir() { "folder" } else if IMAGE_EXTENSIONS.contains(&extension.as_str()) { "image" } else { "file" };
             let relative = path.strip_prefix(cwd).ok().filter(|relative| !relative.as_os_str().is_empty());
-            json!({"kind": kind, "path": path.to_string_lossy(), "relative": relative.map(|relative| relative.to_string_lossy().into_owned())})
+            let mut item = json!({"kind": kind, "path": path.to_string_lossy(), "relative": relative.map(|relative| relative.to_string_lossy().into_owned())});
+            if kind == "image" {
+                item["src"] = json!(format!("{}{}", crate::bridge::IMAGE_ORIGIN, vcx_model::assets::image(&path.to_string_lossy())));
+            }
+            item
         })
         .collect();
     json!({"type": "attach", "items": items})
@@ -279,6 +284,19 @@ mod tests {
         assert_eq!(answer(&json!({"type": "draft"}), &root, &attachments), None);
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(attachments).unwrap();
+    }
+
+    #[test]
+    fn gives_a_dropped_picture_the_address_its_thumbnail_is_served_from() {
+        let root = scratch("served");
+        let picture = root.join("shot.png");
+
+        let drop = dropped(&[picture.clone(), root.join("notes.md")], &root);
+
+        let name = drop["items"][0]["src"].as_str().and_then(|src| src.strip_prefix(crate::bridge::IMAGE_ORIGIN)).unwrap();
+        assert_eq!(vcx_model::assets::image_path(name), Some(picture));
+        assert_eq!(drop["items"][1].get("src"), None);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

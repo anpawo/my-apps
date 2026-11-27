@@ -797,7 +797,7 @@
       if (!item || typeof item.path !== 'string') continue;
       if (item.kind === 'image') {
         const number = nextNumber('image');
-        chips.set(imageToken(number), { kind: 'image', path: item.path, number, preview: previews.get(item.id) });
+        chips.set(imageToken(number), { kind: 'image', path: item.path, number, preview: previews.get(item.id) || item.src });
         previews.delete(item.id);
         insert(imageToken(number));
       } else {

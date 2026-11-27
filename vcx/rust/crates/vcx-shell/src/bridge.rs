@@ -16,7 +16,7 @@ const FILE_SCHEME: &str = "file://";
 const OPEN: &str = "/usr/bin/open";
 const PBCOPY: &str = "/usr/bin/pbcopy";
 /// Where the core serves a picture the user attached; the rest of the address is its name in `vcx_model::assets`.
-const IMAGE_ORIGIN: &str = "vcx://image/";
+pub(crate) const IMAGE_ORIGIN: &str = "vcx://image/";
 /// Files a click would run rather than show: they are only revealed in the Finder.
 const RUNNABLE_EXTENSIONS: [&str; 16] = ["app", "command", "tool", "sh", "bash", "zsh", "py", "rb", "pl", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "jar"];
 const EXECUTABLE_BITS: u32 = 0o111;
