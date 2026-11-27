@@ -43,3 +43,20 @@ Unverified by all (L): whether running Swift workers still find `background.py` 
 - Qwen: AGREE on A and the NO-GO; its other points were refuted.
 
 Answers: the folder `$TMPDIR/deep/vcx-switch-5Eyi/` (`claude-1.md`, `codex-1.md`, `qwen-1.md`, round 2 `-2.md`).
+
+## Outcome (27/11)
+
+The six items and row I are in d2afc9e (VCX Rust) and edc92d0 (`cutover.sh`). Green: `vcx-app` (83 unit, 37 `tests/app.rs`, 4 `tests/cutover.rs`), `vcx-shell`, `launchers/test_switch.py` (8).
+
+| Item | Change | Test, and what it did on the code before (8bd1597) |
+|---|---|---|
+| C | `switch.sh --to rust` runs before the SIGKILL; the kill wait is bounded | `stops_no_swift_window_while_the_swift_app_installs`: before, the frontend was killed, then the script looped on its pid with no bound |
+| A | every stopped window must be taken, attached and its draft carried within 90 s, or VCX Rust releases them, the launcher and install job go back, the Swift app restarts | `gives_every_window_back_to_the_swift_app_when_one_never_shows_its_session`: failed before |
+| B | the setting is written before the kill; `start_worker` rereads it | `carries_…_in_a_vcx_rust_already_running` (a running VCX Rust starts the next worker from the Rust bundle): failed before, its first failing assertion not read |
+| F1, F2 | the cold path starts its worker in the record's `stateDirectory`, kept in `windows.json` | `reopens_a_window_taken_from_the_swift_app_cold_from_the_state_folder_its_record_is_in` (takeover, then a relaunch with the worker killed): failed before |
+| F3 | a worker is gone only on ENOENT or ECONNREFUSED with no launch lock held | `app::tests::takes_a_worker_slow_to_answer…` (unit) |
+| D, E | the window file's newer draft is checkpointed at the attach; `retire` removes a Swift entry only once its window is attached and carried, after `windows.json` is written | the `carries_…` test (draft generation 7, entry gone) and `takeover.rs` units |
+| G | the release must hold a zip | rehearsal stub |
+| I | the Swift `frame` is set on the new window as AppKit's rect; no launch window while Swift windows wait | `carries_…` (left edge and width kept); the launch window only through `takeover::waiting`'s unit test, as a windowless app never opens it |
+
+Unproven: L (bundle resources once the Swift app is in the Trash, a LaunchServices frontend's workers surviving its SIGKILL); a Swift app opened from the Dock during the switch is detected (its windows are not taken, so all go back), not blocked; the Rust worker resuming a record the Swift worker wrote (the test uses Rust-written records in a moved folder); a window-file draft whose generation the worker already consumed never shows as carried, so the switch gives back; the frame's vertical position in a real window; H and J unchanged.
