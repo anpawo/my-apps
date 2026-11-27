@@ -1,7 +1,7 @@
 /* The window around the transcript and the composer. Each element is one of his web templates
    (~/self/templates/web), copied between its effect markers, then scoped to its element and given light colours
    where the template is dark: the status pill WT-037, the progress bar WT-104, the bar dialog WT-072, the table
-   WT-085, the card bar WT-050, the empty state WT-102, the button
+   WT-085, the card bar WT-050, the button
    variants WT-033, the search field WT-030, the copy check WT-020, the tabs WT-105, the name and value blocks WT-055, the status line WT-120, the keyboard
    shortcuts WT-121. */
 /* The side panel (Settings, then the task bar), as wide as its longest task name from 168 to 360 px, then the
@@ -203,16 +203,6 @@ footer { grid-column: 2; grid-row: 2; }
 :is(#tasks, #session) .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
 :is(#tasks, #session) .name { overflow: hidden; text-overflow: ellipsis; }
 
-/* ---- Effect: empty state. Copy from here ---- */
-#tasks { --foreground: oklch(0.985 0 0); --muted: oklch(0.269 0 0); --muted-foreground: oklch(0.708 0 0); --border: oklch(1 0 0 / 10%); --radius: 0.625rem; }
-#tasks .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-width: 0; padding: 24px;
-  border: 1px dashed var(--border); border-radius: var(--radius); text-align: center; text-wrap: balance; }
-#tasks .empty-title { font-size: 18px; font-weight: 500; letter-spacing: -.01em; }
-/* ---- End of effect ---- */
-#tasks { --foreground: #1c2127; --muted-foreground: rgb(0 0 0 / .45); --border: rgb(0 0 0 / .15); }
-#tasks .empty { padding: 16px; color: var(--muted-foreground); }
-#tasks .empty-title { margin: 0; font-size: 12px; }
-#tasks .empty.hidden { display: none; }
 
 /* The session panel down the window's left side (Swift `sessionPanel`). */
 /* Not clipped: the Settings box widens over the transcript. A panel floating over the window, as one-text's side bar:

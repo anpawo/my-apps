@@ -87,7 +87,7 @@
   const post = message => window.ipc.postMessage(JSON.stringify(message));
   const state = { meta: {}, rows: new Map(), order: [], notes: { link: '', problem: '' }, progress: null, update: null, tasks: null, quota: null, settings: null, login: null };
   const sheet = { open: false, signature: '' };
-  const shown = { chips: new Map(), separators: new Map(), kinds: null, tasks: '', title: '', status: '', request: '', empty: false };
+  const shown = { chips: new Map(), separators: new Map(), kinds: null, tasks: '', title: '', status: '', request: '' };
   let popover = null;
   const capability = { open: null, hovered: null, opening: 0, inPanel: false, signature: '', closing: null };
   const folded = { inside: false };
@@ -241,20 +241,6 @@
   }
   // ---- End of effect ----
 
-  // ---- Effect: empty state (WT-102) ----
-  // Shows (show = true) or hides the empty block with a short fade and scale; the list it stands for swaps the other way.
-  async function emptyState(el, show, { dur = 250 } = {}) {
-    const d = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : dur;
-    el.getAnimations().forEach(a => a.cancel());
-    el.classList.remove('hidden');
-    const fade = el.animate({ opacity: [0, 1], scale: [0.98, 1] }, { duration: d, easing: 'ease-out', direction: show ? 'normal' : 'reverse', fill: 'both' });
-    // a later call cancelled this fade and owns the end state
-    try { await fade.finished; } catch { return; }
-    el.classList.toggle('hidden', !show);
-    fade.cancel();
-  }
-  // ---- End of effect ----
-
   // ---- Effect: search field and filter button with value lists (WT-030) ----
   // The search lets through the rows whose text holds what is typed. A click on the button opens the lists under it,
   // centred on it: a block per list, its name on a grey band over its values, each with a checkbox and the count of
@@ -357,9 +343,7 @@
     const header = make('header');
     header.append(make('span', 'name', 'SESSIONS'), make('span', 'count'));
     const bar = make('div', 'bar');
-    const empty = make('div', 'empty hidden');
-    empty.append(make('p', 'empty-title', 'No session yet.'));
-    tasks.append(header, empty, bar);
+    tasks.append(header, bar);
     cardBar(bar, { onChoose: card => post({ type: 'focus', id: card.dataset.id }) });
     const layer = make('div', 'pop');
     layer.id = 'popover';
@@ -900,8 +884,6 @@
   }
 
   function drawTasks() {
-    // until the core sends its list, "No session yet." would flash over the sessions it is about to send
-    if (!state.tasks) return;
     const entries = (state.tasks || []).filter(entry => TASK_STATES[entry.state]);
     const signature = JSON.stringify(entries);
     if (signature === shown.tasks) return;
@@ -916,9 +898,6 @@
       return section;
     }));
     bar.hidden = !entries.length;
-    if (shown.empty === !entries.length) return;
-    shown.empty = !entries.length;
-    emptyState(tasks.querySelector('.empty'), shown.empty);
   }
 
   // The commands the composer offers, without the provider's skills or the terminal's own (Swift `capabilityCommands`).
@@ -1396,7 +1375,6 @@
       permission: card.hidden ? null : { request: card.dataset.request, text: card.innerText, disabled: [...card.querySelectorAll('button')].filter(node => node.disabled).map(node => node.dataset.decision) },
       tasks: cards.map(node => ({ text: node.textContent, state: node.dataset.state, current: node.hasAttribute('aria-current') })),
       groups: [...$('tasks').querySelectorAll('.bar-head:not([data-ghost])')].map(node => node.textContent),
-      empty: !$('tasks').querySelector('.empty').classList.contains('hidden'),
       capabilities: [...$('fold').querySelectorAll('.fold-row[data-card]')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.ariaExpanded === 'true' })),
       capability: capability.open && {
         title: capability.open,
