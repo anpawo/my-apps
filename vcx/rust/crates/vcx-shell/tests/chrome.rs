@@ -657,6 +657,17 @@ fn opens_the_settings_on_the_tab_whose_row_is_clicked_and_leaves_the_head_inert(
     same(&json!(page.dump()?["capabilities"].as_array().map(Vec::len)), json!(6), "the capability rows beside the settings rows")
 }
 
+fn keeps_the_tabs_in_place_whatever_the_tab_holds(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    settings_row(page, "Session")?;
+    page.deliver(settings())?;
+    let top = "document.querySelector('#settings .tb-list').getBoundingClientRect().top";
+
+    let tops: Vec<Value> = ["Session", "Qwen", "Background", "Keys"].iter().map(|name| tab(page, name).and_then(|_| page.eval(top))).collect::<Result<_, _>>()?;
+
+    same(&json!(tops.iter().all(|y| *y == tops[0])), json!(true), &format!("the tab strip's top on each tab {tops:?}"))
+}
+
 fn opens_the_settings_with_command_comma_and_closes_them_on_escape(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
 
@@ -713,7 +724,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 36] = [
+const TESTS: [(&str, Test); 37] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -741,6 +752,7 @@ const TESTS: [(&str, Test); 36] = [
     ("copies the session ID through the core", copies_the_session_id_through_the_core),
     ("opens the settings on the session tab and asks the core for the rest", opens_the_settings_on_the_session_tab_and_asks_the_core_for_the_rest),
     ("opens the settings on the tab whose row is clicked and leaves the head inert", opens_the_settings_on_the_tab_whose_row_is_clicked_and_leaves_the_head_inert),
+    ("keeps the tabs in place whatever the tab holds", keeps_the_tabs_in_place_whatever_the_tab_holds),
     ("shows the accounts and Qwen the core sends", shows_the_accounts_and_qwen_the_core_sends),
     ("says what runs in the background and on which account", says_what_runs_in_the_background_and_on_which_account),
     ("lists the keyboard shortcuts", lists_the_keyboard_shortcuts),
