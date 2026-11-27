@@ -33,7 +33,13 @@ body { display: flex; flex-direction: column; }
 #transcript { --transcript-top: 28px; flex: 1; overflow-y: auto; padding: var(--transcript-top) 24px 12px; }
 #rows, footer > * { width: 100%; max-width: var(--column); margin-inline: auto; }
 #rows { display: flex; flex-direction: column; gap: 24px; }
-#empty { margin: 30vh 0 0; text-align: center; color: var(--muted); font-size: 15px; }
+/* Swift's empty conversation: the accent sparkle, a bold line and what VCX is for. */
+#empty { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 100px 0 124px; text-align: center; }
+#empty[hidden] { display: none; }
+#empty .sparkle { width: 40px; height: 40px; background: var(--accent); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='0.9' stroke-linejoin='round'%3E%3Cpath d='M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='0.9' stroke-linejoin='round'%3E%3Cpath d='M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10z'/%3E%3C/svg%3E") center / contain no-repeat; }
+#empty p { margin: 0; }
+#empty .title { font-size: 28px; font-weight: 600; line-height: 34px; }
+#empty .subtitle { color: rgb(0 0 0 / 0.6); font-size: 14px; }
 
 .row.enter { animation: rise var(--enter) ease-out; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
@@ -216,7 +222,9 @@ details > summary::-webkit-details-marker { display: none; }
 .peer-line::before { content: "↙ "; }
 .peer-line[data-direction="sent"]::before { content: "↗ "; }
 
-#find { position: fixed; top: 10px; right: 24px; z-index: 10; display: flex; align-items: center; gap: 2px; padding: 6px; border-radius: 12px; background: var(--page); box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); font-size: 12px; }
+/* Swift's FindBar: a white raised card with a plain field, the count and three small reactive buttons. */
+#find { position: fixed; top: 10px; right: 24px; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / .1), 0 2px 6px rgb(0 0 0 / .22); color: rgb(0 0 0 / .6); font-size: 10px; font-weight: 600; }
 #find[hidden] { display: none; }
 /* The find field is the search field of the filter lists (WT-030), on the window's white. */
 /* ---- Effect: search field and filter button with value lists. Copy from here ---- */
@@ -231,40 +239,46 @@ details > summary::-webkit-details-marker { display: none; }
 #find .find input::-webkit-search-cancel-button { display: none; }
 @media (prefers-reduced-motion: reduce) { #find .find { transition-duration: 1ms; } }
 /* ---- End of effect ---- */
-#find .find { --w: 220px; margin-right: 6px; border-color: #c5cbd3; background: rgb(0 0 0 / .04); }
-#find .find .ico, #find .find input::placeholder { color: rgb(28 33 39 / .45); }
-#find .find input { font-size: 13px; }
-#find-count { min-width: 58px; margin-right: 4px; color: var(--muted); text-align: right; }
+#find .find { --w: auto; height: auto; padding: 0; border: 0; background: none; }
+#find .find:has(input:focus-visible) { box-shadow: none; }
+#find .find .ico { width: 11px; height: 11px; stroke-width: 3; color: rgb(0 0 0 / .45); }
+#find .find input::placeholder { color: rgb(0 0 0 / .35); }
+#find .find input { width: 200px; flex: none; padding: 0 0 0 8px; color: var(--ink); font: 400 12px/16px ui-monospace, "SF Mono", Menlo, monospace; }
+#find-count { color: rgb(0 0 0 / .5); font: 400 11px/16px ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#find-count:empty { display: none; }
+:where(#find) .b.icon { width: 18px; height: 18px; border: 0; border-radius: 5px; color: rgb(0 0 0 / .6); transition: background-color 120ms ease-out; }
+:where(#find) .b.icon svg { width: 11px; height: 11px; stroke-width: 2.6; }
+#find .b-ghost:hover { background-color: rgb(0 0 0 / .05); }
+#find .b-ghost:active { background-color: rgb(0 0 0 / .1); translate: none; scale: 0.94; }
 ::highlight(vcx-find) { background: rgb(255 230 102); }
 ::highlight(vcx-find-current) { background: rgb(255 158 51); }
 
 /* Back to latest floats just above the footer, whatever the footer holds (a question, the composer's growth). */
 #jump { position: absolute; left: 0; right: 0; bottom: 100%; z-index: 5; display: flex; justify-content: center; pointer-events: none; }
-#latest { margin-bottom: 10px; box-shadow: 0 2px 10px rgb(0 0 0 / 0.14); pointer-events: auto; }
+/* Swift's capsule on ultra-thin glass, raised by a short shadow. */
+#latest { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 9px 14px; border: 0; border-radius: 999px; background: rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); box-shadow: 0 2px 6px rgb(0 0 0 / 0.22);
+  color: var(--ink); font: 500 12px/16px ui-monospace, "SF Mono", Menlo, monospace; cursor: pointer; pointer-events: auto; }
+#latest svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 #latest[hidden] { display: none; }
 
-/* A question card follows the text-in-block rule (WT-080): its name on a grey band over a block that holds the rest. */
-/* ---- Effect: text always sits in a block. Copy from here ---- */
-#question.part { overflow: hidden; border: 1px solid rgb(255 255 255 / .12); border-radius: var(--radius, 12px); background: rgb(255 255 255 / .04);
-  transition: border-color var(--dur, 300ms) ease-out, background-color var(--dur, 300ms) ease-out; }
-#question.part > p:first-child { margin: 0; padding: 6px 12px; border-bottom: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .08);
-  font-size: 12px; font-weight: 500; transition: inherit; }
-#question .part-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
-#question .part-body p { margin: 0; }
-@media (prefers-reduced-motion: reduce) { #question.part, #question.part > p:first-child { transition-duration: 1ms; } }
-/* ---- End of effect ---- */
-/* On the window's white: a hairline and a white fill, the band a faint grey, as the chrome's capability items. */
-#question.part { margin-bottom: 14px; border-color: rgb(0 0 0 / .12); background: #fff; }
-#question.part > p:first-child { border-bottom-color: rgb(0 0 0 / .08); background: rgb(0 0 0 / .04); }
+/* Swift's QuestionPanel: no card of its own, inside the composer's grey box above the text, sliding up as it comes. */
+#question { flex: 0 0 100%; display: flex; flex-direction: column; gap: 10px; margin-bottom: 2px; animation: slide-up 250ms ease-out; }
 #question[hidden] { display: none; }
+@keyframes slide-up { from { opacity: 0; transform: translateY(12px); } }
+#question > p:first-child, #question .part-body p { margin: 0; }
+#question .part-body { display: flex; flex-direction: column; gap: 10px; }
 .question-head { display: flex; align-items: center; gap: 8px; color: rgb(0 0 0 / 0.6); font-size: 11px; font-weight: 600; }
-.question-icon::before { content: "?"; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 5px; background: var(--accent); color: white; font-size: 10px; }
+/* questionmark.bubble, in the accent. */
+.question-icon { width: 14px; height: 14px; flex: none; background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 3 11.5 8.6 8.6 0 0 1 12 3a8.6 8.6 0 0 1 9 8.5z'/%3E%3Cpath d='M9.6 9a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2.2-2.4 3.4M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 3 11.5 8.6 8.6 0 0 1 12 3a8.6 8.6 0 0 1 9 8.5z'/%3E%3Cpath d='M9.6 9a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2.2-2.4 3.4M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat; }
 .question-title { flex: 1; }
 #question .question-cancel { height: 24px; margin: -3px -6px; color: rgb(0 0 0 / 0.6); }
 .question-text { font-size: 12px; font-weight: 500; }
-.options { display: flex; flex-direction: column; gap: 6px; max-height: 276px; overflow-y: auto; }
-.option { display: flex; align-items: baseline; gap: 10px; padding: 8px; border: 0; border-radius: 8px; background: rgb(0 0 0 / 0.04); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.option:hover { background: rgb(0 0 0 / 0.07); }
+.options { display: flex; flex-direction: column; gap: 6px; max-height: 276px; margin: -8px; padding: 8px; overflow-y: auto; }
+.option { display: flex; align-items: baseline; gap: 10px; padding: 8px; border: 0; border-radius: 8px; background: linear-gradient(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.04)) #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.22); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.option:hover { background: linear-gradient(rgb(0 0 0 / 0.07), rgb(0 0 0 / 0.07)) #fff; }
 .option .number { display: inline-grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: var(--accent-wash-strong); color: var(--accent); font-size: 11px; font-weight: 700; }
 .option.chosen .number { background: var(--accent); color: white; }
 .option .words { display: flex; flex-direction: column; gap: 3px; }
@@ -273,7 +287,7 @@ details > summary::-webkit-details-marker { display: none; }
 .question-hint { color: rgb(0 0 0 / 0.5); font-size: 11px; }
 #question .secret { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 
-footer { padding: 6px 24px 14px; }
+footer { padding: 8px 24px 20px; }
 #status { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background 200ms ease-out; }
 #dot.ready { background: var(--ready); }
@@ -294,6 +308,7 @@ footer { padding: 6px 24px 14px; }
 @media (prefers-reduced-motion: reduce) {
   .row.enter { animation: fade 120ms linear; }
   #dot.busy, .waiting .spinner { animation: none; }
+  #question { animation: fade 120ms linear; }
   .work > summary .chevron, .work > summary .chevron::before, .action > summary .icon::before, #dot { transition: none; }
   :is(.work, .action) > summary:active { scale: none; }
 }

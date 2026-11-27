@@ -14,11 +14,11 @@
 </head>
 <body>
 <main id="transcript">
-  <p id="empty">A clear space to build.</p>
+  <div id="empty"><span class="sparkle" aria-hidden="true"></span><p class="title">A clear space to build.</p><p class="subtitle">Your code, your agents, one conversation.</p></div>
   <div id="rows" aria-live="polite"></div>
 </main>
 <div id="find" role="search" hidden>
-  <label class="find"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="find-input" type="search" placeholder="Find" aria-label="Find in the transcript" autocomplete="off" spellcheck="false"></label>
+  <label class="find"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="find-input" type="search" placeholder="Find in conversation" aria-label="Find in the transcript" autocomplete="off" spellcheck="false"></label>
   <span id="find-count" aria-live="polite"></span>
   <button type="button" id="find-previous" class="b b-ghost icon sm" aria-label="Previous match" title="Previous match (⇧↩)"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
   <button type="button" id="find-next" class="b b-ghost icon sm" aria-label="Next match" title="Next match (↩)"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
@@ -26,11 +26,11 @@
 </div>
 <div id="preview" role="dialog" aria-label="Picture preview" hidden><div class="veil"></div><div class="glass"><img alt="Preview"></div></div>
 <footer>
-  <div id="jump"><button type="button" id="latest" class="b b-outline sm" hidden><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><span>Back to latest</span></button></div>
+  <div id="jump"><button type="button" id="latest" hidden><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><span>Back to latest</span></button></div>
   <div id="status"><span id="dot"></span><span id="status-text">Starting</span></div>
   <p id="notice" role="status" hidden></p>
-  <section id="question" class="part" aria-live="polite" hidden></section>
   <form id="composer">
+    <section id="question" aria-live="polite" hidden></section>
     <textarea id="input" rows="1" placeholder="Ask anything · / commands…" aria-label="Message"></textarea>
     <button type="button" id="stop" aria-label="Stop" hidden></button>
     <button type="submit" id="send" aria-label="Send"></button>
