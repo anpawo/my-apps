@@ -12,9 +12,8 @@
   const FLIGHT_EASE_POWER = 4;
   const FLIGHT_WAIT_MS = 5000;
   const FLIGHT_FRAME_GRACE_MS = 100;
-  // The flying box's frame stands 16 pt around the text it carries, and the destination keeps 28 pt above the viewport's foot.
+  // The flying box's frame stands 16 pt around the text it carries.
   const FLIGHT_INSET_PX = 16;
-  const FLIGHT_FOOT_PX = 28;
   const COMPOSER_RADIUS_PX = 18;
   const BUBBLE_RADIUS_PX = 17;
   // The palette's list: at most 250 pt, and 90 pt short of the transcript's height (Swift `maxListHeight`).
@@ -870,13 +869,13 @@
     form.classList.add('flying');
   }
 
-  // Where the bubble shows in the transcript now, kept 28 pt above its foot, and whether only its last lines fit.
+  // Where the bubble shows in the transcript now, and whether only its last lines fit. Exactly where it stands: Swift
+  // lifted it 28 pt for a scroll that came after, and here the copy landed above the bubble and then dropped onto it.
   function landing(bubble) {
     const measured = bubble.getBoundingClientRect();
     const view = ($('transcript') || document.body).getBoundingClientRect();
-    const lift = Math.min(0, view.bottom - FLIGHT_FOOT_PX - measured.bottom);
-    const top = Math.max(measured.top + lift, view.top);
-    const bottom = Math.max(top, Math.min(measured.bottom + lift, view.bottom));
+    const top = Math.max(measured.top, view.top);
+    const bottom = Math.max(top, Math.min(measured.bottom, view.bottom));
     return { left: measured.left, top, width: measured.width, height: bottom - top, tall: bottom - top < measured.height };
   }
 
