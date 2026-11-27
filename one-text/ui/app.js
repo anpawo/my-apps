@@ -918,12 +918,11 @@ function bubbleHTML(m, revealed = false) {
   if (once(text)) return `<div class="bubble once">${ONCE}${once(text)}</div>`;
   const share =m.net === 'instagram' && text?.match(SHARE)?.[0];
   const thumb = share && (m.attachments || []).find(a => a.type === 'img' && a.srcURL);
-  // A shared reel or post: its cover as a card that opens it, like Instagram's own, instead of the raw link.
+  // A shared reel or post: its cover as a card that opens it, like Instagram's own, instead of the raw link;
+  // the author and caption Beeper adds after the link stay out, as in Instagram.
   if (thumb) {
     const url = share.replace(/[?#].*$/, '');
-    const rest = text.replace(share, '').trim();
-    return `<a class="bubble reel" href="${esc(url)}" target="_blank" rel="noreferrer" title="${esc(url)}"><img src="${esc(asset(thumb.srcURL))}" loading="lazy">${/\/p\//.test(url) ? '' : PLAY}</a>`
-      + (rest ? `<div class="bubble">${linkify(rest)}</div>` : '');
+    return `<a class="bubble reel" href="${esc(url)}" target="_blank" rel="noreferrer" title="${esc(url)}"><img src="${esc(asset(thumb.srcURL))}" loading="lazy">${/\/p\//.test(url) ? '' : PLAY}</a>`;
   }
   for (const a of m.attachments || []) {
     if (a.srcURL && (a.isVoiceNote || a.type === 'audio')) {
