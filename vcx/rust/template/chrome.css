@@ -1,7 +1,7 @@
 /* The window around the transcript and the composer. Each element is one of his web templates
    (~/self/templates/web), copied between its effect markers, then scoped to its element and given light colours
-   where the template is dark: the status pill WT-037, the progress bar WT-104, the bar dialog WT-072, the toggle
-   chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102, the button
+   where the template is dark: the status pill WT-037, the progress bar WT-104, the bar dialog WT-072, the table
+   WT-085, the card bar WT-050, the empty state WT-102, the button
    variants WT-033, the search field WT-030, the copy check WT-020, the tabs WT-105, the name and value blocks WT-055, the status line WT-120, the keyboard
    shortcuts WT-121. */
 /* The side panel (Settings, then the task bar), as wide as its longest task name from 168 to 360 px, then the
@@ -25,7 +25,15 @@ footer { grid-column: 2; grid-row: 2; }
 
 /* The status line: the status pill, then what runs and for how long, in the bar's grey. */
 #status { gap: 6px; }
-#status #dot { display: none; }
+/* Swift `ActivityDot`: 6 pt in a 12 pt slot, green when ready, orange with background work, the accent while busy,
+   drifting 3 pt each way when anything runs; faded when not connected. */
+#status #dot { display: block; flex: none; width: 6px; height: 6px; margin: 0 5px 0 3px; border-radius: 50%; background: rgb(26 115 46); transition: none; animation: none; }
+#status #dot.busy { background: var(--accent); }
+#status #dot.pending { background: rgb(222 107 0); }
+#status #dot.off { opacity: .35; }
+#status #dot:is(.busy, .pending) { animation: dot-drift 600ms ease-in-out infinite alternate; }
+@keyframes dot-drift { from { translate: -3px 0; } to { translate: 3px 0; } }
+@media (prefers-reduced-motion: reduce) { #status #dot:is(.busy, .pending) { animation: none; } }
 #status-pill { padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 18px; }
 #status-doing, #status-elapsed { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #status-doing { min-width: 0; }
@@ -38,16 +46,24 @@ footer { grid-column: 2; grid-row: 2; }
 
 /* The status bar, as the Swift window drew it: each chip's words in its colour on that colour at 8 % over white, small
    corners, no border, lifted by a soft shadow, in 10.5 px monospaced type. */
-#chips { align-items: center; gap: 6px; }
+/* Swift's bar is a horizontal ScrollView padded 8 then pulled back 8, so chips never wrap and their shadows are not clipped. */
+#chips { position: relative; align-items: center; gap: 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px; margin: 0 -8px -8px; }
+#chips::-webkit-scrollbar { display: none; }
+#chips > * { flex: none; }
+/* Swift `statusBar.separator`. */
+#chips .sep { color: rgb(0 0 0 / .25); font: 10.5px/13px ui-monospace, "SF Mono", Menlo, monospace; }
 #chips .pill { position: relative; padding: 5px 6px; border: 0; border-radius: 5px; box-shadow: 0 2px 6px rgb(0 0 0 / .22);
   font: 500 10.5px/13px ui-monospace, "SF Mono", Menlo, monospace; }
 #chips .pill:not(.glide) { --fill: color-mix(in srgb, var(--tint) 8%, white) !important; color: var(--tint); }
-#chips button.pill { cursor: pointer; }
-#chips button.pill:hover { filter: brightness(0.96); }
+#chips button.pill { cursor: pointer; transition: background-color var(--dur, 300ms) ease-out, scale 80ms ease-out; }
 #chips button.pill:focus-visible { outline: 2px solid #4c90f0; outline-offset: 1px; }
-#chips button.pill[aria-expanded=true] { filter: brightness(0.92); }
-#chips .pill.loading span { animation: pulse 1.2s ease-in-out infinite; }
-#chips .glide { --fill: color-mix(in srgb, var(--accent) 16%, white); padding-bottom: 4px; }
+#chips button.pill[aria-expanded=true]::after { background: rgb(0 0 0 / .1); }
+/* Swift's mini spinner before the words while the model or the usage loads. */
+#chips .pill.loading > span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: -1px;
+  border: 1.5px solid rgb(0 0 0 / .15); border-top-color: rgb(0 0 0 / .55); border-radius: 50%; animation: spin 800ms linear infinite; }
+@keyframes spin { to { rotate: 1turn; } }
+/* Swift `UpdateChip` and `ProgressChip`: the accent on a tenth of it, a 2.5 pt line under the words. */
+#chips .glide { --fill: color-mix(in srgb, var(--accent) 10%, white); padding: 5px 6px 6px; color: var(--accent); }
 #chips .glide b { font-weight: 700; }
 #chips .glide .dim { opacity: .5; }
 
@@ -58,7 +74,31 @@ footer { grid-column: 2; grid-row: 2; }
   transition: transform var(--dur, 150ms) cubic-bezier(0.4, 0, 0.2, 1); }
 @media (prefers-reduced-motion: reduce) { .pg-bar { transition-duration: 1ms; } }
 /* ---- End of effect ---- */
-#chips .glide .pg { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 0; }
+/* Swift `GlideBar`: no track, the line as long as the work done, its gradient across it, gliding a second between reads. */
+#chips .glide .pg { position: absolute; left: 0; bottom: 0; height: 2.5px; border-radius: 0; background: none; }
+#chips .glide .pg-bar { width: calc(var(--value, 0) * 1%); transform: none; background: linear-gradient(to right, rgb(237 59 130), rgb(140 77 255));
+  transition: width 1s linear; }
+@media (prefers-reduced-motion: reduce) { #chips .glide .pg-bar { transition-duration: 1ms; } }
+/* The update's whole sentence over the bar while the pointer is on its chip. */
+#update-words { position: fixed; z-index: 55; max-width: 540px; margin: 0; padding: 8px 10px; border-radius: 8px; background: #fff; color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12), 0 2px 6px rgb(0 0 0 / .22); font: 500 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  pointer-events: none; opacity: 0; transition: opacity 200ms ease-out; }
+#update-words.on { opacity: 1; }
+
+/* Swift `HoverPress`: a button tinted black under the pointer, darker pressed, its edges pulled in a few points. */
+.react { position: relative; transition: scale 80ms ease-out; }
+.react::after { content: ""; position: absolute; inset: calc(-1 * var(--outset, 0px)); border-radius: inherit; background: rgb(0 0 0 / 0);
+  pointer-events: none; transition: background-color 120ms ease-out; }
+.react:hover::after { background: rgb(0 0 0 / .05); }
+.react:active::after { background: rgb(0 0 0 / .1); transition-duration: 80ms; }
+.react:active { scale: var(--press, .94); }
+.react:disabled::after { background: none; }
+@media (prefers-reduced-motion: reduce) { .react:active { scale: none; } }
+/* Swift `RoundButton`: 34 pt, black 7 % on a raised white disc, its cross 17.5 pt. */
+.round { display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; color: rgb(0 0 0 / .85);
+  background: linear-gradient(rgb(0 0 0 / .07), rgb(0 0 0 / .07)), #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .22); cursor: pointer; }
+.round svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.round:focus-visible { outline: 2px solid #4c90f0; outline-offset: 2px; }
 
 /* ---- Effect: dialog with a sticky title bar and a footer bar. Copy from here ---- */
 .light { --ink: #1c2127; color: var(--ink); background: rgb(220 224 229 / .4); border: 1px solid rgb(255 255 255 / .4);
@@ -92,19 +132,6 @@ footer { grid-column: 2; grid-row: 2; }
 #permission .ub { height: 28px; font: 500 13px -apple-system, system-ui, sans-serif; cursor: pointer; }
 #permission .ub:disabled { opacity: .5; pointer-events: none; }
 
-/* ---- Effect: box with a one-choice list. Copy from here ---- */
-.pop { position: absolute; z-index: 50; top: calc(100% + 4px); left: 50%; min-width: 100%; width: max-content; padding: 6px; border-radius: 10px; color: #f6f7f9;
-  font-size: 16px; line-height: 24px; background: #2f343c; box-shadow: 0 0 0 1px rgb(246 247 249 / .1), 0 4px 6px -1px rgb(0 0 0 / .1), 0 2px 4px -2px rgb(0 0 0 / .1);
-  transform-origin: top; visibility: hidden; opacity: 0; scale: .95; translate: -50% -8px;
-  transition: opacity var(--pop, 100ms) ease-out, scale var(--pop, 100ms) ease-out, translate var(--pop, 100ms) ease-out, visibility var(--pop, 100ms); }
-.choices { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; white-space: nowrap; }
-.choice { display: block; width: 100%; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; text-align: left; color: inherit; background: none;
-  cursor: pointer; transition: background-color 150ms ease-out, opacity 150ms ease-out; }
-.choice:is(:hover, .hover) { background: #383e47; }
-.choice[aria-current=true] { background: var(--chosen, #2d72d2); border-color: var(--chosen, #2d72d2); color: #fff; font-weight: 600; }
-.choice[aria-current=true]:is(:hover, .hover) { opacity: .9; }
-@media (prefers-reduced-motion: reduce) { .choice { transition-duration: 0s; } .pop { transition: opacity 100ms; } }
-/* ---- End of effect ---- */
 /* Opened above its chip, placed by chrome.js, in light colours; it shows when its `hidden` goes, so it rises by an
    animation rather than the template's transition. */
 #popover.pop { position: fixed; top: auto; min-width: 220px; max-width: 360px; max-height: 70vh; overflow-y: auto; display: grid; gap: 6px; padding: 10px;
@@ -113,11 +140,6 @@ footer { grid-column: 2; grid-row: 2; }
 #popover.pop[hidden] { display: none; }
 @keyframes pop-in { from { opacity: 0; scale: .95; translate: 0 8px; } }
 #popover .heading { margin: 4px 0 0; padding: 0; color: rgb(28 33 39 / .5); font-size: 10px; font-weight: 700; letter-spacing: .08em; background: none; }
-#popover .choice:is(:hover, .hover) { background: #f0f1f3; }
-#popover .choice[aria-current=true] { background: var(--chosen, #2d72d2); }
-#popover .choice .name { font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; }
-#popover .choice .detail { display: block; color: rgb(28 33 39 / .5); font-size: 11px; font-weight: 400; }
-#popover .choice[aria-current=true] .detail { color: rgb(255 255 255 / .75); }
 #popover .model { display: flex; align-items: center; gap: 7px; color: var(--tint); font: 500 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
 #popover .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--tint); }
 #popover .own { color: rgb(0 0 0 / .4); font-size: 10.5px; }
@@ -125,20 +147,6 @@ footer { grid-column: 2; grid-row: 2; }
 #popover .link { justify-self: start; padding: 0; border: 0; background: none; color: #2d72d2; font: inherit; cursor: pointer; }
 #popover .link:hover { text-decoration: underline; }
 
-/* ---- Effect: row of toggle chips. Copy from here ---- */
-.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
-.chips button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 32px; min-width: 32px; padding: 0 16px;
-  border: 1px solid #404854; border-radius: 999px; background: transparent; color: #f6f7f9; font: 500 14px/20px Inter, -apple-system, system-ui, sans-serif;
-  white-space: nowrap; cursor: pointer; outline: none; transition: color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1), background-color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1), border-color var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
-.chips button:hover { background: #2f343c; }
-.chips button[aria-pressed=true] { background: var(--on, #2d72d2); color: #fff; }
-.chips button:focus-visible { z-index: 1; border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
-@media (prefers-reduced-motion: reduce) { .chips button { transition-duration: 1ms; } }
-/* ---- End of effect ---- */
-#popover .chips { justify-content: flex-start; }
-#popover .chips button { height: 24px; padding: 0 10px; border-color: #c5cbd3; color: #1c2127; font: 500 11px ui-monospace, "SF Mono", Menlo, monospace; }
-#popover .chips button:hover { background: #f0f1f3; }
-#popover .chips button[aria-pressed=true] { border-color: transparent; background: var(--on, #2d72d2); color: #fff; }
 
 /* ---- Effect: table from data rows. Copy from here ---- */
 .vcx-title { margin: 0 2px 8px; font-weight: 600; font-size: 14px; }
@@ -152,6 +160,16 @@ footer { grid-column: 2; grid-row: 2; }
 /* ---- End of effect ---- */
 #popover .vcx-title { margin-bottom: 2px; }
 #popover .vcx-table td { white-space: nowrap; }
+/* Swift `QuotaOverview`: its title, the grid in small mono type under grey headers and one divider, a small link. */
+#popover[data-kind=quota] { gap: 10px; padding: 14px; }
+#popover[data-kind=quota] .vcx-title { margin: 0; font: 600 12px/16px -apple-system, system-ui, sans-serif; }
+#popover[data-kind=quota] .vcx-table { width: auto; font: 11px/16px ui-monospace, "SF Mono", Menlo, monospace; }
+#popover[data-kind=quota] .vcx-table :is(th, td) { padding: 3px 16px 3px 0; border: 0; font: inherit; text-align: left; }
+#popover[data-kind=quota] .vcx-table th { color: rgb(0 0 0 / .5); border-bottom: 1px solid rgb(0 0 0 / .1); padding-bottom: 6px; }
+#popover[data-kind=quota] .vcx-table tbody tr:first-child td { padding-top: 6px; }
+#popover[data-kind=quota] .vcx-table :is(th, td):last-child { padding-right: 0; }
+#popover[data-kind=quota] .vcx-table tbody tr:hover { background: none; }
+#popover[data-kind=quota] .link { font-size: 11px; }
 
 /* The task bar: the card bar in the side panel, under Settings; it scrolls alone when the windows outgrow it. */
 #tasks { flex: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0; margin: 0 -10px; padding: 6px 10px; overflow-y: auto; }
@@ -263,7 +281,7 @@ footer { grid-column: 2; grid-row: 2; }
 /* never narrower than the panel it starts from */
 #fold.open, #fold:has(:focus-visible) { width: max(var(--wide), 100%); box-shadow: 0 12px 32px -4px rgb(0 0 0 / .18), 0 4px 10px rgb(0 0 0 / .08); }
 #fold.open .fold-body, #fold:has(:focus-visible) .fold-body { grid-template-rows: minmax(0, 1fr); opacity: 1; }
-#fold .fold-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px; border: 0; border-radius: 6px; background: none; color: inherit;
+#fold .fold-row { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 6px; border: 0; border-radius: 6px; background: none; color: inherit;
   font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; cursor: pointer; outline: none;
   transition: background-color 150ms, color 150ms; }
 #fold .fold-row:hover { background: rgb(0 0 0 / .05); }
@@ -271,7 +289,7 @@ footer { grid-column: 2; grid-row: 2; }
 #fold .fold-row:focus-visible { box-shadow: 0 0 0 2px #4c90f0; }
 #fold .fold-row .name { flex: 1; }
 #fold .fold-row .num { font: 600 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; font-variant-numeric: tabular-nums; }
-#fold .fold-row svg { width: 12px; height: 12px; opacity: .5; }
+#fold .fold-row .glyph { width: 12px; height: 12px; stroke-width: 2.4; }
 @media (prefers-reduced-motion: reduce) { #fold, #fold .fold-body, #fold .fold-row { transition: none; } }
 /* ---- End of effect ---- */
 /* ---- Effect: copy to checkmark. Copy from here ---- */
@@ -281,12 +299,14 @@ footer { grid-column: 2; grid-row: 2; }
 #session-id svg { order: -1; }
 
 /* A capability's list beside the session panel (Swift `CapabilityPopup`): the bar dialog's glass, the search field. */
-#capability { position: fixed; z-index: 45; top: 10px; left: 254px; transition: top 200ms ease-out; display: flex; flex-direction: column; width: 380px; height: min(440px, calc(100vh - 20px));
-  border-radius: 12px; box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); background: rgb(250 250 250 / .97);
-  font: 13px/1.45 -apple-system, system-ui, sans-serif; animation: capability-in 200ms cubic-bezier(.32, .72, 0, 1); }
+/* Swift `CapabilityPopup`: opaque, 380 by 440, 10 pt from the window's top, raised; the list under the pointer swaps in place. */
+#capability { position: fixed; z-index: 45; top: 10px; left: 254px; display: flex; flex-direction: column; width: 380px; height: min(440px, calc(100vh - 20px));
+  border-radius: 12px; box-shadow: 0 2px 6px rgb(0 0 0 / .22); background: rgb(250 250 250); color: rgb(0 0 0 / .92);
+  font: 13px/1.45 ui-monospace, "SF Mono", Menlo, monospace; animation: capability-in 200ms cubic-bezier(.32, .72, 0, 1); }
 #capability[hidden] { display: none; }
 @keyframes capability-in { from { opacity: 0; translate: -6px 0; } }
-#capability header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; }
+@keyframes capability-fade { from { opacity: 0; } }
+#capability header { display: flex; align-items: center; justify-content: space-between; padding: 14px; }
 #capability h2 { margin: 0; font-size: 14px; font-weight: 600; }
 /* ---- Effect: search field and filter button with value lists. Copy from here ---- */
 #capability .ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -300,27 +320,35 @@ footer { grid-column: 2; grid-row: 2; }
 #capability .find input::-webkit-search-cancel-button { display: none; }
 @media (prefers-reduced-motion: reduce) { #capability .find { transition-duration: 1ms; } }
 /* ---- End of effect ---- */
-#capability .find { --w: auto; margin: 0 14px 12px; border-color: #c5cbd3; background: rgb(0 0 0 / .04); }
-#capability .find .ico, #capability .find input::placeholder { color: rgb(28 33 39 / .45); }
-#capability .items { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 0; padding: 12px 16px 16px; overflow-y: auto; border-top: 1px solid rgb(0 0 0 / .08); }
+/* Swift's plain field: black 6 %, no border, no icon. */
+#capability .find { --w: auto; height: auto; margin: 0 14px 12px; padding: 0; border: 0; border-radius: 8px; background: rgb(0 0 0 / .06); }
+#capability .find input { padding: 10px; font-size: 13px; }
+#capability .find input::placeholder { color: rgb(0 0 0 / .35); }
+#capability .items { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 0; padding: 16px; overflow-y: auto; border-top: 1px solid rgb(0 0 0 / .1); }
 #capability .item { display: grid; gap: 4px; padding: 12px; border: 1px solid rgb(0 0 0 / .12); border-radius: 10px; background: #fff; user-select: text; }
 #capability .item[hidden] { display: none; }
 #capability .item .name { font-size: 12px; font-weight: 500; }
 #capability .item .detail { margin: 0; color: rgb(0 0 0 / .6); font-size: 11px; }
 #capability .item .line { display: flex; justify-content: space-between; gap: 8px; color: rgb(0 0 0 / .6); font-size: 11px; }
 #capability .none { margin: 0 16px 16px; color: rgb(0 0 0 / .5); font-size: 12px; }
-#capability .none[hidden], #capability .beside[hidden] { display: none; }
-#capability .beside { position: absolute; left: 388px; width: 300px; margin: 0; padding: 12px; border: 1px solid rgb(0 0 0 / .12); border-radius: 10px;
-  background: #fff; box-shadow: 0 6px 18px rgb(0 0 0 / .1); font-size: 11px; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { #capability { animation-duration: 1ms; } }
+#capability .none[hidden] { display: none; }
+/* The whole line of a RAG or Skills card, level with the pointer that reached it, fading in and out. */
+#capability .beside { position: absolute; left: 388px; width: 300px; margin: 0; padding: 12px; border-radius: 10px; background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12), 0 2px 6px rgb(0 0 0 / .22); font-size: 11px; white-space: pre-wrap; pointer-events: none;
+  opacity: 0; transition: opacity 200ms ease-out; }
+#capability .beside.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #capability { animation: capability-fade 100ms cubic-bezier(.32, .72, 0, 1); } #capability .beside { transition-duration: 100ms; } }
 
-/* The Settings sheet (Swift `SettingsPopup`, 480 by 520): the bar dialog's glass over the window. */
-#settings { --width: 480px; z-index: 60; height: min(520px, calc(100dvh - 2rem)); gap: 12px; background: rgb(250 250 250 / .98);
-  box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 18px 40px rgb(0 0 0 / .18); font: 13px/1.45 -apple-system, system-ui, sans-serif; }
-#settings .bar { grid-template-columns: 1fr auto; min-height: 0; }
+/* The Settings sheet (Swift `SettingsPopup`, 480 by 520): opaque over a veil, its title and round close, the tabs, a divider. */
+#settings-veil { position: fixed; inset: 0; z-index: 59; background: rgb(0 0 0 / .25); animation: veil-in 200ms ease-out; }
+#settings-veil[hidden] { display: none; }
+@keyframes veil-in { from { opacity: 0; } }
+#settings { --width: 480px; z-index: 60; height: min(520px, calc(100dvh - 2rem)); gap: 0; padding: 0; background: rgb(250 250 250); color: rgb(0 0 0 / .92);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / .1), 0 18px 40px rgb(0 0 0 / .18); font: 13px/1.45 ui-monospace, "SF Mono", Menlo, monospace; }
+#settings .bar { grid-template-columns: 1fr auto; align-items: center; min-height: 0; margin: 0; padding: 20px 20px 12px; border: 0; border-radius: 14px 14px 0 0; background: none; }
 #settings .bar > div { justify-self: start; max-width: none; padding: 0; border: 0; background: none; }
 #settings .bar p { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: 0; }
-#settings .body { display: block; margin: 0 -16px -16px; padding: 4px 16px 16px; border-top: 1px solid rgb(0 0 0 / .08); }
+#settings .body { position: relative; display: block; margin: 0; padding: 20px; border-top: 1px solid rgb(0 0 0 / .1); }
 /* ---- Effect: tabs. Copy from here ---- */
 #settings {
   --foreground: oklch(0.985 0 0); --muted: oklch(0.269 0 0); --muted-foreground: oklch(0.708 0 0); --input: oklch(1 0 0 / 15%);
@@ -339,11 +367,16 @@ footer { grid-column: 2; grid-row: 2; }
 /* A keyframes rule cannot nest. */
 @keyframes tb-in { from { opacity: 0; translate: 0 4px; } }
 /* ---- End of effect ---- */
-/* shadcn's light theme for the same tabs. */
-#settings { --foreground: oklch(0.145 0 0); --muted: oklch(0.97 0 0); --muted-foreground: oklch(0.556 0 0); --input: oklch(0.922 0 0); }
-#settings .tb-list { display: flex; }
-#settings .tb-trigger { background: none; font: 500 13px -apple-system, system-ui, sans-serif; cursor: pointer; }
-#settings .tb-trigger.on { background: #fff; }
+/* As the native segmented picker: a grey track, the chosen segment white and raised. */
+#settings { --foreground: rgb(0 0 0 / .85); --muted: rgb(0 0 0 / .06); --muted-foreground: rgb(0 0 0 / .85); --input: transparent; --radius: 8px; }
+#settings .tb-list { display: flex; height: 28px; margin: 0 20px 12px; padding: 2px; }
+#settings .tb-trigger { padding: 0 8px; background: none; font: 13px -apple-system, system-ui, sans-serif; cursor: pointer; }
+#settings .tb-trigger.on { background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .2), 0 0 0 .5px rgb(0 0 0 / .06); }
+/* Swift `.id(tab).transition(.opacity)`: the tab that leaves fades out over the one that comes in, 250 ms. */
+#settings .tb-panel:not(.on) { display: flex; position: absolute; inset: 20px 20px auto; max-height: calc(100% - 40px); overflow: hidden;
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 250ms ease-out, visibility 0s 250ms; }
+#settings .tb-panel.on { animation: none; opacity: 1; transition: opacity 250ms ease-out; }
+@media (prefers-reduced-motion: reduce) { #settings .tb-panel:is(.on, :not(.on)) { transition: none; } }
 /* ---- Effect: name and value blocks. Copy from here ---- */
 /* Its `.pill` is `.val` here: `.pill` is the status pill's. */
 #settings {
@@ -365,17 +398,22 @@ footer { grid-column: 2; grid-row: 2; }
   @media (prefers-reduced-motion: reduce) { .val { transition-duration: 100ms; } }
 }
 /* ---- End of effect ---- */
-#settings .tb-panel.on { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
-#settings .fact { font-size: 12px; }
+/* Swift's plain rows: the name grey on the left, the value on the right, a tint under the pointer reaching 6 pt past them. */
+#settings .tb-panel { flex-direction: column; gap: 6px; }
+#settings .tb-panel.on { display: flex; }
+#settings .fact { --outset: 6px; align-items: flex-start; gap: 8px; padding: 8px 0; border: 0; border-radius: 8px; background: none; font-size: 12px; line-height: 16px; white-space: normal; }
 #settings .fact dt { color: rgb(0 0 0 / .55); }
-#settings .val { white-space: nowrap; }
+#settings .fact dd { flex: 1; justify-content: flex-end; }
+#settings .val { padding: 0; border-radius: 0; background: none; color: inherit; line-height: inherit; text-align: right; overflow-wrap: anywhere; transition: none; }
 #settings .val > span { display: inline; }
-#settings div[role=button].fact { cursor: pointer; transition: background-color 150ms ease-out; }
-#settings div[role=button].fact:hover { background: #fff; }
+#settings div[role=button].fact { cursor: pointer; }
 #settings div[role=button].fact:focus-visible { outline: 2px solid #4c90f0; outline-offset: 1px; }
 #settings .none, #settings .intro { margin: 0; color: rgb(0 0 0 / .6); font-size: 11px; }
-#settings .fact.described dt { color: #1c2127; font-weight: 500; }
-#settings .fact.described .about { font-size: 11px; }
+/* Swift's background task cards: white, a fine border, the title, its state in the accent on the right, the detail under them. */
+#settings .fact.described { row-gap: 4px; padding: 12px; border: 1px solid rgb(0 0 0 / .12); border-radius: 10px; background: #fff; }
+#settings .fact.described dt { color: inherit; font-weight: 500; }
+#settings .fact.described .val { color: var(--accent); font-size: 11px; }
+#settings .fact.described .about { font-size: 11px; line-height: 1.45; }
 /* ---- Effect: keyboard shortcuts (WT-121). Copy from here ---- */
 #settings .key { display: flex; align-items: center; gap: 16px; padding: 6px 0; font-size: 12px; }
 #settings .key .caps { display: flex; gap: 3px; }

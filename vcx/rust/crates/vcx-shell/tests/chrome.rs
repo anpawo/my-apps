@@ -339,46 +339,23 @@ fn badges_the_models_of_a_debate_and_lists_them(page: &Page) -> Result<(), Strin
     same(&json!(lines), json!(["MODELS IN THIS CONVERSATION", "Fable 5.2", "this session", "Codex gpt-6.2", "Qwen"]), "the list")
 }
 
-fn switches_provider_from_the_model_popover(page: &Page) -> Result<(), String> {
+fn puts_the_model_command_in_the_composer_from_the_model_chip(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
-    page.open_popover("model", "model")?;
-    let current = page.eval("document.querySelector('#popover [aria-pressed=true]').textContent")?;
 
-    page.click("#popover .chips button:nth-child(3)")?;
+    page.click("[data-chip=model]")?;
 
-    same(&current, json!("claude"), "the provider shown as current")?;
-    same(&page.wait_post("command")?, json!({"type": "command", "text": "/model codex"}), "the command")?;
-    same(&page.dump()?["popover"], Value::Null, "the popover once chosen")
+    same(&page.eval("document.getElementById('input').value")?, json!("/model claude "), "the composer's command")?;
+    same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")?;
+    same(&page.dump()?["popover"], Value::Null, "no popover")
 }
 
-// `models`, `modelEfforts` and `modelDefaultEfforts` are what the worker reports; the view hands them to the page once
-// its page keys include them (asked of Rust transcript), so this test gives them through the meta the page reads.
-fn keeps_each_familys_newest_model_and_a_valid_effort(page: &Page) -> Result<(), String> {
+fn puts_the_perms_command_in_the_composer_from_the_mode_chip(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
-    let meta = json!({"model": "claude-fable-5-2", "modelLabel": "fable-5-2", "providerLabel": "Claude", "ready": true, "effort": "max", "requests": [],
-        "models": ["claude-fable-5-1", "claude-fable-5-2", "claude-haiku-5-5", "claude-haiku-4-5"],
-        "modelEfforts": {"claude-fable-5-2": ["low", "high", "max"], "claude-haiku-5-5": ["low", "high"]},
-        "modelDefaultEfforts": {"claude-haiku-5-5": "high"}});
-    page.deliver(json!({"type": "patch", "meta": meta}))?;
-    page.open_popover("model", "model")?;
-    let names = page.eval("[...document.querySelectorAll('#popover .choice .name')].map(node => node.textContent)")?;
 
-    page.click("#popover .choices li:nth-child(2) .choice")?;
+    page.click("[data-chip=mode]")?;
 
-    same(&names, json!(["Fable 5.2", "Haiku 5.5"]), "the models offered")?;
-    same(&page.wait_post("command")?["text"], json!("/model claude claude-haiku-5-5 high"), "the command")
-}
-
-fn sets_the_permission_mode_and_closes_on_escape(page: &Page) -> Result<(), String> {
-    page.show(&demo()?)?;
-    page.open_popover("mode", "mode")?;
-    page.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")?;
-    same(&page.dump()?["popover"], Value::Null, "the popover after Escape")?;
-    page.open_popover("mode", "mode")?;
-
-    page.click("#popover .choice")?;
-
-    same(&page.wait_post("command")?, json!({"type": "command", "text": "/perms bypass"}), "the command")
+    same(&page.eval("document.getElementById('input').value")?, json!("/perms "), "the composer's command")?;
+    same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")
 }
 
 fn asks_the_core_for_the_quota_and_draws_it(page: &Page) -> Result<(), String> {
@@ -707,7 +684,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 35] = [
+const TESTS: [(&str, Test); 34] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -718,9 +695,8 @@ const TESTS: [(&str, Test); 35] = [
     ("cannot allow an empty file change", cannot_allow_an_empty_file_change),
     ("leaves a question to the question card", leaves_a_question_to_the_question_card),
     ("badges the models of a debate and lists them", badges_the_models_of_a_debate_and_lists_them),
-    ("switches provider from the model popover", switches_provider_from_the_model_popover),
-    ("keeps each family's newest model and a valid effort", keeps_each_familys_newest_model_and_a_valid_effort),
-    ("sets the permission mode and closes on escape", sets_the_permission_mode_and_closes_on_escape),
+    ("puts the model command in the composer from the model chip", puts_the_model_command_in_the_composer_from_the_model_chip),
+    ("puts the perms command in the composer from the mode chip", puts_the_perms_command_in_the_composer_from_the_mode_chip),
     ("asks the core for the quota and draws it", asks_the_core_for_the_quota_and_draws_it),
     ("shows the progress file and drops it when done", shows_the_progress_file_and_drops_it_when_done),
     ("lists every window's task by project and brings one up", lists_every_windows_task_by_project_and_brings_one_up),

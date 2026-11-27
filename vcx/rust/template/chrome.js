@@ -8,17 +8,20 @@
   const ELAPSED_TICK_MS = 1000;
   const SECONDS_PER_MINUTE = 60;
   const SECONDS_PER_HOUR = 3600;
-  // A token of eight digits in a model id is its release date, not its version (Swift `releaseDateDigits`).
-  const RELEASE_DATE_DIGITS = 8;
   const MILLION = 1_000_000;
   const THOUSAND = 1000;
   const POPOVER_GAP_PX = 6;
   const DIALOG_POP_MS = 100;
   const TITLE_MIN_PX = 12;
-  const PROVIDERS = ['auto', 'claude', 'codex', 'qwen', 'agy'];
   // Qwen and agy report no plan usage, so the bar shows no Usage chip for them.
   const UNMETERED = ['qwen', 'agy'];
-  const MODES = [['bypass', 'YOLO: no tool approval prompts'], ['ask', 'Ask before actions that need permission']];
+  // Swift `statusBar`: the update and progress chips come in from the left, the pull request from the right.
+  const CHIP_SIDES = { update: -1, progress: -1, pullRequest: 1 };
+  const CHIP_SLIDE_MS = 280;
+  // Swift `HoverPress`: a press pulls a button's edges in by this much, never under this scale.
+  const PRESS_SHRINK_PX = 6;
+  const PRESS_SCALE_MIN = 0.94;
+  const UPDATE_BUBBLE_GAP_PX = 6;
   const TASK_STATES = { working: 'working', question: 'waiting for you', done: 'done' };
   const TASK_MARKS = { done: '✓' };
   // The status pill's own fills (WT-037): violet, orange, grey and green.
@@ -30,21 +33,33 @@
   const DEBATE_COLORS = { claude: 'rgb(199 97 56)', codex: 'rgb(10 122 102)', qwen: 'rgb(51 97 209)', agy: 'rgb(133 77 199)', gemini: 'rgb(209 64 128)' };
   const TASK_COLORS = { working: 'rgb(237 128 26)', question: 'rgb(51 115 230)', done: 'rgb(51 166 77)' };
   // Swift `sessionPanel`: what the session loaded, in this order, and what each card is called.
-  const CAPABILITIES = [['Hooks', 'HOOKS'], ['Skills', 'SKILLS'], ['Commands', 'COMMANDS'], ['MCP', 'MCP'], ['Instructions', 'MD FILES'], ['RAG', 'RAG']];
+  const CAPABILITIES = [['Hooks', 'HOOKS', 'link'], ['Skills', 'SKILLS', 'sparkles'], ['Commands', 'COMMANDS', 'command'], ['MCP', 'MCP', 'server'],
+    ['Instructions', 'MD Files', 'file'], ['RAG', 'RAG', 'brain']];
   // These lists show names only; the full text shows beside the row under the pointer.
   const DETAIL_BESIDE = ['RAG', 'Skills'];
   // A short dwell, so a pointer crossing the panel opens nothing; a grace, so it can cross from a card to its list.
   const HOVER_OPEN_MS = 60;
   const HOVER_CLOSE_MS = 100;
   const CAPABILITY_GAP_PX = 8;
-  const CAPABILITY_EDGE_PX = 10;
+  // Swift `CapabilityPopup` comes and goes on the web "Dropdown on hover" curve, shifted this far left.
+  const CAPABILITY_SHIFT_PX = 6;
+  const CAPABILITY_MS = 200;
+  const CAPABILITY_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+  const REDUCED_MOTION_MS = 100;
+  // The full line beside a card sits this far above the pointer that reached it.
+  const BESIDE_LIFT_PX = 20;
   const ICONS = {
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     close: '<path d="M18 6 6 18M6 6l12 12"/>',
-    chevron: '<path d="m9 18 6-6-6-6"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    sparkles: '<path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/>',
+    command: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>',
+    server: '<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
+    brain: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
   };
   // An ERRORS line starts with its date, then a colon or a dash (Swift `capabilityItems`).
   const RULE_DATE = /^[0-9/, -]+?(: | \u2014 )/;
@@ -67,9 +82,9 @@
   const post = message => window.ipc.postMessage(JSON.stringify(message));
   const state = { meta: {}, rows: new Map(), order: [], notes: { link: '', problem: '' }, progress: null, update: null, tasks: null, quota: null, settings: null, login: null };
   const sheet = { open: false, signature: '' };
-  const shown = { chips: new Map(), tasks: '', title: '', status: '', request: '', empty: false };
+  const shown = { chips: new Map(), separators: new Map(), kinds: null, tasks: '', title: '', status: '', request: '', empty: false };
   let popover = null;
-  const capability = { open: null, hovered: null, opening: 0, inPanel: false, signature: '' };
+  const capability = { open: null, hovered: null, opening: 0, inPanel: false, signature: '', closing: null };
   const folded = { inside: false };
   let busySince = null;
   let ticking = null;
@@ -341,7 +356,13 @@
     const layer = make('div', 'pop');
     layer.id = 'popover';
     layer.hidden = true;
-    document.body.append(sessionPanel(tasks), layer, capabilityPanel(), settingsSheet());
+    const words = make('p');
+    words.id = 'update-words';
+    words.ariaHidden = 'true';
+    const veil = make('div');
+    veil.id = 'settings-veil';
+    veil.hidden = true;
+    document.body.append(sessionPanel(tasks), layer, capabilityPanel(), veil, settingsSheet(), words);
   }
 
   function icon(name, className = 'go') {
@@ -361,7 +382,7 @@
     settings.innerHTML = `${icon('settings')}<b>SETTINGS</b>`;
     const body = make('div', 'fold-body');
     const rows = make('div');
-    rows.append(...CAPABILITIES.map(([title, label]) => {
+    rows.append(...CAPABILITIES.map(([title, label, glyph]) => {
       const row = button('fold-row', '', () => openCapability(title));
       row.dataset.card = title;
       row.dataset.count = '0';
@@ -369,8 +390,8 @@
       row.title = title === 'RAG' ? "ERRORS lines sent with this session's prompts" : `Browse ${title.toLowerCase()}`;
       const num = make('span', 'num');
       num.append(make('span', '', '0'));
+      row.innerHTML = icon(glyph, 'glyph');
       row.append(make('span', 'name', label), num);
-      row.insertAdjacentHTML('beforeend', icon('chevron'));
       row.addEventListener('pointerenter', () => hoverCapability(title));
       row.addEventListener('pointerleave', () => leaveCapability(title));
       return row;
@@ -406,7 +427,7 @@
   }
 
   function capabilityPanel() {
-    const panel = make('section', 'light');
+    const panel = make('section');
     panel.id = 'capability';
     panel.hidden = true;
     panel.addEventListener('pointerenter', () => { capability.inPanel = true; });
@@ -422,10 +443,6 @@
   function modelName(id) {
     const words = id.replace(/^(claude[- ]|codex[- ])/i, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replaceAll('-', ' ');
     return words.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
-  }
-
-  function aliased(model) {
-    return (state.meta.modelAliases || {})[model] || model;
   }
 
   function modelLabel(meta) {
@@ -577,10 +594,15 @@
     return words.length > LONGEST_CHIP_WORDS ? `${words.slice(0, LONGEST_CHIP_WORDS - 1)}…` : words;
   }
 
+  // Swift `UpdateChip`: cut on a word, never inside one.
+  function cutWords(words) {
+    return words.length > LONGEST_CHIP_WORDS ? `${words.slice(0, LONGEST_CHIP_WORDS - 1).split(' ').slice(0, -1).join(' ')}…` : words;
+  }
+
   // The bar's chips as plain data, in the Swift bar's order.
   function chips() {
     const meta = state.meta, list = [];
-    if (state.update) list.push({ kind: 'update', glide: true, label: 'updating', text: cut(state.update.words || ''), fraction: state.update.fraction || 0 });
+    if (state.update) list.push({ kind: 'update', glide: true, label: 'updating', text: cutWords(state.update.words || ''), fraction: state.update.fraction || 0 });
     if (state.progress) list.push({ kind: 'progress', glide: true, label: cut(state.progress.label || ''), text: state.progress.detail || '', fraction: state.progress.fraction || 0 });
     list.push({ kind: 'directory', text: directoryLabel(meta), color: COLORS.directory, title: 'Change the working directory' });
     list.push({ kind: 'model', text: modelStatus(meta), color: COLORS.model, loading: modelLoading(meta), title: 'Provider, model and effort' });
@@ -596,8 +618,8 @@
 
   const CHIP_ACTIONS = {
     directory: () => post({ type: 'chooseDirectory' }),
-    model: () => toggle('model'),
-    mode: () => toggle('mode'),
+    model: () => statusCommand(modelCommand(state.meta)),
+    mode: () => statusCommand('/perms '),
     models: () => toggle('models'),
     tokens: () => openQuota(false),
     usage: () => openQuota(true),
@@ -617,9 +639,13 @@
       bar.setAttribute('role', 'progressbar');
       bar.append(make('div', 'pg-bar'));
       node.append(make('span'), bar);
+      if (spec.kind === 'update') {
+        node.addEventListener('pointerenter', () => showUpdateWords(true));
+        node.addEventListener('pointerleave', () => showUpdateWords(false));
+      }
       return node;
     }
-    const node = button('pill', '', CHIP_ACTIONS[spec.kind]);
+    const node = button('pill react', '', CHIP_ACTIONS[spec.kind]);
     node.append(make('span'));
     return node;
   }
@@ -646,13 +672,80 @@
     return node;
   }
 
+  function separator(kind) {
+    if (!shown.separators.has(kind)) {
+      const node = make('span', 'sep', '|');
+      node.ariaHidden = 'true';
+      shown.separators.set(kind, node);
+    }
+    return shown.separators.get(kind);
+  }
+
+  // Swift `statusBar`: a "|" between chips, after the update and progress chips, before the others.
+  function barNodes(list) {
+    return list.flatMap(spec => {
+      const chip = drawChip(spec);
+      if (spec.kind === 'directory') return [chip];
+      return CHIP_SIDES[spec.kind] < 0 ? [chip, separator(spec.kind)] : [separator(spec.kind), chip];
+    });
+  }
+
+  // A chip that comes or goes slides from its side as it fades, a separator only fades; opacity alone when motion is reduced.
+  function slide(node, side, entering) {
+    const still = !side || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const away = still ? { opacity: 0 } : { opacity: 0, translate: `${side * 100}% 0` };
+    const here = still ? { opacity: 1 } : { opacity: 1, translate: '0 0' };
+    return node.animate(entering ? [away, here] : [here, away], { duration: CHIP_SLIDE_MS, easing: 'ease-out', fill: entering ? 'none' : 'forwards' });
+  }
+
+  // Once drawn, an update, progress or pull request chip coming or going slides, and the chips beside it glide to their
+  // new place (Swift's bar animates those three); a chip that goes leaves its place at once and fades over it.
   function drawBar() {
-    const list = chips(), kinds = new Set(list.map(spec => spec.kind));
-    for (const kind of [...shown.chips.keys()]) if (!kinds.has(kind)) shown.chips.delete(kind);
-    const nodes = list.map(drawChip);
+    const bar = $('chips'), list = chips(), kinds = new Set(list.map(spec => spec.kind)), before = shown.kinds;
+    const placed = new Map([...bar.children].map(node => [node, { left: node.offsetLeft, top: node.offsetTop }]));
+    const leaving = [];
+    for (const [kind, known] of [...shown.chips]) {
+      if (kinds.has(kind)) continue;
+      shown.chips.delete(kind);
+      if (before && CHIP_SIDES[kind] && placed.has(known.node)) leaving.push([known.node, CHIP_SIDES[kind]]);
+      const sep = shown.separators.get(kind);
+      if (before && CHIP_SIDES[kind] && placed.has(sep)) leaving.push([sep, 0]);
+    }
+    for (const kind of [...shown.separators.keys()]) if (!kinds.has(kind)) shown.separators.delete(kind);
+    for (const [node] of leaving) {
+      const at = placed.get(node);
+      node.dataset.ghost = '1';
+      Object.assign(node.style, { position: 'absolute', left: `${at.left}px`, top: `${at.top}px`, margin: '0', pointerEvents: 'none' });
+    }
+    const nodes = barNodes(list);
+    const wanted = [...nodes, ...[...bar.children].filter(node => node.dataset.ghost)];
     // app.js still draws its own chips into the bar on each state; they are replaced until it stops.
-    const bar = $('chips');
-    if (nodes.length !== bar.children.length || nodes.some((node, index) => bar.children[index] !== node)) bar.replaceChildren(...nodes);
+    if (wanted.length !== bar.children.length || wanted.some((node, index) => bar.children[index] !== node)) bar.replaceChildren(...wanted);
+    for (const [node, side] of leaving) slide(node, side, false).finished.then(() => node.remove(), () => {});
+    const moved = before && (leaving.length > 0 || list.some(spec => CHIP_SIDES[spec.kind] && !before.has(spec.kind)));
+    shown.kinds = kinds;
+    if (!moved) return;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    for (const node of nodes) {
+      if (!placed.has(node)) slide(node, CHIP_SIDES[node.dataset.chip] || 0, true);
+      else if (!still && placed.get(node).left !== node.offsetLeft) {
+        node.animate([{ translate: `${placed.get(node).left - node.offsetLeft}px 0` }, { translate: '0 0' }], { duration: CHIP_SLIDE_MS, easing: 'ease-out', composite: 'add' });
+      }
+    }
+  }
+
+  // Swift `statusBar`'s overlay: the update's whole sentence in a bubble over the bar while the pointer is on its chip.
+  function showUpdateWords(on) {
+    const bubble = $('update-words'), chip = shown.chips.get('update')?.node;
+    const showing = on && !!state.update && !!chip;
+    if (showing) {
+      // From the layout, not the chip's box: it may still be sliding in.
+      const bar = $('chips'), at = bar.getBoundingClientRect();
+      bubble.textContent = state.update.words || '';
+      bubble.style.left = `${at.left + chip.offsetLeft - bar.scrollLeft}px`;
+      bubble.style.bottom = `${innerHeight - at.top - chip.offsetTop + UPDATE_BUBBLE_GAP_PX}px`;
+    }
+    bubble.classList.toggle('on', showing);
   }
 
   function answer(request, decision) {
@@ -709,94 +802,20 @@
     drawPopover();
   }
 
+  // Swift `Session.modelCommand`.
+  function modelCommand(meta) {
+    return `/model ${provider(meta)} `;
+  }
+
+  // Swift `statusCommand`: the model and permission chips open the composer's palette on their command.
+  function statusCommand(text) {
+    popover = null;
+    drawPopover();
+    showCommands(text);
+  }
+
   function heading(text) {
     return make('p', 'heading', text);
-  }
-
-  // A row of choices as the toggle chips (WT-034): the pressed one is the one in use.
-  function chipRow(names, current, action) {
-    const row = make('div', 'chips');
-    row.append(...names.map(name => {
-      const chip = button('option', name, () => action(name));
-      chip.ariaPressed = String(name === current);
-      return chip;
-    }));
-    return row;
-  }
-
-  // A one-choice list as the single pick's (WT-046): the one in use white on blue.
-  function choiceList(entries) {
-    const list = make('ul', 'choices');
-    list.setAttribute('role', 'listbox');
-    list.append(...entries.map(({ label, detail, current, action }) => {
-      const item = make('li'), choice = button('choice', '', action);
-      choice.ariaCurrent = String(!!current);
-      choice.append(make('span', 'name', label));
-      if (detail) choice.append(make('span', 'detail', detail));
-      item.append(choice);
-      return item;
-    }));
-    return list;
-  }
-
-  // Swift `modelVersion`: the family is the words around the version, the version its numbers.
-  function modelVersion(id) {
-    const family = [], number = [];
-    for (const token of id.toLowerCase().split('-')) {
-      if (token.length === RELEASE_DATE_DIGITS && /^\d+$/.test(token)) continue;
-      const parts = token.split('.');
-      if (parts.every(part => /^\d+$/.test(part))) {
-        if (!number.length) family.push('*');
-        number.push(...parts.map(Number));
-      } else family.push(token);
-    }
-    return number.length ? { family: family.join('-'), number } : null;
-  }
-
-  function newer(left, right) {
-    for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-      const a = left[index] || 0, b = right[index] || 0;
-      if (a !== b) return a > b;
-    }
-    return false;
-  }
-
-  // Swift `latestModels`: each family's newest version only.
-  function latestModels(models) {
-    const versions = models.map(model => modelVersion(aliased(model)));
-    const newest = {};
-    for (const version of versions) {
-      if (version && (!newest[version.family] || newer(version.number, newest[version.family]))) newest[version.family] = version.number;
-    }
-    return models.filter((model, index) => !versions[index] || newest[versions[index].family] === versions[index].number);
-  }
-
-  // A new model keeps the effort in use when it has it, else takes its own default (Swift `ModelControl.drain`).
-  function effortFor(model) {
-    const efforts = (state.meta.modelEfforts || {})[model] || [];
-    if (!efforts.length) return null;
-    const current = effectiveEffort(state.meta);
-    return efforts.includes(current) ? current : (state.meta.modelDefaultEfforts || {})[model] || efforts[0];
-  }
-
-  function modelPanel() {
-    const meta = state.meta, own = provider(meta);
-    const panel = [heading('PROVIDER'), chipRow(PROVIDERS, own, name => command(`/model ${name}`))];
-    const models = latestModels(meta.models || []);
-    if (models.length) {
-      panel.push(heading('MODEL'), choiceList(models.map(model => ({
-        label: modelName(aliased(model)), detail: model, current: model === meta.model,
-        action: () => command(['/model', own, model, effortFor(model)].filter(Boolean).join(' ')),
-      }))));
-    }
-    const efforts = (meta.modelEfforts || {})[meta.model] || [];
-    if (efforts.length) panel.push(heading('EFFORT'), chipRow(efforts, effectiveEffort(meta), effort => command(`/model ${own} ${meta.model} ${effort}`)));
-    return panel;
-  }
-
-  function modePanel() {
-    const current = state.meta.activeMode === 'bypass' ? 'bypass' : 'ask';
-    return [heading('PERMISSIONS'), choiceList(MODES.map(([mode, detail]) => ({ label: mode, detail, current: mode === current, action: () => command(`/perms ${mode}`) })))];
   }
 
   // Swift `DebateModelList`: each model beside its debate color, this session's own first.
@@ -823,12 +842,12 @@
       table(grid)(lines.map(line => ({ Agent: line.agent, '5 hours': line.fiveHour, Week: line.week })));
       panel.push(grid);
     }
-    panel.push(button('link', "Change this window's model…", () => toggle('model')));
+    panel.push(button('link', "Change this window's model…", () => statusCommand(modelCommand(state.meta))));
     return panel;
   }
 
-  const PANELS = { model: modelPanel, mode: modePanel, models: modelsPanel, quota: quotaPanel };
-  const ANCHORS = { model: 'model', mode: 'mode', models: 'models', quota: 'tokens' };
+  const PANELS = { models: modelsPanel, quota: quotaPanel };
+  const ANCHORS = { models: 'models', quota: 'tokens' };
 
   // The single pick's list, opened above its chip: the status bar sits at the window's foot.
   function drawPopover() {
@@ -909,7 +928,7 @@
       const sections = meta.recalledRuleSections || {};
       return (meta.recalledRules || []).map(rule => {
         const date = rule.match(RULE_DATE);
-        return { name: sections[rule] || 'ERRORS line', detail: date ? rule.slice(date[0].length) : rule };
+        return { name: sections[rule] || 'ERRORS line', detail: date ? rule.slice(date[0].length) : rule, rule };
       });
     }
     const items = (({ Hooks: meta.hooks, Skills: meta.skills, MCP: meta.mcp, Instructions: meta.instructions })[title] || []).map(value => {
@@ -972,17 +991,15 @@
     const row = $('fold').querySelector(`.fold-row[data-card="${title}"]`);
     for (const other of $('fold').querySelectorAll('.fold-row')) other.ariaExpanded = String(other === row);
     drawCapability(true);
-    placeCapability(row);
+    placeCapability();
   }
 
-  // Beside the widened box, its middle level with the row's, never above the box's top nor below the window.
-  function placeCapability(row) {
-    const panel = $('capability'), fold = $('fold'), box = fold.getBoundingClientRect(), at = row.getBoundingClientRect();
+  // Swift `CapabilityPopup`: at the window's top, beside the side panel or the box widened over it, whichever reaches further.
+  function placeCapability() {
+    const fold = $('fold');
     const wide = Math.max(parseFloat(getComputedStyle(fold).getPropertyValue('--wide')), fold.parentElement.offsetWidth);
-    const middle = at.top + at.height / 2 - panel.offsetHeight / 2;
-    const top = Math.max(CAPABILITY_EDGE_PX, Math.min(Math.max(box.top, middle), innerHeight - panel.offsetHeight - CAPABILITY_EDGE_PX));
-    panel.style.left = `${box.left + wide + CAPABILITY_GAP_PX}px`;
-    panel.style.top = `${top}px`;
+    const right = Math.max(fold.getBoundingClientRect().left + wide, $('session').getBoundingClientRect().right);
+    $('capability').style.left = `${right + CAPABILITY_GAP_PX}px`;
   }
 
   function closeCapability() {
@@ -991,8 +1008,15 @@
     // A list closed under a card the pointer just reached stays closed until the pointer comes back.
     clearTimeout(capability.opening);
     for (const row of $('fold').querySelectorAll('.fold-row')) row.ariaExpanded = 'false';
-    $('capability').hidden = true;
-    $('capability').replaceChildren();
+    const panel = $('capability'), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const away = still ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: `${-CAPABILITY_SHIFT_PX}px 0` }];
+    capability.closing = panel.animate(away, { duration: still ? REDUCED_MOTION_MS : CAPABILITY_MS, easing: CAPABILITY_EASING, fill: 'forwards' });
+    capability.closing.onfinish = () => {
+      capability.closing.cancel();
+      capability.closing = null;
+      panel.hidden = true;
+      panel.replaceChildren();
+    };
   }
 
   function itemRow(title, item) {
@@ -1008,19 +1032,29 @@
       }
     } else if (!DETAIL_BESIDE.includes(title) && item.detail) row.append(make('p', 'detail', item.detail));
     if (DETAIL_BESIDE.includes(title)) {
-      row.addEventListener('pointerenter', () => showBeside(row, item.detail));
+      row.addEventListener('pointerenter', event => showBeside(title === 'RAG' ? item.rule : item.detail, event));
       row.addEventListener('pointerleave', () => showBeside(null));
     }
     if (title === 'Instructions') row.addEventListener('click', () => post({ type: 'open', href: item.detail }));
     return row;
   }
 
-  function showBeside(row, text) {
-    const beside = $('capability').querySelector('.beside');
-    beside.hidden = !row;
-    if (!row) return;
+  // Swift: level with the pointer where it entered the card; it fades out with the last text it showed.
+  function showBeside(text, event) {
+    const panel = $('capability'), beside = panel.querySelector('.beside');
+    beside.classList.toggle('on', text !== null);
+    if (text === null) return;
     beside.textContent = text;
-    beside.style.top = `${row.offsetTop}px`;
+    beside.style.top = `${Math.max(0, event.clientY - panel.getBoundingClientRect().top - BESIDE_LIFT_PX)}px`;
+  }
+
+  // Swift `RoundButton`: 34 pt round, raised, its cross 17.5 pt.
+  function roundButton(label, action) {
+    const node = button('round react', '', action);
+    node.innerHTML = icon('close');
+    node.ariaLabel = label;
+    node.title = label;
+    return node;
   }
 
   // Swift `CapabilityPopup`: the list with its search, which keeps what was typed while the session changes under it.
@@ -1033,11 +1067,9 @@
     const typed = fresh ? '' : panel.querySelector('input')?.value || '';
     const focused = !fresh && document.activeElement === panel.querySelector('input');
     const head = make('header');
-    head.append(make('h2', '', title === 'Instructions' ? 'MD Files' : title), button('b b-ghost icon', '', closeCapability));
-    head.lastChild.innerHTML = icon('close');
-    head.lastChild.ariaLabel = `Close ${title.toLowerCase()}`;
+    head.append(make('h2', '', title), roundButton(`Close ${title.toLowerCase()}`, closeCapability));
     const find = make('label', 'find');
-    find.innerHTML = `${icon('search', 'ico')}<input type="search">`;
+    find.innerHTML = '<input type="search">';
     const input = find.querySelector('input');
     input.placeholder = `Search ${title.toLowerCase()}`;
     input.value = typed;
@@ -1046,7 +1078,8 @@
     list.append(...items.map(item => item.el));
     const none = make('p', 'none');
     const beside = make('p', 'beside');
-    beside.hidden = true;
+    capability.closing?.cancel();
+    capability.closing = null;
     panel.replaceChildren(head, find, list, none, beside);
     panel.hidden = false;
     tableFilter({ find, at: null, rows: items, text: item => `${item.name} ${item.detail}`, show: (item, on) => { item.el.hidden = !on; } });
@@ -1074,7 +1107,7 @@
 
   // Swift `SettingsPopup`, as the bar dialog (WT-072) with the tabs (WT-105); each setting is a name and value block (WT-055).
   function settingsSheet() {
-    const node = make('section', 'dialog light');
+    const node = make('section', 'dialog');
     node.id = 'settings';
     node.hidden = true;
     node.role = 'dialog';
@@ -1082,10 +1115,7 @@
     const bar = make('header', 'bar');
     const title = make('div');
     title.append(make('p', '', 'Settings'));
-    const shut = button('b b-ghost icon', '', closeSettings);
-    shut.innerHTML = icon('close');
-    shut.ariaLabel = 'Close settings';
-    bar.append(title, shut);
+    bar.append(title, roundButton('Close settings', closeSettings));
     const list = make('div', 'tb-list');
     list.role = 'tablist';
     list.ariaLabel = 'Settings section';
@@ -1111,6 +1141,7 @@
     drawPopover();
     sheet.open = true;
     sheet.signature = '';
+    $('settings-veil').hidden = false;
     $('settings').querySelector('.tb-trigger').click();
     // The core answers with the accounts, the limits, Qwen and what runs in the background.
     post({ type: 'settings' });
@@ -1121,6 +1152,7 @@
   function closeSettings() {
     sheet.open = false;
     $('settings').hidden = true;
+    $('settings-veil').hidden = true;
   }
 
   // Swift `showCommands`: the command goes into the composer, which opens its palette on it.
@@ -1135,11 +1167,12 @@
     }
   }
 
-  function fact(name, value, command, fill) {
-    const block = make('div', 'fact');
+  // Swift `SettingsPopup.setting`: the name on the left, the value on the right, tinted under the pointer.
+  function fact(name, value, command) {
+    const block = make('div', 'fact react');
     block.role = 'button';
     block.tabIndex = 0;
-    const words = make('span', fill ? `val f-${fill}` : 'val');
+    const words = make('span', 'val');
     words.title = value;
     words.append(make('span', '', value));
     const dd = make('dd');
@@ -1171,10 +1204,10 @@
     const known = state.settings;
     const facts = known ? [] : [make('p', 'none', 'Reading the accounts…')];
     for (const account of (known && known.accounts) || []) {
-      facts.push(fact(account.name, `${capitalized(account.provider)} · ${account.enabled ? 'enabled' : 'disabled'}`, '/account ', account.enabled ? 'green' : ''));
+      facts.push(fact(account.name, `${capitalized(account.provider)} · ${account.enabled ? 'enabled' : 'disabled'}`, '/account '));
       if (account.home) facts.push(fact('Profile', account.home, `/profile ${account.provider} `));
       const reset = (account.availableAfter || 0) * MS_PER_SECOND;
-      if (reset > clock()) facts.push(fact('Available after', new Date(reset).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }), '/usage', 'orange'));
+      if (reset > clock()) facts.push(fact('Available after', new Date(reset).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }), '/usage'));
     }
     facts.push(fact('Add account', 'Claude or Codex', '/login '), fact('Import profile', 'Existing account folder', '/profile '));
     return facts;
@@ -1194,7 +1227,7 @@
   // A described block (WT-055's Descriptions tick).
   function job(title, status, detail) {
     const block = make('div', 'fact described');
-    const words = make('span', 'val f-blue');
+    const words = make('span', 'val');
     words.append(make('span', '', status));
     const dd = make('dd');
     dd.append(words);
@@ -1333,12 +1366,13 @@
     drawSettings();
     drawLogin();
     if (popover) drawPopover();
+    if (!state.update) showUpdateWords(false);
   }
 
   // What the chrome shows, for a windowless check to read.
   function dump() {
     const text = id => ($(id) && !$(id).hidden ? $(id).textContent : null);
-    const bar = [...$('chips').querySelectorAll('[data-chip]')].map(node => ({ kind: node.dataset.chip, text: node.textContent, color: node.style.getPropertyValue('--tint') }));
+    const bar = [...$('chips').querySelectorAll('[data-chip]:not([data-ghost])')].map(node => ({ kind: node.dataset.chip, text: node.textContent, color: node.style.getPropertyValue('--tint') }));
     const card = $('permission');
     const cards = [...$('tasks').querySelectorAll('.card:not([data-ghost])')];
     return {
@@ -1378,6 +1412,11 @@
     draw();
   };
   document.addEventListener('click', close);
+  // Swift `HoverPress`: a pressed button shrinks by a few points whatever its width.
+  document.addEventListener('pointerdown', event => {
+    const node = event.target.closest?.('.react');
+    if (node) node.style.setProperty('--press', String(Math.max(PRESS_SCALE_MIN, 1 - PRESS_SHRINK_PX / Math.max(node.offsetWidth, 1))));
+  }, true);
   document.addEventListener('vcx:sent', () => {
     state.notes.problem = '';
     drawNotice();
