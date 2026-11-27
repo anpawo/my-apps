@@ -32,6 +32,8 @@ pub enum Message {
     Worker(u64, Event),
     Attached(u64, Result<Attachment, String>),
     ActionFailed(String),
+    /// The menu a command answered, as the composer's text that opens it (`/model `).
+    CommandQuery(String),
     /// Ends the session, then says so with `Output::Ended`.
     End,
     /// Why the worker kept the session it was asked to end; none once it ended.
@@ -162,6 +164,7 @@ impl<E: Fn(Output)> Session<E> {
             Message::Attached(_, Ok(attachment)) => self.attach(&attachment),
             Message::Attached(_, Err(problem)) => self.link_is("lost", &problem),
             Message::ActionFailed(problem) => self.page(json!({"type": "notice", "text": problem})),
+            Message::CommandQuery(query) => self.page(json!({"type": "commandQuery", "text": query})),
             Message::End => match &self.link {
                 Some(link) => drop(link.send(Command::End)),
                 None => (self.emit)(Output::Ended(None)),

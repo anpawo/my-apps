@@ -955,6 +955,10 @@
       takeDraft(message.draft, message.draftGeneration, message.type === 'full');
     } else if (message.type === 'files') filesArrived(message);
     else if (message.type === 'attach') attach(message.items);
+    else if (message.type === 'commandQuery') {
+      setText(message.text);
+      input.focus();
+    }
   }
 
   function editable(target) {

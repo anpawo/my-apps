@@ -109,8 +109,13 @@ impl Link {
 
     fn perform(&mut self, action: &'static str, params: Value) {
         let (Some(client), Some(lease)) = (&self.client, &mut self.lease) else { return self.tell(Message::ActionFailed(DISCONNECTED.into())) };
-        if let Err(error) = lease.perform(client, action, params) {
-            self.tell(Message::ActionFailed(error.to_string()));
+        match lease.perform(client, action, params) {
+            Ok(answer) => {
+                if let Some(query) = answer.get("commandQuery").and_then(Value::as_str) {
+                    self.tell(Message::CommandQuery(query.to_owned()));
+                }
+            }
+            Err(error) => self.tell(Message::ActionFailed(error.to_string())),
         }
     }
 
@@ -162,6 +167,7 @@ mod tests {
                     Some("hello") => json!({"result": {"protocol": vcx_proto::client::PROTOCOL_VERSION}}),
                     Some("attach") => json!({"result": {"lease": "L", "revision": 1, "state": {}}}),
                     Some("perform") if request["params"]["action"] == "close" => close.clone(),
+                    Some("perform") if request["params"]["action"] == "command" => json!({"result": {"commandQuery": "/model "}}),
                     _ => json!({"result": {}}),
                 };
                 answer["id"] = request["id"].clone();
@@ -198,6 +204,20 @@ mod tests {
         let problem = ended(&socket);
 
         assert_eq!(problem.as_deref(), Some("Could not save the current conversation."));
+    }
+
+    #[test]
+    fn hands_the_session_the_menu_a_command_answered() {
+        let socket = worker("menu", json!({"result": {}}));
+        let (session, messages) = mpsc::channel();
+        let (link, _thread) = spawn(socket.clone(), AttachRequest { session_id: "S".into(), ..Default::default() }, session);
+        link.send(Command::Connect).unwrap();
+
+        link.send(Command::Perform { action: "command", params: json!({"text": "/model"}) }).unwrap();
+
+        let query = messages.iter().find_map(|message| if let Message::CommandQuery(query) = message { Some(query) } else { None });
+        let _ = std::fs::remove_dir_all(socket.parent().unwrap());
+        assert_eq!(query.as_deref(), Some("/model "));
     }
 
     #[test]

@@ -584,6 +584,18 @@ fn keeps_the_palette_within_the_composer_column_while_its_rows_are_walked(page: 
     check(place["left"] == 0 && place["right"] == 0 && place["scrolled"] == 0, format!("the palette overflowed or slid the page: {place}"))
 }
 
+fn opens_the_menu_the_worker_answers_to_a_command_run_with_return(page: &Page) -> Result<(), String> {
+    page.keys("/model")?;
+    page.state("the palette for /model", |state| state["palette"]["options"][0] == "/model")?;
+    page.press(Key::Return, NONE)?;
+    check(page.next("send")?["text"] == "/model", "/model was not sent")?;
+
+    page.deliver(json!({"type": "commandQuery", "text": "/model "}))?;
+
+    let menu = page.state("the provider menu", |state| state["palette"]["options"] == json!(["Claude", "Codex", "Qwen", "Antigravity"]))?;
+    check(menu["value"] == "/model " && menu["focused"] == true, format!("the composer did not take the menu's query: {menu}"))
+}
+
 fn lists_provider_skills_beside_the_commands_of_vcx(page: &Page) -> Result<(), String> {
     let skill = json!({"name": "/sm", "detail": "Summarize briefly", "source": "Claude", "insert": "/sm"});
     page.deliver(json!({"type": "patch", "meta": {"providerLabel": "Claude", "providerCommands": [skill]}}))?;
@@ -1006,7 +1018,7 @@ fn names_what_a_model_alias_runs_in_the_model_palette(page: &Page) -> Result<(),
     check(models["palette"]["selected"] == 0 && detail == "claude-opus-5-5", format!("{models}, detail {detail}"))
 }
 
-const TESTS: [(&str, Test); 44] = [
+const TESTS: [(&str, Test); 45] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
@@ -1028,6 +1040,7 @@ const TESTS: [(&str, Test); 44] = [
     ("Return runs a command typed in full and completes a partial one", return_runs_a_command_typed_in_full_and_completes_a_partial_one),
     ("Escape closes the palette until the query changes", escape_closes_the_palette_until_the_query_changes),
     ("keeps the palette within the composer column while its rows are walked", keeps_the_palette_within_the_composer_column_while_its_rows_are_walked),
+    ("opens the menu the worker answers to a command run with Return", opens_the_menu_the_worker_answers_to_a_command_run_with_return),
     ("lists provider skills beside the commands of VCX", lists_provider_skills_beside_the_commands_of_vcx),
     ("completes a file after an at sign from the list the core gives", completes_a_file_after_an_at_sign_from_the_list_the_core_gives),
     ("brings back sent prompts with the up arrow", brings_back_sent_prompts_with_the_up_arrow),
