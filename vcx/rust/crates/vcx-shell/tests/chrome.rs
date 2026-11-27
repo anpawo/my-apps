@@ -474,9 +474,11 @@ fn names(rows: &Value) -> Value {
     json!(rows.as_array().into_iter().flatten().map(|row| row[0].clone()).collect::<Vec<_>>())
 }
 
-/// Clicks a session card for real and waits for its list: the page may take the click after the next read.
+/// Widens the Settings box at once, clicks one of its rows for real and waits for its list: the page may take the
+/// click after the next read.
 fn open_list(page: &Page, card: &str) -> Result<(), String> {
-    page.click(&format!("#session .card[data-card={card}]"))?;
+    page.eval("(() => { const fold = document.getElementById('fold'); fold.style.setProperty('--open', '0ms'); fold.classList.add('open'); return true; })()")?;
+    page.click(&format!("#fold .fold-row[data-card={card}]"))?;
     page.until("window.vcxChrome.dump().capability?.title ?? null", json!(card))
 }
 
@@ -513,7 +515,7 @@ fn opens_a_capability_list_and_narrows_it_to_what_is_typed(page: &Page) -> Resul
 fn keeps_a_list_closed_under_the_card_the_pointer_just_reached(page: &Page) -> Result<(), String> {
     loaded(page)?;
     // In one script, so that all of it happens before the hover delay ends.
-    let reached_clicked_closed = "(() => { const card = document.querySelector('#session .card[data-card=Hooks]'); card.dispatchEvent(new PointerEvent('pointerenter')); card.click(); \
+    let reached_clicked_closed = "(() => { const card = document.querySelector('#fold .fold-row[data-card=Hooks]'); card.dispatchEvent(new PointerEvent('pointerenter')); card.click(); \
         const opened = window.vcxChrome.dump().capability?.title ?? null; document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return opened; })()";
 
     let opened = page.eval(reached_clicked_closed)?;

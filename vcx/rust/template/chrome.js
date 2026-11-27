@@ -36,13 +36,15 @@
   // A short dwell, so a pointer crossing the panel opens nothing; a grace, so it can cross from a card to its list.
   const HOVER_OPEN_MS = 60;
   const HOVER_CLOSE_MS = 100;
-  const CARD_COLOR = 'rgb(222 225 229)';
+  const CAPABILITY_GAP_PX = 8;
+  const CAPABILITY_EDGE_PX = 10;
   const ICONS = {
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    chevron: '<path d="m9 18 6-6-6-6"/>',
   };
   // An ERRORS line starts with its date, then a colon or a dash (Swift `capabilityItems`).
   const RULE_DATE = /^[0-9/, -]+?(: | \u2014 )/;
@@ -67,7 +69,8 @@
   const sheet = { open: false, signature: '' };
   const shown = { chips: new Map(), tasks: '', title: '', status: '', request: '', empty: false };
   let popover = null;
-  const capability = { open: null, hovered: null, opening: 0, inPanel: false, choose: null, signature: '' };
+  const capability = { open: null, hovered: null, opening: 0, inPanel: false, signature: '' };
+  const folded = { inside: false };
   let busySince = null;
   let ticking = null;
   let answering = null;
@@ -349,7 +352,7 @@
     status.before(loginPanel());
     status.after(note);
     $('notice').classList.add('pill');
-    const tasks = make('aside');
+    const tasks = make('section');
     tasks.id = 'tasks';
     const header = make('header');
     header.append(make('span', 'name', 'TASKS'), make('span', 'count'));
@@ -361,46 +364,68 @@
     const layer = make('div', 'pop');
     layer.id = 'popover';
     layer.hidden = true;
-    document.body.append(sessionPanel(), tasks, layer, capabilityPanel(), settingsSheet());
+    document.body.append(sessionPanel(tasks), layer, capabilityPanel(), settingsSheet());
   }
 
   function icon(name, className = 'go') {
     return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
   }
 
-  // Swift `sessionPanel`: Settings, a count card for each thing the session loaded, the session's ID to copy.
-  function sessionPanel() {
+  // The left side: Settings as the box that widens on hover (WT-031), dropping a row for each thing the session
+  // loaded, each opening its list beside it; under it every window's task, then the session's ID to copy.
+  function sessionPanel(tasks) {
     const panel = make('aside');
     panel.id = 'session';
-    const settings = button('b b-outline wide', '', openSettings);
+    const fold = make('div', 'fold');
+    fold.id = 'fold';
+    const settings = button('fold-head', '', openSettings);
     settings.id = 'settings-button';
     settings.title = 'Settings (⌘,)';
     settings.innerHTML = `${icon('settings')}<b>SETTINGS</b>`;
-    const bar = make('div', 'bar');
-    const group = make('section', 'bar-group');
-    group.append(...CAPABILITIES.map(([title, label]) => {
-      const card = make('button', 'card');
-      card.type = 'button';
-      card.dataset.card = title;
-      card.dataset.count = '0';
-      card.style.setProperty('--full', CARD_COLOR);
-      card.title = title === 'RAG' ? "ERRORS lines sent with this session's prompts" : `Browse ${title.toLowerCase()}`;
-      const glass = make('span', 'card-glass');
-      glass.ariaHidden = 'true';
-      card.append(glass, make('span', 'name', label));
-      card.addEventListener('pointerenter', () => hoverCapability(title));
-      card.addEventListener('pointerleave', () => leaveCapability(title));
-      return card;
+    const body = make('div', 'fold-body');
+    const rows = make('div');
+    rows.append(...CAPABILITIES.map(([title, label]) => {
+      const row = button('fold-row', '', () => openCapability(title));
+      row.dataset.card = title;
+      row.dataset.count = '0';
+      row.ariaExpanded = 'false';
+      row.title = title === 'RAG' ? "ERRORS lines sent with this session's prompts" : `Browse ${title.toLowerCase()}`;
+      const num = make('span', 'num');
+      num.append(make('span', '', '0'));
+      row.append(make('span', 'name', label), num);
+      row.insertAdjacentHTML('beforeend', icon('chevron'));
+      row.addEventListener('pointerenter', () => hoverCapability(title));
+      row.addEventListener('pointerleave', () => leaveCapability(title));
+      return row;
     }));
-    bar.append(group);
+    body.append(rows);
+    fold.append(settings, body);
+    fold.addEventListener('pointerenter', () => {
+      folded.inside = true;
+      fold.classList.add('open');
+    });
+    fold.addEventListener('pointerleave', () => {
+      folded.inside = false;
+      foldLater();
+    });
+    const slot = make('div', 'fold-slot');
+    slot.append(fold);
     const copy = make('button', 'b b-outline wide');
     copy.type = 'button';
     copy.id = 'session-id';
     copy.innerHTML = `<span><b>SESSION ID</b><b hidden>COPIED</b></span>${icon('copy')}${icon('check').replace('<svg', '<svg hidden')}`;
     copyCheck(copy, () => state.meta.threadID || '');
-    panel.append(settings, bar, copy);
-    capability.choose = cardBar(bar, { onChoose: card => openCapability(card.dataset.card) });
+    panel.append(slot, tasks, copy);
     return panel;
+  }
+
+  // The box folds back once the pointer has left it and the list beside it.
+  function foldLater() {
+    setTimeout(() => {
+      if (folded.inside || capability.inPanel) return;
+      closeCapability();
+      $('fold').classList.remove('open');
+    }, HOVER_CLOSE_MS);
   }
 
   function capabilityPanel() {
@@ -411,6 +436,7 @@
     panel.addEventListener('pointerleave', () => {
       capability.inPanel = false;
       closeCapabilityLater();
+      foldLater();
     });
     return panel;
   }
@@ -934,7 +960,7 @@
   }
 
   function drawSession() {
-    for (const card of $('session').querySelectorAll('.card')) {
+    for (const card of $('fold').querySelectorAll('.fold-row')) {
       const count = String(capabilityCount(card.dataset.card));
       card.dataset.count = count;
       const digits = card.querySelector('.num > span');
@@ -967,8 +993,20 @@
   function openCapability(title) {
     if (capability.open === title) return;
     capability.open = title;
-    capability.choose($('session').querySelector(`.card[data-card="${title}"]`));
+    const row = $('fold').querySelector(`.fold-row[data-card="${title}"]`);
+    for (const other of $('fold').querySelectorAll('.fold-row')) other.ariaExpanded = String(other === row);
     drawCapability(true);
+    placeCapability(row);
+  }
+
+  // Beside the widened box, its middle level with the row's, never above the box's top nor below the window.
+  function placeCapability(row) {
+    const panel = $('capability'), fold = $('fold'), box = fold.getBoundingClientRect(), at = row.getBoundingClientRect();
+    const wide = parseFloat(getComputedStyle(fold).getPropertyValue('--wide'));
+    const middle = at.top + at.height / 2 - panel.offsetHeight / 2;
+    const top = Math.max(CAPABILITY_EDGE_PX, Math.min(Math.max(box.top, middle), innerHeight - panel.offsetHeight - CAPABILITY_EDGE_PX));
+    panel.style.left = `${box.left + wide + CAPABILITY_GAP_PX}px`;
+    panel.style.top = `${top}px`;
   }
 
   function closeCapability() {
@@ -976,10 +1014,7 @@
     capability.open = null;
     // A list closed under a card the pointer just reached stays closed until the pointer comes back.
     clearTimeout(capability.opening);
-    const bar = $('session').querySelector('.bar');
-    bar.querySelector('.card[aria-current]')?.removeAttribute('aria-current');
-    bar.style.setProperty('--cut-a', '0px');
-    bar.style.setProperty('--cut-b', '0px');
+    for (const row of $('fold').querySelectorAll('.fold-row')) row.ariaExpanded = 'false';
     $('capability').hidden = true;
     $('capability').replaceChildren();
   }
@@ -1337,7 +1372,7 @@
       tasks: cards.map(node => ({ text: node.textContent, state: node.dataset.state, current: node.hasAttribute('aria-current') })),
       groups: [...$('tasks').querySelectorAll('.bar-head:not([data-ghost])')].map(node => node.textContent),
       empty: !$('tasks').querySelector('.empty').classList.contains('hidden'),
-      capabilities: [...$('session').querySelectorAll('.card')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.hasAttribute('aria-current') })),
+      capabilities: [...$('fold').querySelectorAll('.fold-row')].map(node => ({ title: node.dataset.card, count: Number(node.dataset.count), open: node.ariaExpanded === 'true' })),
       capability: capability.open && {
         title: capability.open,
         rows: [...$('capability').querySelectorAll('.item:not([hidden])')].map(node => node.innerText.trim().split('\n').filter(Boolean)),
@@ -1353,7 +1388,7 @@
   }
 
   function close(event) {
-    if (capability.open && !event.target.closest('#capability, #session .card')) closeCapability();
+    if (capability.open && !event.target.closest('#capability, #fold')) closeCapability();
     if (!popover || event.target.closest('#popover')) return;
     popover = null;
     drawPopover();

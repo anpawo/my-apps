@@ -4,8 +4,8 @@
    chips WT-034, the single pick WT-046, the table WT-085, the card bar WT-050, the empty state WT-102, the button
    variants WT-033, the search field WT-030, the copy check WT-020, the tabs WT-105, the name and value blocks WT-055, the status line WT-120, the keyboard
    shortcuts WT-121. */
-/* Swift `VCXView`: the session panel, 168 px, then the transcript over the composer, then the task bar. */
-body { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
+/* The side panel, 168 px (Settings, then the task bar), then the transcript over the composer. */
+body { display: grid; grid-template-columns: 168px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
 #transcript { grid-column: 2; grid-row: 1; }
 footer { grid-column: 2; grid-row: 2; }
 
@@ -147,9 +147,8 @@ footer { grid-column: 2; grid-row: 2; }
 #popover .vcx-title { margin-bottom: 2px; }
 #popover .vcx-table td { white-space: nowrap; }
 
-/* The task bar: the card bar down the window's right side. */
-#tasks { grid-column: 3; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 12px; min-width: 200px; max-width: 320px; padding: 22px 16px;
-  overflow-y: auto; border-left: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .02); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+/* The task bar: the card bar in the side panel, under Settings; it scrolls alone when the windows outgrow it. */
+#tasks { flex: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0; margin: 0 -10px; padding: 6px 10px; overflow-y: auto; }
 #tasks header { display: flex; align-items: center; gap: 8px; padding: 0 6px; color: rgb(0 0 0 / .75); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 #tasks header .count { margin-left: auto; color: rgb(0 0 0 / .45); letter-spacing: 0; }
 
@@ -211,8 +210,9 @@ footer { grid-column: 2; grid-row: 2; }
 #tasks .empty.hidden { display: none; }
 
 /* The session panel down the window's left side (Swift `sessionPanel`). */
-#session { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 10px;
-  overflow-y: auto; border-right: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+/* Not clipped: the Settings box widens over the transcript. */
+#session { position: relative; z-index: 40; grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
+  padding: 10px; border-right: 1px solid rgb(0 0 0 / .07); background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
 /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
 /* Nested under the panel, so the composer's own .b buttons keep their look. */
 :is(#session, #capability, #settings) {
@@ -252,9 +252,37 @@ footer { grid-column: 2; grid-row: 2; }
 #session .b.wide { width: 100%; justify-content: flex-start; height: 38px; padding: 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
 #session .b.wide svg { width: 13px; height: 13px; }
 #capability .b-ghost:hover, #settings .b-ghost:hover { background-color: rgb(0 0 0 / .06); }
-#session .bar { padding: 8px; }
-#session .card { gap: 8px; padding: 9px 10px; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
-#session .card .num { order: 2; margin-left: auto; font: 600 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; }
+
+/* ---- Effect: settings box that widens on hover. Copy from here ---- */
+/* WT-031 (the recon dashboard's Settings): the box shows its gear and its name alone; under the pointer it widens over
+   the page and drops its parts, with a shadow that sets it over the page; a part under the pointer opens its list
+   beside it (#capability, placed by the script). Light glass here, where the template is dark; opened from the keyboard
+   only (:focus-visible), so a clicked row does not hold it open after the pointer leaves. */
+/* Above the task bar it widens over. */
+.fold-slot { position: relative; z-index: 2; flex: none; height: 38px; }
+#fold { --wide: 236px; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; width: 100%; overflow: hidden;
+  border: 1px solid #c5cbd3; border-radius: 12px; background: #fff; color: rgb(28 33 39 / .7);
+  transition: width var(--open, 300ms) ease-out, box-shadow var(--open, 300ms) ease-out; }
+#fold .fold-head { display: flex; align-items: center; gap: 8px; width: var(--wide); height: 36px; padding: 0 12px; border: 0; background: none;
+  color: #1c2127; font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; white-space: nowrap; cursor: pointer; outline: none; }
+#fold .fold-head:focus-visible { box-shadow: inset 0 0 0 2px #4c90f0; border-radius: 12px; }
+#fold svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#fold .fold-body { display: grid; grid-template-rows: minmax(0, 0fr); opacity: 0;
+  transition: grid-template-rows var(--open, 300ms) ease-out, opacity var(--open, 300ms) ease-out; }
+#fold .fold-body > div { display: flex; flex-direction: column; gap: 2px; width: calc(var(--wide) - 2px); min-height: 0; overflow: hidden; padding: 0 6px 6px; }
+#fold.open, #fold:has(:focus-visible) { width: var(--wide); box-shadow: 0 12px 32px -4px rgb(0 0 0 / .18), 0 4px 10px rgb(0 0 0 / .08); }
+#fold.open .fold-body, #fold:has(:focus-visible) .fold-body { grid-template-rows: minmax(0, 1fr); opacity: 1; }
+#fold .fold-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px; border: 0; border-radius: 6px; background: none; color: inherit;
+  font: 700 11px/16px Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; text-align: left; cursor: pointer; outline: none;
+  transition: background-color 150ms, color 150ms; }
+#fold .fold-row:hover { background: rgb(0 0 0 / .05); }
+#fold .fold-row[aria-expanded=true] { background: rgb(0 0 0 / .08); color: #1c2127; }
+#fold .fold-row:focus-visible { box-shadow: 0 0 0 2px #4c90f0; }
+#fold .fold-row .name { flex: 1; }
+#fold .fold-row .num { font: 600 11px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+#fold .fold-row svg { width: 12px; height: 12px; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { #fold, #fold .fold-body, #fold .fold-row { transition: none; } }
+/* ---- End of effect ---- */
 /* ---- Effect: copy to checkmark. Copy from here ---- */
 #session-id [hidden] { display: none; }
 /* ---- End of effect ---- */
@@ -262,7 +290,7 @@ footer { grid-column: 2; grid-row: 2; }
 #session-id svg { order: -1; }
 
 /* A capability's list beside the session panel (Swift `CapabilityPopup`): the bar dialog's glass, the search field. */
-#capability { position: fixed; z-index: 45; top: 10px; left: 176px; display: flex; flex-direction: column; width: 380px; height: min(440px, calc(100vh - 20px));
+#capability { position: fixed; z-index: 45; top: 10px; left: 254px; transition: top 200ms ease-out; display: flex; flex-direction: column; width: 380px; height: min(440px, calc(100vh - 20px));
   border-radius: 12px; box-shadow: 0 0 0 1px rgb(28 33 39 / .1), 0 10px 24px rgb(0 0 0 / .14); background: rgb(250 250 250 / .97);
   font: 13px/1.45 -apple-system, system-ui, sans-serif; animation: capability-in 200ms cubic-bezier(.32, .72, 0, 1); }
 #capability[hidden] { display: none; }
