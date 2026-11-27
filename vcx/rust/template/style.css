@@ -13,6 +13,8 @@
   --column: none;
   /* The chat runs edge to edge, kept off the window's edge and the side panel by the panel's own 7 px margin. */
   --gutter: 7px;
+  /* Three gutters between the side panel and the chat, so the chat does not touch the panel. */
+  --side-gap: 21px;
   --accent: rgb(110 59 191);
   --accent-wash: rgb(110 59 191 / 0.08);
   --accent-wash-strong: rgb(110 59 191 / 0.1);
@@ -32,7 +34,7 @@
 html, body { height: 100%; margin: 0; }
 body { display: flex; flex-direction: column; }
 
-#transcript { --transcript-top: 28px; flex: 1; overflow-y: auto; padding: var(--transcript-top) var(--gutter) 12px; }
+#transcript { --transcript-top: 28px; flex: 1; overflow-y: auto; padding: var(--transcript-top) var(--gutter) 12px var(--side-gap); }
 #rows, footer > * { width: 100%; max-width: var(--column); margin-inline: auto; }
 #rows { display: flex; flex-direction: column; gap: 24px; }
 /* Swift's empty conversation: the accent sparkle, a bold line and what VCX is for. */
@@ -289,7 +291,7 @@ details > summary::-webkit-details-marker { display: none; }
 .question-hint { color: rgb(0 0 0 / 0.5); font-size: 11px; }
 #question .secret { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 
-footer { padding: 8px var(--gutter) 20px; }
+footer { padding: 8px var(--gutter) 20px var(--side-gap); }
 #status { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background 200ms ease-out; }
 #dot.ready { background: var(--ready); }
