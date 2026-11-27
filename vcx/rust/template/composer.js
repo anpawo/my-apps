@@ -7,17 +7,16 @@
   // A pasted text this long folds into a chip, as in the Swift composer (`Composer.swift`, `paste(from:)`).
   const PASTE_FOLD_CHARACTERS = 20;
   const DRAFT_SAVE_DELAY_MS = 250;
-  // The send flight, as in the Swift `SendAnimation`: a spring of 0.42 s with a 0.08 bounce, landed after 0.6 s; the
-  // composer's shade blends into the bubble's in 0.18 s; a send waits 5 s for its row.
-  const FLIGHT_MS = 420;
-  const FLIGHT_BOUNCE = 0.08;
-  const FLIGHT_LAND_MS = 600;
-  const FLIGHT_BLEND_MS = 180;
+  // The send flight, as One Text's `fly`: 380 ms on an ease-out of the fourth power; a send waits 5 s for its row.
+  const FLIGHT_MS = 380;
+  const FLIGHT_EASE_POWER = 4;
   const FLIGHT_WAIT_MS = 5000;
-  const FLIGHT_SAMPLES = 40;
+  const FLIGHT_FRAME_GRACE_MS = 100;
   // The flying box's frame stands 16 pt around the text it carries, and the destination keeps 28 pt above the viewport's foot.
   const FLIGHT_INSET_PX = 16;
   const FLIGHT_FOOT_PX = 28;
+  const COMPOSER_RADIUS_PX = 18;
+  const BUBBLE_RADIUS_PX = 17;
   // The palette's list: at most 250 pt, and 90 pt short of the transcript's height (Swift `maxListHeight`).
   const PALETTE_LIST_MAX_PX = 250;
   const PALETTE_LIST_MIN_PX = 40;
@@ -851,29 +850,17 @@
     refresh();
   }
 
-  // SwiftUI's `.spring(duration:bounce:)` as CSS `linear()` points: a damping ratio of 1 - bounce, sampled until it lands.
-  function springEasing() {
-    const omega = (2 * Math.PI) / (FLIGHT_MS / 1000);
-    const zeta = 1 - FLIGHT_BOUNCE;
-    const damped = omega * Math.sqrt(1 - zeta * zeta);
-    const points = [];
-    for (let n = 0; n <= FLIGHT_SAMPLES; n += 1) {
-      const t = (n / FLIGHT_SAMPLES) * (FLIGHT_LAND_MS / 1000);
-      const x = n === FLIGHT_SAMPLES ? 1 : 1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
-      points.push(x.toFixed(4));
-    }
-    return `linear(${points.join(', ')})`;
-  }
-
   function endFlight() {
     clearTimeout(flight?.timer);
     flight = null;
     form.classList.remove('flying');
   }
 
-  // The sent message's bubble grows out of the composer (Swift's `FlyingMessage`): a box from the composer's text,
-  // 16 pt around it, springs to the bubble's frame while the composer's grey blends into the bubble's tint. A message
-  // taller than the transcript lands on its last lines. One already shown before the send never flies.
+  // The sent message leaves the composer as its bubble (One Text's `fly`, Swift's `FlyingMessage`): a copy of the bubble
+  // goes from the composer's text, 16 pt around it, to the bubble's place, which it tracks every frame while the
+  // transcript scrolls and the composer shrinks; the composer's grey blends into the bubble's tint on the way. The bubble
+  // stays hidden until the copy lands on it. A message taller than the transcript lands on its last lines. One already
+  // shown before the send never flies.
   function prepareFlight(text, images) {
     endFlight();
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -881,6 +868,16 @@
     const origin = { left: box.left - FLIGHT_INSET_PX, top: box.top - FLIGHT_INSET_PX, width: box.width + 2 * FLIGHT_INSET_PX, height: box.height + 2 * FLIGHT_INSET_PX };
     flight = { text, images, previous: new Set(prompts.keys()), origin, sent: performance.now(), timer: setTimeout(endFlight, FLIGHT_WAIT_MS) };
     form.classList.add('flying');
+  }
+
+  // Where the bubble shows in the transcript now, kept 28 pt above its foot, and whether only its last lines fit.
+  function landing(bubble) {
+    const measured = bubble.getBoundingClientRect();
+    const view = ($('transcript') || document.body).getBoundingClientRect();
+    const lift = Math.min(0, view.bottom - FLIGHT_FOOT_PX - measured.bottom);
+    const top = Math.max(measured.top + lift, view.top);
+    const bottom = Math.max(top, Math.min(measured.bottom + lift, view.bottom));
+    return { left: measured.left, top, width: measured.width, height: bottom - top, tall: bottom - top < measured.height };
   }
 
   function land() {
@@ -891,39 +888,54 @@
     const bubble = id && document.querySelector(`[data-row="${CSS.escape(id)}"] .bubble`);
     if (!bubble) return;
     const { origin } = flight;
-    const measured = bubble.getBoundingClientRect();
-    if (measured.width === 0) return endFlight();
-    const view = ($('transcript') || document.body).getBoundingClientRect();
-    const lift = Math.min(0, view.bottom - FLIGHT_FOOT_PX - measured.bottom);
-    const top = Math.max(measured.top + lift, view.top);
-    const bottom = Math.min(measured.bottom + lift, view.bottom);
-    if (bottom <= top) return endFlight();
-    const target = { left: measured.left, top, width: measured.width, height: bottom - top };
-    const tall = target.height < measured.height;
-    const easing = springEasing();
-    const ghost = flyingBox(bubble, measured, tall);
-    const frame = rect => ({ transform: `translate(${rect.left}px, ${rect.top}px)`, width: `${rect.width}px`, height: `${rect.height}px` });
-    ghost.animate([{ ...frame(origin), borderRadius: '18px' }, { ...frame(target), borderRadius: '17px' }], { duration: FLIGHT_LAND_MS, easing, fill: 'forwards' });
-    ghost.querySelector('.flight-shade').animate({ opacity: [1, 0] }, { duration: FLIGHT_BLEND_MS, easing: 'ease-out', fill: 'forwards' });
-    // The bubble itself travels hidden under the box and shows as the box lands on it.
-    const from = `translate(${origin.left - target.left}px, ${origin.top - target.top}px)`;
-    bubble.animate([{ transform: from, opacity: 0 }, { transform: 'none', opacity: 0, offset: 0.99 }, { transform: 'none', opacity: 1 }], { duration: FLIGHT_LAND_MS, easing });
-    setTimeout(() => {
+    endFlight();
+    const first = landing(bubble);
+    if (first.width === 0 || first.height === 0) return;
+    const ghost = flyingBox(bubble, first, id);
+    const shade = ghost.querySelector('.flight-shade');
+    // The row can be drawn again mid-flight (the provider's echo): its bubble is looked up on every frame.
+    const selector = `[data-row="${CSS.escape(id)}"] .bubble`;
+    let target = bubble;
+    target.style.visibility = 'hidden';
+    const started = performance.now();
+    let landed = false;
+    const finish = () => {
+      if (landed) return;
+      landed = true;
+      target.style.visibility = '';
       ghost.remove();
-      if (flight) endFlight();
-    }, FLIGHT_LAND_MS);
-    clearTimeout(flight.timer);
-    flight = null;
-    form.classList.remove('flying');
+    };
+    // A hidden or covered window gets no frames: the bubble shows once the flight's time is up whatever was drawn.
+    setTimeout(finish, FLIGHT_MS + FLIGHT_FRAME_GRACE_MS);
+    const step = now => {
+      if (landed) return;
+      const progress = Math.min(1, (now - started) / FLIGHT_MS);
+      const eased = 1 - (1 - progress) ** FLIGHT_EASE_POWER;
+      const mix = (from, to) => from + (to - from) * eased;
+      const current = document.querySelector(selector);
+      if (current && current !== target) {
+        target.style.visibility = '';
+        target = current;
+        target.style.visibility = 'hidden';
+      }
+      const to = target.isConnected ? landing(target) : first;
+      Object.assign(ghost.style, { left: `${mix(origin.left, to.left)}px`, top: `${mix(origin.top, to.top)}px`, width: `${mix(origin.width, to.width)}px`,
+        height: `${mix(origin.height, to.height)}px`, borderRadius: `${mix(COMPOSER_RADIUS_PX, BUBBLE_RADIUS_PX)}px` });
+      shade.style.opacity = String(1 - eased);
+      if (progress < 1) return void requestAnimationFrame(step);
+      finish();
+    };
+    step(started);
   }
 
-  // A copy of the bubble's content at its own width, over the composer's grey, clipped by the box that springs.
-  function flyingBox(bubble, measured, tall) {
+  // A copy of the bubble's content at its own width, so it never rewraps, over the composer's grey.
+  function flyingBox(bubble, first, id) {
     const ghost = make('div', `${bubble.className} flight-box`);
+    ghost.dataset.flight = id;
     ghost.setAttribute('aria-hidden', 'true');
-    Object.assign(ghost.style, { position: 'fixed', left: '0', top: '0', margin: '0', padding: '0', boxSizing: 'border-box', overflow: 'hidden', zIndex: '40', pointerEvents: 'none' });
+    Object.assign(ghost.style, { position: 'fixed', margin: '0', padding: '0', boxSizing: 'border-box', overflow: 'hidden', zIndex: '40', pointerEvents: 'none', transform: 'none' });
     const content = make('div');
-    Object.assign(content.style, { position: 'absolute', left: `${FLIGHT_INSET_PX}px`, width: `${measured.width - 2 * FLIGHT_INSET_PX}px`, [tall ? 'bottom' : 'top']: `${FLIGHT_INSET_PX}px` });
+    Object.assign(content.style, { position: 'absolute', left: `${FLIGHT_INSET_PX}px`, width: `${first.width - 2 * FLIGHT_INSET_PX}px`, [first.tall ? 'bottom' : 'top']: `${FLIGHT_INSET_PX}px` });
     for (const child of bubble.children) if (!child.matches('button')) content.append(child.cloneNode(true));
     const shade = make('div', 'flight-shade');
     Object.assign(shade.style, { position: 'absolute', inset: '0', background: 'linear-gradient(rgb(0 0 0 / .065), rgb(0 0 0 / .065)), var(--page, #fff)' });
@@ -936,8 +948,8 @@
     window.vcxRun?.receive(message);
     if (message.type === 'full' || message.type === 'patch') {
       track(message);
-      // After app.js has drawn the rows of this message.
-      if (flight) setTimeout(land, 0);
+      // After app.js has drawn the rows of this message, before the page paints them.
+      if (flight) queueMicrotask(land);
       if (message.meta) describe(message.meta);
       takeDraft(message.draft, message.draftGeneration, message.type === 'full');
     } else if (message.type === 'files') filesArrived(message);

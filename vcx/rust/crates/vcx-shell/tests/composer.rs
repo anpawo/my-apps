@@ -335,14 +335,13 @@ fn glides_the_sent_message_from_the_composer_into_the_transcript(page: &Page) ->
 
     page.deliver(json!({"type": "full", "serial": 2, "meta": {"ready": true}, "rows": [user_row("u1", "glide", json!([]))], "draft": []}))?;
 
-    page.wait("the sent bubble to glide", |page| page.eval("document.querySelector('[data-row=u1] .bubble')?.getAnimations().length > 0").is_ok_and(|gliding| gliding == true))?;
-    let settle = Instant::now() + QUIET;
-    while Instant::now() < settle {
-        spin();
-    }
-    // The glide's transform stretches the transcript's scroll height; following that stretch threw the bubble off the top.
-    let past = page.eval("(() => { const t = document.getElementById('transcript'), top = t.scrollTop; document.querySelector('[data-row=u1] .bubble').getAnimations().forEach(a => a.cancel()); return top - (t.scrollHeight - t.clientHeight); })()")?;
-    check(past.as_f64().is_some_and(|past| past <= 1.0), format!("the transcript scrolled {past} px past its rows while the bubble glided"))
+    let hidden = "document.querySelector('[data-row=u1] .bubble')?.style.visibility === 'hidden'";
+    page.wait("the sent bubble to fly", |page| page.eval(&format!("document.querySelector('.flight-box[data-flight=u1]') !== null && {hidden}")).ok() == Some(json!(true)))?;
+    page.wait("the flight to land", |page| page.eval(&format!("document.querySelector('.flight-box') === null && !({hidden})")).ok() == Some(json!(true)))?;
+
+    // The flying copy stands outside the transcript: following its end never throws the bubble off the top.
+    let past = page.eval("(() => { const t = document.getElementById('transcript'); return t.scrollTop - (t.scrollHeight - t.clientHeight); })()")?;
+    check(past.as_f64().is_some_and(|past| past <= 1.0), format!("the transcript scrolled {past} px past its rows while the bubble flew"))
 }
 
 fn sends_with_a_real_click_and_keeps_the_caret_in_the_composer(page: &Page) -> Result<(), String> {
@@ -688,16 +687,16 @@ fn flies_the_sent_message_into_its_new_bubble_only(page: &Page) -> Result<(), St
 
     page.deliver(json!({"type": "patch", "rows": [user_row("R2", "Send this", json!([]))]}))?;
 
-    let flying = "(id => { const bubble = document.querySelector(`[data-row=\"${id}\"] .bubble`); return bubble ? bubble.getAnimations().map(motion => motion.effect.getKeyframes()[0].transform) : null; })";
+    let flights = "[...document.querySelectorAll('.flight-box')].map(box => box.dataset.flight)";
     let deadline = Instant::now() + WAIT;
-    let mut moved = page.eval(&format!("{flying}('R2')"))?;
+    let mut moved = page.eval(flights)?;
     while moved.as_array().is_none_or(Vec::is_empty) && Instant::now() < deadline {
         spin();
-        moved = page.eval(&format!("{flying}('R2')"))?;
+        moved = page.eval(flights)?;
     }
-    let old = page.eval(&format!("{flying}('R1')"))?;
-    check(moved.as_array().is_some_and(|motions| motions.len() == 1 && motions[0].as_str().is_some_and(|from| from.starts_with("translate("))), format!("the new bubble moved {moved}"))?;
-    check(old == json!([]), format!("the bubble already there moved {old}"))
+    let old = page.eval("document.querySelector('[data-row=R1] .bubble').style.visibility")?;
+    check(moved == json!(["R2"]), format!("the flying bubbles {moved}"))?;
+    check(old == json!(""), format!("the bubble already there was hidden: {old}"))
 }
 
 /// The report's stop rule for slice 3: marked text, paste, undo and focus in one run of the page composer.
