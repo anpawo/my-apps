@@ -931,7 +931,71 @@ fn sends_nothing_for_a_block_edited_back_to_its_original(page: &Page) -> Result<
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 38] = [
+fn tints_a_typed_command_and_locks_it_once_a_space_follows(page: &Page) -> Result<(), String> {
+    let marks = "[...document.querySelectorAll('#composer .marks span')].map(span => `${span.className}:${span.textContent}`)";
+
+    page.keys("/status")?;
+    page.value("/status")?;
+    let typed = page.eval(marks)?;
+    page.keys(" now /nothing")?;
+    page.value("/status now /nothing")?;
+    let locked = page.eval(marks)?;
+
+    check(typed == json!(["command:/status"]), format!("typed {typed}"))?;
+    check(locked == json!(["locked:/status"]), format!("locked {locked}"))
+}
+
+fn shows_the_draft_pictures_above_the_composer_with_their_numbers(page: &Page) -> Result<(), String> {
+    let items = json!([{"kind": "image", "path": "/tmp/a.png"}, {"kind": "image", "path": "/tmp/b.png"}]);
+
+    page.deliver(json!({"type": "attach", "items": items}))?;
+    page.value("[Image #1] [Image #2]")?;
+
+    let names = page.eval("(() => { const row = document.getElementById('draft-pictures'); return row.hidden ? null : [...row.querySelectorAll('.picture .name')].map(name => name.textContent); })()")?;
+    check(names == json!(["Image #1", "Image #2"]), format!("pictures {names}"))
+}
+
+fn hides_the_placeholder_while_the_sent_message_flies(page: &Page) -> Result<(), String> {
+    let flying = "document.getElementById('composer').classList.contains('flying')";
+    page.keys("fly")?;
+    page.value("fly")?;
+
+    page.press(Key::Return, NONE)?;
+    page.next("send")?;
+    let during = page.eval(flying)?;
+    page.deliver(json!({"type": "full", "serial": 2, "meta": {"ready": true}, "rows": [user_row("f1", "fly", json!([]))], "draft": []}))?;
+    page.wait("the box to fly from the composer", |page| page.eval("document.querySelectorAll('.flight-box').length").ok() == Some(json!(1)))?;
+    let start = page.eval("(() => { const box = document.querySelector('.flight-box').getBoundingClientRect(), field = document.querySelector('#composer .field').getBoundingClientRect(); return box.width > field.width; })()")?;
+    page.wait("the box to land and go", |page| page.eval("document.querySelectorAll('.flight-box').length").ok() == Some(json!(0)))?;
+
+    check(during == json!(true) && page.eval(flying)? == json!(false), format!("flying during the send: {during}"))?;
+    check(start == json!(true), "the flying box did not start around the composer's text")
+}
+
+fn splits_resume_rows_with_no_detail_by_a_hairline(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"ready": true, "recent": [{"id": "a", "title": "First"}, {"id": "b", "title": "Second"}, {"id": "c", "title": "Third"}]}}))?;
+
+    page.keys("/resume ")?;
+    page.value("/resume ")?;
+    page.state("the saved conversations", |state| state["palette"]["options"] == json!(["First", "Second", "Third"]))?;
+
+    let dividers = page.eval("document.querySelectorAll('#palette .palette-divider').length")?;
+    check(dividers == json!(2), format!("dividers {dividers}"))
+}
+
+fn names_what_a_model_alias_runs_in_the_model_palette_opened_from_its_chip(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"ready": true, "providerLabel": "Claude", "model": "claude-opus-5-5", "models": ["opus", "haiku"], "modelAliases": {"opus": "claude-opus-5-5"}}}))?;
+
+    page.eval("window.composer.openCommand('/model ')")?;
+    page.state("the providers", |state| state["value"] == "/model " && state["palette"]["options"][0] == "Claude")?;
+    page.eval("window.composer.openCommand('/model claude ')")?;
+
+    let models = page.state("the models", |state| state["palette"]["options"] == json!(["opus · Opus 5.5", "haiku"]))?;
+    let detail = page.eval("document.querySelector('#palette .palette-option-detail').textContent")?;
+    check(models["palette"]["selected"] == 0 && detail == "claude-opus-5-5", format!("{models}, detail {detail}"))
+}
+
+const TESTS: [(&str, Test); 43] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
@@ -970,6 +1034,11 @@ const TESTS: [(&str, Test); 38] = [
     ("sends an edited block once with the next prompt in Swift's words", sends_an_edited_block_once_with_the_next_prompt_in_swift_words),
     ("fences a block holding a fence with four backticks and sends each edit in order", fences_a_block_holding_a_fence_with_four_backticks_and_sends_each_edit_in_order),
     ("sends nothing for a block edited back to its original", sends_nothing_for_a_block_edited_back_to_its_original),
+    ("tints a typed command and locks it once a space follows", tints_a_typed_command_and_locks_it_once_a_space_follows),
+    ("shows the draft pictures above the composer with their numbers", shows_the_draft_pictures_above_the_composer_with_their_numbers),
+    ("hides the placeholder while the sent message flies", hides_the_placeholder_while_the_sent_message_flies),
+    ("splits resume rows with no detail by a hairline", splits_resume_rows_with_no_detail_by_a_hairline),
+    ("names what a model alias runs in the model palette opened from its chip", names_what_a_model_alias_runs_in_the_model_palette_opened_from_its_chip),
 ];
 
 fn main() -> ExitCode {

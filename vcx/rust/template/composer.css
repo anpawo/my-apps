@@ -1,91 +1,80 @@
-/* The composer. Each element is one of his web templates (~/self/templates/web), copied between its effect markers,
-   then scoped to the composer's own ids and classes and given light colours where the template is dark: the box is
-   the text area that grows WT-035, the send and stop buttons the button variants WT-033, the chips the address
-   pills WT-061, the / and @ list the command palette WT-089. The list's key hints and a chip's remove button have no
-   template and are drawn in their style. */
+/* The composer, drawn as the Swift composer (`Views.swift` `composer`, `CommandPalette`, `Keycap`, `RoundButton`,
+   `Reactive`; `Composer.swift` for its text): a shaded box around monospaced text, round send and stop buttons, the
+   command palette above it. SwiftUI shadow radii are doubled into CSS blur radii. */
 footer { position: relative; }
 
-/* ---- Effect: text area that grows. Copy from here ---- */
-/* The recon dashboard's text area (ui/textarea.tsx): radius 10, a faint fill and a grey border, its focus the same
-   blue ring as the fields. It is as tall as its text, and its height eases to each new line. Here the border and the
-   ring are the composer's, around the text, its chips and its buttons. */
-#composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid #c5cbd3; border-radius: 10px;
-  background: rgb(255 255 255 / .6);
-  transition: border-color 150ms cubic-bezier(.4, 0, .2, 1), box-shadow 150ms cubic-bezier(.4, 0, .2, 1); }
-#composer:focus-within { border-color: var(--ring, #4c90f0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring, #4c90f0) 50%, transparent); }
-#input { flex: 1; align-self: center; min-width: 0; padding: 6px 0; border: 0; resize: none; overflow: hidden; background: none; color: #1c2127;
-  font: 14px/20px Inter, -apple-system, system-ui, sans-serif; outline: none; transition: height var(--grow, 200ms) ease-out; }
-#input::placeholder { color: #8f99a8; }
-@media (prefers-reduced-motion: reduce) { #composer, #input { transition-duration: 1ms; } }
-/* ---- End of effect ---- */
+/* The box: black 6.5 % on the page, a 9 % hairline, radius 18, padding 14, no shadow and no focus ring. */
+#composer { --mono: ui-monospace, "SF Mono", Menlo, monospace; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 14px;
+  border: 1px solid rgb(0 0 0 / .09); border-radius: 18px; background: rgb(0 0 0 / .065); }
+/* The text and the marks under it share one cell: the marks layer draws a command's tint and chip behind the letters. */
+#composer > .field { position: relative; display: flex; flex: 1; align-self: flex-end; min-width: 0; }
+#input, #composer .marks { box-sizing: border-box; margin: 0; padding: 4px 5px; border: 0; font: 12px/16px var(--mono); letter-spacing: 0;
+  white-space: pre-wrap; overflow-wrap: break-word; tab-size: 8; }
+#input { flex: 1; min-width: 0; resize: none; overflow: hidden; background: none; color: #000; caret-color: #000; outline: none;
+  transition: height var(--grow, 200ms) ease-out; }
+#input::placeholder { color: rgb(0 0 0 / .6); opacity: 1; }
+/* Hidden while the sent message flies, as Swift's `showsPlaceholder`. */
+#composer.flying #input::placeholder { color: transparent; }
+#composer .marks { position: absolute; inset: 0; overflow: hidden; color: transparent; pointer-events: none; user-select: none; }
+/* A "/word" naming a command, while typed; once a space follows it, it is locked into a chip (Swift `CommandChip`). */
+#composer .marks .command { background: rgb(110 59 191 / .16); }
+#composer .marks .locked { background: rgb(0 0 0 / .09); }
+@media (prefers-reduced-motion: reduce) { #input { transition-duration: 1ms; } }
 
-/* ---- Effect: button in the dashboard's variants. Copy from here ---- */
-/* The recon dashboard's button (ui/button.tsx): 32 px tall, radius 10, an icon 16 px. Under the pointer its fill steps
-   up; pressed, it sinks 1 px; with the keyboard, a blue ring. Send is the default variant, stop the destructive one. */
-#composer > .b { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
-  border: 1px solid transparent; border-radius: 10px; background-clip: padding-box; color: #fff; cursor: pointer; outline: none; user-select: none;
-  transition: all var(--dur, 150ms) cubic-bezier(.4, 0, .2, 1); }
+/* Send and stop: 34 px circles lifted by a white base's shadow; hover tints black 5 % in 0.12 s, a press 10 % and
+   pulls the edges in 6 px (scale .94 at most) in 0.08 s (Swift `Reactive`). */
+#composer > .b { --tint: 0; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 0;
+  border-radius: 50%; cursor: pointer; outline: none; user-select: none;
+  box-shadow: inset 0 0 0 17px rgb(0 0 0 / var(--tint)), 0 2px 6px rgb(0 0 0 / .22);
+  transition: box-shadow 120ms ease-out, scale 80ms ease-out, opacity 120ms ease-out; }
 #composer > .b[hidden] { display: none; }
-#composer > .b svg { width: 16px; height: 16px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#composer > .b:active { translate: 0 1px; }
-#composer > .b:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
-.b-default { background-color: #2d72d2; }
-.b-default:hover { background-color: rgb(45 114 210 / .8); }
-.b-destructive { background-color: rgb(231 106 110 / .2); color: #e76a6e; }
-#composer > .b-destructive { color: #c23030; }
-.b-destructive:hover { background-color: rgb(231 106 110 / .3); }
-#composer > .b-destructive:focus-visible { border-color: rgb(231 106 110 / .4); box-shadow: 0 0 0 3px rgb(231 106 110 / .4); }
-#composer > #stop svg { fill: currentColor; stroke: none; }
-@media (prefers-reduced-motion: reduce) { #composer > .b { transition-duration: 1ms; } #composer > .b:active { translate: none; } }
-/* ---- End of effect ---- */
+#composer > .b:hover { --tint: .05; }
+#composer > .b:active { --tint: .1; scale: .94; }
+#composer > .b:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#composer > .b svg { flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+#send { background: linear-gradient(to bottom right, rgb(237 59 130), rgb(140 77 255)); color: #fff; }
+#send svg { width: 20px; height: 20px; stroke-width: 2.2; }
+#send.dim { opacity: .5; }
+#stop { background: linear-gradient(rgb(0 0 0 / .07), rgb(0 0 0 / .07)), #fff; color: #000; }
+#stop svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+@media (prefers-reduced-motion: reduce) { #composer > .b:active { scale: none; } }
 
-/* ---- Effect: address pills pack onto the fewest lines. Copy from here ---- */
-/* The recon dashboard's draft mail (mail.tsx, People, Pills, usePacked): the pills sit on the fewest lines (widest
-   first, each on the first line with room); a pill that moves glides to its new place. Grey for a file, blue for a
-   folder, violet for a picture, green for a folded paste. */
-.attachments { display: flex; flex-wrap: wrap; flex-basis: 100%; align-items: center; gap: 4px; min-width: 0; margin: 0; padding-top: 2px; line-height: 24px;
-  font: 12px/24px Inter, -apple-system, system-ui, sans-serif; }
-/* As in the Swift composer, an image or a paste shows only as its token in the text ("[Image #1]"): no pill above it. */
+/* The draft's pictures above the box, as Swift's `PictureView` row (the `.picture` look is the transcript's). */
+#draft-pictures { display: flex; gap: 8px; margin-bottom: 12px; overflow: auto hidden; scrollbar-width: none; }
+#draft-pictures[hidden] { display: none; }
+#draft-pictures .picture { flex: none; }
+#draft-pictures .picture .expand { width: 10px; height: 10px; opacity: .5; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The chips' data: an image or a paste shows only as its token in the text ("[Image #1]"), as in the Swift composer. */
 .attachments, .attachments[hidden] { display: none; }
-.attachment { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 4px 2px 10px; border-radius: 999px; line-height: 20px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1c2127; }
-.attachment.file { background: rgb(28 33 39 / .08); }
-.attachment.paste { background: var(--added-bg, oklch(96.2% .044 156.743)); color: var(--added-ink, oklch(39.3% .095 152.535)); }
-.attachment.folder { background: oklch(93.2% .032 255.585); color: oklch(37.9% .146 265.522); }
-.attachment.image { background: oklch(94.3% .029 294.588); color: oklch(38% .189 293.745); }
-.attachment svg { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-/* ---- End of effect ---- */
-.attachment img { width: 18px; height: 18px; margin-left: -6px; border-radius: 999px; object-fit: cover; }
-.attachment-label { overflow: hidden; text-overflow: ellipsis; }
-/* New, in the pills' style: the round remove button at a pill's end, as the pills' + is round. */
-.attachment-remove { display: grid; place-items: center; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: none;
-  color: inherit; opacity: .6; cursor: pointer; transition: background-color 150ms cubic-bezier(.4, 0, .2, 1), opacity 150ms cubic-bezier(.4, 0, .2, 1); }
-.attachment-remove:hover { background: rgb(28 33 39 / .1); opacity: 1; }
-.attachment-remove:active { translate: 0 1px; }
 
-/* ---- Effect: command palette. Copy from here ---- */
-/* shadcn/ui's CommandDialog (cmdk, new-york v4) in its light theme: it fades in from 95 % in 200 ms; typing narrows
-   the items, the first match is highlighted, arrow keys and the pointer move the highlight, Enter runs it. Here the
-   composer is its input, so it opens above the composer with no input row and no veil. */
-#palette { --popover: oklch(1 0 0); --foreground: oklch(0.145 0 0); --border: oklch(0.922 0 0); --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0); --radius: 0.625rem;
-  position: absolute; z-index: 50; left: 24px; right: 24px; bottom: calc(100% - 4px); max-width: var(--column); margin-inline: auto; overflow: hidden;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); color: var(--foreground); transform-origin: bottom center;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); font: 14px/1.43 Inter, -apple-system, system-ui, sans-serif; }
+/* The command palette: white, radius 14, an accent hairline, a soft shadow, monospaced names. */
+#palette { position: absolute; z-index: 50; left: 24px; right: 24px; bottom: calc(100% + 8px); max-width: var(--column); margin-inline: auto; overflow: hidden;
+  border: 1px solid rgb(110 59 191 / .22); border-radius: 14px; background: #fff; color: #000; box-shadow: 0 8px 44px rgb(0 0 0 / .12);
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
 #palette:not(.open) { display: none; }
-.palette-list { max-height: 300px; overflow: hidden auto; scroll-padding: 4px 0; padding: 4px 8px; }
-.palette-head { display: flex; align-items: baseline; gap: 6px; padding: 6px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
-.palette-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: default; user-select: none; }
-.palette-option.selected { background: var(--accent); }
-.palette-option-source { flex: none; margin-left: auto; font: 12px/1 Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; color: var(--muted-foreground); }
-.palette-sep { height: 1px; margin: 0 -1px; background: var(--border); }
-.palette-option-none { padding: 24px 0; text-align: center; }
-/* ---- End of effect ---- */
-.palette-count { font-variant-numeric: tabular-nums; }
-.palette-option-text { flex: 1; min-width: 0; }
+.palette-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; }
+.palette-head svg { width: 13px; height: 13px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.palette-title { font-weight: 600; }
+.palette-count, .palette-esc { font: 10px ui-monospace, "SF Mono", Menlo, monospace; color: rgb(0 0 0 / .6); font-variant-numeric: tabular-nums; }
+.palette-esc { margin-left: auto; }
+.palette-sep { height: 1px; background: rgb(0 0 0 / .03); }
+.palette-list { max-height: var(--list-max, 250px); overflow: hidden auto; scroll-padding: 6px 0; padding: 6px; }
+.palette-option { display: flex; align-items: center; gap: 12px; margin-top: 3px; padding: 9px 10px; border-radius: 8px; cursor: default; user-select: none;
+  transition: background-color 120ms ease-out; }
+.palette-option:first-child { margin-top: 0; }
+.palette-option:hover { background: rgb(0 0 0 / .05); }
+.palette-option.selected { background: rgb(110 59 191 / .17); }
+/* Rows with no detail line, as /resume's, are 38 px and split by a hairline inset 10 px (Swift ed9fd83). */
+.palette-option.bare { min-height: 38px; box-sizing: border-box; }
+.palette-divider { height: 1px; margin: 3px 10px 0; background: rgb(0 0 0 / .03); }
+.palette-option-text { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
 .palette-option-name, .palette-option-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-option-detail { color: var(--muted-foreground); font-size: 12px; }
-/* New, in the palette's style: the keys it answers, in its kbd's muted letters. */
-.palette-foot { display: flex; align-items: center; gap: 6px; padding: 8px 16px; color: var(--muted-foreground); font-size: 12px; }
-.palette-foot kbd { font: 12px/1 Inter, -apple-system, system-ui, sans-serif; letter-spacing: .1em; }
-.palette-foot span { margin-right: 8px; }
+.palette-option-name { font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; }
+.palette-option-detail { font-size: 11px; color: rgb(0 0 0 / .6); }
+.palette-option-source { flex: none; padding: 4px 7px; border-radius: 999px; background: rgb(110 59 191 / .1); color: rgb(110 59 191 / .9); font-size: 9px; font-weight: 500; }
+.palette-option-none { padding: 25px 0; text-align: center; color: rgb(0 0 0 / .6); }
+.palette-foot { display: flex; align-items: center; gap: 4px; padding: 9px 14px; color: rgb(0 0 0 / .6); font-size: 9px; }
+.palette-foot kbd { box-sizing: border-box; min-width: 15px; min-height: 15px; padding: 0 3px; display: inline-grid; place-items: center; border-radius: 4px;
+  background: rgb(0 0 0 / .04); box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .2); font: 500 9px ui-monospace, "SF Mono", Menlo, monospace; color: #000; }
+.palette-foot span { margin-right: 6px; }

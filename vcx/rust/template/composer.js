@@ -2,17 +2,31 @@
 // The composer: what is typed and attached before a message is sent. Attachments sit in the text as tokens
 // ("[Image #1]", "[Paste #1]", "@src/main.rs") that the native undo stack keeps, and show as chips above it.
 (() => {
-  const INPUT_MAX_HEIGHT_PX = 220;
+  // Swift's editor: 24 pt for one line, at most 150 pt before it scrolls (`composerMinimumHeight`, `measure`).
+  const INPUT_MAX_HEIGHT_PX = 150;
   // A pasted text this long folds into a chip, as in the Swift composer (`Composer.swift`, `paste(from:)`).
   const PASTE_FOLD_CHARACTERS = 20;
   const DRAFT_SAVE_DELAY_MS = 250;
-  // The send flight, as in the Swift `SendAnimation`: how long the bubble glides, and how long a send waits for its row.
+  // The send flight, as in the Swift `SendAnimation`: a spring of 0.42 s with a 0.08 bounce, landed after 0.6 s; the
+  // composer's shade blends into the bubble's in 0.18 s; a send waits 5 s for its row.
   const FLIGHT_MS = 420;
+  const FLIGHT_BOUNCE = 0.08;
+  const FLIGHT_LAND_MS = 600;
+  const FLIGHT_BLEND_MS = 180;
   const FLIGHT_WAIT_MS = 5000;
+  const FLIGHT_SAMPLES = 40;
+  // The flying box's frame stands 16 pt around the text it carries, and the destination keeps 28 pt above the viewport's foot.
+  const FLIGHT_INSET_PX = 16;
+  const FLIGHT_FOOT_PX = 28;
+  // The palette's list: at most 250 pt, and 90 pt short of the transcript's height (Swift `maxListHeight`).
+  const PALETTE_LIST_MAX_PX = 250;
+  const PALETTE_LIST_MIN_PX = 40;
+  const PALETTE_LIST_MARGIN_PX = 90;
   const IMAGE_MAX_BYTES = 32 * 1024 * 1024;
-  // The command palette's opening, WT-089: it fades in from 95 %.
-  const PALETTE_OPEN_MS = 200;
-  const PALETTE_OPEN_SCALE = 0.95;
+  // The command palette rises 70 pt as it fades in, as Swift's `.offset(y: 70)` transition.
+  const PALETTE_OPEN_MS = 250;
+  const PALETTE_OPEN_RISE_PX = 70;
+  const PICTURES_SHOW_MS = 250;
   // The address pills' glide, WT-061.
   const PILL_GLIDE_MS = 300;
   const PROVIDERS = ['claude', 'codex', 'qwen', 'agy'];
@@ -84,11 +98,22 @@
     return svg;
   }
 
-  // The button variants, WT-033: send is the default one with an arrow, stop the destructive one with a square.
-  $('send').className = 'b b-default';
+  // Swift's round buttons: send an arrow on the pink-to-violet gradient, stop a black square on white.
+  $('send').className = 'b';
   $('send').append(icon('M12 19V5', 'm5 12 7-7 7 7'));
-  $('stop').className = 'b b-destructive';
-  $('stop').append(icon('M7 7h10v10H7z'));
+  $('stop').className = 'b';
+  $('stop').append(icon('M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'));
+  $('stop').title = 'Stop generation (Escape)';
+  $('send').title = 'Send message (Return)';
+  const field = make('div', 'field');
+  const marks = make('div', 'marks');
+  marks.setAttribute('aria-hidden', 'true');
+  input.before(field);
+  field.append(marks, input);
+  const pictures = make('div');
+  pictures.id = 'draft-pictures';
+  pictures.hidden = true;
+  form.before(pictures);
 
   const strip = make('div', 'attachments');
   strip.id = 'attachments';
@@ -101,10 +126,10 @@
   const head = make('div', 'palette-head');
   const title = make('span', 'palette-title');
   const count = make('span', 'palette-count');
-  head.append(title, count);
+  head.append(icon('M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3'), title, count, make('span', 'palette-esc', 'esc'));
   const foot = make('div', 'palette-foot');
-  for (const [key, what] of [['↑↓', 'navigate'], ['↩', 'select'], ['⇥', 'complete'], ['esc', 'close']]) foot.append(make('kbd', '', key), make('span', '', what));
-  panel.append(list, make('div', 'palette-sep'), foot);
+  foot.append(make('kbd', '', '↑'), make('kbd', '', '↓'), make('span', '', 'navigate'), make('kbd', '', '↩'), make('span', '', 'select'), make('kbd', '', '⇥'), make('span', '', 'complete'));
+  panel.append(head, make('div', 'palette-sep'), list, make('div', 'palette-sep'), foot);
   form.before(panel);
 
   // ---- Effect: address pills pack onto the fewest lines. Copy from here ----
@@ -156,6 +181,8 @@
   // ---- End of effect ----
   packPills(strip, { dur: PILL_GLIDE_MS });
 
+  // Swift's `commandWordPattern`: a "/" word not inside a path or a URL.
+  const COMMAND_WORD = /(?<![\w/:.\-])\/([\w\-]+(?::[\w\-]+)*)(?![\w/\-]|[.:]\w)/g;
   const imageToken = number => `[Image #${number}]`;
   const pasteToken = number => `[Paste #${number}]`;
   const mentionToken = (path, folder) => {
@@ -239,8 +266,8 @@
   // ---- Effect: text area that grows. Copy from here ----
   // The text area takes its text's height on each input: measured at no height, then eased from the old one. Past
   // INPUT_MAX_HEIGHT_PX it stops growing and scrolls.
-  function grow() {
-    const was = input.style.height;
+  function grow(instant = false) {
+    const was = instant ? '' : input.style.height;
     input.style.transition = 'none';
     input.style.height = '0';
     const full = input.scrollHeight + input.offsetHeight - input.clientHeight;
@@ -253,10 +280,79 @@
   }
   // ---- End of effect ----
 
-  function refresh() {
-    grow();
+  function refresh(instant = false) {
+    grow(instant);
     drawStrip();
+    drawMarks();
+    drawPictures();
+    dimSend();
     updatePalette();
+  }
+
+  // Swift's `commandWords`: every command's name and insert without its "/", terminal ones aside.
+  function commandWords() {
+    const words = new Set();
+    for (const command of catalog()) {
+      if (String(command.source || '').endsWith(' terminal')) continue;
+      for (const name of [command.name, command.insert.trim()]) if (name.startsWith('/')) words.add(name.slice(1));
+    }
+    return words;
+  }
+
+  // A "/word" naming a command takes the purple tint while typed, the grey chip once a blank follows it (Swift's
+  // `highlightCommands` and `CommandChip`); drawn on the layer under the text, never stored in it.
+  function drawMarks() {
+    const text = input.value;
+    const words = text.includes('/') ? commandWords() : null;
+    const nodes = [];
+    let at = 0;
+    for (const match of words ? text.matchAll(COMMAND_WORD) : []) {
+      if (!words.has(match[1])) continue;
+      const end = match.index + match[0].length;
+      nodes.push(text.slice(at, match.index), make('span', /\s/.test(text[end] || '') ? 'locked' : 'command', match[0]));
+      at = end;
+    }
+    // A text ending on a new line needs one more line under it, as the text area draws one.
+    nodes.push(`${text.slice(at)}\n`);
+    marks.replaceChildren(...nodes);
+    marks.scrollTop = input.scrollTop;
+  }
+
+  // The draft's pictures as Swift's `PictureView` cards, in their order in the text; a click previews one.
+  function drawPictures() {
+    const shown = placed().filter(place => place.chip.kind === 'image');
+    const key = shown.map(place => `${place.chip.path}\n${place.chip.preview ? 1 : 0}`).join('\n');
+    if (key === pictures.dataset.key) return;
+    const appearing = pictures.hidden && shown.length > 0;
+    pictures.dataset.key = key;
+    pictures.replaceChildren(...shown.map((place, index) => {
+      const button = make('button', 'picture');
+      button.type = 'button';
+      button.addEventListener('mousedown', event => event.preventDefault());
+      if (place.chip.preview) {
+        button.dataset.src = place.chip.preview;
+        const image = make('img');
+        image.alt = '';
+        image.src = place.chip.preview;
+        button.append(image);
+      } else button.append(make('span', 'missing', '?'));
+      const words = make('span', 'words');
+      words.append(make('span', 'name', `Image #${index + 1}`), make('span', 'hint', 'Click to preview'));
+      const expand = icon('M15 3h6v6', 'M9 21H3v-6', 'M21 3l-7 7', 'M3 21l7-7');
+      expand.classList.add('expand');
+      button.append(words, expand);
+      button.title = place.chip.path;
+      return button;
+    }));
+    pictures.hidden = shown.length === 0;
+    if (appearing && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      pictures.animate({ opacity: [0, 1], translate: ['0 12px', '0 0'] }, { duration: PICTURES_SHOW_MS, easing: 'ease-out' });
+    }
+  }
+
+  // Dimmed while the session cannot take a message, a command aside (Swift's `.disabled` on send).
+  function dimSend() {
+    $('send').classList.toggle('dim', !input.value.startsWith('/') && (!meta.ready || Boolean(meta.changing)));
   }
 
   // Through the editing commands, so ⌘Z takes it back like typing; `applying` keeps it from counting as his edit.
@@ -444,6 +540,12 @@
     return choices.filter(choice => !argument || choice.name.toLowerCase().includes(argument) || choice.insert.toLowerCase().includes(query));
   }
 
+  // Swift's `modelName`: "claude-opus-5-5" reads "Opus 5.5".
+  function modelName(id) {
+    return id.replace(/^(claude[- ]|codex[- ])/i, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ')
+      .replace(/\S+/g, word => word[0].toUpperCase() + word.slice(1).toLowerCase());
+  }
+
   function modelOptions(argument, option) {
     const args = argument.split(' ');
     const efforts = model => (meta.modelEfforts || {})[model] || [];
@@ -453,7 +555,11 @@
     const [chosen, model, effort = ''] = args;
     if (chosen !== provider() && chosen !== 'auto') return [];
     if (args.length === 2) {
-      return (meta.models || []).filter(id => !model || id.toLowerCase().includes(model)).map(id => option(`${chosen} ${id}${efforts(id).length ? ' ' : ''}`, 'Choose model', id, id === meta.model));
+      // Claude lists its newest models only as aliases ("opus" runs claude-opus-5-5), so the row names what the alias runs.
+      const aliases = meta.modelAliases || {};
+      const resolved = id => (aliases[id] && aliases[id] !== id ? aliases[id] : '');
+      const matches = id => !model || id.toLowerCase().includes(model) || (resolved(id) && (resolved(id).toLowerCase().includes(model) || modelName(resolved(id)).toLowerCase().includes(model)));
+      return (meta.models || []).filter(matches).map(id => option(`${chosen} ${id}${efforts(id).length ? ' ' : ''}`, resolved(id) || 'Choose model', resolved(id) ? `${id} · ${modelName(resolved(id))}` : id, id === meta.model || aliases[id] === meta.model));
     }
     return efforts(model).filter(name => !effort || name.includes(effort)).map(name => option(`${chosen} ${model} ${name}`, 'Reasoning effort', name, model === meta.model && name === meta.effort));
   }
@@ -505,8 +611,10 @@
     const files = palette.kind === 'file';
     title.textContent = files ? 'Files' : 'Commands';
     count.textContent = String(palette.options.length);
-    list.replaceChildren(head, ...palette.options.map((option, index) => {
-      const row = make('div', index === palette.selected ? 'palette-option selected' : 'palette-option');
+    const transcript = $('transcript');
+    if (transcript) panel.style.setProperty('--list-max', `${Math.max(PALETTE_LIST_MIN_PX, Math.min(PALETTE_LIST_MAX_PX, transcript.clientHeight - PALETTE_LIST_MARGIN_PX))}px`);
+    list.replaceChildren(...palette.options.flatMap((option, index) => {
+      const row = make('div', `palette-option${option.detail ? '' : ' bare'}${index === palette.selected ? ' selected' : ''}`);
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(index === palette.selected));
       const text = make('div', 'palette-option-text');
@@ -516,13 +624,13 @@
       if (option.source) row.append(make('span', 'palette-option-source', option.source));
       row.addEventListener('mousedown', event => event.preventDefault());
       row.addEventListener('click', () => choose(option));
-      return row;
+      return index > 0 && !option.detail ? [make('div', 'palette-divider'), row] : [row];
     }));
     if (palette.options.length === 0) list.append(make('div', 'palette-option-none', files ? 'Looking for files…' : 'No matching commands'));
     if (!panel.classList.contains('open')) {
       panel.classList.add('open');
       const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (!calm) panel.animate({ opacity: [0, 1], scale: [PALETTE_OPEN_SCALE, 1] }, { duration: PALETTE_OPEN_MS, easing: 'ease-out' });
+      if (!calm) panel.animate({ opacity: [0, 1], translate: [`0 ${PALETTE_OPEN_RISE_PX}px`, '0 0'] }, { duration: PALETTE_OPEN_MS, easing: 'ease-out' });
     }
     form.setAttribute('aria-expanded', 'true');
     list.querySelectorAll('.palette-option')[palette.selected]?.scrollIntoView({ block: 'nearest' });
@@ -582,7 +690,8 @@
     input.value = '';
     generation += 1;
     closePalette();
-    refresh();
+    // The empty composer shrinks at once, so the bubble's place is measured with the composer at its final size.
+    refresh(true);
     document.dispatchEvent(new CustomEvent('vcx:sent'));
   }
 
@@ -724,6 +833,8 @@
   function describe(next) {
     meta = next || {};
     $('stop').hidden = !meta.busy;
+    $('send').title = meta.busy ? 'Send guidance' : 'Send message (Return)';
+    dimSend();
     if (palette.kind === 'command') updatePalette();
   }
 
@@ -737,25 +848,85 @@
     refresh();
   }
 
-  // The sent message's bubble glides in from where the composer stood; one already shown before the send never does.
+  // SwiftUI's `.spring(duration:bounce:)` as CSS `linear()` points: a damping ratio of 1 - bounce, sampled until it lands.
+  function springEasing() {
+    const omega = (2 * Math.PI) / (FLIGHT_MS / 1000);
+    const zeta = 1 - FLIGHT_BOUNCE;
+    const damped = omega * Math.sqrt(1 - zeta * zeta);
+    const points = [];
+    for (let n = 0; n <= FLIGHT_SAMPLES; n += 1) {
+      const t = (n / FLIGHT_SAMPLES) * (FLIGHT_LAND_MS / 1000);
+      const x = n === FLIGHT_SAMPLES ? 1 : 1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
+      points.push(x.toFixed(4));
+    }
+    return `linear(${points.join(', ')})`;
+  }
+
+  function endFlight() {
+    clearTimeout(flight?.timer);
+    flight = null;
+    form.classList.remove('flying');
+  }
+
+  // The sent message's bubble grows out of the composer (Swift's `FlyingMessage`): a box from the composer's text,
+  // 16 pt around it, springs to the bubble's frame while the composer's grey blends into the bubble's tint. A message
+  // taller than the transcript lands on its last lines. One already shown before the send never flies.
   function prepareFlight(text, images) {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    flight = reduced ? null : { text, images, previous: new Set(prompts.keys()), origin: form.getBoundingClientRect(), sent: performance.now() };
+    endFlight();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const box = field.getBoundingClientRect();
+    const origin = { left: box.left - FLIGHT_INSET_PX, top: box.top - FLIGHT_INSET_PX, width: box.width + 2 * FLIGHT_INSET_PX, height: box.height + 2 * FLIGHT_INSET_PX };
+    flight = { text, images, previous: new Set(prompts.keys()), origin, sent: performance.now(), timer: setTimeout(endFlight, FLIGHT_WAIT_MS) };
+    form.classList.add('flying');
   }
 
   function land() {
     if (!flight) return;
-    if (performance.now() - flight.sent > FLIGHT_WAIT_MS) return void (flight = null);
+    if (performance.now() - flight.sent > FLIGHT_WAIT_MS) return endFlight();
     const same = prompt => prompt.text === flight.text && prompt.images.join('\n') === flight.images.join('\n');
     const id = [...prompts.keys()].find(key => !flight.previous.has(key) && same(prompts.get(key)));
     const bubble = id && document.querySelector(`[data-row="${CSS.escape(id)}"] .bubble`);
     if (!bubble) return;
     const { origin } = flight;
-    flight = null;
-    const target = bubble.getBoundingClientRect();
-    if (target.width === 0) return;
+    const measured = bubble.getBoundingClientRect();
+    if (measured.width === 0) return endFlight();
+    const view = ($('transcript') || document.body).getBoundingClientRect();
+    const lift = Math.min(0, view.bottom - FLIGHT_FOOT_PX - measured.bottom);
+    const top = Math.max(measured.top + lift, view.top);
+    const bottom = Math.min(measured.bottom + lift, view.bottom);
+    if (bottom <= top) return endFlight();
+    const target = { left: measured.left, top, width: measured.width, height: bottom - top };
+    const tall = target.height < measured.height;
+    const easing = springEasing();
+    const ghost = flyingBox(bubble, measured, tall);
+    const frame = rect => ({ transform: `translate(${rect.left}px, ${rect.top}px)`, width: `${rect.width}px`, height: `${rect.height}px` });
+    ghost.animate([{ ...frame(origin), borderRadius: '18px' }, { ...frame(target), borderRadius: '17px' }], { duration: FLIGHT_LAND_MS, easing, fill: 'forwards' });
+    ghost.querySelector('.flight-shade').animate({ opacity: [1, 0] }, { duration: FLIGHT_BLEND_MS, easing: 'ease-out', fill: 'forwards' });
+    // The bubble itself travels hidden under the box and shows as the box lands on it.
     const from = `translate(${origin.left - target.left}px, ${origin.top - target.top}px)`;
-    bubble.animate([{ transform: from, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: FLIGHT_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+    bubble.animate([{ transform: from, opacity: 0 }, { transform: 'none', opacity: 0, offset: 0.99 }, { transform: 'none', opacity: 1 }], { duration: FLIGHT_LAND_MS, easing });
+    setTimeout(() => {
+      ghost.remove();
+      if (flight) endFlight();
+    }, FLIGHT_LAND_MS);
+    clearTimeout(flight.timer);
+    flight = null;
+    form.classList.remove('flying');
+  }
+
+  // A copy of the bubble's content at its own width, over the composer's grey, clipped by the box that springs.
+  function flyingBox(bubble, measured, tall) {
+    const ghost = make('div', `${bubble.className} flight-box`);
+    ghost.setAttribute('aria-hidden', 'true');
+    Object.assign(ghost.style, { position: 'fixed', left: '0', top: '0', margin: '0', padding: '0', boxSizing: 'border-box', overflow: 'hidden', zIndex: '40', pointerEvents: 'none' });
+    const content = make('div');
+    Object.assign(content.style, { position: 'absolute', left: `${FLIGHT_INSET_PX}px`, width: `${measured.width - 2 * FLIGHT_INSET_PX}px`, [tall ? 'bottom' : 'top']: `${FLIGHT_INSET_PX}px` });
+    for (const child of bubble.children) if (!child.matches('button')) content.append(child.cloneNode(true));
+    const shade = make('div', 'flight-shade');
+    Object.assign(shade.style, { position: 'absolute', inset: '0', background: 'linear-gradient(rgb(0 0 0 / .065), rgb(0 0 0 / .065)), var(--page, #fff)' });
+    ghost.append(shade, content);
+    document.body.append(ghost);
+    return ghost;
   }
 
   function receive(message) {
@@ -846,11 +1017,20 @@
     if (!applying) history = null;
     if (!applying) edited();
   });
+  input.addEventListener('scroll', () => { marks.scrollTop = input.scrollTop; }, { passive: true });
   input.addEventListener('select', updatePalette);
   input.addEventListener('click', updatePalette);
   input.addEventListener('keyup', event => (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') && !palette.kind && updatePalette());
   window.addEventListener('pagehide', () => saveTimer && save());
 
-  window.composer = { receive };
+  // The status bar's model and mode chips open their palette here (Swift runs `/model` and `/perms `): the composer
+  // takes the command and lists its values.
+  function openCommand(text) {
+    palette.dismissed = '';
+    history = null;
+    setText(text);
+  }
+
+  window.composer = { receive, openCommand };
   input.focus();
 })();
