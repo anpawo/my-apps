@@ -245,10 +245,13 @@
   // Shows (show = true) or hides the empty block with a short fade and scale; the list it stands for swaps the other way.
   async function emptyState(el, show, { dur = 250 } = {}) {
     const d = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : dur;
-    el.classList.remove('hidden');
-    await el.animate({ opacity: [0, 1], scale: [0.98, 1] }, { duration: d, easing: 'ease-out', direction: show ? 'normal' : 'reverse', fill: 'both' }).finished;
-    el.classList.toggle('hidden', !show);
     el.getAnimations().forEach(a => a.cancel());
+    el.classList.remove('hidden');
+    const fade = el.animate({ opacity: [0, 1], scale: [0.98, 1] }, { duration: d, easing: 'ease-out', direction: show ? 'normal' : 'reverse', fill: 'both' });
+    // a later call cancelled this fade and owns the end state
+    try { await fade.finished; } catch { return; }
+    el.classList.toggle('hidden', !show);
+    fade.cancel();
   }
   // ---- End of effect ----
 
