@@ -1073,14 +1073,16 @@ const selfIn = chatID => new Set(state.msgs.filter(m => m.isSender && m.chatID =
 // read marker (Beeper's `seen`, on that message or a later one) reaches it, else Sent.
 // A blue "New" line above the first unread message, until I answer (a message of mine after it) or press ⌘K.
 function drawNewLine() {
-  const item = state.cur, thread = $('#thread'), had = thread.querySelector('.newline');
+  const item = state.cur, thread = $('#thread');
   const first = (item?.chats || []).flatMap(c => c.unread ? state.msgs.filter(m => m.chatID === c.id && !m.isSender && m.type !== 'REACTION').slice(-c.unread) : [])
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))[0];
   const answered = first && state.msgs.some(m => m.isSender && m.timestamp > first.timestamp);
   const row = first && !answered && thread.querySelector(`.msg[data-id="${CSS.escape(first.id)}"]`);
-  if (had && had.nextElementSibling === row) return;
-  if (had) collapse(had, true, 220).then(() => had.remove());
-  if (row) row.insertAdjacentHTML('beforebegin', '<div class="newline"><span>New</span></div>');
+  // A line still fading out stays in the DOM for 220 ms: every line but the one kept goes, or redraws in that window stack them.
+  const lines = [...thread.querySelectorAll('.newline:not(.leaving)')];
+  const kept = row && lines.find(l => l.nextElementSibling === row);
+  for (const l of lines) if (l !== kept) { l.classList.add('leaving'); collapse(l, true, 220).then(() => l.remove()); }
+  if (row && !kept) row.insertAdjacentHTML('beforebegin', '<div class="newline"><span>New</span></div>');
 }
 function drawSeen() {
   drawNewLine();

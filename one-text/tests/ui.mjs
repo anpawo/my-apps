@@ -280,6 +280,19 @@ const newLine = await page.evaluate(async () => {
   return [...at, !document.querySelector('#thread .newline')];
 });
 check(JSON.stringify(newLine) === JSON.stringify(['New', true, 'rgb(55, 151, 240)', true]), `a blue "New" line sits above the first unread message and goes once seen (${newLine})`);
+const movedLine = await page.evaluate(async () => {
+  const c = state.cur.chats.find(c => c.id === 'ig-hugo'), t = m => new Date(Date.now() - m * 1000).toISOString();
+  state.msgs.push(...[3, 2, 1].map(s => ({ id: 'unread' + s, chatID: 'ig-hugo', text: 'unread ' + s, timestamp: t(s), sortKey: String(2e9 - s), type: 'TEXT', isSender: false, senderID: 'ig-hugo', senderName: 'x' })));
+  drawThread(false, true);
+  for (const n of [3, 2, 2, 2]) { c.unread = n; state.cur.unread = n; drawNewLine(); }
+  await new Promise(r => setTimeout(r, 400));
+  const lines = document.querySelectorAll('#thread .newline'), others = state.msgs.filter(m => m.chatID === 'ig-hugo' && !m.isSender && m.type !== 'REACTION');
+  const at = [lines.length, lines[0]?.nextElementSibling?.dataset.id === others.at(-2).id];
+  markRead(state.cur);
+  await new Promise(r => setTimeout(r, 400));
+  return at;
+});
+check(JSON.stringify(movedLine) === '[1,true]', `one "New" line stays when it moves and is redrawn on the same message within its fade-out (${movedLine})`);
 const badgeAt = await page.$eval('#people .row:has(.badge)', r => { const t = r.querySelector('.time').getBoundingClientRect(), b = r.querySelector('.badge').getBoundingClientRect(); return [b.left >= t.right, Math.abs((b.top + b.bottom) / 2 - (t.top + t.bottom) / 2) <= 1]; });
 check(badgeAt.join() === 'true,true', `the unread count sits right of the time, on its line (${badgeAt})`);
 const av = await page.$eval('#people .row[data-id="ig-lea"] .av', a => [a.textContent, a.querySelectorAll('img').length]);
