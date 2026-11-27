@@ -169,12 +169,12 @@ fi
 
 # Only this bundle's processes, and only those of a part that changed; the Swift app's are never signalled. A first
 # page install restarts the app once: it reads the page folder only at launch.
-worker="$installed/Contents/MacOS/vcx-worker"
-frontend="$installed/Contents/MacOS/vcx-rust"
+# ~/Applications can be a link to the folder the app was opened from: ps names it by either path.
+resolved="$(cd "$installed" 2>/dev/null && pwd -P || echo "$installed")"
 ps -axo pid=,comm= | while read -r pid comm; do
-    if $worker_changed && [[ "$comm" == "$worker" ]]; then
+    if $worker_changed && [[ "$comm" == "$installed/Contents/MacOS/vcx-worker" || "$comm" == "$resolved/Contents/MacOS/vcx-worker" ]]; then
         kill -USR1 "$pid" && echo "updating worker $pid"
-    elif { $app_changed || $page_created; } && [[ "$comm" == "$frontend" ]]; then
+    elif { $app_changed || $page_created; } && [[ "$comm" == "$installed/Contents/MacOS/vcx-rust" || "$comm" == "$resolved/Contents/MacOS/vcx-rust" ]]; then
         kill -USR1 "$pid" && echo "updating app $pid"
     fi
 done
