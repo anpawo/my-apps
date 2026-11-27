@@ -135,6 +135,14 @@ class Switch(unittest.TestCase):
         self.assertEqual(self.launchctl(), [f'disable {SERVICE}', f'print {SERVICE}', f'bootout {SERVICE}'])
         self.assertEqual(self.switch('--status').stdout.strip(), 'vcx starts: rust')
 
+    def test_to_rust_creates_the_state_folder_private_so_vcx_rust_starts_on_it(self):
+        (self.root / 'state').rmdir()
+
+        result = self.switch('--to', 'rust')
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / 'state').stat().st_mode & 0o777, 0o700)
+
     def test_to_swift_puts_the_swift_launcher_back_byte_for_byte_and_resumes_the_install_job(self):
         self.switch('--to', 'rust')
 

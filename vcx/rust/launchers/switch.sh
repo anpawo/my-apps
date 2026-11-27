@@ -56,7 +56,7 @@ to_rust() {
         fail "the Swift app is being installed ($job); try again once it ends. Nothing changed."
     fi
     launchctl bootout "$service" 2>/dev/null || true
-    mkdir -p -m 700 "$saved"
+    mkdir -p -m 700 "$(dirname "$saved")" "$saved"
     cp -p "$launcher" "$swift_launcher"
     place "$here/vcx"
     echo "vcx now starts VCX Rust; $job is paused. Undo: $0 --to swift"

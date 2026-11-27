@@ -143,7 +143,7 @@ give_back() {
     echo "cutover: giving the windows back to the Swift app" >&2
     [ -z "$taken" ] || ask "$(steward release "$taken" "")" > /dev/null 2>&1 || true
     "$here/../launchers/switch.sh" --to swift >&2 || true
-    [ -z "$stopped" ] || open -a "$swift_app" || true
+    [ -z "$stopped" ] || open -n -g -a "$swift_app" || true
     exit "$status"
 }
 
