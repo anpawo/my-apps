@@ -23,6 +23,7 @@ const CLIENT_VERSION: &str = "codex-cli 0.0.0-fixture";
 /// The archive script's `ADAPTER_REVISION`, under which a provider is certified.
 const ADAPTER_REVISION: u64 = 1;
 const EXECUTABLE: u32 = 0o755;
+const SHARED_READ: u32 = 0o644;
 
 /// A Codex worker whose one account keeps its home in the worker's folder, with native history turned on there.
 fn worker(name: &str) -> RustWorker {
@@ -159,6 +160,23 @@ fn closing_a_window_archives_its_record_which_the_next_window_lists() {
 
     assert!(!path.exists(), "the archived record left no snapshot");
     assert!(state_folder(&worker).join(ARCHIVE).is_file());
+}
+
+#[test]
+fn closing_a_window_whose_archive_fails_still_closes_and_keeps_its_record() {
+    let worker = worker("records-close-unarchived");
+    let mut held = Held::open(&target(&worker));
+    let record = answered_record(&worker, &mut held, "close me anyway");
+    let path = snapshot(&state_folder(&worker), worker.directory.to_str().unwrap(), &record);
+    // The script refuses an archive file whose permissions are not its own.
+    let archive = state_folder(&worker).join(ARCHIVE);
+    std::fs::write(&archive, "not an archive").unwrap();
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(SHARED_READ)).unwrap();
+
+    let closed = held.lease.perform(&held.peer.client, "close", json!({}));
+
+    assert!(closed.is_ok(), "{closed:?}");
+    assert!(path.exists(), "the unarchived record kept its snapshot");
 }
 
 #[test]

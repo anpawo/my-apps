@@ -1180,7 +1180,12 @@ impl SessionBackend {
                 if busy {
                     Rc::clone(&self).stop("Close Session").await;
                 }
-                self.archive_for_close().await?;
+                // A failed archive keeps the record and its native history in place, so nothing is lost by
+                // closing anyway: refusing left a window that could not be quit.
+                match self.archive_for_close().await {
+                    Err(problem) if problem != crate::archive::FAILED => return Err(problem),
+                    _ => {}
+                }
                 self.config.store.remove(&self.id).map_err(|error| error.to_string())?;
                 self.close();
                 return Ok(Object::new());
