@@ -518,7 +518,8 @@
       const final = row === part.last;
       node.classList.toggle('lead', at === 0);
       node.classList.toggle('final', final);
-      node.classList.toggle('thought', final ? working && !ended(row) : !ended(row));
+      // The answer being written is drawn as the answer: it turns into a thought only once later work makes it a note.
+      node.classList.toggle('thought', !final && !ended(row));
       node.classList.toggle('settled', final && !working);
       children.push(node);
     });

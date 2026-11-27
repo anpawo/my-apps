@@ -330,7 +330,7 @@ fn cancels_a_question_with_no_answer(page: &Page) -> Result<(), String> {
     check(answer == FromPage::Answer { params: json!({"rpcID": "q", "method": QUESTION_METHOD, "result": {"answers": {}}}) }, format!("the core read {answer:?}"))
 }
 
-fn draws_notes_and_a_working_answer_as_thoughts_and_the_answer_lines_in_their_bands(page: &Page) -> Result<(), String> {
+fn draws_notes_as_thoughts_and_the_answer_being_written_as_the_answer_with_its_bands(page: &Page) -> Result<(), String> {
     let rows = |busy: bool| json!({"busy": busy, "rows": [user("R1", "go"), assistant("R2", "Reading the code.", false), assistant("R3", "⟶ It works.\n\nDetails.\n\n✓ Done: shipped.\n\n⟶ Next: ship it?", !busy)]});
     let bands = "[...document.querySelectorAll('.row[data-kind=assistant]')].map(row => ({thought: row.classList.contains('thought'), label: getComputedStyle(row.querySelector('.label')).display, bands: [...row.querySelectorAll('.prose > p')].map(p => getComputedStyle(p).backgroundColor)}))";
     page.show(rows(true))?;
@@ -341,7 +341,7 @@ fn draws_notes_and_a_working_answer_as_thoughts_and_the_answer_lines_in_their_ba
     let (thought, clear) = ("rgb(238, 234, 247)", "rgba(0, 0, 0, 0)");
     let (green, orange, blue) = ("rgb(214, 245, 214)", "rgb(255, 225, 195)", "rgb(214, 230, 255)");
     check(working[0]["thought"] == true && working[0]["bands"] == json!([thought]), format!("a note is a thought: {}", working[0]))?;
-    check(working[1]["thought"] == true && working[1]["bands"] == json!([thought, thought, orange, blue]), format!("the answer being written is a thought that keeps Done and Next: {}", working[1]))?;
+    check(working[1]["thought"] == false && working[1]["bands"] == json!([green, clear, orange, blue]), format!("the answer being written is no thought: {}", working[1]))?;
     check(working[1]["label"] == "none" && working[0]["label"] == "block", "only the first message of the exchange names its provider")?;
     check(done[0]["thought"] == true && done[1]["thought"] == false, format!("the finished answer is no thought: {done}"))?;
     check(done[1]["bands"] == json!([green, clear, orange, blue]), format!("the finished answer's bands are {}", done[1]))
@@ -635,7 +635,7 @@ const TESTS: [(&str, Test); 21] = [
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
     ("answers_a_question_card_by_click_and_by_number", answers_a_question_card_by_click_and_by_number),
     ("cancels_a_question_with_no_answer", cancels_a_question_with_no_answer),
-    ("draws_notes_and_a_working_answer_as_thoughts_and_the_answer_lines_in_their_bands", draws_notes_and_a_working_answer_as_thoughts_and_the_answer_lines_in_their_bands),
+    ("draws_notes_as_thoughts_and_the_answer_being_written_as_the_answer_with_its_bands", draws_notes_as_thoughts_and_the_answer_being_written_as_the_answer_with_its_bands),
     ("draws_a_debate_round_with_each_model_in_its_colour", draws_a_debate_round_with_each_model_in_its_colour),
     ("folds_a_sections_actions_into_one_block_with_each_actions_detail", folds_a_sections_actions_into_one_block_with_each_actions_detail),
     ("draws_a_notice_with_its_log_and_messages_between_sessions", draws_a_notice_with_its_log_and_messages_between_sessions),
