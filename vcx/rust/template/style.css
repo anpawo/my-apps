@@ -43,34 +43,50 @@ body { display: flex; flex-direction: column; }
 .turn { display: flex; flex-direction: column; gap: 12px; }
 /* A sticky box stops at the scroller's padding: the question pins to the top edge, as the Swift header does. */
 .turn > .row.heading { position: sticky; top: calc(-1 * var(--transcript-top)); z-index: 2; }
+.turn.unanswered { margin-bottom: -16px; }
 /* Once the turn is done, the answer stands 12 px further from the notes above it, easing in as Swift's does. */
 .turn > .row.final:not(.lead) { margin-top: 0; transition: margin-top 350ms ease-out; }
 .turn > .row.final.settled:not(.lead) { margin-top: 12px; }
 
 .question { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; margin-left: auto; max-width: 85%; }
-.bubble { position: relative; padding: 16px; border-radius: 17px; background: linear-gradient(var(--accent-wash), var(--accent-wash)), var(--page); white-space: pre-wrap; overflow-wrap: anywhere; }
-.bubble.from-agent { background: linear-gradient(rgb(235 56 143 / 0.2), rgb(235 56 143 / 0.2)), var(--page); }
+.bubble { position: relative; padding: 16px; border-radius: 17px; background: linear-gradient(var(--accent-wash), var(--accent-wash)), var(--page); white-space: pre-wrap; overflow-wrap: anywhere;
+  transition: box-shadow 200ms ease-out; }
+.bubble.from-agent { --tint: rgb(235 56 143); background: linear-gradient(rgb(235 56 143 / 0.2), rgb(235 56 143 / 0.2)), var(--page); }
 .bubble.queued { opacity: 0.5; }
-.bubble.long:not(.open) .message { max-height: calc(15 * 1.55em); overflow: hidden; }
-.bubble .unfold { position: absolute; left: 14px; bottom: 2px; width: 28px; height: 18px; padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; }
-.bubble .unfold::before { content: "⌄"; font-size: 14px; }
-.bubble.long.open .unfold::before { content: "⌃"; }
-.bubble.long { padding-bottom: 26px; }
-.from { display: inline-block; margin-bottom: 6px; padding: 1px 7px; border-radius: 6px; background: rgb(235 56 143 / 0.18); color: rgb(190 30 110); font-size: 10px; font-weight: 600; }
-.unread { margin: 0 6px 0 0; color: rgb(0 0 0 / 0.45); font-size: 11px; }
-.unread kbd { display: inline-block; min-width: 15px; margin-left: 6px; padding: 0 3px; border: 0.5px solid rgb(0 0 0 / 0.2); border-radius: 4px; background: rgb(0 0 0 / 0.04); font: 500 9px/15px inherit; text-align: center; }
-.unread kbd + kbd { margin-left: 0; }
+/* Pinned at the top while its exchange scrolls under it, the question casts Swift's shadow. */
+.row.heading.stuck .bubble { box-shadow: 0 4px 24px rgb(0 0 0 / 0.22); }
+/* A long question shows its first line until its arrow is hovered; open and taller than most of the transcript, it scrolls. */
+.bubble.long:not(.open) .message { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.bubble.long.open .message { overflow-y: auto; }
+.bubble .message { overflow: hidden; }
+.bubble:is(.long:not(.open), .recall) { padding-bottom: 37px; }
+.bubble .unfold { position: absolute; left: 16px; bottom: 16px; display: none; width: 28px; height: 15px; padding: 0; border: 0; background: none; color: var(--tint, var(--accent)); cursor: pointer; }
+.bubble.long:not(.open) .unfold { display: flex; align-items: center; }
+.bubble .unfold svg, .recalled > summary svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.from { display: block; width: fit-content; margin-bottom: 10px; padding: 4px 8px; border-radius: 7px; background: rgb(235 56 143 / 0.14); color: rgb(235 56 143); font-size: 11px; font-weight: 600; line-height: 14px; }
+.unread { display: flex; align-items: center; gap: 4px; margin: 0 6px 0 0; color: rgb(0 0 0 / 0.45); font-size: 11px; }
+.unread kbd { display: inline-grid; place-items: center; min-width: 15px; min-height: 15px; padding: 0 3px; border: 0.5px solid rgb(0 0 0 / 0.2); border-radius: 4px; background: rgb(0 0 0 / 0.04); font: 500 9px/15px inherit; }
+.unread kbd.apart { margin-left: 6px; }
+/* The ERRORS lines sent with the prompt, folded behind their count at the bubble's bottom right. */
 .recalled { margin-top: 6px; font-size: 11px; white-space: normal; }
-.recalled > summary { text-align: right; color: rgb(110 59 191 / 0.7); font-size: 10px; font-weight: 600; }
-.recalled > summary::after { content: "⌄"; float: none; margin-left: 4px; }
+.recalled > summary { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 4px; height: 15px; color: rgb(110 59 191 / 0.7); font-size: 10px; font-weight: 600; }
+.recalled > summary .turn { display: flex; transition: transform 300ms ease-out; }
+.recalled.opened > summary .turn { transform: rotate(180deg); }
 .recall-head { margin: 4px 0; color: var(--accent); font-size: 10px; font-weight: 600; }
-.recall-line { margin: 2px 0; color: rgb(0 0 0 / 0.6); }
-.recall-line::before { content: "• "; }
+.recall-line { display: grid; grid-template-columns: auto 1fr; gap: 4px; margin: 4px 0 0; color: rgb(0 0 0 / 0.6); }
+.recall-line::before { content: "•"; }
 
 .pictures { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; white-space: normal; }
 .picture { display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; border-radius: 11px; background: rgb(0 0 0 / 0.1); color: inherit; font: inherit; text-align: left; cursor: zoom-in; }
 .picture img, .picture .missing { width: 64px; height: 52px; border-radius: 7px; object-fit: cover; }
 .picture .missing { display: grid; place-items: center; background: rgb(0 0 0 / 0.1); }
+.picture svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.picture .missing svg { width: 17px; height: 17px; }
+.picture .expand { display: flex; opacity: 0.5; }
+.picture .expand svg { width: 10px; height: 10px; }
+.picture { transition: background-color 120ms ease-out; }
+.picture:hover { background: rgb(0 0 0 / 0.15); }
+.picture:active { background: rgb(0 0 0 / 0.2); transition-duration: 80ms; }
 .picture .words { display: flex; flex-direction: column; gap: 4px; }
 .picture .name { font-size: 12px; font-weight: 600; }
 .picture .hint { font-size: 10px; opacity: 0.6; }
@@ -91,7 +107,7 @@ body { display: flex; flex-direction: column; }
 #preview img { display: block; max-width: 66.7vw; max-height: 66.7vh; border-radius: 10px; }
 
 .label { margin: 0 0 12px; color: rgb(0 0 0 / 0.6); font-size: 11px; font-weight: 500; }
-.label::first-letter { color: var(--accent); }
+.label svg { width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px; fill: var(--accent); }
 .row[data-kind="assistant"]:not(.lead) .label { display: none; }
 .prose { overflow-wrap: anywhere; }
 .prose > :first-child { margin-top: 0; }
@@ -186,7 +202,10 @@ details > summary::-webkit-details-marker { display: none; }
 .turn-bubble.right { align-self: flex-end; }
 .turn-bubble .speaker { align-self: flex-start; padding: 4px 8px; border-radius: 7px; background: rgb(var(--speaker) / 0.14); color: rgb(var(--speaker)); font-size: 11px; font-weight: 600; }
 .turn-bubble:not([style]) .speaker { color: rgb(0 0 0 / 0.6); }
-.turn-bubble .waiting { margin: 0; color: rgb(0 0 0 / 0.6); }
+.turn-bubble .waiting { display: flex; align-items: center; gap: 8px; margin: 0; color: rgb(0 0 0 / 0.6); }
+/* A small spinner while the round runs, as Swift's ProgressView. */
+.waiting .spinner { width: 14px; height: 14px; flex: none; border: 2px solid rgb(0 0 0 / 0.12); border-top-color: rgb(0 0 0 / 0.5); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .notice-line { color: rgb(0 0 0 / 0.6); font-size: 12px; }
 .notice-text { margin: 0; user-select: text; }
@@ -274,7 +293,7 @@ footer { padding: 6px 24px 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   .row.enter { animation: fade 120ms linear; }
-  #dot.busy { animation: none; }
+  #dot.busy, .waiting .spinner { animation: none; }
   .work > summary .chevron, .work > summary .chevron::before, .action > summary .icon::before, #dot { transition: none; }
   :is(.work, .action) > summary:active { scale: none; }
 }

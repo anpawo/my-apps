@@ -71,7 +71,7 @@
 
   // Opens or shuts a fold smoothly, its height and its content's opacity on one clock, as Swift's `.smooth`.
   function glide(details, open, done) {
-    const ms = details.classList.contains('work') ? WORK_GLIDE_MS : ACTION_GLIDE_MS;
+    const ms = details.classList.contains('work') ? WORK_GLIDE_MS : details.classList.contains('recalled') ? QUESTION_GLIDE_MS : ACTION_GLIDE_MS;
     details.classList.toggle('opened', open);
     if (reducedMotion.matches || !details.isConnected) {
       details.open = open;
@@ -93,8 +93,22 @@
     };
   }
 
-  // A question longer than this many lines shows folded behind its arrow, as the Swift bubble does.
-  const FOLDED_QUESTION_LINES = 15;
+  // A question taller than this many lines shows only its first, behind its arrow, as the Swift bubble does.
+  const FOLDED_QUESTION_LINES = 15.5;
+  // Below this many characters on so few lines, a question cannot be that tall: it is not measured.
+  const SHORT_QUESTION_CHARACTERS = 600;
+  // The bubble opens in 0.3 s; it shuts 80 ms after the pointer leaves, once the pointer is surely gone.
+  const QUESTION_GLIDE_MS = 300;
+  const QUESTION_CLOSE_MS = 80;
+  // Open and taller than this share of the transcript, the question scrolls inside its bubble.
+  const QUESTION_CAP = 0.6;
+  // Swift's thumbnail trims a screenshot's shadow: the picture is cut to its pixels at least this opaque.
+  const OPAQUE_ALPHA = 230;
+  const THUMBNAIL_PX = 360;
+  const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  const SPARKLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10z"/></svg>';
+  const PHOTO = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></svg>';
+  const EXPAND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
   const CLOCK_MS = 1000;
   const SECONDS_PER_MINUTE = 60;
   // The Swift `debateColor`: each model keeps its colour in every round.
@@ -118,19 +132,21 @@
       message.append(part.type === 'pictures' ? pictures(part.pictures) : part.text);
     }
     bubble.append(message);
-    if ((item.text || '').split('\n').length > FOLDED_QUESTION_LINES) {
-      bubble.classList.add('long');
-      bubble.dataset.fold = item.id;
-      bubble.classList.toggle('open', unfolded.has(item.id));
-      const arrow = make('button', 'unfold');
-      arrow.type = 'button';
-      arrow.setAttribute('aria-label', 'Show the whole message');
-      bubble.append(arrow);
-    }
+    const text = message.textContent;
+    if (text.length > SHORT_QUESTION_CHARACTERS || text.split('\n').length > FOLDED_QUESTION_LINES) bubble.dataset.measure = 'true';
+    const arrow = make('button', 'unfold');
+    arrow.type = 'button';
+    arrow.innerHTML = CHEVRON;
+    arrow.setAttribute('aria-label', 'Show the whole message');
+    bubble.append(arrow);
     if (item.recalled) {
-      const recall = fold(`${item.id}:recalled`, 'recalled', String(item.recalled.length));
+      const count = make('span', 'count', String(item.recalled.length));
+      const turn = make('span', 'turn');
+      turn.innerHTML = CHEVRON;
+      const recall = fold(`${item.id}:recalled`, 'recalled', count, turn);
       recall.title = 'ERRORS lines VCX added to this prompt';
       recall.append(make('p', 'recall-head', 'ERRORS lines VCX added'), ...item.recalled.map(line => make('p', 'recall-line', line)));
+      bubble.classList.add('recall');
       bubble.append(recall);
     }
     const column = make('div', 'question');
@@ -141,7 +157,7 @@
 
   function queuedHint() {
     const hint = make('p', 'unread', 'Not read yet');
-    hint.append(make('kbd', '', '↑'), ' edit', make('kbd', '', '⇧'), make('kbd', '', '↩'), ' send now');
+    hint.append(make('kbd', 'apart', '↑'), 'edit', make('kbd', 'apart', '⇧'), make('kbd', '', '↩'), 'send now');
     return hint;
   }
 
@@ -155,32 +171,73 @@
         const image = make('img');
         image.alt = picture.title;
         // A file gone since it was pasted shows the placeholder, as in the Swift `PictureView`.
-        image.addEventListener('error', () => image.replaceWith(make('span', 'missing', '?')), { once: true });
+        image.addEventListener('error', () => image.replaceWith(missingPicture()), { once: true });
+        image.addEventListener('load', () => trimShadow(image), { once: true });
         image.src = picture.src;
         button.append(image);
       } else {
-        button.append(make('span', 'missing', '?'));
+        button.append(missingPicture());
       }
       const words = make('span', 'words');
       words.append(make('span', 'name', picture.title), make('span', 'hint', 'Click to preview'));
-      button.append(words);
+      const expand = make('span', 'expand');
+      expand.innerHTML = EXPAND;
+      button.append(words, expand);
       strip.append(button);
     }
     return strip;
+  }
+
+  function missingPicture() {
+    const missing = make('span', 'missing');
+    missing.innerHTML = PHOTO;
+    return missing;
+  }
+
+  // A screenshot's transparent shadow margin is cut away, as Swift's `opaqueCrop`, so the card shows the window itself.
+  function trimShadow(image) {
+    const scale = Math.min(1, THUMBNAIL_PX / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale)), height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(image, 0, 0, width, height);
+    let pixels;
+    try { pixels = context.getImageData(0, 0, width, height).data; } catch { return; }
+    let left = width, right = -1, top = height, bottom = -1;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (pixels[(y * width + x) * 4 + 3] < OPAQUE_ALPHA) continue;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+    if (right < 0 || (left === 0 && top === 0 && right === width - 1 && bottom === height - 1)) return;
+    const crop = document.createElement('canvas');
+    crop.width = right - left + 1;
+    crop.height = bottom - top + 1;
+    crop.getContext('2d').drawImage(canvas, left, top, crop.width, crop.height, 0, 0, crop.width, crop.height);
+    image.src = crop.toDataURL();
   }
 
   // A streamed answer is redrawn in place: its unchanged blocks stay, so a chart frame in it is not loaded again.
   function answerItem(item) {
     const kept = drawing && [...drawing.children].find(child => child.classList.contains('answer-item') && child.dataset.item === item.id);
     const block = kept || make('div', 'answer-item');
-    const label = `✦ ${item.provider || meta.providerLabel || 'Assistant'}`;
+    const label = item.provider || meta.providerLabel || 'Assistant';
     if (!kept) {
       block.dataset.item = item.id;
       const prose = make('div', 'prose');
       prose.dataset.find = item.id;
-      block.append(make('p', 'label', label), prose);
-    } else if (block.firstChild.textContent !== label) {
-      block.firstChild.textContent = label;
+      const head = make('p', 'label');
+      head.innerHTML = SPARKLE;
+      head.append(make('span', 'provider', label));
+      block.append(head, prose);
+    } else if (block.firstChild.lastChild.textContent !== label) {
+      block.firstChild.lastChild.textContent = label;
     }
     morph(block.lastChild, item.html);
     return block;
@@ -265,7 +322,10 @@
     if (!turns.length) {
       const asked = (item.command || item.title || '').includes('ask-qwen') ? 'Qwen' : 'Codex';
       const text = item.status === 'inProgress' ? `Asking ${asked}…` : item.failed ? `The round failed: ${item.title}` : item.title;
-      debate.append(turnBubble('claude', meta.modelLabel || 'Claude', true, make('p', 'waiting', text)));
+      const waiting = make('p', 'waiting');
+      if (item.status === 'inProgress') waiting.append(make('span', 'spinner'));
+      waiting.append(text);
+      debate.append(turnBubble('claude', meta.modelLabel || 'Claude', true, waiting));
     }
     return debate;
   }
@@ -465,6 +525,8 @@
     const nodes = all.map((section, index) => {
       const node = sectionNode(section.id);
       kept.add(section.id);
+      // A question with no answer yet sits close above the next one, as Swift's.
+      node.classList.toggle('unanswered', section.rows.length === 0 && index !== all.length - 1);
       place(node, sectionChildren(section, Boolean(meta.busy) && index === all.length - 1, kept));
       return node;
     });
@@ -519,7 +581,9 @@
     if (window.vcxFind) vcxFind.refresh();
     if (window.vcxQuestions) vcxQuestions.receive(message, meta);
     for (const card of list.querySelectorAll('.prose .table:not([data-fitted])')) fitTable(card);
+    measureQuestions();
     if (pinned) transcript.scrollTop = endTop();
+    liftPinned();
     post({ type: 'rendered', serial: message.serial });
   }
 
@@ -547,6 +611,44 @@
     [...head.cells].forEach((cell, index) => {
       if (natural[index] > TABLE_COLUMN_FLOOR_PX) cell.style.minWidth = `${TABLE_COLUMN_FLOOR_PX}px`;
     });
+  }
+
+  // Read every height first, then fold: one layout for a whole thread.
+  function measureQuestions() {
+    const waiting = [...list.querySelectorAll('.bubble[data-measure]')];
+    const line = parseFloat(getComputedStyle(transcript).lineHeight);
+    const tall = waiting.map(bubble => bubble.querySelector('.message').scrollHeight > FOLDED_QUESTION_LINES * line);
+    waiting.forEach((bubble, index) => {
+      delete bubble.dataset.measure;
+      bubble.classList.toggle('long', tall[index]);
+    });
+  }
+
+  // Changes the question's height on one clock with its text, as Swift's `.smooth(duration: 0.3)`.
+  function openQuestion(bubble, open) {
+    clearTimeout(bubble.closing);
+    if (bubble.classList.contains('open') === open) return;
+    const message = bubble.querySelector('.message');
+    const from = message.getBoundingClientRect().height;
+    message.style.maxHeight = `${transcript.clientHeight * QUESTION_CAP}px`;
+    bubble.classList.toggle('open', open);
+    if (reducedMotion.matches) return;
+    const to = message.getBoundingClientRect().height;
+    message.animate({ height: [`${from}px`, `${to}px`] }, { duration: QUESTION_GLIDE_MS, easing: GLIDE_EASING });
+  }
+
+  // The stuck question (its section scrolled under it) casts a shadow that sets it above the transcript.
+  let lifted = null;
+  function liftPinned() {
+    const view = transcript.getBoundingClientRect();
+    const hit = document.elementFromPoint(list.getBoundingClientRect().left + 1, view.top + 1);
+    const section = hit && hit.closest('.turn');
+    const heading = section && section.querySelector(':scope > .row.heading');
+    const stuck = heading && section.getBoundingClientRect().top < view.top - 1 ? heading : null;
+    if (stuck === lifted) return;
+    if (lifted) lifted.classList.remove('stuck');
+    if (stuck) stuck.classList.add('stuck');
+    lifted = stuck;
   }
 
   function copyCode(button) {
@@ -615,7 +717,6 @@
     const head = !event.target.closest('button:not(.copy)') && event.target.closest('figure.code > figcaption');
     const copy = head && head.querySelector('button.copy');
     const picture = event.target.closest('button.picture[data-src]');
-    const unfold = event.target.closest('.bubble.long .unfold');
     if (link) {
       event.preventDefault();
       post({ type: 'open', href: link.getAttribute('href') });
@@ -623,11 +724,6 @@
       copyCode(copy);
     } else if (picture) {
       preview(picture.dataset.src);
-    } else if (unfold) {
-      const bubble = unfold.closest('.bubble');
-      bubble.classList.toggle('open');
-      if (bubble.classList.contains('open')) unfolded.add(bubble.dataset.fold);
-      else unfolded.delete(bubble.dataset.fold);
     } else if (event.target.closest('#preview')) {
       closePreview();
     } else if (event.target.closest('#latest')) {
@@ -644,7 +740,22 @@
   transcript.addEventListener('scroll', () => {
     atEnd = endTop() - transcript.scrollTop < PINNED_DISTANCE_PX;
     $('latest').hidden = atEnd;
+    liftPinned();
   }, { passive: true });
+  // Only the arrow opens a long question: the pointer crossing it to read the answer leaves it shut. It shuts once the
+  // pointer has left the bubble for good.
+  list.addEventListener('pointerover', event => {
+    const bubble = event.target.closest('.bubble.long');
+    if (!bubble) return;
+    clearTimeout(bubble.closing);
+    if (event.target.closest('.unfold')) openQuestion(bubble, true);
+  });
+  list.addEventListener('pointerout', event => {
+    const bubble = event.target.closest('.bubble.long.open');
+    if (!bubble || bubble.contains(event.relatedTarget)) return;
+    clearTimeout(bubble.closing);
+    bubble.closing = setTimeout(() => openQuestion(bubble, false), QUESTION_CLOSE_MS);
+  });
   // As the Swift window did: a sent message brings the transcript to its end and keeps it there until the message's row
   // is drawn, and while the reader is at the end it stays there as the transcript shrinks (the composer growing as he
   // types) or its rows grow after they are drawn (streamed text, pictures): no Back to latest for either.

@@ -122,7 +122,10 @@
     if (press(event.clientX, event.clientY, true)) event.preventDefault();
   }, true);
 
+  // Where the pointer is, so pressing Control lights the word under it at once, as Swift's.
+  let pointer = null;
   addEventListener('mousemove', event => {
+    pointer = { x: event.clientX, y: event.clientY };
     if (drag) {
       if (drag.cancelled) return;
       const word = wordAt(event.clientX, event.clientY);
@@ -149,6 +152,10 @@
   }, true);
 
   addEventListener('keydown', event => {
+    if (event.key === 'Control' && !event.metaKey && !event.altKey && !event.shiftKey && !drag && pointer) {
+      const word = wordAt(pointer.x, pointer.y);
+      if (word) gather(word);
+    }
     if (event.key === 'Escape' && drag) {
       // The drag's own Escape: it stops neither the turn nor a panel.
       event.stopImmediatePropagation();
