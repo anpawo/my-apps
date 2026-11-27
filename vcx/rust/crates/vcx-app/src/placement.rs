@@ -8,8 +8,9 @@ use objc2_foundation::{MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize, NSSt
 use tao::platform::macos::WindowExtMacOS;
 use tao::window::Window;
 
-/// The new window leaves 1/40 of the screen's width on each side and 1/20 of its height above and below.
-const SIDE_MARGIN: f64 = 1.0 / 40.0;
+/// The new window leaves 1/12 of the screen's width on each side (5/6 of it wide: 1225 of a 1470 point screen, the
+/// width Marius set on 27/11) and 1/20 of its height above and below.
+const SIDE_MARGIN: f64 = 1.0 / 12.0;
 const END_MARGIN: f64 = 1.0 / 20.0;
 /// `Contents/Resources/VCX.icns`, which build-rust.sh puts there.
 const ICON: &str = "VCX";
@@ -110,12 +111,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opens_a_new_window_at_nineteen_twentieths_of_the_screen_width_centred() {
+    fn opens_a_new_window_at_five_sixths_of_the_screen_width_centred() {
         let screen = NSRect::new(NSPoint::new(0.0, 25.0), NSSize::new(1600.0, 1000.0));
 
         let frame = new_frame(screen);
 
-        assert_eq!((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height), (40.0, 75.0, 1520.0, 900.0));
+        assert_eq!((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height), (133.0, 75.0, 1334.0, 900.0));
     }
 
     #[test]
@@ -124,7 +125,7 @@ mod tests {
 
         let frame = new_frame(screen);
 
-        assert_eq!((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height), (-1475.0, 47.0, 1438.0, 851.0));
+        assert_eq!((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height), (-1386.0, 47.0, 1260.0, 851.0));
     }
 
     #[test]
