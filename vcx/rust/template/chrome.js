@@ -23,7 +23,6 @@
   const PRESS_SCALE_MIN = 0.94;
   const UPDATE_BUBBLE_GAP_PX = 6;
   const TASK_STATES = { working: 'working', question: 'waiting for you', done: 'done' };
-  const TASK_MARKS = { done: '✓' };
   // The status pill's own fills (WT-037): violet, orange, grey and green.
   const TONE_FILLS = { busy: '#b4a5e7', pending: '#e28e4f', off: '#afb2b7', ready: '#88cb9e' };
   const COLORS = {
@@ -881,7 +880,6 @@
     if (entry.current) card.setAttribute('aria-current', 'true');
     card.title = entry.current ? `This window: ${TASK_STATES[entry.state]}` : `Bring this session to the front: ${TASK_STATES[entry.state]}`;
     card.setAttribute('aria-label', `${entry.task}, ${TASK_STATES[entry.state]}`);
-    if (TASK_MARKS[entry.state]) card.append(make('i', 'mark', TASK_MARKS[entry.state]));
     card.append(make('span', 'name', entry.task));
     return card;
   }

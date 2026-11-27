@@ -47,7 +47,7 @@ footer { grid-column: 2; grid-row: 2; }
 /* The status bar, as the Swift window drew it: each chip's words in its colour on that colour at 8 % over white, small
    corners, no border, lifted by a soft shadow, in 10.5 px monospaced type. */
 /* Swift's bar is a horizontal ScrollView padded 8 then pulled back 8, so chips never wrap and their shadows are not clipped. */
-#chips { position: relative; align-items: center; gap: 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px; margin: 0 -8px -8px; }
+#chips { position: relative; align-items: center; gap: 12px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px; margin: 0 -8px -8px; }
 #chips::-webkit-scrollbar { display: none; }
 #chips > * { flex: none; }
 /* Swift `statusBar.separator`. */
@@ -202,7 +202,6 @@ footer { grid-column: 2; grid-row: 2; }
 :is(#tasks, #session) .bar-head { color: rgb(0 0 0 / .5); }
 :is(#tasks, #session) .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
 :is(#tasks, #session) .name { overflow: hidden; text-overflow: ellipsis; }
-:is(#tasks, #session) .mark { width: 12px; font-style: normal; font-weight: 700; text-align: center; }
 
 /* ---- Effect: empty state. Copy from here ---- */
 #tasks { --foreground: oklch(0.985 0 0); --muted: oklch(0.269 0 0); --muted-foreground: oklch(0.708 0 0); --border: oklch(1 0 0 / 10%); --radius: 0.625rem; }

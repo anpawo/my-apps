@@ -395,7 +395,7 @@ fn lists_every_windows_task_by_project_and_brings_one_up(page: &Page) -> Result<
     same(&dump["groups"], json!(["my-apps", "fleet"]), "the groups")?;
     same(&dump["tasks"], json!([
         {"text": "Rust chrome", "state": "working", "current": true},
-        {"text": "✓Rust composer", "state": "done", "current": false},
+        {"text": "Rust composer", "state": "done", "current": false},
         {"text": "Fix Fleet names", "state": "question", "current": false}
     ]), "the rows")?;
 
