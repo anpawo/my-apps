@@ -20,7 +20,7 @@
   const UNMETERED = ['qwen', 'agy'];
   const MODES = [['bypass', 'YOLO: no tool approval prompts'], ['ask', 'Ask before actions that need permission']];
   const TASK_STATES = { working: 'working', question: 'waiting for you', done: 'done' };
-  const TASK_MARKS = { working: '…', question: '?', done: '✓' };
+  const TASK_MARKS = { done: '✓' };
   // The status pill's own fills (WT-037): violet, orange, grey and green.
   const TONE_FILLS = { busy: '#b4a5e7', pending: '#e28e4f', off: '#afb2b7', ready: '#88cb9e' };
   const COLORS = {
@@ -148,10 +148,10 @@
   }
   // ---- End of effect ----
 
-  // ---- Effect: side bar of count cards with a sliding glass selector (WT-050) ----
+  // ---- Effect: side bar of count cards (WT-050) ----
   // bar: the panel; onChoose(card) is told each card clicked. A card's number is its data-count. On the first draw each
   // number counts up from 0 (a second, half the way in its first fifth), rising out of its box from 95 % of its size.
-  // A click lays the glass on the card, sliding from the card that had it, and opens the bar's outline along it. A
+  // A click marks the card as chosen. A
   // card, title or warning added to or taken from the bar fades in or out, the others move to their new place, and
   // the bar's height follows, clipped to it. Returns choose(card), to choose one from code.
   function cardBar(bar, { slide = 300, count = 1000, onChoose } = {}) {
@@ -177,34 +177,11 @@
       });
     }
 
-    // where the outline opens: from the top of the glass's upper curve to the foot of its lower one
-    const opening = (card, glass) => {
-      const top = bar.clientTop + card.offsetTop + card.clientTop + glass.offsetTop - 12;
-      return [top, top + glass.offsetHeight + 24];
-    };
-    const open = () => {
-      const card = bar.querySelector('.card[aria-current]');
-      const [a, b] = card ? opening(card, card.querySelector('.card-glass')) : [0, 0];
-      bar.style.setProperty('--cut-a', `${a}px`); bar.style.setProperty('--cut-b', `${b}px`);
-    };
-    new ResizeObserver(open).observe(bar);
     const choose = card => {
       const was = bar.querySelector('.card[aria-current]');
       if (was === card) return;
-      if (was) {
-        // the card it leaves turns lighter at once, the glass alone moves
-        was.style.transition = 'none'; was.removeAttribute('aria-current');
-        void getComputedStyle(was, '::after').backgroundColor; was.style.transition = '';
-      }
+      was?.removeAttribute('aria-current');
       card.setAttribute('aria-current', 'true');
-      open();
-      const from = was?.isConnected ? was : bar.querySelector('.card');
-      const d = from.getBoundingClientRect().top - card.getBoundingClientRect().top;
-      if (!d || still()) return;
-      const glass = card.querySelector('.card-glass'), [a, b] = opening(card, glass);
-      card.style.zIndex = 1;
-      glass.animate([{ transform: `translateY(${d}px)` }, { transform: 'none' }], how).finished.finally(() => { card.style.zIndex = ''; });
-      bar.animate([{ '--cut-a': `${a + d}px`, '--cut-b': `${b + d}px` }, { '--cut-a': `${a}px`, '--cut-b': `${b}px` }], how);
     };
     bar.addEventListener('click', e => {
       const card = e.target.closest('.card');
@@ -885,9 +862,8 @@
     if (entry.current) card.setAttribute('aria-current', 'true');
     card.title = entry.current ? `This window: ${TASK_STATES[entry.state]}` : `Bring this session to the front: ${TASK_STATES[entry.state]}`;
     card.setAttribute('aria-label', `${entry.task}, ${TASK_STATES[entry.state]}`);
-    const glass = make('span', 'card-glass');
-    glass.ariaHidden = 'true';
-    card.append(glass, make('i', 'mark', TASK_MARKS[entry.state]), make('span', 'name', entry.task));
+    if (TASK_MARKS[entry.state]) card.append(make('i', 'mark', TASK_MARKS[entry.state]));
+    card.append(make('span', 'name', entry.task));
     return card;
   }
 

@@ -328,6 +328,23 @@ fn sends_on_return_and_keeps_shift_return_as_a_new_line(page: &Page) -> Result<(
     page.value("").map(drop)
 }
 
+fn glides_the_sent_message_from_the_composer_into_the_transcript(page: &Page) -> Result<(), String> {
+    page.keys("glide")?;
+    page.press(Key::Return, NONE)?;
+    page.next("send")?;
+
+    page.deliver(json!({"type": "full", "serial": 2, "meta": {"ready": true}, "rows": [user_row("u1", "glide", json!([]))], "draft": []}))?;
+
+    page.wait("the sent bubble to glide", |page| page.eval("document.querySelector('[data-row=u1] .bubble')?.getAnimations().length > 0").is_ok_and(|gliding| gliding == true))?;
+    let settle = Instant::now() + QUIET;
+    while Instant::now() < settle {
+        spin();
+    }
+    // The glide's transform stretches the transcript's scroll height; following that stretch threw the bubble off the top.
+    let past = page.eval("(() => { const t = document.getElementById('transcript'), top = t.scrollTop; document.querySelector('[data-row=u1] .bubble').getAnimations().forEach(a => a.cancel()); return top - (t.scrollHeight - t.clientHeight); })()")?;
+    check(past.as_f64().is_some_and(|past| past <= 1.0), format!("the transcript scrolled {past} px past its rows while the bubble glided"))
+}
+
 fn sends_with_a_real_click_and_keeps_the_caret_in_the_composer(page: &Page) -> Result<(), String> {
     page.keys("clicked")?;
     page.value("clicked")?;
@@ -913,8 +930,9 @@ fn sends_nothing_for_a_block_edited_back_to_its_original(page: &Page) -> Result<
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 37] = [
+const TESTS: [(&str, Test); 38] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
+    ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
     ("sends nothing for an empty composer", sends_nothing_for_an_empty_composer),

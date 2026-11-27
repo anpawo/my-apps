@@ -20,6 +20,12 @@
   let detailsOn = false;
   // `sent`: a message just left the composer and its row is not drawn yet; `atEnd`: the reader is at the transcript's end.
   let sent = false;
+  // Where the transcript ends, from the rows' own box: its scrollHeight also counts a bubble still gliding in from the
+  // composer (composer.js), whose transform reaches below the rows, and scrolling there flung the bubble off the top.
+  const endTop = () => {
+    const box = $('rows').getBoundingClientRect(), view = transcript.getBoundingClientRect();
+    return Math.max(0, box.bottom - view.top + transcript.scrollTop + parseFloat(getComputedStyle(transcript).paddingBottom) - transcript.clientHeight);
+  };
   let atEnd = true;
   const DETAILED = /^(work|action)\b/;
   let meta = {};
@@ -455,14 +461,14 @@
 
   // Applied at once, with no requestAnimationFrame: a window that is hidden or covered gets no frames.
   function receive(message) {
-    const pinned = sent || transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    const pinned = sent || endTop() - transcript.scrollTop < PINNED_DISTANCE_PX;
     const before = rows.size;
     apply(message);
     if (rows.size > before) sent = false;
     $('empty').hidden = rows.size > 0;
     if (window.vcxFind) vcxFind.refresh();
     if (window.vcxQuestions) vcxQuestions.receive(message, meta);
-    if (pinned) transcript.scrollTop = transcript.scrollHeight;
+    if (pinned) transcript.scrollTop = endTop();
     post({ type: 'rendered', serial: message.serial });
   }
 
@@ -559,7 +565,7 @@
   }, true);
   // Back to latest shows once the reader has scrolled away from the end.
   transcript.addEventListener('scroll', () => {
-    atEnd = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < PINNED_DISTANCE_PX;
+    atEnd = endTop() - transcript.scrollTop < PINNED_DISTANCE_PX;
     $('latest').hidden = atEnd;
   }, { passive: true });
   // As the Swift window did: a sent message brings the transcript to its end and keeps it there until the message's row
@@ -568,10 +574,10 @@
   document.addEventListener('vcx:sent', () => {
     sent = true;
     atEnd = true;
-    transcript.scrollTop = transcript.scrollHeight;
+    transcript.scrollTop = endTop();
   });
   const follow = new ResizeObserver(() => {
-    if (atEnd) transcript.scrollTop = transcript.scrollHeight;
+    if (atEnd) transcript.scrollTop = endTop();
   });
   follow.observe(transcript);
   follow.observe($('rows'));

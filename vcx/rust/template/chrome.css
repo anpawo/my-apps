@@ -26,7 +26,7 @@ footer { grid-column: 2; grid-row: 2; }
 /* The status line: the status pill, then what runs and for how long, in the bar's grey. */
 #status { gap: 6px; }
 #status #dot { display: none; }
-#status-pill { font-size: 12px; line-height: 18px; padding: 0 10px; }
+#status-pill { padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 18px; }
 #status-doing, #status-elapsed { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #status-doing { min-width: 0; }
 #status-elapsed { font-variant-numeric: tabular-nums; }
@@ -36,13 +36,16 @@ footer { grid-column: 2; grid-row: 2; }
   font-size: 12px; line-height: 18px; white-space: normal; }
 #notice[hidden] { display: none; }
 
-/* The status bar: status pills of the chip's colour washed into white. */
+/* The status bar, as the Swift window drew it: each chip's words in its colour on that colour at 8 % over white, small
+   corners, no border, lifted by a soft shadow, in 10.5 px monospaced type. */
 #chips { align-items: center; gap: 6px; }
-#chips .pill { position: relative; padding: 1px 9px; font-size: 11px; line-height: 16px; }
+#chips .pill { position: relative; padding: 5px 6px; border: 0; border-radius: 5px; box-shadow: 0 2px 6px rgb(0 0 0 / .22);
+  font: 500 10.5px/13px ui-monospace, "SF Mono", Menlo, monospace; }
+#chips .pill:not(.glide) { --fill: color-mix(in srgb, var(--tint) 8%, white) !important; color: var(--tint); }
 #chips button.pill { cursor: pointer; }
 #chips button.pill:hover { filter: brightness(0.96); }
 #chips button.pill:focus-visible { outline: 2px solid #4c90f0; outline-offset: 1px; }
-#chips button.pill[aria-expanded=true] { border-color: rgb(0 0 0 / .3); }
+#chips button.pill[aria-expanded=true] { filter: brightness(0.92); }
 #chips .pill.loading span { animation: pulse 1.2s ease-in-out infinite; }
 #chips .glide { --fill: color-mix(in srgb, var(--accent) 16%, white); padding-bottom: 4px; }
 #chips .glide b { font-weight: 700; }
@@ -155,14 +158,8 @@ footer { grid-column: 2; grid-row: 2; }
 #tasks header { display: flex; align-items: center; gap: 8px; padding: 0 6px; color: rgb(0 0 0 / .75); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 #tasks header .count { margin-left: auto; color: rgb(0 0 0 / .45); letter-spacing: 0; }
 
-/* ---- Effect: side bar of count cards with a sliding glass selector. Copy from here ---- */
-@property --cut-a { syntax: "<length>"; inherits: true; initial-value: 0px; }
-@property --cut-b { syntax: "<length>"; inherits: true; initial-value: 0px; }
-:is(#tasks, #session) .bar { --edge: rgb(246 247 249 / .2); --reach: 13px; position: relative; display: flex; flex-direction: column; gap: 16px; width: max-content;
-  padding: 12px; border: 1px solid transparent; border-radius: 16px; background: rgb(246 247 249 / .1); clip-path: inset(0 round 16px); }
-:is(#tasks, #session) .bar::before { content: ""; position: absolute; inset: -1px; border: 1px solid var(--edge); border-radius: inherit; pointer-events: none;
-  mask: linear-gradient(#000 0 0) left / calc(100% - 1px) 100% no-repeat,
-        linear-gradient(#000 var(--cut-a), transparent 0 var(--cut-b), #000 0) right / 1px 100% no-repeat; }
+/* ---- Effect: side bar of count cards. Copy from here ---- */
+:is(#tasks, #session) .bar { position: relative; display: flex; flex-direction: column; gap: 16px; width: max-content; }
 :is(#tasks, #session) .bar-group { display: flex; flex-direction: column; gap: 8px; }
 :is(#tasks, #session) .bar-head { padding: 8px 4px 0; font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(255 255 255 / .5); }
 :is(#tasks, #session) .card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid transparent;
@@ -176,28 +173,16 @@ footer { grid-column: 2; grid-row: 2; }
 :is(#tasks, #session) .card:enabled:active { transform: scale(var(--press, .97)); }
 :is(#tasks, #session) .card:disabled { cursor: default; }
 :is(#tasks, #session) .name { flex: 1; white-space: nowrap; }
-:is(#tasks, #session) .card-glass { --tint: rgb(255 255 255 / var(--glass, .1)); position: absolute; z-index: -2; top: -4px; bottom: -4px;
-  left: calc(-1 * var(--reach)); right: calc(-1px - var(--reach)); pointer-events: none; visibility: hidden;
-  background: linear-gradient(var(--edge) 0 0) top left / calc(100% - 13px) 1px no-repeat,
-              linear-gradient(var(--edge) 0 0) bottom left / calc(100% - 13px) 1px no-repeat,
-              linear-gradient(var(--tint) 0 0) 0 1px / 100% calc(100% - 2px) no-repeat;
-  box-shadow: 0 6px 18px rgb(0 0 0 / .3); }
-:is(#tasks, #session) .card-glass::before, :is(#tasks, #session) .card-glass::after { content: ""; position: absolute; right: 0; width: 13px; height: 13px;
-  --ring: transparent 11.75px, var(--edge) 12.25px 12.75px, var(--tint) 13.25px; }
-:is(#tasks, #session) .card-glass::before { bottom: calc(100% - 1px); background: radial-gradient(circle at 0 0, var(--ring)); }
-:is(#tasks, #session) .card-glass::after { top: calc(100% - 1px); background: radial-gradient(circle at 0 100%, var(--ring)); }
-:is(#tasks, #session) .card[aria-current] .card-glass { visibility: visible; }
 /* its number is as wide as its digits from the start; on the first draw it rises out of its box as it counts */
 :is(#tasks, #session) .num { overflow: hidden; text-align: center; line-height: 1; font-variant-numeric: tabular-nums; }
 :is(#tasks, #session) .num > span { display: block; transform-origin: bottom; }
 @media (prefers-reduced-motion: reduce) { :is(#tasks, #session) .card { transition: none; } :is(#tasks, #session) .card:enabled:active { transform: none; } }
 /* ---- End of effect ---- */
-/* On the window's white: a dark hairline, a faint panel, a white glass, a lighter shadow, the cards at the bar's size. */
-:is(#tasks, #session) .bar { --edge: rgb(0 0 0 / .12); --glass: .7; width: 100%; background: rgb(0 0 0 / .03); }
+/* On the window's white: the cards at the bar's size. */
+:is(#tasks, #session) .bar { width: 100%; }
 :is(#tasks, #session) .bar[hidden] { display: none; }
 :is(#tasks, #session) .bar-head { color: rgb(0 0 0 / .5); }
 :is(#tasks, #session) .card { min-width: 0; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
-:is(#tasks, #session) .card-glass { box-shadow: 0 4px 12px rgb(0 0 0 / .1); }
 :is(#tasks, #session) .name { overflow: hidden; text-overflow: ellipsis; }
 :is(#tasks, #session) .mark { width: 12px; font-style: normal; font-weight: 700; text-align: center; }
 
@@ -216,7 +201,8 @@ footer { grid-column: 2; grid-row: 2; }
 /* Not clipped: the Settings box widens over the transcript. A panel floating over the window, as one-text's side bar:
    inset from its edges, rounded, the transcript running full bleed beside it. */
 #session { position: relative; z-index: 40; grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 168px; min-height: 0;
-  margin: 7px 0 7px 7px; padding: 10px; border: 1px solid rgb(0 0 0 / .1); border-radius: 12px; background: rgb(0 0 0 / .025); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+  margin: 7px 0 7px 7px; padding: 10px; border: 1px solid rgb(0 0 0 / .1); border-radius: 12px; background: rgb(0 0 0 / .025);
+  box-shadow: 0 4px 16px rgb(0 0 0 / .08), 0 1px 3px rgb(0 0 0 / .06); font: 13px/1.5 Inter, -apple-system, system-ui, sans-serif; }
 /* ---- Effect: button in the dashboard's variants. Copy from here ---- */
 /* Nested under the panel, so the composer's own .b buttons keep their look. */
 :is(#session, #capability, #settings) {
