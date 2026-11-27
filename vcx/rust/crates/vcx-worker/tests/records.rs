@@ -162,6 +162,24 @@ fn closing_a_window_archives_its_record_which_the_next_window_lists() {
 }
 
 #[test]
+fn a_window_opened_with_a_native_resume_comes_back_on_the_closed_windows_record() {
+    let worker = worker("records-reopen");
+    let mut held = Held::open(&target(&worker));
+    let record = answered_record(&worker, &mut held, "reopen me");
+    held.lease.perform(&held.peer.client, "close", json!({})).expect("the record is archived and the session closed");
+
+    let mut request = request_for(&target(&worker), &session_id());
+    request.resume = Some(format!("native:{record}"));
+    let mut reopened = Held::attach(vcx_conformance::peer::Peer::greeted(&target(&worker)), &request);
+    reopened.follow(|state| meta(state, "ready") == &json!(true) && meta(state, "changing") == &json!(false) && state.rows.iter().any(|row| row.kind == "assistant"));
+
+    let state = reopened.replica.state().unwrap();
+    let texts: Vec<String> = state.items.values().filter(|item| item["type"] == "userMessage").flat_map(|item| item["content"].as_array().cloned().unwrap_or_default()).filter_map(|piece| piece["text"].as_str().map(str::to_owned)).collect();
+    assert_eq!(meta(state, "recordID"), &json!(record));
+    assert!(texts.iter().any(|text| text == "reopen me"), "{texts:?}");
+}
+
+#[test]
 fn fork_says_so_when_codex_returns_no_forked_conversation() {
     let worker = worker("records-fork");
     let mut held = Held::open(&target(&worker));

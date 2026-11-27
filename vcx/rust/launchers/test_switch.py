@@ -21,6 +21,9 @@ REAL_LAUNCHER = HOME / '.local/bin/vcx'
 RUST_APP = HOME / 'Applications/VCX Rust.app'
 SWIFT_APP = HOME / 'Applications/Vibe Code X.app'
 FIXTURE = HERE.parent / 'fixtures/fake_agent.py'
+# fake_agent.py behind UUID threads and rollout files, as the conversation archive takes them.
+RECORDS_AGENT = HERE.parent / 'crates/vcx-worker/tests/records_agent.py'
+NATIVE_HISTORY_FLAG = 'native-history'
 SERVICE = f'gui/{os.getuid()}/mac.vcx-update'
 WAIT = 60
 POLL = 0.2
@@ -202,16 +205,21 @@ class Switch(unittest.TestCase):
         self.assertEqual(printed.returncode, 0, printed.stderr)
         self.assertIn('usage: vcx -p', printed.stdout)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn('no live update', refused.stderr)
+        self.assertIn('updates live', refused.stderr)
 
-    # The launcher hands `--resume native:<record>` over and the window reopens on that record, but the Rust worker
-    # starts a new conversation for a `native:` resume (vcx-worker backend.rs `resume_target`): Rust worker's gap.
-    @unittest.expectedFailure
+    # A test worker keeps saved conversations only once its runtime home holds the `native-history` flag, and only in
+    # its own folder: the account's Codex home and the fixture's history sit under the app's state folder.
     def test_switched_vcx_reopens_a_closed_window_from_its_record(self):
         settings = {'worker': str(RUST_APP / 'Contents/MacOS/vcx-worker'),
                     'workerArguments': ['--runtime-test', '--runtime-fixture-command', str(self.root / 'command.json')]}
-        (self.root / 'command.json').write_text(json.dumps(['/usr/bin/python3', str(FIXTURE)]))
+        (self.root / 'command.json').write_text(json.dumps(['/usr/bin/python3', str(RECORDS_AGENT)]))
         (self.root / 'config/settings.json').write_text(json.dumps(settings))
+        codex = self.root / 'state/home/.codex'
+        codex.mkdir(parents=True, mode=0o700)
+        (self.root / 'state/runtime').mkdir(mode=0o700)
+        (self.root / 'state/runtime' / NATIVE_HISTORY_FLAG).write_text('')
+        accounts = {'accounts': [{'id': 'codex-fixture', 'name': 'Fixture', 'provider': 'codex', 'home': str(codex)}]}
+        (self.root / 'shared/settings.json').write_text(json.dumps(accounts))
         self.switch('--to', 'rust')
         launcher = self.with_open(OPEN_RUST)
         project = self.folder('project')
@@ -221,6 +229,8 @@ class Switch(unittest.TestCase):
         name = self.vcx('--sessions', launcher=launcher).stdout.split('\t')[0]
         closed = self.vcx('--close', name, launcher=launcher)
         self.wait(self.windows, lambda windows: windows == [])
+        # The window goes at once and its worker archives the record after it, as in Swift: a reopen meanwhile is refused.
+        self.wait(lambda: read(self.root / 'state/windows.json'), lambda text: json.loads(text or '[]') == [])
 
         reopened = self.vcx('--cwd', str(project), '--resume', f'native:{record}', launcher=launcher)
 
@@ -228,6 +238,7 @@ class Switch(unittest.TestCase):
         self.assertEqual(reopened.returncode, 0, reopened.stderr)
         windows = self.wait(self.windows, lambda windows: len(windows) == 1 and drew_turns(windows[0], 1))
         self.assertEqual(windows[0]['cwd'], str(project))
+        self.assertEqual(windows[0]['recordID'], record)
 
     def test_switched_vcx_keeps_the_terminal_interface(self):
         python = HOME / 'self/my-apps/vcx/.venv/bin/python'
