@@ -85,46 +85,267 @@ fn rules(cwd: &Path, home: &Path) -> Vec<String> {
 
 /// Rules scoring at least `minimum`, best first, an earlier rule first on a tie.
 pub fn rank(prompt: &str, rules: &[String], limit: usize, minimum: f64) -> Vec<String> {
-    let mut query: Vec<String> = Vec::new();
-    for word in words(prompt) {
-        if !query.contains(&word) {
-            query.push(word);
-        }
-    }
-    if rules.is_empty() || limit == 0 || query.is_empty() {
+    if rules.is_empty() || limit == 0 || minimum.is_nan() {
         return Vec::new();
     }
+
+    let mut query = std::collections::HashMap::new();
+    for_each_word_key(prompt, |key| {
+        let next = query.len();
+        query.entry(key).or_insert(next);
+    });
+    if query.is_empty() {
+        return Vec::new();
+    }
+
     let scores = scores(&query, rules);
     let mut kept: Vec<usize> = (0..rules.len()).filter(|&rule| scores[rule] >= minimum).collect();
-    kept.sort_by(|&left, &right| scores[right].total_cmp(&scores[left]));
-    kept.into_iter().take(limit).map(|rule| rules[rule].clone()).collect()
+    let compare = |&left: &usize, &right: &usize| {
+        scores[right].total_cmp(&scores[left]).then_with(|| left.cmp(&right))
+    };
+    if kept.len() > limit {
+        kept.select_nth_unstable_by(limit, compare);
+        kept.truncate(limit);
+    }
+    kept.sort_unstable_by(compare);
+    kept.into_iter().map(|rule| rules[rule].clone()).collect()
 }
 
-fn scores(query: &[String], rules: &[String]) -> Vec<f64> {
-    let tokens: Vec<Vec<String>> = rules.iter().map(|rule| words(rule)).collect();
+const QUERY_SLOTS: usize = 1024;
+const QUERY_COLLISION: u64 = 1 << (u64::BITS - 1);
+const QUERY_KEY_BITS: u32 = STEM_LENGTH as u32 * u8::BITS;
+const QUERY_KEY_MASK: u64 = (1 << QUERY_KEY_BITS) - 1;
+const QUERY_MAX_INLINE_TERM: usize = ((QUERY_COLLISION - 1) >> QUERY_KEY_BITS) as usize;
+
+#[inline]
+fn query_slot(key: u64) -> usize {
+    const HASH_MULTIPLIER: u64 = 0x9e37_79b9_7f4a_7c15;
+    const SHIFT: u32 = u64::BITS - QUERY_SLOTS.trailing_zeros();
+    (key.wrapping_mul(HASH_MULTIPLIER) >> SHIFT) as usize
+}
+
+fn scores(query: &std::collections::HashMap<u64, usize>, rules: &[String]) -> Vec<f64> {
+    let slots = query_slots(query);
+    let (postings, mut lengths, total) = postings(&slots, query, rules);
     let count = rules.len() as f64;
-    let average = tokens.iter().map(Vec::len).sum::<usize>() as f64 / count;
+    let average = total as f64 / count;
     let mut scores = vec![0.0; rules.len()];
-    for term in query {
-        let frequencies: Vec<(usize, f64)> = tokens
-            .iter()
-            .enumerate()
-            .filter_map(|(rule, words)| {
-                let frequency = words.iter().filter(|word| *word == term).count();
-                (frequency > 0).then_some((rule, frequency as f64))
-            })
-            .collect();
-        let found = frequencies.len() as f64;
+    if total == 0 {
+        return scores;
+    }
+    for norm in &mut lengths {
+        if *norm != 0.0 {
+            *norm = K1 * ((1.0 - B) + B * *norm / average);
+        }
+    }
+    for matches in postings.into_iter().filter(|matches| !matches.is_empty()) {
+        let found = matches.len() as f64;
         let idf = (1.0 + (count - found + 0.5) / (found + 0.5)).ln();
-        for (rule, frequency) in frequencies {
-            let norm = K1 * ((1.0 - B) + B * tokens[rule].len() as f64 / average);
-            scores[rule] += idf * frequency * K1_PLUS_ONE / (frequency + norm);
+        for (rule, frequency) in matches {
+            let frequency = frequency as f64;
+            scores[rule] += idf * frequency * K1_PLUS_ONE / (frequency + lengths[rule]);
         }
     }
     scores
 }
 
+/// One slot per query word: its key in the low bits and its term above, or the collision bit that sends a lookup to
+/// the map.
+fn query_slots(query: &std::collections::HashMap<u64, usize>) -> [u64; QUERY_SLOTS] {
+    let mut slots = [0_u64; QUERY_SLOTS];
+    for (&key, &term) in query {
+        let slot = &mut slots[query_slot(key)];
+        if *slot & QUERY_KEY_MASK == 0 && term <= QUERY_MAX_INLINE_TERM {
+            *slot |= key | ((term as u64) << QUERY_KEY_BITS);
+        } else {
+            *slot |= QUERY_COLLISION;
+        }
+    }
+    slots
+}
+
+/// For each query term, the rules holding it with its frequency there; each rule's word count, zero when it matched
+/// nothing (its norm is never read); and the words of all rules.
+fn postings(
+    slots: &[u64; QUERY_SLOTS],
+    query: &std::collections::HashMap<u64, usize>,
+    rules: &[String],
+) -> (Vec<Vec<(usize, usize)>>, Vec<f64>, usize) {
+    let mut postings: Vec<Vec<(usize, usize)>> = vec![Vec::new(); query.len()];
+    let mut lengths = Vec::with_capacity(rules.len());
+    let mut total = 0;
+    for (rule, text) in rules.iter().enumerate() {
+        let mut length = 0;
+        let mut matched = false;
+        for_each_word_key(text, |key| {
+            length += 1;
+            let stored = slots[query_slot(key)];
+            let term = if stored & QUERY_KEY_MASK == key {
+                ((stored & !QUERY_COLLISION) >> QUERY_KEY_BITS) as usize
+            } else if stored & QUERY_COLLISION != 0 {
+                let Some(&term) = query.get(&key) else {
+                    return;
+                };
+                term
+            } else {
+                return;
+            };
+            matched = true;
+            let matches = &mut postings[term];
+            match matches.last_mut() {
+                Some((last_rule, frequency)) if *last_rule == rule => *frequency += 1,
+                _ => matches.push((rule, 1)),
+            }
+        });
+        lengths.push(if matched { length as f64 } else { 0.0 });
+        total += length;
+    }
+    (postings, lengths, total)
+}
+
+const CHUNK_BYTES: usize = std::mem::size_of::<u64>();
+const BYTE_BITS: usize = u8::BITS as usize;
+const BYTE_ONES: u64 = u64::from_le_bytes([1; CHUNK_BYTES]);
+const HIGH_BITS: u64 = BYTE_ONES * 0x80;
+const LOWERCASE_BITS: u64 = BYTE_ONES * b' ' as u64;
+
+/// What `words` keeps, each word packed little-endian into a key, without building a String: the text is scanned eight
+/// bytes at a time.
+fn for_each_word_key(text: &str, mut emit: impl FnMut(u64)) {
+    let lower;
+    // Only the Kelvin sign lowercases to an ASCII letter; the i of a lowercase İ is dropped by its combining dot anyway.
+    let text = if !text.is_ascii() && text.contains('\u{212A}') {
+        lower = text.to_lowercase();
+        lower.as_str()
+    } else {
+        text
+    };
+    let bytes = text.as_bytes();
+    let mut remaining = bytes;
+    while let Some((&first, tail)) = remaining.split_first() {
+        if !first.is_ascii_alphanumeric() {
+            remaining = tail;
+            continue;
+        }
+        let (folded, mut length) = ascii_run(load(bytes, remaining));
+        if length == CHUNK_BYTES {
+            let tail = &remaining[CHUNK_BYTES..];
+            length += tail.iter().position(|byte| !byte.is_ascii_alphanumeric()).unwrap_or(tail.len());
+        }
+        remaining = &remaining[length..];
+        if let Some((&separator, tail)) = remaining.split_first() {
+            if !separator.is_ascii()
+                && (MINIMUM_WORD_LENGTH..=STEM_LENGTH).contains(&length)
+                && text[text.len() - remaining.len()..].chars().next().is_some_and(extends)
+            {
+                length -= 1;
+            }
+            remaining = tail;
+        }
+        if length >= STEM_LENGTH {
+            emit(folded & QUERY_KEY_MASK);
+        } else if length >= MINIMUM_WORD_LENGTH {
+            let key = folded & ((1_u64 << (length * BYTE_BITS)) - 1);
+            if !is_stop_word(key) {
+                emit(key);
+            }
+        }
+    }
+}
+
+/// The eight bytes `remaining` starts with, zeros past the end of the text.
+#[inline]
+fn load(bytes: &[u8], remaining: &[u8]) -> u64 {
+    if let Some(&chunk) = remaining.first_chunk::<CHUNK_BYTES>() {
+        u64::from_le_bytes(chunk)
+    } else if let Some(&chunk) = bytes.last_chunk::<CHUNK_BYTES>() {
+        u64::from_le_bytes(chunk) >> ((CHUNK_BYTES - remaining.len()) * BYTE_BITS)
+    } else {
+        let mut chunk = [0; CHUNK_BYTES];
+        chunk[..remaining.len()].copy_from_slice(remaining);
+        u64::from_le_bytes(chunk)
+    }
+}
+
+/// The eight bytes lowercased, and how many ASCII letters or digits they start with (eight: the run may go on).
+#[inline]
+fn ascii_run(packed: u64) -> (u64, usize) {
+    let low = packed & !HIGH_BITS;
+    let folded = low | LOWERCASE_BITS;
+    // Digits are tested before folding: folding turns control bytes 0x10 to 0x19 into ASCII digits.
+    let digits = (low + BYTE_ONES * (0x80 - b'0' as u64)) & !(low + BYTE_ONES * (0x7f - b'9' as u64));
+    let letters = (folded + BYTE_ONES * (0x80 - b'a' as u64)) & !(folded + BYTE_ONES * (0x7f - b'z' as u64));
+    let separators = HIGH_BITS & (packed | !(digits | letters));
+    (folded, separators.trailing_zeros() as usize / BYTE_BITS)
+}
+
+const STOP_SLOTS: usize = 512;
+const STOP_MASK: usize = STOP_SLOTS - 1;
+const STOP_HASH_START: u64 = 0x9e37_79b9_7f4a_7c15;
+const STOP_HASH_STEP: u64 = 0x517c_c1b7_2722_0a94;
+const STOP_HASH_ATTEMPTS: usize = 64;
+
+#[inline]
+const fn stop_slot(key: u64, multiplier: u64) -> usize {
+    const SHIFT: u32 = u64::BITS - STOP_SLOTS.trailing_zeros();
+    (key.wrapping_mul(multiplier) >> SHIFT) as usize
+}
+
+const fn stop_table(multiplier: u64) -> ([u64; STOP_SLOTS], bool) {
+    assert!(STOP.len() < STOP_SLOTS);
+    let mut slots = [0; STOP_SLOTS];
+    let mut collision = false;
+    let mut index = 0;
+    while index < STOP.len() {
+        let word = STOP[index].as_bytes();
+        assert!(!word.is_empty() && word.len() < STEM_LENGTH);
+        let mut key = 0;
+        let mut offset = 0;
+        while offset < word.len() {
+            key |= (word[offset] as u64) << (offset * u8::BITS as usize);
+            offset += 1;
+        }
+
+        let mut slot = stop_slot(key, multiplier);
+        while slots[slot] != 0 && slots[slot] != key {
+            collision = true;
+            slot = (slot + 1) & STOP_MASK;
+        }
+        slots[slot] = key;
+        index += 1;
+    }
+    (slots, collision)
+}
+
+const STOP_HASH: (u64, [u64; STOP_SLOTS], bool) = {
+    let mut multiplier = STOP_HASH_START;
+    let mut attempt = 0;
+    loop {
+        let (slots, collision) = stop_table(multiplier);
+        attempt += 1;
+        if !collision || attempt == STOP_HASH_ATTEMPTS {
+            break (multiplier, slots, collision);
+        }
+        multiplier = multiplier.wrapping_add(STOP_HASH_STEP);
+    }
+};
+
+#[inline]
+fn is_stop_word(key: u64) -> bool {
+    let mut slot = stop_slot(key, STOP_HASH.0);
+    let mut stored = STOP_HASH.1[slot];
+    if STOP_HASH.2 {
+        while stored != 0 && stored != key {
+            slot = (slot + 1) & STOP_MASK;
+            stored = STOP_HASH.1[slot];
+        }
+    }
+    stored == key
+}
+
 /// Swift splits on grapheme clusters: an ASCII letter a combining mark extends is no longer ASCII, so it ends the word.
+/// The reference `for_each_word_key` is tested against.
+#[cfg(test)]
 fn words(text: &str) -> Vec<String> {
     let lower: Vec<char> = text.to_lowercase().chars().collect();
     let mut words = Vec::new();
@@ -280,5 +501,22 @@ mod tests {
         let cut = words("Never scrolling the Committed e\u{301}x");
 
         assert_eq!(cut, vec!["scroll", "commit"]);
+    }
+
+    #[test]
+    fn packs_the_same_words_as_the_reference_tokenizer() {
+        let traps = [
+            "Never scrolling the Committed e\u{301}x", "\u{212a}elvin \u{212a}\u{212a} sign", "\u{130}stanbul DOTTED \u{130}I",
+            "abcdefgh\u{300} ab\u{301} abcdef\u{301}", "ctrl\u{10}\u{19}bytes 0123\u{7f}", "CRLF line\r\nbuild\r\n", "never an the",
+            "\u{ff46}\u{ff55}ll width", "emoji 👍🏽 test 👩‍💻 commit", "", "x", "abcdefghijklmnop", "tail1234567",
+        ];
+
+        for trap in traps {
+            let mut keys = Vec::new();
+            for_each_word_key(trap, |key| keys.push(key));
+            let packed: Vec<u64> = words(trap).iter().map(|word| u64::from_le_bytes(std::array::from_fn(|index| word.as_bytes().get(index).copied().unwrap_or(0)))).collect();
+
+            assert_eq!(keys, packed, "{trap:?}");
+        }
     }
 }
