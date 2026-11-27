@@ -3,6 +3,7 @@
 use crate::state::Object;
 use serde_json::Value;
 use std::path::Path;
+use std::borrow::Cow;
 
 /// Tool output shown in the transcript; the complete output stays in the provider's own history.
 const MAX_OUTPUT_CHARS: usize = 16_384;
@@ -58,7 +59,10 @@ pub fn row_kind<'a>(stored: &'a str, items: &[&Object]) -> &'a str {
     if (items.len() != 1 && stored != "debate") || kind(item) != "commandExecution" {
         return stored;
     }
-    if !DEBATE_SCRIPTS.iter().any(|script| text(item, "command").unwrap_or_default().contains(script)) {
+    let command = text(item, "command").unwrap_or_default();
+    if !command.match_indices("ask-").any(|(start, _)| {
+        DEBATE_SCRIPTS.iter().any(|script| command[start..].starts_with(script))
+    }) {
         return stored;
     }
     if items.len() != 1 || debate_turns(&output(item)).is_empty() { "activity" } else { "debate" }
@@ -110,28 +114,100 @@ fn command_title(item: &Object) -> String {
 }
 
 pub fn output(item: &Object) -> String {
-    let parts: Vec<String> = match kind(item) {
-        "fileChange" => changes(item).filter_map(|change| text(change, "diff")).map(str::to_owned).collect(),
-        "reasoning" => item.get("summary").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
-        _ => OUTPUT_KEYS.iter().filter_map(|key| item.get(*key)).filter(|value| !value.is_null()).map(plain).collect(),
+    let suffix = item.get("exitCode").and_then(Value::as_i64)
+        .map(|code| format!("\nExit: {code}"));
+    let extra = suffix.as_ref().map_or(0, String::len);
+    let mut shown = match kind(item) {
+        "fileChange" => output_tail(changes(item).rev()
+            .filter_map(|change| text(change, "diff")).map(Cow::Borrowed), extra),
+        "reasoning" => output_tail(item.get("summary").and_then(Value::as_array)
+            .into_iter().flatten().rev().filter_map(Value::as_str).map(Cow::Borrowed), extra),
+        _ => output_tail(OUTPUT_KEYS.iter().rev().filter_map(|key| item.get(*key))
+            .filter(|value| !value.is_null()).map(plain), extra),
     };
-    let joined = parts.join("\n");
-    let skipped = joined.chars().count().saturating_sub(MAX_OUTPUT_CHARS);
-    let mut shown: String = joined.chars().skip(skipped).collect();
-    if let Some(code) = item.get("exitCode").and_then(Value::as_i64) {
-        shown.push_str(&format!("\nExit: {code}"));
+    if let Some(suffix) = suffix {
+        shown.push_str(&suffix);
     }
     shown
 }
 
-fn plain(value: &Value) -> String {
+fn plain(value: &Value) -> Cow<'_, str> {
     match value {
-        Value::String(text) => text.clone(),
-        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+        Value::String(text) => Cow::Borrowed(text),
+        other => Cow::Owned(serde_json::to_string_pretty(other).unwrap_or_default()),
     }
 }
 
-fn changes(item: &Object) -> impl Iterator<Item = &Object> {
+/// The last `MAX_OUTPUT_CHARS` chars of the parts joined by newlines, read from the end
+/// (`parts` comes last first), with room for `extra` more bytes.
+fn output_tail<'a>(parts: impl Iterator<Item = Cow<'a, str>>, extra: usize) -> String {
+    let mut parts = parts.peekable();
+    let Some(last) = parts.next() else { return String::new() };
+    if let Some(start) = tail_start(&last, MAX_OUTPUT_CHARS) {
+        return with_room(&last[start..], extra);
+    }
+    if parts.peek().is_none() {
+        return match last {
+            Cow::Borrowed(tail) => with_room(tail, extra),
+            Cow::Owned(tail) => tail,
+        };
+    }
+    let mut remaining = MAX_OUTPUT_CHARS - last.chars().count();
+    let mut kept = vec![(last, 0)];
+    for part in parts {
+        if remaining == 0 {
+            break;
+        }
+        remaining -= 1;
+        if remaining == 0 {
+            kept.push((Cow::Borrowed(""), 0));
+            break;
+        }
+        if let Some(start) = tail_start(&part, remaining) {
+            kept.push((part, start));
+            break;
+        }
+        remaining -= part.chars().count();
+        kept.push((part, 0));
+    }
+    join_last_first(kept, extra)
+}
+
+/// Byte index where the last `count` chars of `part` start, or `None` when all of it fits.
+fn tail_start(part: &str, count: usize) -> Option<usize> {
+    if part.len() <= count {
+        return None;
+    }
+    let mut start = part.len() - count;
+    if part.as_bytes()[start..].is_ascii() {
+        return Some(start);
+    }
+    while !part.is_char_boundary(start) {
+        start += 1;
+    }
+    let missing = count - part[start..].chars().count();
+    part[..start].char_indices().nth_back(missing - 1).map(|(index, _)| index)
+}
+
+fn join_last_first(kept: Vec<(Cow<'_, str>, usize)>, extra: usize) -> String {
+    let bytes = kept.iter().map(|(part, start)| part.len() - start + 1).sum::<usize>() - 1;
+    let mut shown = String::with_capacity(bytes + extra);
+    for (position, (part, start)) in kept.iter().rev().enumerate() {
+        if position != 0 {
+            shown.push('\n');
+        }
+        shown.push_str(&part[*start..]);
+    }
+    shown
+}
+
+fn with_room(tail: &str, extra: usize) -> String {
+    let mut shown = String::with_capacity(tail.len() + extra);
+    shown.push_str(tail);
+    shown
+}
+
+fn changes(item: &Object) -> impl DoubleEndedIterator<Item = &Object> {
     item.get("changes").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object)
 }
 
@@ -210,6 +286,57 @@ mod tests {
 
         assert!(shown.ends_with("END\nExit: 0"));
         assert_eq!(shown.chars().count(), MAX_OUTPUT_CHARS + "\nExit: 0".len());
+    }
+
+    #[test]
+    fn keeps_the_newline_when_the_cut_falls_on_the_separator() {
+        let last = "b".repeat(MAX_OUTPUT_CHARS - 1);
+        let item = object(json!({"type": "fileChange", "changes": [{"diff": "a"}, {"diff": last}]}));
+
+        let shown = output(&item);
+
+        assert_eq!(shown, format!("\n{last}"));
+    }
+
+    #[test]
+    fn drops_earlier_parts_when_the_last_one_fills_the_output() {
+        let last = "y".repeat(MAX_OUTPUT_CHARS);
+        let item = object(json!({"type": "fileChange", "changes": [{"diff": "early"}, {"diff": last}]}));
+
+        let shown = output(&item);
+
+        assert_eq!(shown, last);
+    }
+
+    #[test]
+    fn keeps_the_last_characters_across_many_multibyte_diffs() {
+        let diffs: Vec<String> = (0..9).map(|index| format!("{index}{}", "é".repeat(3_000))).collect();
+        let item = object(json!({"type": "fileChange", "changes": diffs.iter().map(|diff| json!({"diff": diff})).collect::<Vec<_>>()}));
+        let joined = diffs.join("\n");
+        let expected: String = joined.chars().skip(joined.chars().count() - MAX_OUTPUT_CHARS).collect();
+
+        let shown = output(&item);
+
+        assert_eq!(shown, expected);
+    }
+
+    #[test]
+    fn pretty_prints_a_part_that_is_not_a_string() {
+        let item = object(json!({"type": "commandExecution", "aggregatedOutput": "out", "contentItems": [1, 2]}));
+
+        let shown = output(&item);
+
+        assert_eq!(shown, "out\n[\n  1,\n  2\n]");
+    }
+
+    #[test]
+    fn appends_no_exit_line_for_an_exit_code_that_is_not_an_integer() {
+        let float = object(json!({"type": "commandExecution", "aggregatedOutput": "x", "exitCode": 1.5}));
+        let string = object(json!({"type": "commandExecution", "aggregatedOutput": "x", "exitCode": "2"}));
+
+        let shown = (output(&float), output(&string));
+
+        assert_eq!(shown, ("x".to_owned(), "x".to_owned()));
     }
 
     #[test]

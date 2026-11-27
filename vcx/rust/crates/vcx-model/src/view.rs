@@ -21,13 +21,15 @@ const MODEL_PREFIXES: [&str; 4] = ["claude-", "claude ", "codex-", "codex "];
 const AGENT_PROVIDERS: [&str; 5] = ["claude", "codex", "qwen", "agy", "agent"];
 
 pub fn full(state: &SessionState) -> Value {
-    json!({
-        "contract": CONTRACT_VERSION,
-        "meta": meta(state),
-        "rows": state.rows.iter().map(|row| row_view(state, row)).collect::<Vec<_>>(),
-        "draft": state.draft,
-        "draftGeneration": state.draft_generation,
-    })
+    let mut view = Object::new();
+    view.insert("contract".into(), json!(CONTRACT_VERSION));
+    view.insert("meta".into(), meta(state));
+    view.insert("rows".into(), Value::Array(
+        state.rows.iter().map(|row| row_view(state, row)).collect(),
+    ));
+    view.insert("draft".into(), json!(state.draft));
+    view.insert("draftGeneration".into(), json!(state.draft_generation));
+    Value::Object(view)
 }
 
 /// Only what a patch changed: redrawn rows whole, the order when rows came or went, the metadata when it moved.
@@ -101,73 +103,81 @@ fn capitalized(word: &str) -> String {
 fn row_view(state: &SessionState, row: &Row) -> Value {
     let data: Vec<&Object> = row.items.iter().filter_map(|id| state.items.get(id)).collect();
     let kind = item::row_kind(&row.kind, &data);
-    let items: Vec<Value> = data.iter().map(|item| item_view(kind, item)).collect();
-    json!({"id": row.id, "kind": kind, "items": items})
+    let items = data.into_iter().map(|item| item_view(kind, item)).collect();
+    let mut view = Object::new();
+    view.insert("id".into(), json!(row.id));
+    view.insert("kind".into(), Value::String(kind.to_owned()));
+    view.insert("items".into(), Value::Array(items));
+    Value::Object(view)
 }
 
 fn item_view(row_kind: &str, data: &Object) -> Value {
     let kind = item::kind(data);
-    let mut view = json!({"id": text(data, "id").unwrap_or_default(), "type": kind});
+    let mut view = Object::new();
+    view.insert("id".into(), Value::from(text(data, "id").unwrap_or_default()));
+    view.insert("type".into(), Value::from(kind));
     match (row_kind, kind) {
         (_, "agentMessage") => {
-            view["html"] = json!(markdown::to_html(text(data, "text").unwrap_or_default()));
-            view["provider"] = json!(text(data, "provider"));
-            view["endedTurn"] = json!(data.get("endedTurn") == Some(&Value::Bool(true)));
+            let html = markdown::to_html(text(data, "text").unwrap_or_default());
+            view.insert("html".into(), Value::from(html));
+            view.insert("provider".into(), text(data, "provider").map_or(Value::Null, Value::from));
+            view.insert("endedTurn".into(), Value::Bool(data.get("endedTurn") == Some(&Value::Bool(true))));
         }
         (_, "userMessage") => user_view(data, &mut view),
         ("notice", _) => {
-            view["text"] = json!(text(data, "text").unwrap_or_default());
+            view.insert("text".into(), Value::from(text(data, "text").unwrap_or_default()));
             if let Some(link) = text(data, "link") {
-                view["link"] = json!({"path": link, "label": home_relative(link)});
+                view.insert("link".into(), json!({"path": link, "label": home_relative(link)}));
             }
         }
         ("debate", _) => {
             let turns = item::debate_turns(&item::output(data));
-            view["turns"] = Value::Array(turns.into_iter().map(|turn| json!({"speaker": turn.speaker, "model": turn.model, "html": markdown::to_html(&turn.text)})).collect());
+            view.insert("turns".into(), Value::Array(turns.into_iter().map(|turn| json!({"speaker": turn.speaker, "model": turn.model, "html": markdown::to_html(&turn.text)})).collect()));
             tool_view(data, &mut view);
         }
         _ => tool_view(data, &mut view),
     }
-    view
+    Value::Object(view)
 }
 
-fn tool_view(data: &Object, view: &mut Value) {
+fn tool_view(data: &Object, view: &mut Object) {
     let title = item::title(data);
     let command = text(data, "command").filter(|command| *command != title);
-    view["title"] = json!(title);
-    view["output"] = json!(item::output(data));
-    view["failed"] = json!(item::failed(data));
-    view["status"] = json!(text(data, "status").unwrap_or_default());
+    view.insert("title".into(), Value::String(title));
+    view.insert("output".into(), Value::String(item::output(data)));
+    view.insert("failed".into(), Value::Bool(item::failed(data)));
+    view.insert("status".into(), Value::from(text(data, "status").unwrap_or_default()));
     if let Some(command) = command {
-        view["command"] = json!(command);
+        view.insert("command".into(), Value::from(command));
     }
     if item::kind(data) == "peerMessage" {
-        view["text"] = json!(text(data, "text").unwrap_or_default());
-        view["direction"] = json!(text(data, "direction").unwrap_or("received"));
+        view.insert("text".into(), Value::from(text(data, "text").unwrap_or_default()));
+        view.insert("direction".into(), Value::from(text(data, "direction").unwrap_or("received")));
     }
     // Qwen's steps: a live counter while one runs, its duration once done.
     if let Some(started) = data.get("stepStartedAt").and_then(Value::as_f64).filter(|_| text(data, "status") == Some("inProgress")) {
-        view["startedAt"] = json!(started);
+        view.insert("startedAt".into(), json!(started));
     } else if let Some(seconds) = data.get("seconds").and_then(Value::as_i64) {
-        view["seconds"] = json!(seconds);
+        view.insert("seconds".into(), json!(seconds));
     }
 }
 
-fn user_view(data: &Object, view: &mut Value) {
+fn user_view(data: &Object, view: &mut Object) {
     let joined: String = pieces(data, "text", "text").collect();
-    view["queued"] = json!(data.get("queued") == Some(&Value::Bool(true)));
-    view["images"] = json!(pieces(data, "localImage", "path").collect::<Vec<_>>());
+    view.insert("queued".into(), Value::Bool(data.get("queued") == Some(&Value::Bool(true))));
+    let images = pieces(data, "localImage", "path").map(Value::from).collect();
+    view.insert("images".into(), Value::Array(images));
     if let Some(recalled) = data.get("recalled").and_then(Value::as_array).filter(|lines| !lines.is_empty()) {
-        view["recalled"] = json!(recalled);
+        view.insert("recalled".into(), json!(recalled));
     }
     if let Some(message) = agent_message(&joined) {
-        view["text"] = json!(message.body);
-        view["from"] = json!(format!("{}-{}", message.provider, message.name));
-        view["content"] = json!([{"type": "text", "text": message.body}]);
+        view.insert("text".into(), Value::from(message.body));
+        view.insert("from".into(), Value::String(format!("{}-{}", message.provider, message.name)));
+        view.insert("content".into(), json!([{"type": "text", "text": message.body}]));
         return;
     }
-    view["text"] = json!(joined);
-    view["content"] = Value::Array(content_runs(data));
+    view.insert("text".into(), Value::String(joined));
+    view.insert("content".into(), Value::Array(content_runs(data)));
 }
 
 /// Pictures pasted together share a run; each is numbered across the message, as the Swift `PictureRow` numbers them.
