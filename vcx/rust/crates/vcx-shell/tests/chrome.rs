@@ -413,6 +413,14 @@ fn says_when_there_is_no_task_yet(page: &Page) -> Result<(), String> {
     same(&page.dump()?["empty"], json!(true), "the empty task bar shown")
 }
 
+fn waits_for_the_task_list_before_saying_there_is_none(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.settle()?;
+
+    same(&page.dump()?["empty"], json!(false), "the empty words before any task list")
+}
+
 fn hides_the_empty_words_when_tasks_arrive_during_their_fade_in(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
     let entries = json!([{"id": "W1", "group": "/Users/demo/self/my-apps", "task": "Rust chrome", "state": "working", "current": true}]);
@@ -724,7 +732,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 37] = [
+const TESTS: [(&str, Test); 38] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -742,6 +750,7 @@ const TESTS: [(&str, Test); 37] = [
     ("lists every window's task by project and brings one up", lists_every_windows_task_by_project_and_brings_one_up),
     ("says when there is no task yet", says_when_there_is_no_task_yet),
     ("hides the empty words when tasks arrive during their fade in", hides_the_empty_words_when_tasks_arrive_during_their_fade_in),
+    ("waits for the task list before saying there is none", waits_for_the_task_list_before_saying_there_is_none),
     ("tells the link and the last problem apart", tells_the_link_and_the_last_problem_apart),
     ("counts what the session loaded on its cards", counts_what_the_session_loaded_on_its_cards),
     ("opens a capability list and narrows it to what is typed", opens_a_capability_list_and_narrows_it_to_what_is_typed),

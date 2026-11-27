@@ -900,6 +900,8 @@
   }
 
   function drawTasks() {
+    // until the core sends its list, "No session yet." would flash over the sessions it is about to send
+    if (!state.tasks) return;
     const entries = (state.tasks || []).filter(entry => TASK_STATES[entry.state]);
     const signature = JSON.stringify(entries);
     if (signature === shown.tasks) return;
