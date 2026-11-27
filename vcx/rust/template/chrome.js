@@ -345,9 +345,10 @@
     const permission = make('section', 'dialog light');
     permission.id = 'permission';
     permission.hidden = true;
-    const notice = $('notice');
-    notice.before(permission, loginPanel(), note);
-    notice.classList.add('pill');
+    status.before(permission);
+    status.before(loginPanel());
+    status.after(note);
+    $('notice').classList.add('pill');
     const tasks = make('section');
     tasks.id = 'tasks';
     const header = make('header');

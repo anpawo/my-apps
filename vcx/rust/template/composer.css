@@ -20,10 +20,8 @@ footer { position: relative; }
 #composer .marks .command { background: rgb(110 59 191 / .16); }
 #composer .marks .locked { background: rgb(0 0 0 / .09); }
 @media (prefers-reduced-motion: reduce) { #input { transition-duration: 1ms; } }
-/* The status line sits in the box, left of the text on its last line, so it takes no height from the chat. */
-#composer > #status { flex: 0 1 auto; align-self: flex-end; min-width: 0; max-width: 50%; height: 24px; margin: 0; white-space: nowrap; overflow: hidden; }
 /* A 24 px line lifted by half its gap to the 34 px buttons: one line sits mid-box, as far from the top as the bottom. */
-#composer > :is(.field, #status) { margin-bottom: 5px; }
+#composer > .field { margin-bottom: 5px; }
 
 /* Send and stop: 34 px circles lifted by a white base's shadow; hover tints black 5 % in 0.12 s, a press 10 % and
    pulls the edges in 6 px (scale .94 at most) in 0.08 s (Swift `Reactive`). */
