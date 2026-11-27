@@ -1,20 +1,17 @@
 .chart { position: relative; margin: 10px 0; padding: 12px; border: 1px solid rgb(0 0 0 / 0.1); border-radius: 12px; background: #fff; }
 .chart iframe { display: block; width: 100%; height: 240px; border: 0; background: transparent; }
 
-.chart-buttons { position: absolute; top: 4px; right: 4px; display: flex; opacity: 0; transition: opacity 120ms ease-out; }
-.chart:hover > .chart-buttons, .chart:focus-within > .chart-buttons, .chart-button.on { opacity: 1; }
-/* ---- Effect: button in the dashboard's variants (WT-033), its square icon size in the ghost variant, light colours ---- */
-.chart-button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
-  border: 1px solid transparent; border-radius: 8px; background-clip: padding-box; background-color: transparent; color: var(--muted, #8a8a8e);
-  cursor: pointer; outline: none; user-select: none; transition: all 150ms cubic-bezier(.4, 0, .2, 1); }
-.chart-button svg { width: 14px; height: 14px; flex: none; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.chart-button:hover { background-color: rgb(0 0 0 / .06); color: var(--ink, #1d1d1f); }
-.chart-button:active { translate: 0 1px; }
-.chart-button:focus-visible { border-color: #4c90f0; box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
-@media (prefers-reduced-motion: reduce) { .chart-button { transition-duration: 1ms; } .chart-button:active { translate: none; } }
-/* ---- End of effect ---- */
+/* Swift ChartButtons: always shown, 22 pt square buttons at a 4 pt inset, their 10 pt icon at half opacity, in the
+   reactive style (a black 5 % fill on hover, 10 % pressed, 120 ms). */
+.chart-buttons { position: absolute; top: 0; right: 0; display: flex; padding: 4px; }
+.chart-button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: #000; cursor: pointer; outline: none; user-select: none;
+  transition: background-color 120ms ease-out; }
+.chart-button svg { width: 10px; height: 10px; flex: none; opacity: .5; pointer-events: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.chart-button:hover { background-color: rgb(0 0 0 / .05); }
+.chart-button:active { background-color: rgb(0 0 0 / .1); }
+.chart-button:focus-visible { box-shadow: 0 0 0 3px rgb(76 144 240 / .5); }
 .chart-button.pin svg { fill: currentColor; stroke: none; }
-.chart-button.on { color: var(--ink, #1d1d1f); }
 
 /* The pinned chart is the pinned block at the top of a scrolling chat (new template WT-119), scoped to #chart-pin
    in the transcript; the frame itself is held to PINNED_MAX_PX, so the block is not cut. */
@@ -28,18 +25,19 @@
 /* ---- End of effect ---- */
 #chart-pin iframe { max-height: 280px; }
 
-/* The enlarged chart is the zoom popup (WT-118): its veil and its light glass, scoped to the overlay. */
-.chart-zoom { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; }
+/* The enlarged chart (Swift ChartPreview): a black 25 % veil, no blur, and a white card magnified to 90 % of the
+   window; only a round 34 pt close button sits on it, 10 pt in from its corner. */
+/* Over the side panel (40), as Swift's overlay covers the whole window, under the dialogs (50). */
+.chart-zoom { position: fixed; inset: 0; z-index: 48; display: grid; place-items: center; }
 .chart-zoom.closing { pointer-events: none; }
-/* ---- Effect: zoom and blur popup. Copy from here ---- */
-.chart-zoom .veil { position: absolute; inset: 0; background: rgb(0 0 0 / var(--dim, .3));
-  -webkit-backdrop-filter: blur(var(--veil-blur, 4px)); backdrop-filter: blur(var(--veil-blur, 4px)); }
-.chart-zoom .glass { color: var(--ink, #1c2127); border: 1px solid rgb(255 255 255 / .4);
-  background: color-mix(in srgb, var(--tint, #dce0e5) calc(var(--alpha, .4) * 100%), transparent);
-  -webkit-backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15));
-  backdrop-filter: blur(var(--blur, 40px)) saturate(var(--sat, 200%)) brightness(var(--bright, 1.15)); }
-.chart-zoom .veil:not(.open), .chart-zoom .glass:not(.open) { visibility: hidden; }
-/* ---- End of effect ---- */
-.chart-zoom .chart { width: 90vw; max-height: 85vh; margin: 0; padding: 16px; border-radius: 18px; box-shadow: 0 12px 28px rgb(0 0 0 / 0.2); }
-.chart-zoom .chart-buttons { right: 44px; opacity: 1; }
-.chart-zoom .chart-button.close { position: absolute; top: 4px; right: 4px; }
+.chart-zoom .veil { position: absolute; inset: 0; background: rgb(0 0 0 / .25); }
+.chart-zoom .chart { position: relative; margin: 0; border: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 12px 56px rgb(0 0 0 / .2); }
+.chart-zoom .chart iframe { transform-origin: 0 0; }
+.chart-zoom .close { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 0; border-radius: 50%; background: linear-gradient(rgb(0 0 0 / .07), rgb(0 0 0 / .07)), #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .22);
+  color: #000; cursor: pointer; outline: none; transition: background-color 120ms ease-out; }
+.chart-zoom .close::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: rgb(0 0 0 / 0); transition: background-color 120ms ease-out; }
+.chart-zoom .close:hover::after { background: rgb(0 0 0 / .05); }
+.chart-zoom .close:active::after { background: rgb(0 0 0 / .1); }
+.chart-zoom .close:focus-visible { box-shadow: 0 2px 6px rgb(0 0 0 / .22), 0 0 0 3px rgb(76 144 240 / .5); }
+.chart-zoom .close svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; }

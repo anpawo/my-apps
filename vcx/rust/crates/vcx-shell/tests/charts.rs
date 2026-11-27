@@ -520,6 +520,8 @@ fn pins_a_chart_above_the_chat(page: &Page) -> Result<(), String> {
     page.turn(Some("Pin it"), "```chart pin\n<script>vcx.chart({ kind: 'cards', title: 'Pinned', data: [{ label: 'Open', value: 7 }] })</script>\n```\n", 2)?;
 
     let pinned = page.read_until("#chart-pin iframe", ".vcx-title", |read| texts(read) == ["Pinned"])?;
+    // The strip slides in (Swift's spring); an unshown window runs no animation, so the slide is brought to its end.
+    page.eval("(() => { document.querySelectorAll('#chart-pin, #chart-pin *').forEach(node => node.getAnimations().forEach(animation => animation.finish())); return 0 })()")?;
     let strip = page.box_of("#chart-pin")?;
     let transcript = page.box_of("#transcript")?;
     let frame = page.box_of("#chart-pin iframe")?;

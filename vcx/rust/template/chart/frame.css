@@ -1,5 +1,7 @@
 html, body { margin: 0; background: transparent; }
 html { overflow: hidden auto; scrollbar-width: none; }
+/* Swift: the crosshair cursor over the whole page, inline only. */
+html[data-view="inline"] { cursor: crosshair; }
 body { font: 13px/1.4 -apple-system, system-ui, Inter, sans-serif; color: #09090b; }
 
 .vcx-card { font: 13px/1.4 -apple-system, system-ui, Inter, sans-serif; color: #09090b; }
@@ -10,7 +12,7 @@ body { font: 13px/1.4 -apple-system, system-ui, Inter, sans-serif; color: #09090
 .vcx-up { color: #16a34a; }
 .vcx-down { color: #dc2626; }
 .vcx-note { color: #71717a; font-size: 12px; margin-left: auto; }
-.vcx-plot { position: relative; cursor: crosshair; }
+.vcx-plot { position: relative; }
 /* The hovered values: the legend of the chart tooltip (WT-012), scoped to .vcx-plot; the library draws the crosshair. */
 /* ---- Effect: chart tooltip. Copy from here ---- */
 .vcx-plot .legend { position: absolute; left: 2px; top: 0; z-index: 3; pointer-events: none; font-size: 11px; white-space: nowrap; opacity: 0; transition: opacity 120ms ease-out; }

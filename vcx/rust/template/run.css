@@ -4,7 +4,11 @@
 #run { position: relative; z-index: auto; top: auto; left: auto; translate: none; width: 100%; margin-bottom: 10px;
   font: 13px/1.45 -apple-system, system-ui, sans-serif; }
 #run .bar { min-height: 0; }
-#run .bar p { font-size: 16px; line-height: 24px; }
+/* Swift RunPanel's header: the accent terminal icon, then the title in 11 pt semibold at black 60 %. */
+#run .bar > div { justify-self: start; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 0; border: 0; background: none; }
+#run .bar .icon { display: inline-flex; color: var(--accent); }
+#run .bar .icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+#run .bar p { margin: 0; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0; text-align: left; color: rgb(0 0 0 / .6); }
 #run .bar p.done { color: var(--ready, #34c759); }
 #run .bar p.failed { color: var(--failed, #d93025); }
 #run pre { margin: 0; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -22,7 +26,11 @@
 @media (prefers-reduced-motion: reduce) { #run .line { transition-duration: 1ms; } }
 
 /* New, beside a code block's copy button and in its look: the play button of a shell block. */
-figure.code button.run { width: 26px; height: 22px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
-figure.code button.run::before { content: "▶"; font-size: 10px; }
-figure.code button.run:hover { background: rgb(0 0 0 / 0.06); }
-code.run-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+/* Swift: SF play at 13 pt in a 24 × 18 box, reactive with a 4 pt outset on a 5 pt corner. */
+figure.code button.run { position: relative; display: inline-grid; place-items: center; width: 24px; height: 18px; margin-left: auto; padding: 0; border: 0; border-radius: 5px;
+  background: none; color: rgb(0 0 0 / 0.6); cursor: pointer; }
+figure.code button.run svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; pointer-events: none; }
+figure.code button.run::after { content: ''; position: absolute; inset: -4px; border-radius: 9px; transition: background-color 120ms ease-out; }
+figure.code button.run:hover::after { background: rgb(0 0 0 / .05); }
+figure.code button.run:active::after { background: rgb(0 0 0 / .1); }
+code.run-link { cursor: pointer; color: var(--accent); text-decoration: none; }

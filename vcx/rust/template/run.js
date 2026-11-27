@@ -4,8 +4,12 @@
 // echo, the field is a password field and its line goes to the terminal only, never to the agent.
 (() => {
   const SHELLS = ['bash', 'sh', 'zsh', 'shell', 'console', 'fish', 'terminal'];
-  const DIALOG_POP_MS = 100;
-  const DIALOG_POP_SCALE = 0.95;
+  // Swift: the panel moves up from the bottom with a fade, as the question panel, on .smooth(0.3); reduced motion fades.
+  const SLIDE_MS = 300;
+  const SLIDE_EASE = 'cubic-bezier(.25, .1, .25, 1)';
+  const QUICK_MS = 100;
+  const PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.9v10.2c0 .6.6.9 1.1.6l8-5.1c.5-.3.5-.9 0-1.2l-8-5.1c-.5-.3-1.1 0-1.1.6z"/></svg>';
+  const TERMINAL = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.5"/><path d="M4.5 6l2 2-2 2M8 10.5h3.5"/></svg>';
 
   const $ = id => document.getElementById(id);
   // Straight to the core: app.js's post also fires a DOM event, which would carry a password into the page.
@@ -47,6 +51,7 @@
       if (!runnable(code.textContent, language)) continue;
       const play = make('button', 'run');
       play.type = 'button';
+      play.innerHTML = PLAY;
       play.title = 'Run in VCX: the output shows above the composer, a password stays in VCX';
       play.ariaLabel = 'Run command';
       const copy = caption.querySelector('button.copy');
@@ -80,8 +85,9 @@
   function close() {
     if (!run || run.state === 'running') return;
     run = null;
-    parts.card.remove();
+    const card = parts.card;
     parts = null;
+    slide(card, false).then(() => card.remove());
     $('input')?.focus();
   }
 
@@ -97,8 +103,9 @@
     parts?.card.remove();
     const card = make('section', 'dialog light');
     card.id = 'run';
-    const head = make('div', 'bar'), name = make('div'), heading = make('p');
-    name.append(heading);
+    const head = make('div', 'bar'), name = make('div'), icon = make('span', 'icon'), heading = make('p');
+    icon.innerHTML = TERMINAL;
+    name.append(icon, heading);
     head.append(name);
     const body = make('div', 'body');
     const command = make('pre', 'command', run.command);
@@ -130,7 +137,16 @@
     });
     parts = { card, heading, output, where, field, cancel, stop, go };
     $('composer').before(card);
-    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) card.animate({ opacity: [0, 1], scale: [DIALOG_POP_SCALE, 1] }, { duration: DIALOG_POP_MS, easing: 'ease-out' });
+    slide(card, true);
+  }
+
+  function slide(card, shown) {
+    const quick = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fade = { opacity: shown ? [0, 1] : [1, 0] };
+    const move = card.animate(quick ? fade : { ...fade, translate: shown ? ['0 100%', '0 0'] : ['0 0', '0 100%'] },
+      { duration: quick ? QUICK_MS : SLIDE_MS, easing: SLIDE_EASE, fill: shown ? 'none' : 'forwards' });
+    // An unshown window may never finish an animation.
+    return Promise.race([move.finished, new Promise(done => setTimeout(done, move.effect.getTiming().duration))]);
   }
 
   function draw() {

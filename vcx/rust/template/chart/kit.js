@@ -3,6 +3,7 @@
 // talks to the transcript page by postMessage only, and the core fetches vcx.live's URLs for it.
 window.vcx = (() => {
   const view = new URLSearchParams(location.search).get('view') || 'inline';
+  document.documentElement.dataset.view = view;
   const MAX_ZOOM = 20;
   const WHEEL_ZOOM_SPEED = 300;
   // Wheel events this close together are one gesture: it keeps scrolling or zooming, whichever it started as.
