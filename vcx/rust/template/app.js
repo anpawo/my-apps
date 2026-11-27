@@ -453,16 +453,24 @@
     return block;
   }
 
+  // WebKit replays the pointer's last move after every scroll: a hover that comes with no move of its own is the
+  // transcript sliding under a pointer at rest, as when it follows a streaming answer, not the reader pointing.
+  let pointer = null;
+  document.addEventListener('pointermove', event => { pointer = [event.clientX, event.clientY]; }, true);
+  const resting = event => pointer !== null && pointer[0] === event.clientX && pointer[1] === event.clientY;
+
   function hoverOpens(block) {
     const summary = block.firstElementChild;
-    summary.firstElementChild.addEventListener('pointerenter', () => {
-      if (block.classList.contains('opened')) return;
+    summary.firstElementChild.addEventListener('pointerenter', event => {
+      if (block.classList.contains('opened') || (atEnd && resting(event))) return;
       block.dataset.hovered = 'true';
       glide(block, true);
     });
-    block.addEventListener('pointerleave', () => {
+    block.addEventListener('pointerleave', event => {
       if (block.dataset.hovered !== 'true') return;
       delete block.dataset.hovered;
+      // Left by the answer streaming past the pointer: rising to its section would drop the end being followed.
+      if (atEnd && resting(event)) return glide(block, false);
       // Scrolled inside it, the transcript rises to its section's top first, then it shuts: shut at once, the view
       // went blank under that offset until the scroll caught up.
       const section = block.closest('.turn') || block;

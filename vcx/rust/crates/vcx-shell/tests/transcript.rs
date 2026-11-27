@@ -51,6 +51,11 @@ const F_KEY: u16 = 3;
 const COPIED_IMAGE_SHOWN: Duration = Duration::from_millis(1400);
 const COPIED_CELL_SHOWN: Duration = Duration::from_millis(1100);
 const FINISH_MOTION: &str = "document.getAnimations().forEach(motion => motion.finish())";
+/// How far each streamed patch pushes the answer down, and how many patches carry the work block past the pointer.
+const STREAM_STEP_LINES: usize = 3;
+const STREAM_STEPS: usize = 12;
+/// The resting pointer sits this far above the work block's header when the answer starts streaming.
+const POINTER_ABOVE_BLOCK_PX: f64 = 60.0;
 
 struct Page {
     webview: WebView,
@@ -563,6 +568,32 @@ fn keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back(page: &Page
     check(back.as_f64().is_some_and(|gap| gap < 2.0), "Back to latest goes to the end")
 }
 
+fn keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer(page: &Page) -> Result<(), String> {
+    let long = (0..LONG_ANSWER_PARAGRAPHS).map(|line| format!("Paragraph {line} of an earlier answer.")).collect::<Vec<_>>().join("\n\n");
+    let actions = json!([{"id": "t1", "type": "commandExecution", "command": "ls", "aggregatedOutput": "a\nb\nc\nd\ne\nf", "exitCode": 0, "status": "completed"}]);
+    page.show(json!({"rows": [user("R1", "first"), assistant("R2", &long, true), user("R3", "second"), {"id": "R4", "kind": "activity", "items": actions}, assistant("R5", "Starting.", false)]}))?;
+    // A hidden window gets no mouse moves: the page is handed the events WebKit makes up at a resting pointer after
+    // each scroll, an enter when the header sweeps across it and a leave when the block has gone past it.
+    page.eval(&format!("(() => {{ {FINISH_MOTION}; const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new Event('scroll')); const title = document.querySelector('.work > summary').firstElementChild, box = title.getBoundingClientRect(); const at = {{clientX: box.x + 5, clientY: box.y - {POINTER_ABOVE_BLOCK_PX}}}; window.__opened = false; new MutationObserver(() => {{ if (document.querySelector('.work.opened')) window.__opened = true; }}).observe(document.getElementById('rows'), {{subtree: true, attributes: true, attributeFilter: ['class']}}); document.dispatchEvent(new PointerEvent('pointermove', at)); window.__replay = before => {{ const block = document.querySelector('.work'), now = title.getBoundingClientRect(); if (now.top <= at.clientY && before.bottom >= at.clientY) title.dispatchEvent(new PointerEvent('pointerenter', at)); if (block.getBoundingClientRect().bottom < at.clientY && block.dataset.hovered === 'true') block.dispatchEvent(new PointerEvent('pointerleave', at)); }}; return 0; }})()"))?;
+
+    let mut text = String::from("Starting.");
+    for step in 0..STREAM_STEPS {
+        for line in 0..STREAM_STEP_LINES {
+            text.push_str(&format!("\n\nStreamed line {step}.{line}."));
+        }
+        let row = full(json!({"rows": [assistant("R5", &text, false)]}))["rows"][0].clone();
+        let patch = json!({"type": "patch", "serial": step + 2, "rows": [row]});
+        page.eval("(window.__before = document.querySelector('.work > summary').firstElementChild.getBoundingClientRect().toJSON(), 0)")?;
+        page.webview.evaluate_script(&bridge::deliver(&patch)).map_err(|error| error.to_string())?;
+        page.until("the streamed line", "document.querySelector('[data-row=R5]').textContent", |drawn| drawn.as_str().is_some_and(|drawn| drawn.contains(&format!("Streamed line {step}."))))?;
+        page.eval(&format!("(() => {{ window.__replay(window.__before); {FINISH_MOTION}; document.getElementById('transcript').dispatchEvent(new Event('scroll')); return 0; }})()"))?;
+    }
+    let state = page.until("the view to settle", "(() => { const t = document.getElementById('transcript'); return {opened: window.__opened, latest: !document.getElementById('latest').hidden, top: Math.round(t.scrollTop), end: Math.round(t.scrollHeight - t.clientHeight)}; })()", |_| true)?;
+
+    check(state["opened"] == false, format!("the work block opened as it slid under a resting pointer: {state}"))?;
+    check(state["latest"] == false && state["top"] == state["end"], format!("the view left the streaming answer: {state}"))
+}
+
 fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page) -> Result<(), String> {
     let mut rows = Vec::new();
     for section in 0..LONG_THREAD_SECTIONS {
@@ -583,7 +614,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 19] = [
+const TESTS: [(&str, Test); 20] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -602,6 +633,7 @@ const TESTS: [(&str, Test); 19] = [
     ("copies_a_cell_on_command_click_and_its_row_on_command_double_click", copies_a_cell_on_command_click_and_its_row_on_command_double_click),
     ("keeps_a_chart_frame_in_place_while_its_answer_streams", keeps_a_chart_frame_in_place_while_its_answer_streams),
     ("keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back", keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back),
+    ("keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer", keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer),
     ("streams_into_a_thread_of_five_thousand_rows_touching_only_its_row", streams_into_a_thread_of_five_thousand_rows_touching_only_its_row),
 ];
 
