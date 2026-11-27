@@ -20,8 +20,8 @@ footer { position: relative; }
 #composer .marks .command { background: rgb(110 59 191 / .16); }
 #composer .marks .locked { background: rgb(0 0 0 / .09); }
 @media (prefers-reduced-motion: reduce) { #input { transition-duration: 1ms; } }
-/* A 24 px line lifted by half its gap to the 34 px buttons: one line sits mid-box, as far from the top as the bottom. */
-#composer > .field { margin-bottom: 5px; }
+/* Half a 24 px line's gap to the 34 px buttons above and below: one line or many sit as far from the top as the bottom. */
+#composer > .field { margin-block: 5px; }
 
 /* Send and stop: 34 px circles lifted by a white base's shadow; hover tints black 5 % in 0.12 s, a press 10 % and
    pulls the edges in 6 px (scale .94 at most) in 0.08 s (Swift `Reactive`). */
