@@ -957,11 +957,13 @@ impl App {
         }
     }
 
-    /// Reads every window's task file and gives each page the list that changed for it.
+    /// Reads every window's task file and gives each page the list that changed for it; a window whose agent wrote
+    /// none keeps its card under the name Fleet and `--sessions` give it, so the bar lists every window Fleet does.
     fn show_tasks(&mut self) {
         let entries: Vec<tasks::Entry> = self.windows.values().filter_map(|win| {
             let summary = win.summary.as_ref()?;
-            let task = tasks::task(std::path::Path::new(summary.task_file.as_ref()?))?;
+            let written = summary.task_file.as_ref().and_then(|file| tasks::task(std::path::Path::new(file)));
+            let task = written.unwrap_or_else(|| vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()));
             Some(tasks::Entry { id: win.session_id.clone(), group: tasks::group(&win.cwd), task, state: summary.task_state })
         }).collect();
         for win in self.windows.values_mut() {

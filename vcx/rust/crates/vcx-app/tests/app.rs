@@ -932,7 +932,7 @@ fn moves_a_window_to_another_folder() {
 }
 
 #[test]
-fn shows_each_window_its_task_and_marks_its_own_card_current() {
+fn shows_each_window_its_task_else_its_first_prompt_and_marks_its_own_card_current() {
     let Some(mut run) = Run::new("tasks") else { return };
     let folder = run.folder("tasked");
     run.start(&["--cwd", folder.to_str().unwrap(), "give me a task"]);
@@ -941,10 +941,13 @@ fn shows_each_window_its_task_and_marks_its_own_card_current() {
     // A worker with no Fleet folder handed in gives the session a temporary one of its own (Swift `Session.fleetContextFile`).
     let own = task_file.parent().and_then(Path::file_name).is_some_and(|folder| folder.to_string_lossy().starts_with("vcx-fleet-"));
     assert!(own && !task_file.exists(), "{} is not this session's own new task file", task_file.display());
+    let card_reads = |report: &Value, words: &str| windows(report)[0]["page"]["tasks"][0]["text"].as_str().is_some_and(|text| text.contains(words));
+    let untasked = run.wait_for(|report| card_reads(report, "give me a"));
+    assert_eq!(windows(&untasked)[0]["page"]["tasks"].as_array().map(Vec::len), Some(1), "a window whose agent wrote no task still has its card");
 
     fs::write(&task_file, "Add a task bar to VCX\n").unwrap();
 
-    let report = run.wait_for(|report| windows(report)[0]["page"]["tasks"].as_array().is_some_and(|cards| !cards.is_empty()));
+    let report = run.wait_for(|report| card_reads(report, "Add a task bar to VCX"));
     fs::remove_file(&task_file).unwrap();
     let card = &windows(&report)[0]["page"]["tasks"][0];
     assert!(card["text"].as_str().unwrap().contains("Add a task bar to VCX"), "{card}");
