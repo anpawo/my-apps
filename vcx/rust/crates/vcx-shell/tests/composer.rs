@@ -983,12 +983,11 @@ fn splits_resume_rows_with_no_detail_by_a_hairline(page: &Page) -> Result<(), St
     check(dividers == json!(2), format!("dividers {dividers}"))
 }
 
-fn names_what_a_model_alias_runs_in_the_model_palette_opened_from_its_chip(page: &Page) -> Result<(), String> {
+fn names_what_a_model_alias_runs_in_the_model_palette(page: &Page) -> Result<(), String> {
     page.deliver(json!({"type": "patch", "meta": {"ready": true, "providerLabel": "Claude", "model": "claude-opus-5-5", "models": ["opus", "haiku"], "modelAliases": {"opus": "claude-opus-5-5"}}}))?;
 
-    page.eval("window.composer.openCommand('/model ')")?;
-    page.state("the providers", |state| state["value"] == "/model " && state["palette"]["options"][0] == "Claude")?;
-    page.eval("window.composer.openCommand('/model claude ')")?;
+    page.keys("/model claude ")?;
+    page.value("/model claude ")?;
 
     let models = page.state("the models", |state| state["palette"]["options"] == json!(["opus · Opus 5.5", "haiku"]))?;
     let detail = page.eval("document.querySelector('#palette .palette-option-detail').textContent")?;
@@ -1038,7 +1037,7 @@ const TESTS: [(&str, Test); 43] = [
     ("shows the draft pictures above the composer with their numbers", shows_the_draft_pictures_above_the_composer_with_their_numbers),
     ("hides the placeholder while the sent message flies", hides_the_placeholder_while_the_sent_message_flies),
     ("splits resume rows with no detail by a hairline", splits_resume_rows_with_no_detail_by_a_hairline),
-    ("names what a model alias runs in the model palette opened from its chip", names_what_a_model_alias_runs_in_the_model_palette_opened_from_its_chip),
+    ("names what a model alias runs in the model palette", names_what_a_model_alias_runs_in_the_model_palette),
 ];
 
 fn main() -> ExitCode {

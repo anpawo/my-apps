@@ -1023,14 +1023,6 @@
   input.addEventListener('keyup', event => (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') && !palette.kind && updatePalette());
   window.addEventListener('pagehide', () => saveTimer && save());
 
-  // The status bar's model and mode chips open their palette here (Swift runs `/model` and `/perms `): the composer
-  // takes the command and lists its values.
-  function openCommand(text) {
-    palette.dismissed = '';
-    history = null;
-    setText(text);
-  }
-
-  window.composer = { receive, openCommand };
+  window.composer = { receive };
   input.focus();
 })();
