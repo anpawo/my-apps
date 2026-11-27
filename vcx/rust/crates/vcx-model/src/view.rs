@@ -133,31 +133,40 @@ fn item_view(row_kind: &str, data: &Object) -> Value {
         ("debate", _) => {
             let turns = item::debate_turns(&item::output(data));
             view.insert("turns".into(), Value::Array(turns.into_iter().map(|turn| json!({"speaker": turn.speaker, "model": turn.model, "html": markdown::to_html(&turn.text)})).collect()));
-            tool_view(data, &mut view);
+            tool_view(data, kind, &mut view);
         }
-        _ => tool_view(data, &mut view),
+        _ => tool_view(data, kind, &mut view),
     }
     Value::Object(view)
 }
 
-fn tool_view(data: &Object, view: &mut Object) {
-    let title = item::title(data);
-    let command = text(data, "command").filter(|command| *command != title);
+fn tool_view(data: &Object, kind: &str, view: &mut Object) {
+    let input = item::ToolInput::read(data);
+    let title = match kind {
+        "commandExecution" => item::command_title_from_fields(input.description, input.command),
+        "reasoning" => input.description.unwrap_or("Thinking").to_owned(),
+        _ => item::title(data),
+    };
+    let output = match kind {
+        "fileChange" | "reasoning" => item::output(data),
+        _ => input.output(),
+    };
+    let command = input.command.filter(|command| *command != title);
     view.insert("title".into(), Value::String(title));
-    view.insert("output".into(), Value::String(item::output(data)));
-    view.insert("failed".into(), Value::Bool(item::failed(data)));
-    view.insert("status".into(), Value::from(text(data, "status").unwrap_or_default()));
+    view.insert("output".into(), Value::String(output));
+    view.insert("failed".into(), Value::Bool(input.failed()));
+    view.insert("status".into(), Value::from(input.status));
     if let Some(command) = command {
         view.insert("command".into(), Value::from(command));
     }
-    if item::kind(data) == "peerMessage" {
+    if kind == "peerMessage" {
         view.insert("text".into(), Value::from(text(data, "text").unwrap_or_default()));
         view.insert("direction".into(), Value::from(text(data, "direction").unwrap_or("received")));
     }
     // Qwen's steps: a live counter while one runs, its duration once done.
-    if let Some(started) = data.get("stepStartedAt").and_then(Value::as_f64).filter(|_| text(data, "status") == Some("inProgress")) {
+    if let Some(started) = input.started.filter(|_| input.status == "inProgress") {
         view.insert("startedAt".into(), json!(started));
-    } else if let Some(seconds) = data.get("seconds").and_then(Value::as_i64) {
+    } else if let Some(seconds) = input.seconds {
         view.insert("seconds".into(), json!(seconds));
     }
 }

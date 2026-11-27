@@ -7,7 +7,6 @@ use std::borrow::Cow;
 
 /// Tool output shown in the transcript; the complete output stays in the provider's own history.
 const MAX_OUTPUT_CHARS: usize = 16_384;
-const OUTPUT_KEYS: [&str; 5] = ["aggregatedOutput", "result", "error", "contentItems", "output"];
 const FILE_INPUT_KEYS: [&str; 2] = ["file_path", "notebook_path"];
 const SUMMARY_INPUT_KEYS: [&str; 5] = ["description", "pattern", "url", "query", "skill"];
 
@@ -99,10 +98,14 @@ pub fn title(item: &Object) -> String {
 }
 
 fn command_title(item: &Object) -> String {
-    if let Some(name) = text(item, "description").filter(|name| !name.is_empty()) {
+    command_title_from_fields(text(item, "description"), text(item, "command"))
+}
+
+pub(crate) fn command_title_from_fields(description: Option<&str>, command: Option<&str>) -> String {
+    if let Some(name) = description.filter(|name| !name.is_empty()) {
         return name.to_owned();
     }
-    let command = text(item, "command").unwrap_or("Command");
+    let command = command.unwrap_or("Command");
     let Some((first, rest)) = command.split_once('\n') else { return command.to_owned() };
     // Claude's other tools arrive as their name above their JSON input.
     let Ok(Value::Object(input)) = serde_json::from_str(rest) else { return first.to_owned() };
@@ -114,21 +117,93 @@ fn command_title(item: &Object) -> String {
 }
 
 pub fn output(item: &Object) -> String {
-    let suffix = item.get("exitCode").and_then(Value::as_i64)
-        .map(|code| format!("\nExit: {code}"));
+    match kind(item) {
+        "fileChange" | "reasoning" => listed_output(item),
+        _ => ToolInput::read(item).output(),
+    }
+}
+
+/// A file change's diffs or a reasoning's summary lines.
+fn listed_output(item: &Object) -> String {
+    let suffix = exit_suffix(item.get("exitCode"));
     let extra = suffix.as_ref().map_or(0, String::len);
-    let mut shown = match kind(item) {
-        "fileChange" => output_tail(changes(item).rev()
-            .filter_map(|change| text(change, "diff")).map(Cow::Borrowed), extra),
-        "reasoning" => output_tail(item.get("summary").and_then(Value::as_array)
-            .into_iter().flatten().rev().filter_map(Value::as_str).map(Cow::Borrowed), extra),
-        _ => output_tail(OUTPUT_KEYS.iter().rev().filter_map(|key| item.get(*key))
-            .filter(|value| !value.is_null()).map(plain), extra),
+    let mut shown = if kind(item) == "fileChange" {
+        output_tail(changes(item).rev().filter_map(|change| text(change, "diff")).map(Cow::Borrowed), extra)
+    } else {
+        output_tail(item.get("summary").and_then(Value::as_array)
+            .into_iter().flatten().rev().filter_map(Value::as_str).map(Cow::Borrowed), extra)
     };
     if let Some(suffix) = suffix {
         shown.push_str(&suffix);
     }
     shown
+}
+
+fn exit_suffix(exit: Option<&Value>) -> Option<String> {
+    exit.and_then(Value::as_i64).map(|code| format!("\nExit: {code}"))
+}
+
+/// The fields a tool item's view reads, found in one pass over its map instead of one lookup each.
+#[derive(Default)]
+pub(crate) struct ToolInput<'a> {
+    pub command: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub status: &'a str,
+    pub started: Option<f64>,
+    pub seconds: Option<i64>,
+    unsuccessful: bool,
+    exit: Option<&'a Value>,
+    aggregated: Option<&'a Value>,
+    result: Option<&'a Value>,
+    error: Option<&'a Value>,
+    content: Option<&'a Value>,
+    output: Option<&'a Value>,
+}
+
+impl<'a> ToolInput<'a> {
+    pub(crate) fn read(item: &'a Object) -> Self {
+        let mut input = Self::default();
+        for (key, value) in item {
+            match key.as_str() {
+                "command" => input.command = value.as_str(),
+                "description" => input.description = value.as_str(),
+                "status" => input.status = value.as_str().unwrap_or_default(),
+                "success" => input.unsuccessful = value == &Value::Bool(false),
+                "stepStartedAt" => input.started = value.as_f64(),
+                "seconds" => input.seconds = value.as_i64(),
+                "exitCode" => input.exit = Some(value),
+                "aggregatedOutput" => input.aggregated = Some(value),
+                "result" => input.result = Some(value),
+                "error" => input.error = Some(value),
+                "contentItems" => input.content = Some(value),
+                "output" => input.output = Some(value),
+                _ => {}
+            }
+        }
+        input
+    }
+
+    /// Same as `failed` on the item.
+    pub(crate) fn failed(&self) -> bool {
+        matches!(self.status, "failed" | "declined")
+            || self.unsuccessful
+            || self.error.is_some_and(|error| !error.is_null())
+            || self.exit.and_then(Value::as_i64).unwrap_or(0) != 0
+    }
+
+    /// Same as `output` on an item that is neither a file change nor a reasoning.
+    pub(crate) fn output(&self) -> String {
+        let suffix = exit_suffix(self.exit);
+        let extra = suffix.as_ref().map_or(0, String::len);
+        // Shown in the order aggregatedOutput, result, error, contentItems, output; `output_tail` reads them last first.
+        let parts = self.output.into_iter().chain(self.content).chain(self.error)
+            .chain(self.result).chain(self.aggregated);
+        let mut shown = output_tail(parts.filter(|value| !value.is_null()).map(plain), extra);
+        if let Some(suffix) = suffix {
+            shown.push_str(&suffix);
+        }
+        shown
+    }
 }
 
 fn plain(value: &Value) -> Cow<'_, str> {
@@ -337,6 +412,20 @@ mod tests {
         let shown = (output(&float), output(&string));
 
         assert_eq!(shown, ("x".to_owned(), "x".to_owned()));
+    }
+
+    #[test]
+    fn reads_a_tool_item_in_one_pass_as_its_lookups_do() {
+        let items = [
+            object(json!({"type": "commandExecution", "output": {"a": 1}, "error": "boom", "aggregatedOutput": "out", "exitCode": 3})),
+            object(json!({"type": "mcpToolCall", "result": null, "contentItems": ["x"], "status": "declined"})),
+            object(json!({"type": "dynamicToolCall", "success": false, "exitCode": 1.0})),
+        ];
+
+        let read: Vec<(bool, String)> = items.iter().map(|item| { let input = ToolInput::read(item); (input.failed(), input.output()) }).collect();
+
+        assert_eq!(read, items.iter().map(|item| (failed(item), output(item))).collect::<Vec<_>>());
+        assert_eq!(read[0].1, "out\nboom\n{\n  \"a\": 1\n}\nExit: 3");
     }
 
     #[test]
