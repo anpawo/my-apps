@@ -681,7 +681,7 @@ fn shows_the_installed_page_and_reloads_it_in_place_when_the_folder_changes() {
 }
 
 /// The status bar's progress chip, read in the page; empty while none shows.
-const PROGRESS_CHIP: &str = "document.querySelector('[data-chip=progress]')?.textContent ?? ''";
+const PROGRESS_CHIP: &str = "document.querySelector('[data-chip=progress]:not([data-ghost])')?.textContent ?? ''";
 
 #[test]
 fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_goes() {
@@ -715,7 +715,7 @@ fn shows_what_the_agent_waits_on_in_the_status_bar_and_hides_it_once_the_file_go
 }
 
 /// The status bar's updating chip, read in the page; empty while none shows.
-const UPDATE_CHIP: &str = "document.querySelector('[data-chip=update]')?.textContent ?? ''";
+const UPDATE_CHIP: &str = "document.querySelector('[data-chip=update]:not([data-ghost])')?.textContent ?? ''";
 
 #[test]
 fn shows_the_update_being_built_in_every_window_and_hides_it_once_the_build_ends() {
@@ -952,7 +952,7 @@ fn shows_each_window_its_task_else_its_first_prompt_and_marks_its_own_card_curre
     fs::remove_file(&task_file).unwrap();
     let card = &windows(&report)[0]["page"]["tasks"][0];
     assert!(card["text"].as_str().unwrap().contains("Add a task bar to VCX"), "{card}");
-    assert_eq!((card["state"].as_str(), card["current"].as_bool()), (Some("question"), Some(true)), "an answer without his Done line waits on him");
+    assert_eq!((card["state"].as_str(), card["current"].as_bool()), (Some("ready"), Some(true)), "an idle session with no prompt open is ready, done or not");
 }
 
 #[test]
