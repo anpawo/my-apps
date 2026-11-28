@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 const SOCKET_WAIT: Duration = Duration::from_secs(15);
 const POLL: Duration = Duration::from_millis(20);
 const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
+/// The cutover moves the installed Swift app to the Trash; `build.sh` still builds it here, the reference left.
+const BUILT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../dist/Vibe Code X.app/Contents/MacOS/VCX");
 const PRIVATE_FOLDER: u32 = 0o700;
 
 /// Written into a worker's folder once its process has ended, with its exit code: a test reads an exit from
@@ -32,7 +34,8 @@ pub struct SwiftWorker {
 }
 
 impl SwiftWorker {
-    /// Starts a worker, or gives `None` when no Swift VCX binary exists (`VCX_SWIFT_BINARY`, then the installed app).
+    /// Starts a worker, or gives `None` when no Swift VCX binary exists (`VCX_SWIFT_BINARY`, the installed app, then
+    /// the repo's `dist` build).
     pub fn start(name: &str) -> Option<Self> {
         let binary = swift_binary()?;
         let directory = private_folder("interop", name);
@@ -240,12 +243,13 @@ fn serves(socket: &Path) -> Option<()> {
     std::os::unix::net::UnixStream::connect(socket).ok().map(drop)
 }
 
-fn swift_binary() -> Option<PathBuf> {
-    let path = match std::env::var_os("VCX_SWIFT_BINARY") {
-        Some(path) => PathBuf::from(path),
-        None => PathBuf::from(std::env::var_os("HOME")?).join(INSTALLED),
-    };
-    path.exists().then_some(path)
+/// The Swift VCX binary: `VCX_SWIFT_BINARY`, the installed app, then the repo's `dist` build.
+pub fn swift_binary() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("VCX_SWIFT_BINARY") {
+        return Some(PathBuf::from(path)).filter(|path| path.exists());
+    }
+    let installed = PathBuf::from(std::env::var_os("HOME")?).join(INSTALLED);
+    [installed, PathBuf::from(BUILT)].into_iter().find(|path| path.exists())
 }
 
 /// A session id in the form the Swift runtime prints them.

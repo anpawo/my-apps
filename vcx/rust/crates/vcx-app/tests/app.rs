@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 use vcx_cli::control;
 use vcx_proto::Client;
 
-const INSTALLED: &str = "Applications/Vibe Code X.app/Contents/MacOS/VCX";
 /// The Rust worker as the workspace builds it (`cargo build -p vcx-worker`).
 const RUST_WORKER: &str = "../../target/debug/vcx-worker";
 /// The fixture agent whose conversations a test worker saves as records (see `NATIVE_HISTORY_FLAG`).
@@ -35,7 +34,7 @@ struct Run {
 
 impl Run {
     fn new(name: &str) -> Option<Self> {
-        let Some(worker) = swift_binary() else {
+        let Some(worker) = vcx_testkit::swift_binary() else {
             eprintln!("skipped: no Swift VCX binary (VCX_SWIFT_BINARY or the installed app) to run sessions on");
             return None;
         };
@@ -160,14 +159,6 @@ fn keep_build_lock_out() {
     let Some(fd) = std::env::var("BUILD_STACK_FD").ok().and_then(|fd| fd.parse::<libc::c_int>().ok()) else { return };
     // SAFETY: F_SETFD on a number only changes that descriptor's flags.
     unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
-}
-
-fn swift_binary() -> Option<PathBuf> {
-    let path = match std::env::var_os("VCX_SWIFT_BINARY") {
-        Some(path) => PathBuf::from(path),
-        None => PathBuf::from(std::env::var_os("HOME")?).join(INSTALLED),
-    };
-    path.exists().then_some(path)
 }
 
 fn rust_worker() -> Option<PathBuf> {
