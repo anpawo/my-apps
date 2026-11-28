@@ -65,6 +65,9 @@ body { display: flex; flex-direction: column; }
 .bubble.queued { opacity: 0.5; }
 /* Pinned at the top while its exchange scrolls under it, the question casts Swift's shadow. */
 .row.heading.stuck .bubble { box-shadow: 0 4px 24px rgb(0 0 0 / 0.22); }
+.row.heading.stuck { pointer-events: none; }
+.row.heading.stuck .bubble { pointer-events: auto; }
+.row.heading.stuck .bubble .message { max-height: var(--pin-cap) !important; overflow-y: auto; }
 /* A long question shows its first line until its arrow is hovered; open and taller than most of the transcript, it scrolls. */
 .bubble.long:not(.open) .message { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
 .bubble.long.open .message { overflow-y: auto; }

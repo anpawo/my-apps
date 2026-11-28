@@ -36,6 +36,9 @@ use wry::{BackgroundThrottlingPolicy, WebView, WebViewBuilder, WebViewExtMacOS};
 const WAIT: Duration = Duration::from_secs(10);
 const SPIN_SECONDS: f64 = 0.005;
 /// The size of a VCX window, so the transcript lays out as it does on screen.
+// A question this tall is not folded, yet pinned it would cover a third of the transcript; it takes at most this share.
+const PINNED_QUESTION_LINES: usize = 14;
+const PINNED_SHARE: f64 = 0.2;
 const WINDOW_SIZE: LogicalSize<f64> = LogicalSize { width: 980.0, height: 720.0 };
 /// A 1×1 PNG.
 const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -337,6 +340,9 @@ fn draws_notes_as_thoughts_and_the_answer_being_written_as_the_answer_with_its_b
     let working = page.eval(bands)?;
     page.show(rows(false))?;
     let done = page.eval(bands)?;
+    let command = json!([{"id": "t1", "type": "commandExecution", "command": "ls", "status": "inProgress"}]);
+    page.show(json!({"busy": true, "rows": [user("R1", "go"), assistant("R2", "Checking those now.", false), {"id": "R3", "kind": "activity", "items": command}]}))?;
+    let checking = page.eval(bands)?;
 
     let (thought, clear) = ("rgb(238, 234, 247)", "rgba(0, 0, 0, 0)");
     let (green, orange, blue) = ("rgb(214, 245, 214)", "rgb(255, 225, 195)", "rgb(214, 230, 255)");
@@ -344,7 +350,8 @@ fn draws_notes_as_thoughts_and_the_answer_being_written_as_the_answer_with_its_b
     check(working[1]["thought"] == false && working[1]["bands"] == json!([green, clear, orange, blue]), format!("the answer being written is no thought: {}", working[1]))?;
     check(working[1]["label"] == "none" && working[0]["label"] == "block", "only the first message of the exchange names its provider")?;
     check(done[0]["thought"] == true && done[1]["thought"] == false, format!("the finished answer is no thought: {done}"))?;
-    check(done[1]["bands"] == json!([green, clear, orange, blue]), format!("the finished answer's bands are {}", done[1]))
+    check(done[1]["bands"] == json!([green, clear, orange, blue]), format!("the finished answer's bands are {}", done[1]))?;
+    check(checking[0]["thought"] == true, format!("a last message that work follows is a thought: {checking}"))
 }
 
 fn draws_a_debate_round_with_each_model_in_its_colour(page: &Page) -> Result<(), String> {
@@ -571,15 +578,17 @@ fn keeps_a_chart_frame_in_place_while_its_answer_streams(page: &Page) -> Result<
 
 fn keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back(page: &Page) -> Result<(), String> {
     let long = (0..LONG_ANSWER_PARAGRAPHS).map(|line| format!("Paragraph {line} of a long answer.")).collect::<Vec<_>>().join("\n\n");
-    page.show(json!({"rows": [user("R1", "first"), assistant("R2", "short", true), user("R3", "second"), assistant("R4", &long, true)]}))?;
+    let second = (0..PINNED_QUESTION_LINES).map(|line| format!("second, line {line}")).collect::<Vec<_>>().join("\n");
+    page.show(json!({"rows": [user("R1", "first"), assistant("R2", "short", true), user("R3", &second), assistant("R4", &long, true)]}))?;
 
     // A window never shown runs no animation frames: the rows would stay at the first frame of their entry.
     page.eval("(() => { document.getAnimations().filter(rise => rise.animationName === 'rise').forEach(rise => rise.finish()); const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new WheelEvent('wheel', {deltaY: -1})); t.scrollTop = t.scrollHeight - t.clientHeight * 3; t.dispatchEvent(new Event('scroll')); return 0; })()")?;
-    let pinned = page.until("the way back", "({top: Math.round(document.querySelector('[data-row=R3]').getBoundingClientRect().top - document.getElementById('transcript').getBoundingClientRect().top), latest: !document.getElementById('latest').hidden})", |state| state["latest"] == true)?;
+    let pinned = page.until("the way back", "({top: Math.round(document.querySelector('[data-row=R3]').getBoundingClientRect().top - document.getElementById('transcript').getBoundingClientRect().top), latest: !document.getElementById('latest').hidden, share: document.querySelector('[data-row=R3] .bubble').getBoundingClientRect().height / document.getElementById('transcript').clientHeight})", |state| state["latest"] == true)?;
     page.click("#latest")?;
     let back = page.until("the end", "(() => { const t = document.getElementById('transcript'); return t.scrollHeight - t.scrollTop - t.clientHeight; })()", |gap| gap.as_f64().is_some_and(|gap| gap < 2.0))?;
 
     check(pinned["top"].as_i64().is_some_and(|top| top.abs() <= 1), format!("the question sits {} px from the top", pinned["top"]))?;
+    check(pinned["share"].as_f64().is_some_and(|share| share <= PINNED_SHARE + 0.005), format!("the pinned question takes {} of the transcript", pinned["share"]))?;
     check(back.as_f64().is_some_and(|gap| gap < 2.0), "Back to latest goes to the end")
 }
 

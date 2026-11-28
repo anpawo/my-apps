@@ -110,6 +110,9 @@
   const QUESTION_CLOSE_MS = 80;
   // Open and taller than this share of the transcript, the question scrolls inside its bubble.
   const QUESTION_CAP = 0.6;
+  // Pinned at the top, the question takes at most this share of the transcript and scrolls inside past it.
+  const PINNED_CAP = 0.2;
+  const PINNED_MIN_PX = 20;
   // Swift's thumbnail trims a screenshot's shadow: the picture is cut to its pixels at least this opaque.
   const OPAQUE_ALPHA = 230;
   const THUMBNAIL_PX = 360;
@@ -522,13 +525,15 @@
     }
     children.push(...part.debates.map(row => rows.get(row.id)));
     const spoken = part.last ? [...part.notes, part.last] : part.notes;
+    // A last message that tool work or thinking follows is not the answer yet: "Checking those now." then a command.
+    const workedAfter = working && part.last && section.rows.slice(section.rows.indexOf(part.last) + 1).some(row => part.trail.includes(row) || part.debates.includes(row));
     spoken.forEach((row, at) => {
       const node = rows.get(row.id);
       const final = row === part.last;
       node.classList.toggle('lead', at === 0);
       node.classList.toggle('final', final);
       // The answer being written is drawn as the answer: it turns into a thought only once later work makes it a note.
-      node.classList.toggle('thought', !final && !ended(row));
+      node.classList.toggle('thought', final ? Boolean(workedAfter) && !ended(row) : !ended(row));
       node.classList.toggle('settled', final && !working);
       children.push(node);
     });
@@ -670,8 +675,18 @@
     const heading = section && section.querySelector(':scope > .row.heading');
     const stuck = heading && section.getBoundingClientRect().top < view.top - 1 ? heading : null;
     if (stuck === lifted) return;
-    if (lifted) lifted.classList.remove('stuck');
-    if (stuck) stuck.classList.add('stuck');
+    if (lifted) {
+      lifted.classList.remove('stuck');
+      lifted.style.removeProperty('min-height');
+      lifted.style.removeProperty('--pin-cap');
+    }
+    if (stuck) {
+      // The row keeps its height while its bubble shrinks: shrinking it would lift the exchange under the reader.
+      const bubble = stuck.querySelector('.bubble'), message = stuck.querySelector('.bubble .message');
+      stuck.style.minHeight = `${stuck.offsetHeight}px`;
+      if (bubble && message) stuck.style.setProperty('--pin-cap', `${Math.max(PINNED_MIN_PX, transcript.clientHeight * PINNED_CAP - (bubble.offsetHeight - message.offsetHeight))}px`);
+      stuck.classList.add('stuck');
+    }
     lifted = stuck;
   }
 
