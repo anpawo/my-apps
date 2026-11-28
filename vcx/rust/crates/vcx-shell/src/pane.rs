@@ -42,7 +42,7 @@ pub enum PaneEvent {
 /// What the owner hears of a pane.
 #[derive(Debug, PartialEq)]
 pub enum Note {
-    /// Page message `serial` carries the session's whole state.
+    /// From page message `serial` on, the session can take a message.
     Shown(u64),
     Rendered(u64),
     Settled(u64),
@@ -173,10 +173,10 @@ impl Pane {
     fn from_session(&mut self, output: Output) -> Vec<Note> {
         match output {
             Output::Page(message) => {
-                let shown = (message["type"] == "full").then(|| message["serial"].as_u64()).flatten();
                 self.to_page(&message);
-                shown.map(Note::Shown).into_iter().collect()
+                Vec::new()
             }
+            Output::Open(serial) => vec![Note::Shown(serial)],
             Output::Settled(serial) => vec![Note::Settled(serial)],
             Output::Arrived { serial, at } => vec![Note::Arrived { serial, at }],
             Output::Summary(summary) => {

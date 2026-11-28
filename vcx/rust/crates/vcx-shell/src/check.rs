@@ -12,6 +12,11 @@ pub const DUMP: &str = r#"(() => {
   for (const animation of document.getAnimations()) {
     if (Number.isFinite(animation.effect.getComputedTiming().endTime)) animation.finish();
   }
+  // A sent message's flight (composer.js) runs by script and hides its bubble until it lands: it is landed too.
+  for (const ghost of document.querySelectorAll('[data-flight]')) {
+    document.querySelector(`[data-row="${CSS.escape(ghost.dataset.flight)}"] .bubble`)?.style.removeProperty('visibility');
+    ghost.remove();
+  }
   return JSON.stringify({
   title: document.title,
   visibility: document.visibilityState,

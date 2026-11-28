@@ -47,6 +47,8 @@ pub enum Output {
     Page(Value),
     /// The session reached the state a check waits for, as of this page message.
     Settled(u64),
+    /// From this page message on, the session can take a message (the composer's send is no longer held back).
+    Open(u64),
     /// Page message `serial`, which comes next, carries a worker revision that reached this frontend `at`.
     Arrived { serial: u64, at: Instant },
     /// What the session list and Fleet show of it changed.
@@ -128,12 +130,13 @@ struct Session<E> {
     link_state: Option<Value>,
     wait_for_answer: bool,
     settled: bool,
+    open: bool,
     summary: Option<Summary>,
 }
 
 impl<E: Fn(Output)> Session<E> {
     fn new(link: Option<Sender<Command>>, wait_for_answer: bool, emit: E) -> Self {
-        Self { emit, replica: Replica::default(), link, connection: 0, attached: false, dropped: None, page_ready: false, serial: 0, link_state: None, wait_for_answer, settled: false, summary: None }
+        Self { emit, replica: Replica::default(), link, connection: 0, attached: false, dropped: None, page_ready: false, serial: 0, link_state: None, wait_for_answer, settled: false, open: false, summary: None }
     }
 
     fn show(&mut self, state: &Object) {
@@ -262,6 +265,11 @@ impl<E: Fn(Output)> Session<E> {
             (self.emit)(Output::Arrived { serial: self.serial, at });
         }
         (self.emit)(Output::Page(message));
+        let takes = |meta: &Object| meta.get("ready") == Some(&Value::Bool(true)) && meta.get("changing") != Some(&Value::Bool(true));
+        if !self.open && self.replica.state().is_some_and(|state| takes(&state.meta)) {
+            self.open = true;
+            (self.emit)(Output::Open(self.serial));
+        }
     }
 
     fn settle(&mut self) {
