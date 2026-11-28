@@ -606,13 +606,13 @@
     const meta = state.meta, list = [];
     if (state.update) list.push({ kind: 'update', glide: true, label: 'updating', text: cutWords(state.update.words || ''), fraction: state.update.fraction || 0 });
     if (state.progress) list.push({ kind: 'progress', glide: true, label: cut(state.progress.label || ''), text: state.progress.detail || '', fraction: state.progress.fraction || 0 });
-    list.push({ kind: 'directory', text: directoryLabel(meta), color: COLORS.directory, title: 'Change the working directory' });
-    list.push({ kind: 'model', text: modelStatus(meta), color: COLORS.model, loading: modelLoading(meta), title: 'Provider, model and effort' });
-    list.push({ kind: 'mode', text: meta.activeMode === 'bypass' ? 'bypass' : 'ask', color: COLORS.mode, title: 'Permissions' });
+    list.push({ kind: 'directory', text: directoryLabel(meta), color: COLORS.directory, title: '/dir ' });
+    list.push({ kind: 'model', text: modelStatus(meta), color: COLORS.model, loading: modelLoading(meta), title: `/model ${provider(meta)} ` });
+    list.push({ kind: 'mode', text: meta.activeMode === 'bypass' ? 'bypass' : 'ask', color: COLORS.mode, title: '/perms ' });
     const models = debateModels();
     if (models) list.push({ kind: 'models', text: `${models.length} models`, color: DEBATE_COLORS.codex, title: "Models in this conversation's debates" });
-    list.push({ kind: 'tokens', text: contextLabel(meta), color: COLORS.tokens, title: 'Quota on this Mac' });
-    if (showsUsage(meta)) list.push({ kind: 'usage', text: meta.usage || (meta.usageLoading ? 'Loading…' : 'Not reported'), color: usageColor(meta), loading: meta.usageLoading === true, title: 'Quota on this Mac' });
+    list.push({ kind: 'tokens', text: contextLabel(meta), color: COLORS.tokens, title: '/tokens' });
+    if (showsUsage(meta)) list.push({ kind: 'usage', text: meta.usage || (meta.usageLoading ? 'Loading…' : 'Not reported'), color: usageColor(meta), loading: meta.usageLoading === true, title: '/usage' });
     list.push({ kind: 'repo', text: repositoryLabel(meta), color: repositoryColor(meta), title: (meta.repositoryChanges || []).join('\n') || '/repo' });
     if (meta.pullRequest) list.push({ kind: 'pullRequest', text: meta.pullRequest, color: COLORS.pullRequest, title: meta.pullRequestURL || '' });
     return list;

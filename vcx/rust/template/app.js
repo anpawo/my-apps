@@ -458,6 +458,12 @@
       block = fold(key, `work ${className}`, make('span', 'chevron'), make('span', 'count'));
       block.dataset.work = key;
       hoverOpens(block);
+      const summary = block.firstElementChild;
+      // Swift's header: held open by a click, it collapses; shut or opened by the hover, a click keeps it open.
+      const name = () => { summary.title = block.classList.contains('opened') && block.dataset.hovered !== 'true' ? 'Collapse' : 'Keep open (hovering the arrow opens it)'; };
+      for (const type of ['click', 'pointerenter']) summary.addEventListener(type, name);
+      block.addEventListener('toggle', name);
+      name();
       sectionNodes.set(key, block);
     }
     const count = block.querySelector('.count');

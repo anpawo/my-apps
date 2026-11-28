@@ -221,6 +221,19 @@ fn shows_ready_and_the_status_bar_of_a_connected_session(page: &Page) -> Result<
     same(&dump["chips"][0]["color"], json!("rgb(71 92 179)"), "the directory's colour")
 }
 
+fn names_each_status_chip_by_the_command_it_writes(page: &Page) -> Result<(), String> {
+    let mut snapshot = demo()?;
+    snapshot["usage"] = json!("42% · 2h");
+    snapshot["repositoryChanges"] = json!(["M src/main.rs", "?? notes.txt"]);
+    snapshot["pullRequest"] = json!("#12");
+    snapshot["pullRequestURL"] = json!("https://github.com/demo/vcx/pull/12");
+
+    page.show(&snapshot)?;
+
+    let titles = page.eval("Object.fromEntries([...document.querySelectorAll('#chips [data-chip]:not([data-ghost])')].map(node => [node.dataset.chip, node.title]))")?;
+    same(&titles, json!({"directory": "/dir ", "model": "/model claude ", "mode": "/perms ", "tokens": "/tokens", "usage": "/usage", "repo": "M src/main.rs\n?? notes.txt", "pullRequest": "https://github.com/demo/vcx/pull/12"}), "the chips' tooltips")
+}
+
 fn names_the_window_after_its_folder_and_tells_the_core(page: &Page) -> Result<(), String> {
     let mut state = page.show(&demo()?)?;
 
@@ -821,8 +834,9 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 43] = [
+const TESTS: [(&str, Test); 44] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
+    ("names each status chip by the command it writes", names_each_status_chip_by_the_command_it_writes),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
     ("says not connected and why", says_not_connected_and_why),

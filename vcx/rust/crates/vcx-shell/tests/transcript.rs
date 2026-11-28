@@ -393,6 +393,22 @@ fn folds_a_sections_actions_into_one_block_with_each_actions_detail(page: &Page)
     check(order == json!(["user", "work", "assistant", "assistant"]), format!("the section reads {order}"))
 }
 
+fn names_what_a_click_on_the_work_blocks_header_does(page: &Page) -> Result<(), String> {
+    let items = json!([{"id": "t1", "type": "commandExecution", "command": "ls", "exitCode": 0, "status": "completed"}]);
+    page.show(json!({"rows": [user("R1", "look"), {"id": "R2", "kind": "activity", "items": items}, assistant("R3", "Found it.", true)]}))?;
+    let title = || page.eval("document.querySelector('.work > summary').title");
+
+    let shut = title()?;
+    page.click(".work > summary")?;
+    page.eval(FINISH_MOTION)?;
+    let held = title()?;
+    page.click(".work > summary")?;
+    page.eval(FINISH_MOTION)?;
+    let collapsed = title()?;
+
+    check(json!([shut, held, collapsed]) == json!(["Keep open (hovering the arrow opens it)", "Collapse", "Keep open (hovering the arrow opens it)"]), format!("the header's tooltip reads {shut}, {held}, {collapsed}"))
+}
+
 fn draws_a_notice_with_its_log_and_messages_between_sessions(page: &Page) -> Result<(), String> {
     let home = std::env::var("HOME").unwrap();
     let notice = json!({"id": "n1", "type": "notice", "text": "The worker restarted.", "link": format!("{home}/Library/Logs/vcx.log")});
@@ -728,7 +744,8 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 27] = [
+const TESTS: [(&str, Test); 28] = [
+    ("names_what_a_click_on_the_work_blocks_header_does", names_what_a_click_on_the_work_blocks_header_does),
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
