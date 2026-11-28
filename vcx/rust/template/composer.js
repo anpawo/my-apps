@@ -354,9 +354,14 @@
     }
   }
 
-  // Dimmed while the session cannot take a message, a command aside (Swift's `.disabled` on send).
+  // The session cannot take a message, a command aside (Swift's `.disabled` on send).
+  function blocked() {
+    return !input.value.startsWith('/') && (!meta.ready || Boolean(meta.changing));
+  }
+
   function dimSend() {
-    $('send').classList.toggle('dim', !input.value.startsWith('/') && (!meta.ready || Boolean(meta.changing)));
+    $('send').classList.toggle('dim', blocked());
+    $('send').setAttribute('aria-disabled', String(blocked()));
   }
 
   // Through the editing commands, so ⌘Z takes it back like typing; `applying` keeps it from counting as his edit.
@@ -698,6 +703,8 @@
     // An open question card (questions.js) takes the typed text as its answer instead of a new message.
     const answered = Boolean(window.vcxQuestions?.open && text && images.length === 0 && window.vcxQuestions.reply(text));
     if (!answered) {
+      // Swift's `send` there: the worker says why with a notice, and the draft and the edited blocks stay.
+      if (blocked()) return post({ type: 'send', text, images, draft: pieces(), generation });
       const sending = window.vcxCodeEdits?.attach(text) ?? text;
       post({ type: 'send', text: sending, images, draft: pieces(), generation });
       prepareFlight(sending, images);
@@ -1036,7 +1043,7 @@
   });
   form.addEventListener('submit', event => {
     event.preventDefault();
-    submit();
+    if (!blocked()) submit();
   });
   for (const button of form.querySelectorAll('button')) button.addEventListener('mousedown', event => event.preventDefault());
   $('stop').addEventListener('click', () => post({ type: 'stop' }));

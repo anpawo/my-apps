@@ -366,6 +366,39 @@ fn answers_an_open_question_card_instead_of_sending(page: &Page) -> Result<(), S
     check(page.quiet("send"), "the answer was also sent as a message")
 }
 
+fn sends_nothing_with_a_click_while_the_session_is_not_ready(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"ready": false}}))?;
+    page.keys("held")?;
+    page.value("held")?;
+
+    page.click("#send")?;
+
+    check(page.quiet("send"), "the dimmed button sent the text")?;
+    page.value("held")?;
+    check(page.eval("document.getElementById('send').classList.contains('dim')")? == true, "the button is not dimmed")
+}
+
+fn keeps_the_draft_when_return_cannot_send_it(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"ready": true, "changing": true}}))?;
+    page.keys("held")?;
+    page.value("held")?;
+
+    page.press(Key::Return, NONE)?;
+
+    check(page.next("send")?["text"] == "held", "Return left the worker no word to answer with its notice")?;
+    page.value("held").map(drop)
+}
+
+fn sends_a_command_with_a_click_while_the_session_is_not_ready(page: &Page) -> Result<(), String> {
+    page.deliver(json!({"type": "patch", "meta": {"ready": false}}))?;
+    page.keys("/reconnect")?;
+    page.value("/reconnect")?;
+
+    page.click("#send")?;
+
+    check(page.next("send")?["text"] == "/reconnect", "the click did not send the command")
+}
+
 fn sends_nothing_for_an_empty_composer(page: &Page) -> Result<(), String> {
     page.keys("   ")?;
     page.value("   ")?;
@@ -1018,11 +1051,14 @@ fn names_what_a_model_alias_runs_in_the_model_palette(page: &Page) -> Result<(),
     check(models["palette"]["selected"] == 0 && detail == "claude-opus-5-5", format!("{models}, detail {detail}"))
 }
 
-const TESTS: [(&str, Test); 45] = [
+const TESTS: [(&str, Test); 48] = [
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),
     ("answers an open question card instead of sending", answers_an_open_question_card_instead_of_sending),
+    ("sends nothing with a click while the session is not ready", sends_nothing_with_a_click_while_the_session_is_not_ready),
+    ("keeps the draft when Return cannot send it", keeps_the_draft_when_return_cannot_send_it),
+    ("sends a command with a click while the session is not ready", sends_a_command_with_a_click_while_the_session_is_not_ready),
     ("sends nothing for an empty composer", sends_nothing_for_an_empty_composer),
     ("Shift-Return on an empty composer sends the waiting prompt now", shift_return_on_an_empty_composer_sends_the_waiting_prompt_now),
     ("shows the stop button while a turn runs", shows_the_stop_button_while_a_turn_runs),
