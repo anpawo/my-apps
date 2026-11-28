@@ -8,7 +8,7 @@ use std::cell::Cell;
 use tao::platform::macos::WindowExtMacOS;
 
 pub const CLOSE_BUTTON: &str = "Close";
-pub const QUIT_TITLE: &str = "Quit VCX Rust?";
+pub const QUIT_TITLE: &str = "Quit Vibe Code X?";
 pub const QUIT_BUTTON: &str = "Quit";
 const CANCEL_BUTTON: &str = "Cancel";
 

@@ -15,6 +15,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 name="VCX Rust"
+# The name shown (menu bar, Finder, Dock, System Settings); the bundle, its id and state folders keep "VCX Rust".
+shown="Vibe Code X"
 app="dist/$name.app"
 installed="${VCX_RUST_INSTALL_DIR:-$HOME/Applications}/$name.app"
 page="${VCX_RUST_CONFIG_HOME:-$HOME/Library/Application Support/VCX Rust}/page"
@@ -74,20 +76,25 @@ if (( ${#binaries[@]} )); then
         # The Swift app's icon, as its build drew it (`VCX --icon`): the Swift sources go, the picture stays.
         cp rust/VCX.icns "$app/Contents/Resources/VCX.icns"
         version="$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -1)"
+        # macOS shows a localized display name only while the file name matches the plist's CFBundleDisplayName.
+        mkdir -p "$app/Contents/Resources/en.lproj"
+        printf '"CFBundleDisplayName" = "%s";\n"CFBundleName" = "%s";\n' "$shown" "$shown" > "$app/Contents/Resources/en.lproj/InfoPlist.strings"
         cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>$name</string>
     <key>CFBundleExecutable</key><string>vcx-rust</string>
     <key>CFBundleIconFile</key><string>VCX</string>
     <key>CFBundleGetInfoString</key><string>The VCX rebuild in Rust: many session windows in one process.</string>
     <key>CFBundleIdentifier</key><string>com.mr.vcx.rust</string>
-    <key>CFBundleName</key><string>$name</string>
+    <key>CFBundleName</key><string>$shown</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$version</string>
     <key>CFBundleVersion</key><string>1</string>
+    <key>LSHasLocalizedDisplayName</key><true/>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

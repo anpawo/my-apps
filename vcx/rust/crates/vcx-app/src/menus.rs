@@ -13,7 +13,7 @@ pub const FILE: &str = "File";
 /// Swift's ⌘Q item: it closes the front session, never the whole app.
 const CLOSE_SESSION: &str = "Close Session";
 const CLOSE_NOW_KEY: &str = "k";
-const ABOUT: &str = "About VCX Rust";
+const ABOUT: &str = "About Vibe Code X";
 /// Swift's last Edit item, after a separator: it opens or closes the front window's find bar.
 const FIND: &str = "Find";
 const FIND_KEY: &str = "f";

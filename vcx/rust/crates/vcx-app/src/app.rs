@@ -35,7 +35,7 @@ const PRESENCE_DELAY: Duration = Duration::from_millis(250);
 /// How often a window on screen reads its usage and repository again (Swift `startRefresh`).
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 pub const ALREADY_RUNNING: &str = "Another VCX Rust app holds this state folder.";
-const TITLE_SUFFIX: &str = " · VCX Rust";
+const TITLE_SUFFIX: &str = " · Vibe Code X";
 /// Swift `main.swift`: 780 for the transcript and the composer, 200 for the task bar, which always shows.
 const MIN_WINDOW_SIZE: (f64, f64) = (980.0, 560.0);
 /// A windowless window's size, never on screen: the Swift place needs a screen.
