@@ -351,7 +351,11 @@ fn pressed(page: &Page) -> Result<Value, String> {
 }
 
 fn opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked(page: &Page) -> Result<(), String> {
-    page.show(&picker_snapshot())?;
+    let mut snapshot = demo()?;
+    for (key, value) in picker_snapshot().as_object().unwrap().iter().filter(|(key, _)| *key != "rows") {
+        snapshot[key] = value.clone();
+    }
+    page.show(&snapshot)?;
 
     page.open_popover("model", "model")?;
 
@@ -359,6 +363,8 @@ fn opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked(page: &Pa
     let lines: Vec<&str> = shown.as_str().unwrap_or_default().lines().map(str::trim).filter(|line| !line.is_empty()).collect();
     same(&json!(lines), json!(["PROVIDER", "Claude", "Codex", "Qwen", "Antigravity", "MODEL", "Opus 5.5", "opus", "Fable 5.2", "fable", "claude-sonnet-5-5", "EFFORT", "low", "high", "max"]), "the picker")?;
     same(&pressed(page)?, json!(["Claude", "Opus 5.5opus", "high"]), "what is in use")?;
+    let covered = page.eval("[...document.querySelectorAll('#popover button')].filter(node => { const box = node.getBoundingClientRect(); return !document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('#popover'); }).map(node => node.textContent)")?;
+    same(&covered, json!([]), "the picker's buttons drawn over the chat")?;
     same(&page.eval("document.getElementById('input').value")?, json!(""), "the composer left alone")
 }
 
