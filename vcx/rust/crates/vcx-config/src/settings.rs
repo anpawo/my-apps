@@ -297,13 +297,18 @@ impl SettingsFile {
     }
 
     /// Re-reads the file under the shared lock, applies `change`, writes it in one move and returns what it wrote.
-    /// A file that cannot be read is left as it is: the Swift app would replace it with its defaults.
+    /// A file that cannot be read is left as it is: the Swift app would replace it with its defaults. One that
+    /// `change` leaves equal is not written either, so a layout no VCX writer makes (an indented file) stays.
     pub fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
         private_folder(&self.folder)?;
         let _lock = Lock::take(&self.lock_path())?;
         let mut settings = self.load()?;
+        let before = settings.to_bytes();
         change(&mut settings);
-        write_private(&self.path(), &settings.to_bytes())?;
+        let after = settings.to_bytes();
+        if after != before || !self.path().exists() {
+            write_private(&self.path(), &after)?;
+        }
         Ok(settings)
     }
 }
