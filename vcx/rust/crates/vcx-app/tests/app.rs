@@ -956,6 +956,32 @@ fn shows_each_window_its_task_else_its_first_prompt_and_marks_its_own_card_curre
 }
 
 #[test]
+fn drops_a_closed_window_from_the_other_task_bars_without_waiting_for_the_tick() {
+    // Under the 2 s task tick, so only the close itself can have redrawn the bar.
+    const REDRAWN_WITHIN: Duration = Duration::from_millis(1200);
+    let Some(mut run) = Run::new("taskclose") else { return };
+    let (kept, closed) = (run.folder("kept"), run.folder("closed"));
+    run.start(&["--cwd", kept.to_str().unwrap(), "stay open"]);
+    let gone = open(&run, &closed, "close me");
+    let cards = |window: &Value| window["page"]["tasks"].as_array().map_or(0, Vec::len);
+    run.wait_for(|report| windows(report).len() == 2 && windows(report).iter().all(|window| cards(window) == 2));
+
+    let asked = run.ask(&json!({"close": {"to": gone}})).unwrap();
+
+    let deadline = Instant::now() + REDRAWN_WITHIN;
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = run.report().unwrap_or(Value::Null);
+        if windows(&last).len() == 1 && cards(&windows(&last)[0]) == 1 {
+            break;
+        }
+        thread::sleep(POLL);
+    }
+    assert_eq!(asked["closed"], json!(true));
+    assert_eq!(windows(&last).iter().map(cards).collect::<Vec<_>>(), [1], "{last:#}");
+}
+
+#[test]
 fn ends_its_sessions_and_clears_its_list_when_asked_to_quit() {
     let Some(mut run) = Run::new("quit") else { return };
     let folder = run.folder("quit");

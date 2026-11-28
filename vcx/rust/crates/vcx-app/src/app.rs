@@ -995,7 +995,7 @@ impl App {
         self.forget(key);
     }
 
-    /// A window gone from the list, the report, Fleet and the saved windows.
+    /// A window gone from the list, the report, Fleet, the saved windows and the other windows' task bars.
     fn forget(&mut self, key: u64) {
         if let Some(report) = &mut self.report {
             report.waiting.remove(&key);
@@ -1003,6 +1003,7 @@ impl App {
         self.finish_report();
         self.save_now();
         self.publish_now();
+        self.show_tasks();
     }
 
     /// Ends every session, waiting a little for each worker to save it, then lets the process end.
