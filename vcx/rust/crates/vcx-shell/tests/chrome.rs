@@ -419,6 +419,53 @@ fn puts_the_perms_command_in_the_composer_from_the_mode_chip(page: &Page) -> Res
     same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")
 }
 
+const DRAFT: &str = "Keep this prompt";
+
+fn composer_value(page: &Page) -> Result<Value, String> {
+    page.eval("document.getElementById('input').value")
+}
+
+fn escape_in_the_composer(page: &Page) -> Result<(), String> {
+    page.eval("document.getElementById('input').dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))").map(drop)
+}
+
+fn puts_the_draft_back_on_escape_after_the_mode_chip_wrote_its_command(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.type_into("#input", DRAFT)?;
+
+    page.click("[data-chip=mode]")?;
+    let command = composer_value(page)?;
+    escape_in_the_composer(page)?;
+
+    same(&command, json!("/perms "), "the composer's command")?;
+    same(&composer_value(page)?, json!(DRAFT), "the draft after Escape")?;
+    same(&page.eval("document.getElementById('palette').classList.contains('open')")?, json!(false), "the palette after Escape")
+}
+
+fn puts_the_draft_back_once_the_command_the_mode_chip_opened_ran(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.type_into("#input", DRAFT)?;
+    page.click("[data-chip=mode]")?;
+
+    page.click("#palette .palette-option:nth-child(2)")?;
+
+    same(&page.wait_post("send")?["text"], json!("/perms ask"), "the command sent")?;
+    same(&composer_value(page)?, json!(DRAFT), "the draft once the command ran")
+}
+
+fn puts_the_draft_back_on_escape_after_a_settings_row_wrote_its_command(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+    page.type_into("#input", DRAFT)?;
+    settings_row(page, "Session")?;
+
+    page.click("#settings .tb-panel.on dl:nth-child(4) .fact")?;
+    let command = composer_value(page)?;
+    escape_in_the_composer(page)?;
+
+    same(&command, json!("/perms "), "the composer's command")?;
+    same(&composer_value(page)?, json!(DRAFT), "the draft after Escape")
+}
+
 fn asks_the_core_for_the_quota_and_draws_it(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
     page.open_popover("tokens", "quota")?;
@@ -774,7 +821,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 40] = [
+const TESTS: [(&str, Test); 43] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -791,6 +838,9 @@ const TESTS: [(&str, Test); 40] = [
     ("changes the effort with a click", changes_the_effort_with_a_click),
     ("switches provider and keeps the picker open for its models", switches_provider_and_keeps_the_picker_open_for_its_models),
     ("puts the perms command in the composer from the mode chip", puts_the_perms_command_in_the_composer_from_the_mode_chip),
+    ("puts the draft back on Escape after the mode chip wrote its command", puts_the_draft_back_on_escape_after_the_mode_chip_wrote_its_command),
+    ("puts the draft back once the command the mode chip opened ran", puts_the_draft_back_once_the_command_the_mode_chip_opened_ran),
+    ("puts the draft back on Escape after a settings row wrote its command", puts_the_draft_back_on_escape_after_a_settings_row_wrote_its_command),
     ("asks the core for the quota and draws it", asks_the_core_for_the_quota_and_draws_it),
     ("shows the progress file and drops it when done", shows_the_progress_file_and_drops_it_when_done),
     ("lists every window's task by project and brings one up", lists_every_windows_task_by_project_and_brings_one_up),

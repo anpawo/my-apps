@@ -810,7 +810,7 @@
   function statusCommand(text) {
     popover = null;
     drawPopover();
-    showCommands(text);
+    showCommands(text, true);
   }
 
   function heading(text) {
@@ -1188,15 +1188,9 @@
   }
 
   // Swift `showCommands`: the command goes into the composer, which opens its palette on it.
-  function showCommands(text) {
+  function showCommands(text, keepEmpty = false) {
     closeSettings();
-    const input = $('input');
-    input.focus();
-    input.select();
-    if (!document.execCommand('insertText', false, text)) {
-      input.value = text;
-      input.dispatchEvent(new Event('input'));
-    }
+    window.composer.showCommands(text, keepEmpty);
   }
 
   // Swift `SettingsPopup.setting`: the name on the left, the value on the right, tinted under the pointer.

@@ -74,6 +74,9 @@
   let fileSerial = 0;
   let imageSerial = 0;
   let flight = null;
+  // Swift `savedCommandDraft`: the draft a status chip or a settings row wrote its command over, put back on Escape or
+  // once the command ran.
+  let savedDraft = null;
   const palette = { kind: '', key: '', start: 0, end: 0, query: '', whole: false, options: [], selected: 0, home: 0, dismissed: '' };
 
   function make(tag, className, text) {
@@ -386,7 +389,22 @@
   function save() {
     clearTimeout(saveTimer);
     saveTimer = 0;
-    post({ type: 'draft', draft: pieces(), generation });
+    post({ type: 'draft', draft: savedDraft ? savedDraft.pieces : pieces(), generation });
+  }
+
+  // Swift `showCommands` and `statusCommand`: a chip keeps even an empty draft, so Escape clears its command.
+  function showCommands(text, keepEmpty = false) {
+    if (!savedDraft && (keepEmpty || input.value !== '')) savedDraft = { text: input.value, chips: [...chips], pieces: pieces() };
+    setText(text);
+  }
+
+  function putBackDraft(typed = '') {
+    if (!savedDraft) return false;
+    const { text, chips: kept } = savedDraft;
+    savedDraft = null;
+    for (const [token, chip] of kept) chips.set(token, chip);
+    setText(text && typed ? `${text}\n${typed}` : text || typed);
+    return true;
   }
 
   function chipLabel(place, images) {
@@ -693,6 +711,7 @@
     closePalette();
     // The empty composer shrinks at once, so the bubble's place is measured with the composer at its final size.
     refresh(true);
+    if (text.startsWith('/')) putBackDraft();
     document.dispatchEvent(new CustomEvent('vcx:sent'));
   }
 
@@ -753,6 +772,7 @@
           if (!listed) return false;
           palette.dismissed = palette.key;
           closePalette();
+          putBackDraft();
           return true;
         case 'ArrowUp':
         case 'ArrowDown':
@@ -846,6 +866,7 @@
     if (!Array.isArray(draft)) return;
     if (typeof theirs === 'number' ? theirs <= generation : !full || input.value !== '' || draft.length === 0) return;
     if (typeof theirs === 'number') generation = theirs;
+    savedDraft = null;
     input.value = restore(draft);
     history = null;
     refresh();
@@ -1037,6 +1058,8 @@
   input.addEventListener('paste', paste);
   input.addEventListener('input', () => {
     if (!applying) history = null;
+    // Swift `updateCommands`: text that is no command, typed over the command, goes under the draft it replaced.
+    if (!applying && savedDraft && input.value !== '' && !input.value.startsWith('/')) return void putBackDraft(input.value);
     if (!applying) edited();
   });
   input.addEventListener('scroll', () => { marks.scrollTop = input.scrollTop; }, { passive: true });
@@ -1045,6 +1068,6 @@
   input.addEventListener('keyup', event => (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') && !palette.kind && updatePalette());
   window.addEventListener('pagehide', () => saveTimer && save());
 
-  window.composer = { receive };
+  window.composer = { receive, showCommands };
   input.focus();
 })();
