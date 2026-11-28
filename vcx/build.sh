@@ -20,6 +20,8 @@ cp cleanup.py "$app/Contents/Resources/cleanup.py"
 cp conversation_archive.py "$app/Contents/Resources/conversation_archive.py"
 cp trace_archive.py "$app/Contents/Resources/trace_archive.py"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# Shown as "VCX Swift" beside the Rust app; macOS takes a localized name only while the file name matches CFBundleDisplayName.
+ditto Resources/en.lproj "$app/Contents/Resources/en.lproj"
 # Icon Services keys its cache on the bundle's date, which cp and ditto leave at the day it was made.
 touch "$app"
 # An ad-hoc signature changes with every build, and Screen Recording and Accessibility grants are pinned to it.
