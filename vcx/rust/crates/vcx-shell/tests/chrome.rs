@@ -339,14 +339,69 @@ fn badges_the_models_of_a_debate_and_lists_them(page: &Page) -> Result<(), Strin
     same(&json!(lines), json!(["MODELS IN THIS CONVERSATION", "Fable 5.2", "this session", "Codex gpt-6.2", "Qwen"]), "the list")
 }
 
-fn puts_the_model_command_in_the_composer_from_the_model_chip(page: &Page) -> Result<(), String> {
-    page.show(&demo()?)?;
+fn picker_snapshot() -> Value {
+    json!({"model": "claude-opus-5-5", "providerLabel": "Claude", "ready": true, "effort": "high", "rows": [],
+        "models": ["opus", "fable", "claude-sonnet-5-5"], "modelAliases": {"opus": "claude-opus-5-5", "fable": "claude-fable-5-2"},
+        "modelEfforts": {"claude-opus-5-5": ["low", "high", "max"], "opus": ["low", "high", "max"], "fable": ["low", "high"], "claude-sonnet-5-5": ["low", "medium"]},
+        "modelDefaultEfforts": {"claude-sonnet-5-5": "medium"}})
+}
 
-    page.click("[data-chip=model]")?;
+fn pressed(page: &Page) -> Result<Value, String> {
+    page.eval("[...document.querySelectorAll('#popover [aria-pressed=true]')].map(node => node.textContent)")
+}
 
-    same(&page.eval("document.getElementById('input').value")?, json!("/model claude "), "the composer's command")?;
-    same(&page.eval("!document.getElementById('palette').hidden")?, json!(true), "the palette open on it")?;
-    same(&page.dump()?["popover"], Value::Null, "no popover")
+fn opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked(page: &Page) -> Result<(), String> {
+    page.show(&picker_snapshot())?;
+
+    page.open_popover("model", "model")?;
+
+    let shown = page.dump()?["popover"]["text"].clone();
+    let lines: Vec<&str> = shown.as_str().unwrap_or_default().lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    same(&json!(lines), json!(["PROVIDER", "Claude", "Codex", "Qwen", "Antigravity", "MODEL", "Opus 5.5", "opus", "Fable 5.2", "fable", "claude-sonnet-5-5", "EFFORT", "low", "high", "max"]), "the picker")?;
+    same(&pressed(page)?, json!(["Claude", "Opus 5.5opus", "high"]), "what is in use")?;
+    same(&page.eval("document.getElementById('input').value")?, json!(""), "the composer left alone")
+}
+
+fn changes_the_model_with_a_click_keeping_an_effort_it_has(page: &Page) -> Result<(), String> {
+    page.show(&picker_snapshot())?;
+    page.open_popover("model", "model")?;
+
+    page.click("#popover .model-row:nth-of-type(2)")?;
+
+    same(&page.wait_post("command")?["text"], json!("/model claude fable high"), "the model command")?;
+    same(&page.dump()?["popover"], Value::Null, "the picker closed")
+}
+
+fn takes_a_models_default_effort_when_it_lacks_the_one_in_use(page: &Page) -> Result<(), String> {
+    page.show(&picker_snapshot())?;
+    page.open_popover("model", "model")?;
+
+    page.click("#popover .model-row:nth-of-type(3)")?;
+
+    same(&page.wait_post("command")?["text"], json!("/model claude claude-sonnet-5-5 medium"), "the model command")
+}
+
+fn changes_the_effort_with_a_click(page: &Page) -> Result<(), String> {
+    page.show(&picker_snapshot())?;
+    page.open_popover("model", "model")?;
+
+    page.click("#popover .choices:last-of-type .choice:nth-of-type(3)")?;
+
+    same(&page.wait_post("command")?["text"], json!("/effort max"), "the effort command")
+}
+
+fn switches_provider_and_keeps_the_picker_open_for_its_models(page: &Page) -> Result<(), String> {
+    page.show(&picker_snapshot())?;
+    page.open_popover("model", "model")?;
+
+    page.click("#popover .choices .choice:nth-of-type(2)")?;
+    same(&page.wait_post("command")?["text"], json!("/model codex"), "the provider command")?;
+    page.deliver(json!({"type": "commandQuery", "text": "/model codex "}))?;
+    page.show(&json!({"model": "gpt-6.2", "providerLabel": "Codex", "ready": true, "rows": [], "models": ["gpt-6.2", "gpt-6.1"], "modelEfforts": {}}))?;
+
+    same(&page.dump()?["popover"]["kind"], json!("model"), "the picker still open")?;
+    same(&pressed(page)?, json!(["Codex", "gpt-6.2"]), "the new provider and its model")?;
+    same(&page.eval("document.getElementById('input').value")?, json!(""), "the provider's menu kept out of the composer")
 }
 
 fn puts_the_perms_command_in_the_composer_from_the_mode_chip(page: &Page) -> Result<(), String> {
@@ -713,7 +768,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 36] = [
+const TESTS: [(&str, Test); 40] = [
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
     ("shows thinking, what runs and the elapsed time during a turn", shows_thinking_what_runs_and_the_elapsed_time_during_a_turn),
@@ -724,7 +779,11 @@ const TESTS: [(&str, Test); 36] = [
     ("cannot allow an empty file change", cannot_allow_an_empty_file_change),
     ("leaves a question to the question card", leaves_a_question_to_the_question_card),
     ("badges the models of a debate and lists them", badges_the_models_of_a_debate_and_lists_them),
-    ("puts the model command in the composer from the model chip", puts_the_model_command_in_the_composer_from_the_model_chip),
+    ("opens a model picker from the model chip with the one in use marked", opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked),
+    ("changes the model with a click keeping an effort it has", changes_the_model_with_a_click_keeping_an_effort_it_has),
+    ("takes a model's default effort when it lacks the one in use", takes_a_models_default_effort_when_it_lacks_the_one_in_use),
+    ("changes the effort with a click", changes_the_effort_with_a_click),
+    ("switches provider and keeps the picker open for its models", switches_provider_and_keeps_the_picker_open_for_its_models),
     ("puts the perms command in the composer from the mode chip", puts_the_perms_command_in_the_composer_from_the_mode_chip),
     ("asks the core for the quota and draws it", asks_the_core_for_the_quota_and_draws_it),
     ("shows the progress file and drops it when done", shows_the_progress_file_and_drops_it_when_done),

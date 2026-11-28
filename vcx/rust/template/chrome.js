@@ -448,8 +448,10 @@
     return !label || label === 'Not connected' ? 'Not connected' : modelName(label);
   }
 
+  // Antigravity's commands name it agy, as the composer's `provider`.
   function provider(meta) {
-    return meta.provider || (meta.providerLabel || '').toLowerCase();
+    const label = meta.provider || (meta.providerLabel || '').toLowerCase();
+    return label.startsWith('antigravity') ? 'agy' : label;
   }
 
   function effectiveEffort(meta) {
@@ -616,7 +618,7 @@
 
   const CHIP_ACTIONS = {
     directory: () => post({ type: 'chooseDirectory' }),
-    model: () => statusCommand(modelCommand(state.meta)),
+    model: () => toggle('model'),
     mode: () => statusCommand('/perms '),
     models: () => toggle('models'),
     tokens: () => openQuota(false),
@@ -800,12 +802,9 @@
     drawPopover();
   }
 
-  // Swift `Session.modelCommand`.
-  function modelCommand(meta) {
-    return `/model ${provider(meta)} `;
-  }
+  const MODEL_PROVIDERS = [['claude', 'Claude'], ['codex', 'Codex'], ['qwen', 'Qwen'], ['agy', 'Antigravity']];
 
-  // Swift `statusCommand`: the model and permission chips open the composer's palette on their command.
+  // Swift `statusCommand`: the permission chip opens the composer's palette on its command.
   function statusCommand(text) {
     popover = null;
     drawPopover();
@@ -840,12 +839,49 @@
       table(grid)(lines.map(line => ({ Agent: line.agent, '5 hours': line.fiveHour, Week: line.week })));
       panel.push(grid);
     }
-    panel.push(button('link', "Change this window's model…", () => statusCommand(modelCommand(state.meta))));
+    panel.push(button('link', "Change this window's model…", () => toggle('model')));
     return panel;
   }
 
-  const PANELS = { models: modelsPanel, quota: quotaPanel };
-  const ANCHORS = { models: 'models', quota: 'tokens' };
+  // Every provider, model and effort as a click away, so no command is typed: a provider switches the session and the
+  // list fills with its models once they arrive; a model keeps the effort in use when it has it, else its default.
+  function modelPanel() {
+    const meta = state.meta, current = provider(meta);
+    const aliases = meta.modelAliases || {}, defaults = meta.modelDefaultEfforts || {}, effortsOf = id => (meta.modelEfforts || {})[id] || (meta.modelEfforts || {})[aliases[id]] || [];
+    const choice = (label, chosen, action) => {
+      const node = button('choice', label, action);
+      node.setAttribute('aria-pressed', String(chosen));
+      return node;
+    };
+    const providers = make('div', 'choices');
+    providers.append(...MODEL_PROVIDERS.map(([name, label]) => choice(label, name === current, () => name !== current && post({ type: 'command', text: `/model ${name}` }))));
+    const panel = [heading('PROVIDER'), providers, heading('MODEL')];
+    const models = meta.models || [];
+    if (!models.length) panel.push(make('p', 'loading', 'Loading…'));
+    const inUse = models.find(id => id === meta.model || aliases[id] === meta.model);
+    for (const id of models) {
+      const resolved = aliases[id] && aliases[id] !== id ? aliases[id] : '';
+      const row = choice('', id === inUse, () => {
+        const efforts = effortsOf(id), effort = effectiveEffort(meta);
+        const kept = efforts.includes(effort) ? effort : defaults[id] || defaults[resolved] || efforts[0];
+        command(`/model ${current} ${id}${efforts.length ? ` ${kept}` : ''}`);
+      });
+      row.classList.add('model-row');
+      row.append(make('span', 'name', resolved ? modelName(resolved) : id));
+      if (resolved) row.append(make('span', 'own', id));
+      panel.push(row);
+    }
+    const efforts = (meta.modelEfforts || {})[meta.model] || (inUse ? effortsOf(inUse) : []);
+    if (efforts.length) {
+      const row = make('div', 'choices');
+      row.append(...efforts.map(effort => choice(effort, effort === effectiveEffort(meta), () => command(`/effort ${effort}`))));
+      panel.push(heading('EFFORT'), row);
+    }
+    return panel;
+  }
+
+  const PANELS = { model: modelPanel, models: modelsPanel, quota: quotaPanel };
+  const ANCHORS = { model: 'model', models: 'models', quota: 'tokens' };
 
   // The single pick's list, opened above its chip: the status bar sits at the window's foot.
   function drawPopover() {

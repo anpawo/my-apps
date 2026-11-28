@@ -162,6 +162,14 @@ footer { grid-column: 2; grid-row: 2; }
 #popover .vcx-table td { white-space: nowrap; }
 /* Swift `QuotaOverview`: its title, the grid in small mono type under grey headers and one divider, a small link. */
 #popover[data-kind=quota] { gap: 10px; padding: 14px; }
+/* The model picker: providers and efforts as a row of toggles, the models as rows; the one in use is tinted. */
+#popover .choices { display: flex; flex-wrap: wrap; gap: 4px; }
+#popover .choice { display: flex; align-items: center; gap: 8px; padding: 4px 9px; border: 0; border-radius: 6px; background: rgb(0 0 0 / .045); color: inherit;
+  font: 500 11.5px ui-monospace, "SF Mono", Menlo, monospace; text-align: left; cursor: pointer; transition: background-color 120ms ease-out; }
+#popover .choice:hover { background: rgb(0 0 0 / .08); }
+#popover .choice[aria-pressed=true] { background: rgb(110 59 191 / .17); color: rgb(110 59 191); }
+#popover .model-row { padding: 6px 9px; background: none; }
+#popover .model-row .own { margin-left: auto; }
 #popover[data-kind=quota] .vcx-title { margin: 0; font: 600 12px/16px -apple-system, system-ui, sans-serif; }
 #popover[data-kind=quota] .vcx-table { width: auto; font: 11px/16px ui-monospace, "SF Mono", Menlo, monospace; }
 #popover[data-kind=quota] .vcx-table :is(th, td) { padding: 3px 16px 3px 0; border: 0; font: inherit; text-align: left; }

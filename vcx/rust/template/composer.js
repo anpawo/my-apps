@@ -956,6 +956,8 @@
     } else if (message.type === 'files') filesArrived(message);
     else if (message.type === 'attach') attach(message.items);
     else if (message.type === 'commandQuery') {
+      // The model picker above its chip already shows the menu a provider switch answers.
+      if (document.querySelector('#popover:not([hidden])[data-kind=model]')) return;
       setText(message.text);
       input.focus();
     }
