@@ -305,7 +305,8 @@ fn keeps_its_scroll_details_and_composer_selection_through_a_live_update() {
     let number = |script: &str| -> f64 { run.ask(&json!({"evaluate": {"to": id, "script": script}})).and_then(|answer| answer["result"].as_str()?.parse().ok()).unwrap_or(-1.0) };
     let room = number(SCROLL_ROOM);
     assert!(room > SCROLLED_PX * 2.0, "the transcript does not scroll far enough: {room} px");
-    let scrolled = number(&format!("{SCROLL_TOP}.scrollTop = {SCROLLED_PX}"));
+    // As the reader scrolls: a wheel, then the scroll, which a window drawing no frames does not announce by itself.
+    let scrolled = number(&format!("(t => (t.dispatchEvent(new WheelEvent('wheel', {{deltaY: -1}})), t.scrollTop = {SCROLLED_PX}, t.dispatchEvent(new Event('scroll')), t.scrollTop))({SCROLL_TOP})"));
     assert_eq!(number(KEPT_DRAFT), 1.0, "the details or the draft did not take");
     // The composer saves its draft to the worker a moment after the last edit.
     thread::sleep(DRAFT_SETTLE);

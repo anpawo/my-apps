@@ -574,7 +574,7 @@ fn keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back(page: &Page
     page.show(json!({"rows": [user("R1", "first"), assistant("R2", "short", true), user("R3", "second"), assistant("R4", &long, true)]}))?;
 
     // A window never shown runs no animation frames: the rows would stay at the first frame of their entry.
-    page.eval("(() => { document.getAnimations().filter(rise => rise.animationName === 'rise').forEach(rise => rise.finish()); const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.scrollTop = t.scrollHeight - t.clientHeight * 3; t.dispatchEvent(new Event('scroll')); return 0; })()")?;
+    page.eval("(() => { document.getAnimations().filter(rise => rise.animationName === 'rise').forEach(rise => rise.finish()); const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new WheelEvent('wheel', {deltaY: -1})); t.scrollTop = t.scrollHeight - t.clientHeight * 3; t.dispatchEvent(new Event('scroll')); return 0; })()")?;
     let pinned = page.until("the way back", "({top: Math.round(document.querySelector('[data-row=R3]').getBoundingClientRect().top - document.getElementById('transcript').getBoundingClientRect().top), latest: !document.getElementById('latest').hidden})", |state| state["latest"] == true)?;
     page.click("#latest")?;
     let back = page.until("the end", "(() => { const t = document.getElementById('transcript'); return t.scrollHeight - t.scrollTop - t.clientHeight; })()", |gap| gap.as_f64().is_some_and(|gap| gap < 2.0))?;
@@ -609,6 +609,40 @@ fn keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer(p
     check(state["latest"] == false && state["top"] == state["end"], format!("the view left the streaming answer: {state}"))
 }
 
+/// Grows the last row by a screen with no frame drawn, as a picture loading in a hidden window does, then hands the
+/// page a new row; answers how far the view ends above the transcript's end.
+const GROW_THEN_DELIVER: &str = "(() => { const t = document.getElementById('transcript'); const tall = document.createElement('div'); tall.style.height = `${t.clientHeight}px`; document.querySelector('[data-row=R4]').append(tall); return 0; })()";
+const GAP_TO_END: &str = "(() => { const t = document.getElementById('transcript'); return Math.round(t.scrollHeight - t.scrollTop - t.clientHeight); })()";
+
+fn deliver_new_row(page: &Page) -> Result<Value, String> {
+    let patch = json!({"type": "patch", "serial": 2, "rows": [full(json!({"rows": [user("R5", "third")]}))["rows"][0].clone()], "order": ["R1", "R2", "R3", "R4", "R5"]});
+    page.webview.evaluate_script(&bridge::deliver(&patch)).map_err(|error| error.to_string())?;
+    page.until("the new row", "Boolean(document.querySelector('[data-row=R5]'))", |drawn| drawn == &json!(true))?;
+    page.eval(GAP_TO_END)
+}
+
+fn follows_new_rows_after_the_transcript_grew_in_a_window_drawing_no_frames(page: &Page) -> Result<(), String> {
+    let long = (0..LONG_ANSWER_PARAGRAPHS).map(|line| format!("Paragraph {line} of a long answer.")).collect::<Vec<_>>().join("\n\n");
+    page.show(json!({"rows": [user("R1", "first"), assistant("R2", "short", true), user("R3", "second"), assistant("R4", &long, true)]}))?;
+    page.eval(&format!("(() => {{ {FINISH_MOTION}; const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new Event('scroll')); return 0; }})()"))?;
+    page.eval(GROW_THEN_DELIVER)?;
+    page.eval("(document.getElementById('transcript').dispatchEvent(new Event('scroll')), 0)")?;
+
+    let gap = deliver_new_row(page)?;
+
+    check(gap.as_f64().is_some_and(|gap| gap < 2.0), format!("the view stopped {gap} px above the end"))
+}
+
+fn stays_where_the_reader_scrolled_up_as_new_rows_arrive(page: &Page) -> Result<(), String> {
+    let long = (0..LONG_ANSWER_PARAGRAPHS).map(|line| format!("Paragraph {line} of a long answer.")).collect::<Vec<_>>().join("\n\n");
+    page.show(json!({"rows": [user("R1", "first"), assistant("R2", "short", true), user("R3", "second"), assistant("R4", &long, true)]}))?;
+    page.eval(&format!("(() => {{ {FINISH_MOTION}; const t = document.getElementById('transcript'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new WheelEvent('wheel', {{deltaY: -1}})); t.scrollTop = t.scrollHeight - t.clientHeight * 3; t.dispatchEvent(new Event('scroll')); return 0; }})()"))?;
+
+    let gap = deliver_new_row(page)?;
+
+    check(gap.as_f64().is_some_and(|gap| gap > 2.0), "a new row pulled the reader back to the end")
+}
+
 fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page) -> Result<(), String> {
     let mut rows = Vec::new();
     for section in 0..LONG_THREAD_SECTIONS {
@@ -629,7 +663,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 21] = [
+const TESTS: [(&str, Test); 23] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -650,6 +684,8 @@ const TESTS: [(&str, Test); 21] = [
     ("keeps_a_chart_frame_in_place_while_its_answer_streams", keeps_a_chart_frame_in_place_while_its_answer_streams),
     ("keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back", keeps_the_question_on_top_of_its_exchange_and_offers_the_way_back),
     ("keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer", keeps_following_the_answer_as_its_work_block_slides_under_a_resting_pointer),
+    ("follows_new_rows_after_the_transcript_grew_in_a_window_drawing_no_frames", follows_new_rows_after_the_transcript_grew_in_a_window_drawing_no_frames),
+    ("stays_where_the_reader_scrolled_up_as_new_rows_arrive", stays_where_the_reader_scrolled_up_as_new_rows_arrive),
     ("streams_into_a_thread_of_five_thousand_rows_touching_only_its_row", streams_into_a_thread_of_five_thousand_rows_touching_only_its_row),
 ];
 

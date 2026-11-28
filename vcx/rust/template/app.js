@@ -3,6 +3,10 @@
   const CONTRACT = 1;
   // New content keeps the view pinned to the end only when the reader was already this close to it.
   const PINNED_DISTANCE_PX = 48;
+  // A scroll this soon after the reader's wheel, scroll key or the page moving the view for him is his: only such a
+  // scroll away from the end stops the following; one the page makes (a fold, a picture loading) never does.
+  const READER_SCROLL_MS = 600;
+  const SCROLL_KEYS = new Set(['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' ']);
   // How long a code block's copy button shows its check mark, as in the Swift `CodeBlock`.
   const COPIED_MS = 5000;
   // Swift's tables: a column too wide for the room shares it with the other long ones, never narrower than this.
@@ -35,7 +39,11 @@
     const box = $('rows').getBoundingClientRect(), view = transcript.getBoundingClientRect();
     return Math.max(0, box.bottom - view.top + transcript.scrollTop + parseFloat(getComputedStyle(transcript).paddingBottom) - transcript.clientHeight);
   };
+  // Whether the transcript follows its end: true until the reader scrolls away from it, whatever the page measures in
+  // a window that is hidden or covered and draws no frames, where nothing re-pins between two patches.
   let atEnd = true;
+  let readerAt = -Infinity, held = false;
+  const reader = () => held || performance.now() - readerAt < READER_SCROLL_MS;
   const DETAILED = /^(work|action)\b/;
   let meta = {};
 
@@ -476,6 +484,7 @@
       const section = block.closest('.turn') || block;
       const above = section.getBoundingClientRect().top - transcript.getBoundingClientRect().top - parseFloat(getComputedStyle(transcript).paddingTop);
       if (block.getBoundingClientRect().top >= transcript.getBoundingClientRect().top) return glide(block, false);
+      readerAt = performance.now();
       if (reducedMotion.matches) {
         transcript.scrollTop += above;
         return glide(block, false);
@@ -587,7 +596,7 @@
   function receive(message) {
     // A draft saved as he types comes back as a patch with no rows: it must not pull a reader near the end down to it.
     const redraws = message.type === 'full' || Boolean(message.rows || message.order);
-    const pinned = sent || (redraws && endTop() - transcript.scrollTop < PINNED_DISTANCE_PX);
+    const pinned = sent || (redraws && atEnd);
     const before = rows.size;
     apply(message);
     if (rows.size > before) sent = false;
@@ -756,10 +765,25 @@
   }, true);
   // Back to latest shows once the reader has scrolled away from the end.
   transcript.addEventListener('scroll', () => {
-    atEnd = endTop() - transcript.scrollTop < PINNED_DISTANCE_PX;
+    if (endTop() - transcript.scrollTop < PINNED_DISTANCE_PX) atEnd = true;
+    else if (reader()) atEnd = false;
     $('latest').hidden = atEnd;
     liftPinned();
   }, { passive: true });
+  transcript.addEventListener('wheel', () => { readerAt = performance.now(); }, { passive: true });
+  transcript.addEventListener('pointerdown', () => { held = true; });
+  document.addEventListener('pointerup', () => {
+    if (held) readerAt = performance.now();
+    held = false;
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (SCROLL_KEYS.has(event.key) && !event.target.closest?.('input, textarea, [contenteditable]')) readerAt = performance.now();
+  }, true);
+  // Find landing on a match, or a live update putting back where he had scrolled.
+  document.addEventListener('vcx:reading', () => {
+    atEnd = false;
+    readerAt = performance.now();
+  });
   // Only the arrow opens a long question: the pointer crossing it to read the answer leaves it shut. It shuts once the
   // pointer has left the bubble for good.
   list.addEventListener('pointerover', event => {

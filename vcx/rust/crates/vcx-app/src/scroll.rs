@@ -32,6 +32,7 @@ pub fn restore(anchor: &Value) -> String {
   const [start, end] = a.selection || [0, 0];
   if (input && end <= input.value.length) input.setSelectionRange(start, end);
   if (a.pinned) {{ t.scrollTop = t.scrollHeight; return true; }}
+  document.dispatchEvent(new CustomEvent('vcx:reading'));
   if (a.row === undefined) {{ t.scrollTop = a.top; return true; }}
   const row = [...t.querySelectorAll('[data-row]')].find(node => node.dataset.row === a.row);
   if (!row) return false;

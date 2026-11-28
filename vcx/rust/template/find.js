@@ -92,7 +92,9 @@
     if (bubble) bubble.classList.add('open');
     const box = range.getBoundingClientRect();
     const view = transcript.getBoundingClientRect();
-    if (box.top < view.top || box.bottom > view.bottom) transcript.scrollTop += box.top - view.top - view.height * LANDING_SHARE;
+    if (box.top >= view.top && box.bottom <= view.bottom) return;
+    document.dispatchEvent(new CustomEvent('vcx:reading'));
+    transcript.scrollTop += box.top - view.top - view.height * LANDING_SHARE;
   }
 
   function run(keep) {
