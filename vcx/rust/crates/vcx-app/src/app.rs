@@ -964,7 +964,7 @@ impl App {
             let summary = win.summary.as_ref()?;
             let written = summary.task_file.as_ref().and_then(|file| tasks::task(std::path::Path::new(file)));
             let task = written.unwrap_or_else(|| vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()));
-            Some(tasks::Entry { id: win.session_id.clone(), group: tasks::group(&win.cwd), task, state: summary.task_state })
+            Some(tasks::Entry { id: win.session_id.clone(), group: tasks::group(&win.cwd), task, state: summary.state })
         }).collect();
         for win in self.windows.values_mut() {
             let message = tasks::message(&entries, &win.session_id);
@@ -1145,7 +1145,7 @@ fn describe(win: &Win, page: Option<Value>) -> Value {
         "frame": [frame.x, frame.y, frame.width, frame.height], "visible": win.window.is_visible(), "desktop": win.desktop,
         // A snapshot came from the worker: the switch counts a window taken over only then, and once its draft is carried.
         "attached": win.summary.is_some(), "carried": win.carry.is_none(), "draftGeneration": summary.draft_generation,
-        "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "progressFile": summary.progress_file, "taskState": summary.task_state, "prompt": summary.prompt, "threadId": summary.thread_id,
+        "state": summary.state, "idle": summary.idle, "taskFile": summary.task_file, "progressFile": summary.progress_file, "prompt": summary.prompt, "threadId": summary.thread_id,
         "name": vcx_cli::fleet::name(summary.context.as_deref(), summary.prompt.as_deref()),
         "page": page.unwrap_or(Value::Null),
     })

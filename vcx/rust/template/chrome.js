@@ -22,7 +22,7 @@
   const PRESS_SHRINK_PX = 6;
   const PRESS_SCALE_MIN = 0.94;
   const UPDATE_BUBBLE_GAP_PX = 6;
-  const TASK_STATES = { working: 'working', question: 'waiting for you', done: 'done' };
+  const TASK_STATES = { working: 'working', ready: 'ready', waiting: 'waiting for you', failed: 'needs attention', pending: 'background agents running', fresh: 'new' };
   // The status pill's own fills (WT-037): violet, orange, grey and green.
   const TONE_FILLS = { busy: '#b4a5e7', pending: '#e28e4f', off: '#afb2b7', ready: '#88cb9e' };
   const COLORS = {
@@ -30,7 +30,9 @@
     pullRequest: 'rgb(107 64 179)', ready: 'rgb(26 115 46)', uncommitted: 'rgb(173 46 97)', unpushed: 'rgb(140 92 20)', plain: 'rgb(0 0 0 / 0.6)',
   };
   const DEBATE_COLORS = { claude: 'rgb(199 97 56)', codex: 'rgb(10 122 102)', qwen: 'rgb(51 97 209)', agy: 'rgb(133 77 199)', gemini: 'rgb(209 64 128)' };
-  const TASK_COLORS = { working: 'rgb(237 128 26)', question: 'rgb(51 115 230)', done: 'rgb(51 166 77)' };
+  // Fleet's session tints (Swift `SessionState.tint`); fresh has no hue there, grey on this white panel.
+  const TASK_COLORS = { working: 'rgb(255 89 82)', ready: 'rgb(61 209 89)', waiting: 'rgb(69 158 255)', failed: 'rgb(255 158 38)', pending: 'rgb(179 122 255)',
+    fresh: 'rgb(150 150 150)' };
   // Swift `sessionPanel`: what the session loaded, in this order, and what each card is called.
   const CAPABILITIES = [['Hooks', 'HOOKS', 'link'], ['Skills', 'SKILLS', 'sparkles'], ['Commands', 'COMMANDS', 'command'], ['MCP', 'MCP', 'server'],
     ['Instructions', 'MD Files', 'file'], ['RAG', 'RAG', 'brain']];

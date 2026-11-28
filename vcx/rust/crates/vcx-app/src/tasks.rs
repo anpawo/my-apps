@@ -58,12 +58,12 @@ mod tests {
 
     #[test]
     fn marks_only_the_receiving_window_current() {
-        let entries = [Entry { id: "A".into(), group: "/p".into(), task: "one".into(), state: "working" }, Entry { id: "B".into(), group: "/q".into(), task: "two".into(), state: "done" }];
+        let entries = [Entry { id: "A".into(), group: "/p".into(), task: "one".into(), state: "working" }, Entry { id: "B".into(), group: "/q".into(), task: "two".into(), state: "ready" }];
 
         let sent = message(&entries, "B");
 
         assert_eq!(sent["type"], "tasks");
         assert_eq!(sent["entries"].as_array().unwrap().iter().map(|entry| entry["current"].as_bool().unwrap()).collect::<Vec<_>>(), [false, true]);
-        assert_eq!(sent["entries"][1], json!({"id": "B", "group": "/q", "task": "two", "state": "done", "current": true}));
+        assert_eq!(sent["entries"][1], json!({"id": "B", "group": "/q", "task": "two", "state": "ready", "current": true}));
     }
 }

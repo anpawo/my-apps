@@ -7,8 +7,6 @@ use vcx_model::{Object, SessionState, item};
 const PREVIEW_ROWS: usize = 16;
 const PREVIEW_ITEMS: usize = 4;
 const MAX_TEXT_CHARS: usize = 2000;
-/// His Done line: an answer holding it, nothing left to run, is a finished task.
-const DONE_MARK: &str = "✓ Done:";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Summary {
@@ -39,7 +37,6 @@ pub struct Summary {
     /// Where the agent writes the task it works on ($VCX_TASK_FILE).
     pub task_file: Option<String>,
     /// The task bar's word for it (Swift `TaskBoard.state`): working, question or done.
-    pub task_state: &'static str,
     /// The account the session runs on, as the worker names it: `{id, name, provider, …}`.
     pub account: Option<Value>,
     /// (kind, text) with Fleet's kinds: user, tool, assistant.
@@ -85,26 +82,8 @@ pub fn of(state: &SessionState) -> Summary {
         conversation_directory: text(meta, "conversationDirectory").filter(|folder| !folder.is_empty()),
         progress_file: text(meta, "progressFile").filter(|file| !file.is_empty()),
         task_file: text(meta, "taskFile").filter(|file| !file.is_empty()),
-        task_state: task_state(state, waiting || flag("needsAttention"), flag("busy") || flag("changing") || background > 0),
         account: meta.get("account").filter(|account| account.is_object()).cloned(),
         preview: preview(state),
-    }
-}
-
-/// Green only once the last answer since his last prompt holds his Done line; an idle session without one waits on him.
-fn task_state(state: &SessionState, waiting: bool, busy: bool) -> &'static str {
-    if waiting {
-        return "question";
-    }
-    if busy {
-        return "working";
-    }
-    let since = state.rows.iter().rposition(|row| row.kind == "user").map_or(0, |last| last + 1);
-    let answers = state.rows[since..].iter().filter(|row| row.kind == "assistant").flat_map(|row| row.items.iter().filter_map(|id| state.items.get(id)));
-    let last = answers.filter_map(|item| text(item, "text")).last();
-    match last.is_some_and(|answer| answer.split("\n\n").any(|paragraph| paragraph.trim().starts_with(DONE_MARK))) {
-        true => "done",
-        false => "question",
     }
 }
 
@@ -204,19 +183,5 @@ mod tests {
         let (asking, free) = (of(&asking), of(&free));
 
         assert_eq!((asking.deciding, free.deciding), (true, false));
-    }
-
-    #[test]
-    fn marks_a_task_done_only_when_the_last_answer_holds_the_done_line() {
-        let answer = |text: &str| state(json!({"ready": true, "taskFile": "/tmp/f/task.goal", "rows": [
-            {"id": "R1", "kind": "user", "items": [{"id": "u", "type": "userMessage", "content": [{"type": "text", "text": "go"}]}]},
-            {"id": "R2", "kind": "assistant", "items": [{"id": "a", "type": "agentMessage", "text": text}]}
-        ]}));
-        let running = state(json!({"ready": true, "busy": true, "rows": []}));
-
-        let (done, open) = (of(&answer("Built it.\n\n✓ Done: the bar, you can close this session.")), of(&answer("Built it.\n\nNext: ship it?")));
-
-        assert_eq!((done.task_state, open.task_state, of(&running).task_state), ("done", "question", "working"));
-        assert_eq!(done.task_file.as_deref(), Some("/tmp/f/task.goal"));
     }
 }
