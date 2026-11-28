@@ -222,6 +222,7 @@ details > summary::-webkit-details-marker { display: none; }
 .notice-link { display: block; margin-left: 20px; color: #5b4bd6; }
 .peer-line { margin: 0; overflow: hidden; color: rgb(0 0 0 / 0.45); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .peer-line.failed { color: rgb(0 0 0 / 0.3); }
+.peer-line.react { --outset: 4px; border-radius: 5px; }
 .peer-line::before { content: "↙ "; }
 .peer-line[data-direction="sent"]::before { content: "↗ "; }
 

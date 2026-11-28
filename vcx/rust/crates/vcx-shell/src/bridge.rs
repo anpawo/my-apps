@@ -15,6 +15,10 @@ const EXTERNAL_SCHEMES: [&str; 3] = ["https://", "http://", "mailto:"];
 const FILE_SCHEME: &str = "file://";
 const OPEN: &str = "/usr/bin/open";
 const PBCOPY: &str = "/usr/bin/pbcopy";
+/// Under the home folder: Fleet raises any session's window or terminal tab by its Claude process.
+const FLEET: &str = "Applications/Fleet.app/Contents/MacOS/Fleet";
+/// Under the home folder: one file per running Claude process, named after its pid.
+const CLAUDE_SESSIONS: &str = ".claude/sessions";
 /// Where the core serves a picture the user attached; the rest of the address is its name in `vcx_model::assets`.
 pub(crate) const IMAGE_ORIGIN: &str = "vcx://image/";
 /// Files a click would run rather than show: they are only revealed in the Finder.
@@ -44,6 +48,8 @@ pub enum FromPage {
     Title { text: String },
     /// Another window's card in the task bar.
     Focus { id: String },
+    /// The line of a message to or from another session: its Claude process and when that started.
+    FocusPeer { pid: i64, started_at: f64 },
     Quota,
     Settings,
     /// The worker action that reads `what` again: `refreshUsage`, `refreshRepository`, `refreshCapabilities`, `refreshCatalog`.
@@ -86,6 +92,7 @@ pub fn parse(body: &str) -> Option<FromPage> {
         "command" => Some(FromPage::Command { text: text("text")? }),
         "title" => Some(FromPage::Title { text: text("text")? }),
         "focus" => Some(FromPage::Focus { id: text("id")? }),
+        "focusPeer" => Some(FromPage::FocusPeer { pid: message.get("pid")?.as_i64().filter(|pid| *pid > 0)?, started_at: message.get("startedAt")?.as_f64()? }),
         "quota" => Some(FromPage::Quota),
         "settings" => Some(FromPage::Settings),
         "refresh" => Some(FromPage::Refresh { action: REFRESHES.iter().find(|(what, _)| Some(*what) == message.get("what").and_then(Value::as_str))?.1 }),
@@ -157,6 +164,25 @@ pub fn open(target: &Target) {
     };
     if let Err(error) = command.spawn() {
         eprintln!("vcx: cannot open {target:?}: {error}");
+    }
+}
+
+/// Whether `pid` is still the Claude process that started at `started_at`, not a later one that reused its pid.
+pub fn peer_running(pid: i64, started_at: f64, sessions: &Path) -> bool {
+    // SAFETY: signal 0 only asks whether the process exists.
+    let alive = i32::try_from(pid).is_ok_and(|pid| unsafe { libc::kill(pid, 0) } == 0);
+    let entry: Option<Value> = std::fs::read(sessions.join(format!("{pid}.json"))).ok().and_then(|data| serde_json::from_slice(&data).ok());
+    alive && entry.and_then(|entry| entry.get("startedAt").and_then(Value::as_f64)) == Some(started_at)
+}
+
+/// Asks Fleet to bring up the peer session's window, as the Swift `focusPeer` does; a peer that is gone is left alone.
+pub fn focus_peer(pid: i64, started_at: f64) {
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    if !peer_running(pid, started_at, &home.join(CLAUDE_SESSIONS)) {
+        return;
+    }
+    if let Err(error) = Command::new(home.join(FLEET)).arg("--focus").arg(pid.to_string()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        eprintln!("vcx: cannot ask Fleet for the session {pid}: {error}");
     }
 }
 
@@ -235,7 +261,7 @@ mod tests {
     fn reads_the_composer_and_chrome_messages() {
         let bodies = [
             r#"{"type":"send","text":"hi","images":["/tmp/a.png"],"draft":[],"generation":4}"#, r#"{"type":"sendNow"}"#, r#"{"type":"command","text":"/model claude opus high"}"#,
-            r#"{"type":"title","text":"Fix the bar"}"#, r#"{"type":"focus","id":"A1"}"#, r#"{"type":"quota"}"#, r#"{"type":"refresh","what":"usage"}"#, r#"{"type":"chooseDirectory"}"#, r#"{"type":"settings"}"#,
+            r#"{"type":"title","text":"Fix the bar"}"#, r#"{"type":"focus","id":"A1"}"#, r#"{"type":"focusPeer","pid":42,"startedAt":1700000000000}"#, r#"{"type":"quota"}"#, r#"{"type":"refresh","what":"usage"}"#, r#"{"type":"chooseDirectory"}"#, r#"{"type":"settings"}"#,
         ];
 
         let parsed: Vec<FromPage> = bodies.iter().filter_map(|body| parse(body)).collect();
@@ -246,12 +272,26 @@ mod tests {
             FromPage::Command { text: "/model claude opus high".into() },
             FromPage::Title { text: "Fix the bar".into() },
             FromPage::Focus { id: "A1".into() },
+            FromPage::FocusPeer { pid: 42, started_at: 1_700_000_000_000.0 },
             FromPage::Quota,
             FromPage::Refresh { action: "refreshUsage" },
             FromPage::ChooseDirectory,
             FromPage::Settings,
         ];
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn takes_a_peer_as_running_only_while_its_registry_names_the_same_start() {
+        let folder = folder("peers");
+        let pid = i64::from(std::process::id());
+        std::fs::write(folder.0.join(format!("{pid}.json")), r#"{"pid":1,"startedAt":1700000000000}"#).unwrap();
+
+        let running = [1_700_000_000_000.0, 1_800_000_000_000.0].map(|started| peer_running(pid, started, &folder.0));
+        let unlisted = peer_running(i64::from(i32::MAX), 1_700_000_000_000.0, &folder.0);
+
+        assert_eq!(running, [true, false]);
+        assert!(!unlisted);
     }
 
     #[test]

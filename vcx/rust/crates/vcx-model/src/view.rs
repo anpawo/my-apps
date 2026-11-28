@@ -162,6 +162,9 @@ fn tool_view(data: &Object, kind: &str, view: &mut Object) {
     if kind == "peerMessage" {
         view.insert("text".into(), Value::from(text(data, "text").unwrap_or_default()));
         view.insert("direction".into(), Value::from(text(data, "direction").unwrap_or("received")));
+        if let (Some(pid), Some(started)) = (data.get("pid"), data.get("startedAt")) {
+            view.insert("peer".into(), json!({"pid": pid, "startedAt": started}));
+        }
     }
     // Qwen's steps: a live counter while one runs, its duration once done.
     if let Some(started) = input.started.filter(|_| input.status == "inProgress") {

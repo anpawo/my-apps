@@ -272,6 +272,13 @@ impl Pane {
             // The window's own business, wired by Rust app: its title, another window, the quota sheet, the folder panel.
             FromPage::Title { text } => vec![Note::Title(text)],
             FromPage::Focus { id } => vec![Note::Focus(id)],
+            // A check never brings up another window.
+            FromPage::FocusPeer { pid, started_at } => {
+                if !self.quiet {
+                    bridge::focus_peer(pid, started_at);
+                }
+                Vec::new()
+            }
             FromPage::ChooseDirectory => vec![Note::ChooseDirectory],
             FromPage::Quota => vec![Note::Quota],
             FromPage::Settings => vec![Note::Settings],

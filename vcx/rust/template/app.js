@@ -360,6 +360,10 @@
     const peer = make('p', item.failed ? 'peer-line failed' : 'peer-line', item.title + (first ? ` · ${first}` : ''));
     peer.dataset.direction = item.direction || 'received';
     peer.title = item.text || '';
+    // Swift `PeerLine`: a click asks Fleet to bring up the window or tab of the session on the other end.
+    peer.role = 'button';
+    peer.classList.add('react');
+    peer.addEventListener('click', () => item.peer && post({ type: 'focusPeer', pid: item.peer.pid, startedAt: item.peer.startedAt }));
     return peer;
   }
 

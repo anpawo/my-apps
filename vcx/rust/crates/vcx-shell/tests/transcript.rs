@@ -410,6 +410,16 @@ fn draws_a_notice_with_its_log_and_messages_between_sessions(page: &Page) -> Res
     check(opened == FromPage::Open { href: format!("{home}/Library/Logs/vcx.log") }, format!("the log link asks for {opened:?}"))
 }
 
+fn asks_for_the_window_of_the_session_a_message_came_from(page: &Page) -> Result<(), String> {
+    let received = json!({"id": "p2", "type": "peerMessage", "direction": "received", "name": "Rust report", "text": "thanks", "pid": 4242, "startedAt": 1_700_000_000_000_u64});
+    page.show(json!({"rows": [user("R1", "tell them"), assistant("R2", "Told.", true), {"id": "R3", "kind": "peer", "items": [received]}]}))?;
+
+    page.click(".peer-line[data-direction=received]")?;
+
+    let asked = page.heard("focusPeer")?;
+    check(asked == FromPage::FocusPeer { pid: 4242, started_at: 1_700_000_000_000.0 }, format!("the core read {asked:?}"))
+}
+
 fn finds_in_questions_and_answers_ignoring_case_and_accents(page: &Page) -> Result<(), String> {
     page.show(json!({"rows": [user("R1", "Où est le café ?"), assistant("R2", "cafe in a note", false), assistant("R3", "Le **CAFE** est ici, cafe encore.", true)]}))?;
 
@@ -672,7 +682,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 23] = [
+const TESTS: [(&str, Test); 24] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -682,6 +692,7 @@ const TESTS: [(&str, Test); 23] = [
     ("draws_a_debate_round_with_each_model_in_its_colour", draws_a_debate_round_with_each_model_in_its_colour),
     ("folds_a_sections_actions_into_one_block_with_each_actions_detail", folds_a_sections_actions_into_one_block_with_each_actions_detail),
     ("draws_a_notice_with_its_log_and_messages_between_sessions", draws_a_notice_with_its_log_and_messages_between_sessions),
+    ("asks_for_the_window_of_the_session_a_message_came_from", asks_for_the_window_of_the_session_a_message_came_from),
     ("finds_in_questions_and_answers_ignoring_case_and_accents", finds_in_questions_and_answers_ignoring_case_and_accents),
     ("steps_through_the_matches_with_up_and_down_in_the_find_field", steps_through_the_matches_with_up_and_down_in_the_find_field),
     ("tells_no_match_and_keeps_its_matches_as_rows_arrive", tells_no_match_and_keeps_its_matches_as_rows_arrive),
