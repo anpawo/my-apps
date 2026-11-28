@@ -83,6 +83,7 @@
       else CSS.highlights.delete('vcx-find-current');
     }
     count.textContent = !input.value ? '' : matches.length ? `${current + 1} of ${matches.length}` : 'No match';
+    $('find-previous').disabled = $('find-next').disabled = matches.length === 0;
   }
 
   function land() {

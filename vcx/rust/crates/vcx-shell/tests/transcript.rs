@@ -488,6 +488,23 @@ fn tells_no_match_and_keeps_its_matches_as_rows_arrive(page: &Page) -> Result<()
     check(later == "1 of 1", "a row that arrives is searched")
 }
 
+fn greys_out_the_find_arrows_while_nothing_matches(page: &Page) -> Result<(), String> {
+    let arrows = "[document.getElementById('find-previous').disabled, document.getElementById('find-next').disabled]";
+    page.show(json!({"rows": [user("R1", "alpha"), assistant("R2", "beta", true)]}))?;
+    page.find()?;
+    let empty = page.eval(arrows)?;
+
+    input::type_text(&page.webview, "gamma")?;
+    page.until("the count", "document.getElementById('find-count').textContent", |count| count == "No match")?;
+    let none = page.eval(arrows)?;
+    page.show(json!({"rows": [user("R1", "alpha"), assistant("R2", "gamma", true)]}))?;
+    page.until("the new match", "document.getElementById('find-count').textContent", |count| count == "1 of 1")?;
+    let found = page.eval(arrows)?;
+
+    check(empty == json!([true, true]) && none == json!([true, true]), format!("the arrows with nothing typed {empty}, with no match {none}"))?;
+    check(found == json!([false, false]), format!("the arrows once a row matches {found}"))
+}
+
 fn hands_each_link_to_the_core_which_opens_only_what_is_safe(page: &Page) -> Result<(), String> {
     let notes = page.file("notes.md", b"notes");
     let script = page.file("run.command", b"#!/bin/sh");
@@ -698,7 +715,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 25] = [
+const TESTS: [(&str, Test); 26] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -713,6 +730,7 @@ const TESTS: [(&str, Test); 25] = [
     ("finds_in_questions_and_answers_ignoring_case_and_accents", finds_in_questions_and_answers_ignoring_case_and_accents),
     ("steps_through_the_matches_with_up_and_down_in_the_find_field", steps_through_the_matches_with_up_and_down_in_the_find_field),
     ("tells_no_match_and_keeps_its_matches_as_rows_arrive", tells_no_match_and_keeps_its_matches_as_rows_arrive),
+    ("greys_out_the_find_arrows_while_nothing_matches", greys_out_the_find_arrows_while_nothing_matches),
     ("hands_each_link_to_the_core_which_opens_only_what_is_safe", hands_each_link_to_the_core_which_opens_only_what_is_safe),
     ("copies_a_code_block_through_the_core_and_shows_it_was_copied", copies_a_code_block_through_the_core_and_shows_it_was_copied),
     ("copies_the_previewed_picture_on_a_click_and_shows_it_was_copied", copies_the_previewed_picture_on_a_click_and_shows_it_was_copied),
