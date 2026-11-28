@@ -113,6 +113,8 @@ body { display: flex; flex-direction: column; }
 /* ---- End of effect ---- */
 #preview .glass { position: relative; padding: 8px; border-radius: 16px; box-shadow: 0 12px 40px rgb(0 0 0 / 0.25); }
 #preview img { display: block; max-width: 66.7vw; max-height: 66.7vh; border-radius: 10px; }
+/* Swift `ImagePreview`: its round Close button in the top trailing corner, 10 pt in. */
+#preview .close { position: absolute; top: 10px; right: 10px; }
 
 .label { margin: 0 0 12px; color: rgb(0 0 0 / 0.6); font-size: 11px; font-weight: 500; }
 .label svg { width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px; fill: var(--accent); }
