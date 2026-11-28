@@ -92,7 +92,7 @@ fn draws_a_saved_session_in_a_window_that_is_never_shown() {
     assert_eq!(report["status"], "Ready");
     assert_eq!(report["chips"][0], "~/projects/vcx", "the folder chip comes first");
     let html = report["html"].as_str().unwrap();
-    assert!(html.contains("<table>") && !html.contains("<script>alert"), "the answer's Markdown is drawn and its raw HTML is not");
+    assert!(html.contains("<table") && !html.contains("<script>alert"), "the answer's Markdown is drawn and its raw HTML is not");
     let widest = report["viewport"][0].as_i64().unwrap();
     for row in report["rows"].as_array().unwrap().iter().filter(|row| row["kind"] != "activity") {
         let (left, width, height) = (row["box"][0].as_i64().unwrap(), row["box"][2].as_i64().unwrap(), row["box"][3].as_i64().unwrap());

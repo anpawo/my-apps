@@ -17,7 +17,7 @@
    in the transcript; the frame itself is held to PINNED_MAX_PX, so the block is not cut. */
 #chart-pin { --pin-max: none; }
 /* ---- Effect: pinned block at the top of a scrolling chat. Copy from here ---- */
-#chart-pin { position: sticky; top: calc(-1 * var(--transcript-top, 0px)); z-index: 3; margin: calc(-1 * var(--transcript-top, 0px)) -24px 12px; padding: 8px 24px; background: var(--page); }
+#chart-pin { position: sticky; top: calc(-1 * var(--transcript-top, 0px)); z-index: 3; margin: calc(-1 * var(--transcript-top, 0px)) calc(-1 * var(--side-gap, 24px)) 12px; padding: 8px var(--side-gap, 24px); background: var(--page); }
 #chart-pin[hidden] { display: none; }
 #chart-pin > * { max-width: var(--column, 760px); max-height: var(--pin-max, 280px); overflow: hidden; margin: 0 auto; box-shadow: var(--pin-shadow, 0 3px 8px rgb(0 0 0 / .08)); }
 /* A turn's sticky heading stops under the pinned block instead of behind it. */
