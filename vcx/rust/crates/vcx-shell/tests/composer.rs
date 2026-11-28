@@ -1012,6 +1012,20 @@ fn shows_the_draft_pictures_above_the_composer_with_their_numbers(page: &Page) -
     check(names == json!(["Image #1", "Image #2"]), format!("pictures {names}"))
 }
 
+fn previews_a_draft_picture_on_a_click(page: &Page) -> Result<(), String> {
+    page.paste("", true)?;
+    let image = page.next("image")?;
+    page.deliver(json!({"type": "attach", "items": [{"kind": "image", "id": image["id"], "path": "/attachments/shot.png"}]}))?;
+    page.value("[Image #1] ")?;
+    let card = page.eval("document.querySelector('#draft-pictures .picture')?.dataset.src ?? null")?;
+
+    page.click("#draft-pictures .picture")?;
+
+    let shown = "(() => { const overlay = document.getElementById('preview'); return overlay.hidden ? null : overlay.querySelector('img').getAttribute('src'); })()";
+    let opened = page.wait("the preview", |page| page.eval(shown).is_ok_and(|source| source == card));
+    check(card.is_string() && opened.is_ok(), format!("the card shows {card}, the preview {}", page.eval(shown)?))
+}
+
 fn hides_the_placeholder_while_the_sent_message_flies(page: &Page) -> Result<(), String> {
     let flying = "document.getElementById('composer').classList.contains('flying')";
     page.keys("fly")?;
@@ -1051,7 +1065,8 @@ fn names_what_a_model_alias_runs_in_the_model_palette(page: &Page) -> Result<(),
     check(models["palette"]["selected"] == 0 && detail == "claude-opus-5-5", format!("{models}, detail {detail}"))
 }
 
-const TESTS: [(&str, Test); 48] = [
+const TESTS: [(&str, Test); 49] = [
+    ("previews a draft picture on a click", previews_a_draft_picture_on_a_click),
     ("sends on Return and keeps Shift-Return as a new line", sends_on_return_and_keeps_shift_return_as_a_new_line),
     ("glides the sent message from the composer into the transcript", glides_the_sent_message_from_the_composer_into_the_transcript),
     ("sends with a real click and keeps the caret in the composer", sends_with_a_real_click_and_keeps_the_caret_in_the_composer),

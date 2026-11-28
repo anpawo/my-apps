@@ -521,6 +521,41 @@ fn greys_out_the_find_arrows_while_nothing_matches(page: &Page) -> Result<(), St
     check(found == json!([false, false]), format!("the arrows once a row matches {found}"))
 }
 
+fn steps_with_the_find_arrows_and_closes_with_its_button(page: &Page) -> Result<(), String> {
+    page.show(json!({"rows": [user("R1", "cafe one"), assistant("R2", "cafe two, cafe three", true)]}))?;
+    page.find()?;
+    input::type_text(&page.webview, "cafe")?;
+    let count = "document.getElementById('find-count').textContent";
+    page.until("the matches", count, |shown| shown == "1 of 3")?;
+
+    page.click("#find-next")?;
+    page.until("Next to the second match", count, |shown| shown == "2 of 3")?;
+    page.click("#find-previous")?;
+    page.until("Previous back to the first", count, |shown| shown == "1 of 3")?;
+    page.click("#find-previous")?;
+    page.until("Previous from the first to the last", count, |shown| shown == "3 of 3")?;
+    page.click("#find-close")?;
+
+    page.until("the bar to close", "[document.getElementById('find').hidden, document.activeElement.id]", |state| *state == json!([true, "input"])).map(drop)
+}
+
+fn opens_a_long_question_only_from_its_arrow_and_shuts_it_once_the_pointer_leaves(page: &Page) -> Result<(), String> {
+    let question = (1..=40).map(|line| format!("line {line} of the question")).collect::<Vec<_>>().join("\n");
+    page.show(json!({"rows": [user("R1", &question), assistant("R2", "Read.", true)]}))?;
+    page.until("the question to fold", "document.querySelectorAll('.bubble.long').length", |count| *count == 1)?;
+    let open = "document.querySelector('.bubble.long').classList.contains('open')";
+
+    page.eval("document.querySelector('.bubble.long .message').dispatchEvent(new PointerEvent('pointerover', {bubbles: true}))")?;
+    let crossed = page.eval(open)?;
+    page.eval("document.querySelector('.bubble.long .unfold').dispatchEvent(new PointerEvent('pointerover', {bubbles: true}))")?;
+    let pointed = page.eval(open)?;
+    page.eval("document.querySelector('.bubble.long').dispatchEvent(new PointerEvent('pointerout', {bubbles: true, relatedTarget: document.getElementById('transcript')}))")?;
+
+    check(crossed == false, "the question opened as the pointer crossed its text")?;
+    check(pointed == true, "the arrow left the question shut")?;
+    page.until("the question to shut", open, |shown| *shown == false).map(drop)
+}
+
 fn hands_each_link_to_the_core_which_opens_only_what_is_safe(page: &Page) -> Result<(), String> {
     let notes = page.file("notes.md", b"notes");
     let script = page.file("run.command", b"#!/bin/sh");
@@ -744,7 +779,9 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 28] = [
+const TESTS: [(&str, Test); 30] = [
+    ("steps_with_the_find_arrows_and_closes_with_its_button", steps_with_the_find_arrows_and_closes_with_its_button),
+    ("opens_a_long_question_only_from_its_arrow_and_shuts_it_once_the_pointer_leaves", opens_a_long_question_only_from_its_arrow_and_shuts_it_once_the_pointer_leaves),
     ("names_what_a_click_on_the_work_blocks_header_does", names_what_a_click_on_the_work_blocks_header_does),
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),

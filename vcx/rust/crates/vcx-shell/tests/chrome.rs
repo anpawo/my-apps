@@ -491,6 +491,60 @@ fn asks_the_core_for_the_quota_and_draws_it(page: &Page) -> Result<(), String> {
     same(&cells, json!(["Agent", "5 hours", "Week", "Claude", "12%", "40%", "Codex", "3%", "9%"]), "the quota grid")
 }
 
+fn asks_the_core_to_choose_a_directory_from_its_chip(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.click("[data-chip=directory]")?;
+
+    same(&page.wait_post("chooseDirectory")?, json!({"type": "chooseDirectory"}), "the post")
+}
+
+fn refreshes_the_usage_and_opens_the_quota_from_the_usage_chip(page: &Page) -> Result<(), String> {
+    let mut snapshot = demo()?;
+    snapshot["usage"] = json!("42% · 2h");
+    page.show(&snapshot)?;
+
+    page.open_popover("usage", "quota")?;
+
+    same(&page.wait_post("refresh")?, json!({"type": "refresh", "what": "usage"}), "the refresh")?;
+    same(&page.wait_post("quota")?, json!({"type": "quota"}), "the quota asked")
+}
+
+fn runs_repo_from_the_repository_chip(page: &Page) -> Result<(), String> {
+    page.show(&demo()?)?;
+
+    page.click("[data-chip=repo]")?;
+
+    same(&page.wait_post("command")?, json!({"type": "command", "text": "/repo"}), "the command")
+}
+
+fn opens_the_pull_request_from_its_chip(page: &Page) -> Result<(), String> {
+    let mut snapshot = demo()?;
+    snapshot["pullRequest"] = json!("#12");
+    snapshot["pullRequestURL"] = json!("https://github.com/demo/vcx/pull/12");
+    page.show(&snapshot)?;
+
+    page.click("[data-chip=pullRequest]")?;
+
+    same(&page.wait_post("open")?, json!({"type": "open", "href": "https://github.com/demo/vcx/pull/12"}), "the link opened")
+}
+
+fn shows_the_whole_update_while_the_pointer_is_on_its_chip(page: &Page) -> Result<(), String> {
+    let words = "fix: VCX Rust keeps the draft a status chip writes its command over and puts it back on Escape";
+    page.show(&demo()?)?;
+    page.deliver(json!({"type": "update", "words": words, "fraction": 0.5}))?;
+    page.settle()?;
+    let bubble = "(() => { const node = document.getElementById('update-words'); return [node.classList.contains('on'), node.textContent]; })()";
+
+    page.eval("document.querySelector('[data-chip=update]').dispatchEvent(new PointerEvent('pointerenter'))")?;
+    let hovered = page.eval(bubble)?;
+    page.eval("document.querySelector('[data-chip=update]').dispatchEvent(new PointerEvent('pointerleave'))")?;
+    let left = page.eval(bubble)?;
+
+    same(&hovered, json!([true, words]), "the bubble on the chip")?;
+    same(&left[0], json!(false), "the bubble once the pointer left")
+}
+
 fn shows_the_progress_file_and_drops_it_when_done(page: &Page) -> Result<(), String> {
     page.show(&demo()?)?;
 
@@ -834,7 +888,12 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 44] = [
+const TESTS: [(&str, Test); 49] = [
+    ("asks the core to choose a directory from its chip", asks_the_core_to_choose_a_directory_from_its_chip),
+    ("refreshes the usage and opens the quota from the usage chip", refreshes_the_usage_and_opens_the_quota_from_the_usage_chip),
+    ("runs repo from the repository chip", runs_repo_from_the_repository_chip),
+    ("opens the pull request from its chip", opens_the_pull_request_from_its_chip),
+    ("shows the whole update while the pointer is on its chip", shows_the_whole_update_while_the_pointer_is_on_its_chip),
     ("shows ready and the status bar of a connected session", shows_ready_and_the_status_bar_of_a_connected_session),
     ("names each status chip by the command it writes", names_each_status_chip_by_the_command_it_writes),
     ("names the window after its folder and tells the core", names_the_window_after_its_folder_and_tells_the_core),
