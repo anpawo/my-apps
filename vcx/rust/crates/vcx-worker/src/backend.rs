@@ -27,7 +27,7 @@ use vcx_agents::{AgentError, Connection, Inbound, Incoming};
 use vcx_config::{Account, Settings, SettingsFile};
 
 pub mod carry;
-mod commands;
+pub(crate) mod commands;
 mod records;
 mod refresh;
 mod route;

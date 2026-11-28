@@ -4,7 +4,7 @@
 use super::{Object, SessionBackend, object};
 use crate::fallback;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -131,16 +131,18 @@ fn is_newer(version: &[i64], other: &[i64]) -> bool {
     (0..version.len().max(other.len())).map(|index| (at(version, index), at(other, index))).find(|(left, right)| left != right).is_some_and(|(left, right)| left > right)
 }
 
-/// Each model family's newest version only, in the catalog's order (gpt-6.2-sol hides gpt-6.1-sol).
-fn latest_models(models: &[String]) -> Vec<String> {
-    let versions: Vec<_> = models.iter().map(|model| model_version(model)).collect();
+/// Each model family's newest version only, once, in the catalog's order (gpt-6.2-sol hides gpt-6.1-sol). An alias
+/// counts as the model it resolves to, so "opus" on claude-opus-5-5 hides claude-opus-5 and claude-opus-4-8.
+pub(crate) fn latest_models(models: &[String], aliases: &Object) -> Vec<String> {
+    let versions: Vec<_> = models.iter().map(|model| model_version(aliases.get(model).and_then(Value::as_str).unwrap_or(model))).collect();
     let mut newest: HashMap<&str, &[i64]> = HashMap::new();
     for (family, number) in versions.iter().flatten() {
         if newest.get(family.as_str()).is_none_or(|known| is_newer(number, known)) {
             newest.insert(family, number);
         }
     }
-    models.iter().zip(&versions).filter(|(_, version)| version.as_ref().is_none_or(|(family, number)| newest.get(family.as_str()) == Some(&number.as_slice()))).map(|(model, _)| model.clone()).collect()
+    let mut shown = HashSet::new();
+    models.iter().zip(&versions).filter(|(_, version)| version.as_ref().is_none_or(|(family, number)| newest.get(family.as_str()) == Some(&number.as_slice()) && shown.insert(family.as_str()))).map(|(model, _)| model.clone()).collect()
 }
 
 fn help(provider: &str) -> String {
@@ -324,7 +326,7 @@ impl SessionBackend {
         }
         self.take_provider(&choice).await?;
         if verb == "/codex" {
-            let newest = latest_models(&self.session.borrow().models).into_iter().next().ok_or("Codex listed no model.")?;
+            let newest = latest_models(&self.session.borrow().models, &Object::new()).into_iter().next().ok_or("Codex listed no model.")?;
             args.insert(1, newest);
         }
         if args.len() == 1 {
@@ -711,9 +713,19 @@ mod tests {
     fn keeps_only_the_newest_model_of_each_family() {
         let models: Vec<String> = ["gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-sol-mini", "fixture-model"].map(str::to_owned).into();
 
-        let latest = latest_models(&models);
+        let latest = latest_models(&models, &Object::new());
 
         assert_eq!(latest, ["gpt-6.2-sol", "gpt-6.2-sol-mini", "fixture-model"]);
+    }
+
+    #[test]
+    fn shows_one_model_of_each_kind_an_alias_standing_for_the_model_it_resolves_to() {
+        let models: Vec<String> = ["opus", "fable", "haiku", "claude-fable-5-1", "claude-haiku-4-5-20251001", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-4-6"].map(str::to_owned).into();
+        let aliases = object(json!({"opus": "claude-opus-5-5", "fable": "claude-fable-5-2", "haiku": "claude-haiku-5-5"}));
+
+        let latest = latest_models(&models, &aliases);
+
+        assert_eq!(latest, ["opus", "fable", "haiku", "claude-sonnet-4-6"]);
     }
 
     #[test]

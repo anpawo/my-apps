@@ -11,9 +11,9 @@ pub const CONTRACT_VERSION: u32 = 1;
 
 /// Metadata the page may read: the transcript's, the composer's (its palette and model lists) and the chrome's (status
 /// bar, popovers, session panel). The rest of the worker's metadata (state paths, the account) stays in the core.
-const PAGE_META_KEYS: [&str; 39] = [
+const PAGE_META_KEYS: [&str; 40] = [
     "model", "providerLabel", "status", "ready", "busy", "needsAttention", "cwd", "conversationName", "repository", "branch", "contextUsed", "contextLimit",
-    "usagePercent", "activeMode", "effort", "backgroundTasks", "providerCommands", "models", "modelEfforts", "modelDefaultEfforts", "modelAliases",
+    "usagePercent", "activeMode", "effort", "backgroundTasks", "providerCommands", "models", "modelEfforts", "modelDefaultEfforts", "modelAliases", "latestModels",
     "defaultEffort", "recent", "usage", "usageLoading", "repositoryStatus", "repositoryChanges", "repositoryDirectory", "pullRequest", "pullRequestURL",
     "changing", "threadID", "hooks", "skills", "builtinCommands", "mcp", "instructions", "recalledRules", "recalledRuleSections",
 ];

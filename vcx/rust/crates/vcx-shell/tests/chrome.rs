@@ -381,6 +381,19 @@ fn opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked(page: &Pa
     same(&page.eval("document.getElementById('input').value")?, json!(""), "the composer left alone")
 }
 
+fn lists_each_kinds_newest_model_only_and_keeps_an_older_one_in_use(page: &Page) -> Result<(), String> {
+    let mut snapshot = picker_snapshot();
+    snapshot["models"] = json!(["opus", "fable", "claude-sonnet-5-5", "claude-opus-5", "claude-opus-4-8"]);
+    snapshot["latestModels"] = json!(["opus", "fable", "claude-sonnet-5-5"]);
+    snapshot["model"] = json!("claude-opus-4-8");
+    page.show(&snapshot)?;
+
+    page.open_popover("model", "model")?;
+
+    let rows = page.eval("[...document.querySelectorAll('#popover .model-row')].map(node => node.textContent)")?;
+    same(&rows, json!(["Opus 5.5opus", "Fable 5.2fable", "claude-sonnet-5-5", "claude-opus-4-8"]), "the model rows")
+}
+
 fn changes_the_model_with_a_click_keeping_an_effort_it_has(page: &Page) -> Result<(), String> {
     page.show(&picker_snapshot())?;
     page.open_popover("model", "model")?;
@@ -888,7 +901,7 @@ fn dismisses_the_account_status(page: &Page) -> Result<(), String> {
     same(&page.wait_post("command")?, json!({"type": "command", "text": "/login dismiss"}), "the dismiss")
 }
 
-const TESTS: [(&str, Test); 49] = [
+const TESTS: [(&str, Test); 50] = [
     ("asks the core to choose a directory from its chip", asks_the_core_to_choose_a_directory_from_its_chip),
     ("refreshes the usage and opens the quota from the usage chip", refreshes_the_usage_and_opens_the_quota_from_the_usage_chip),
     ("runs repo from the repository chip", runs_repo_from_the_repository_chip),
@@ -906,6 +919,7 @@ const TESTS: [(&str, Test); 49] = [
     ("leaves a question to the question card", leaves_a_question_to_the_question_card),
     ("badges the models of a debate and lists them", badges_the_models_of_a_debate_and_lists_them),
     ("opens a model picker from the model chip with the one in use marked", opens_a_model_picker_from_the_model_chip_with_the_one_in_use_marked),
+    ("lists each kind's newest model only and keeps an older one in use", lists_each_kinds_newest_model_only_and_keeps_an_older_one_in_use),
     ("changes the model with a click keeping an effort it has", changes_the_model_with_a_click_keeping_an_effort_it_has),
     ("takes a model's default effort when it lacks the one in use", takes_a_models_default_effort_when_it_lacks_the_one_in_use),
     ("changes the effort with a click", changes_the_effort_with_a_click),

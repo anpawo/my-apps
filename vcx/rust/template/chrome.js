@@ -858,9 +858,11 @@
     const providers = make('div', 'choices');
     providers.append(...MODEL_PROVIDERS.map(([name, label]) => choice(label, name === current, () => name !== current && post({ type: 'command', text: `/model ${name}` }))));
     const panel = [heading('PROVIDER'), providers, heading('MODEL')];
-    const models = meta.models || [];
+    // Each kind's newest model only; an older one stays listed while it is the one in use.
+    const all = meta.models || [], latest = meta.latestModels || all;
+    const inUse = all.find(id => id === meta.model || aliases[id] === meta.model);
+    const models = inUse && !latest.includes(inUse) ? [...latest, inUse] : latest;
     if (!models.length) panel.push(make('p', 'loading', 'Loading…'));
-    const inUse = models.find(id => id === meta.model || aliases[id] === meta.model);
     for (const id of models) {
       const resolved = aliases[id] && aliases[id] !== id ? aliases[id] : '';
       const row = choice('', id === inUse, () => {
