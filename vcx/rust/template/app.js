@@ -703,6 +703,14 @@
     button.copiedTimer = setTimeout(() => button.classList.remove('copied'), COPIED_MS);
   }
 
+  // Swift `CodeBlock`: the check mark goes as soon as the pointer leaves the block. Captured: the event does not bubble.
+  document.addEventListener('pointerleave', event => {
+    const button = event.target instanceof Element && event.target.matches('figure.code') && event.target.querySelector('button.copy.copied');
+    if (!button) return;
+    clearTimeout(button.copiedTimer);
+    button.classList.remove('copied');
+  }, true);
+
   // ---- Effect: zoom and blur popup. Copy from here ----
   // Opens or closes the popup and its veil on one clock and one curve. Opening, the popup settles from `from` % of its
   // size to 100 %, unblurring `blur` px and fading in from 0, in `dur` ms on a slow-start curve (an ease-out jumped to

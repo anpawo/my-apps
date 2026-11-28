@@ -544,6 +544,19 @@ fn copies_a_code_block_through_the_core_and_shows_it_was_copied(page: &Page) -> 
     check(source == FromPage::Copy { text: "# Plan\n\n```js\nx()\n```\n".into() }, format!("a Markdown block copies its source: {source:?}"))
 }
 
+fn clears_a_code_blocks_copied_mark_once_the_pointer_leaves_it(page: &Page) -> Result<(), String> {
+    page.show(json!({"rows": [user("R1", "code"), assistant("R2", "```sh\necho \"hi\"\n```", true)]}))?;
+    let marked = "document.querySelector('figure.code button.copy').classList.contains('copied')";
+    page.click("figure.code > figcaption > .language")?;
+    page.heard("copy")?;
+    let before = page.eval(marked)?;
+
+    page.eval("document.querySelector('figure.code').dispatchEvent(new PointerEvent('pointerleave'))")?;
+
+    check(before == true, "the click marked the block copied")?;
+    check(page.eval(marked)? == false, "the copied mark stayed once the pointer left")
+}
+
 fn copies_the_previewed_picture_on_a_click_and_shows_it_was_copied(page: &Page) -> Result<(), String> {
     let picture = page.picture();
     let item = json!({"id": "u1", "type": "userMessage", "content": [{"type": "localImage", "path": picture}]});
@@ -715,7 +728,7 @@ fn streams_into_a_thread_of_five_thousand_rows_touching_only_its_row(page: &Page
 
 type Test = fn(&Page) -> Result<(), String>;
 
-const TESTS: [(&str, Test); 26] = [
+const TESTS: [(&str, Test); 27] = [
     ("shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it", shows_a_local_picture_of_an_answer_at_chat_width_and_enlarges_it),
     ("shows_a_pasted_picture_served_by_the_core_and_previews_it", shows_a_pasted_picture_served_by_the_core_and_previews_it),
     ("draws_a_waiting_prompt_and_a_message_from_another_window", draws_a_waiting_prompt_and_a_message_from_another_window),
@@ -733,6 +746,7 @@ const TESTS: [(&str, Test); 26] = [
     ("greys_out_the_find_arrows_while_nothing_matches", greys_out_the_find_arrows_while_nothing_matches),
     ("hands_each_link_to_the_core_which_opens_only_what_is_safe", hands_each_link_to_the_core_which_opens_only_what_is_safe),
     ("copies_a_code_block_through_the_core_and_shows_it_was_copied", copies_a_code_block_through_the_core_and_shows_it_was_copied),
+    ("clears_a_code_blocks_copied_mark_once_the_pointer_leaves_it", clears_a_code_blocks_copied_mark_once_the_pointer_leaves_it),
     ("copies_the_previewed_picture_on_a_click_and_shows_it_was_copied", copies_the_previewed_picture_on_a_click_and_shows_it_was_copied),
     ("copies_a_cell_on_command_click_and_its_row_on_command_double_click", copies_a_cell_on_command_click_and_its_row_on_command_double_click),
     ("scrolls_a_wide_table_sideways_keeping_its_short_columns_whole", scrolls_a_wide_table_sideways_keeping_its_short_columns_whole),
