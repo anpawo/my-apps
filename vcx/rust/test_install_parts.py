@@ -155,8 +155,9 @@ class Parts(unittest.TestCase):
         result = self.install(timed='--install, nothing changed')
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        for line in ('page: unchanged', 'worker: unchanged', 'app: unchanged', '0 files replaced'):
+        for line in ('page: unchanged', 'worker: unchanged', 'app: unchanged'):
             self.assertIn(line, result.stdout)
+        self.assertRegex(result.stdout, r'(?m)^0 files replaced')
         self.assertNotIn('updating', result.stdout)
         self.assertEqual((self.installed(), self.state()), (files, before))
 

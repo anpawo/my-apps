@@ -112,6 +112,15 @@ $install || exit 0
 
 # True when two signed executables hold the same code, whatever their signatures: sealing the bundle over a new
 # worker re-signs vcx-rust without changing it.
+# The same code signed by the same signer: the code directory's hash (code, identifier, Info.plist and sealed resources)
+# and the certificate chain, never the signing time a certificate's signature carries.
+signed_as() { codesign -dvvv "$1" 2>&1 | grep -E '^(CDHash|Authority|Identifier)=' || true; }
+same_signature() {
+    local first
+    first="$(signed_as "$1")"
+    [[ -n "$first" && "$first" == "$(signed_as "$2")" ]]
+}
+
 same_code() {
     local first second same=0
     first="$(mktemp)"
@@ -149,20 +158,30 @@ if named worker || named app; then
     else
         contents="$app/Contents"
         mine="$installed/Contents"
-        if named worker && ! cmp -s "$contents/MacOS/vcx-worker" "$mine/MacOS/vcx-worker"; then worker_changed=true; fi
+        if named worker && ! same_signature "$contents/MacOS/vcx-worker" "$mine/MacOS/vcx-worker"; then worker_changed=true; fi
         if named app && { ! same_code "$contents/MacOS/vcx-rust" "$mine/MacOS/vcx-rust" \
             || ! cmp -s "$contents/Info.plist" "$mine/Info.plist" \
             || ! cmp -s "$contents/Resources/background.py" "$mine/Resources/background.py"; }; then app_changed=true; fi
         replaced=0
+        differing=""
+        while IFS= read -r file; do
+            cmp -s "$app/$file" "$installed/$file" || differing+="$file"$'\n'
+        done < <(cd "$app" && find . -type f)
+        # A certificate's signature carries its signing time, so a binary signed again differs with the same signature.
+        # When that is all that differs, the installed bundle stays whole.
+        resigned_only=true
+        while IFS= read -r file; do
+            [[ -z "$file" ]] || same_signature "$app/$file" "$installed/$file" || { resigned_only=false; break; }
+        done <<< "$differing"
+        if $resigned_only; then differing=""; fi
         # Each file goes in by a rename, never written over: a running process keeps the image it started from.
         while IFS= read -r file; do
-            if ! cmp -s "$app/$file" "$installed/$file"; then
-                mkdir -p "$(dirname "$installed/$file")"
-                cp -p "$app/$file" "$installed/$file.new"
-                mv -f "$installed/$file.new" "$installed/$file"
-                replaced=$((replaced + 1))
-            fi
-        done < <(cd "$app" && find . -type f)
+            [[ -n "$file" ]] || continue
+            mkdir -p "$(dirname "$installed/$file")"
+            cp -p "$app/$file" "$installed/$file.new"
+            mv -f "$installed/$file.new" "$installed/$file"
+            replaced=$((replaced + 1))
+        done <<< "$differing"
         while IFS= read -r file; do
             [[ -e "$app/$file" ]] || { rm "$installed/$file"; replaced=$((replaced + 1)); }
         done < <(cd "$installed" && find . -type f)
