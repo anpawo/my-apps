@@ -223,6 +223,8 @@ pub(crate) struct App {
     /// From a worker revision's arrival to the page saying it drew it, for every patch of every window.
     delays: Vec<Duration>,
     pub queue: Vec<Queued>,
+    /// Windows that asked to close themselves, by session id, with when they asked.
+    pub closing: Vec<(String, Instant)>,
     report: Option<Report>,
     reports: u64,
     save_due: bool,
@@ -297,6 +299,7 @@ pub fn run(options: Options) -> Result<Infallible, String> {
         restore_desktops: HashMap::new(),
         delays: Vec::new(),
         queue: Vec::new(),
+        closing: Vec::new(),
         report: None,
         reports: 0,
         save_due: false,
@@ -899,6 +902,7 @@ impl App {
         }
         self.schedule_publish();
         requests::deliver_queue(self);
+        requests::close_when_idle(self);
     }
 
     fn window_event(&mut self, id: WindowId, event: WindowEvent) -> Option<i32> {

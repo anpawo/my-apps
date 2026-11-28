@@ -1036,7 +1036,21 @@ fn on_refusing_worker(name: &str, state: Value) -> (Run, PathBuf) {
 }
 
 #[test]
-fn refuses_to_close_the_callers_own_window_or_one_holding_a_draft() {
+fn closes_the_callers_own_window_once_its_turn_is_over() {
+    let Some(mut run) = Run::new("ownclose") else { return };
+    let folder = run.folder("own");
+    run.start(&["--cwd", folder.to_str().unwrap(), "close yourself"]);
+    let report = run.wait_for(|report| windows(report).len() == 1 && drew_turns(&windows(report)[0], 1) && windows(report)[0]["threadId"].is_string());
+    let (id, thread) = (windows(&report)[0]["sessionId"].clone(), windows(&report)[0]["threadId"].clone());
+
+    let asked = run.ask(&json!({"close": {"to": "self", "threads": [thread]}})).unwrap();
+
+    assert_eq!(asked["closed"], json!(true), "{asked}");
+    run.wait_for(|report| !windows(report).iter().any(|window| window["sessionId"] == id));
+}
+
+#[test]
+fn keeps_the_callers_own_window_open_while_it_holds_a_draft_and_refuses_another_with_one() {
     let (run, script) = on_refusing_worker("draft", json!({"threadID": "codex:T", "draft": [{"type": "text", "text": "unsent"}]}));
     let report = run.wait_for(|report| windows(report).len() == 1 && windows(report)[0]["threadId"] == "codex:T");
     let id = windows(&report)[0]["sessionId"].clone();
@@ -1045,7 +1059,7 @@ fn refuses_to_close_the_callers_own_window_or_one_holding_a_draft() {
     let drafted = run.ask(&json!({"close": {"to": id}})).unwrap();
 
     let _ = fs::remove_file(&script);
-    assert!(own["error"].as_str().unwrap().ends_with("stays open: it is the calling session."), "{own}");
+    assert_eq!((own["closed"].as_bool(), own["closing"].as_bool()), (Some(false), Some(true)), "{own}");
     assert!(drafted["error"].as_str().unwrap().ends_with("stays open: the composer holds a draft."), "{drafted}");
     assert_eq!(windows(&run.report().unwrap()).len(), 1);
 }

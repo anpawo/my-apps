@@ -53,7 +53,8 @@ pub fn run(command: Command, context: &Context, stdin: &mut dyn Read, out: &mut 
             ask(context, body).and_then(|answer| say(out, &format!("{} set.", answer["name"].as_str().unwrap_or(&to))))
         }
         Command::Close { to } => ask(context, json!({"close": {"to": to, "threads": context.threads}})).and_then(|answer| {
-            say(out, &format!("Closed {}.", answer["name"].as_str().unwrap_or(&to)))
+            let name = answer["name"].as_str().unwrap_or(&to);
+            say(out, &if answer["closing"] == true { format!("{name} closes once this turn ends.") } else { format!("Closed {name}.") })
         }),
         Command::Background(arguments) => background(context, &arguments).and_then(|process| Err(exec(process))),
         Command::App { .. } => {

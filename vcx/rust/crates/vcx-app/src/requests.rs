@@ -258,23 +258,45 @@ fn set_model(app: &mut App, change: &Value) -> Result<Value, String> {
 }
 
 /// Closes an idle window, its conversation saved by the worker; one with something to lose stays (Swift
-/// `CloseControl`), as does the caller's own.
+/// `CloseControl`). The caller's own is mid-turn while it asks, so it closes once that turn is over.
 fn close(app: &mut App, close: &Value) -> Result<Value, String> {
     let key = addressed(app, &close["to"], close)?;
     let win = &app.windows[&key];
-    if let Some(reason) = keeps_open(win, caller(app, close) == Some(key)) {
-        return Err(format!("{} stays open: {reason}.", name(win)));
-    }
     let closed = name(win);
+    if caller(app, close) == Some(key) {
+        let id = win.session_id.clone();
+        app.closing.retain(|(asked, _)| *asked != id);
+        app.closing.push((id, Instant::now()));
+        close_when_idle(app);
+        let closing = app.windows.contains_key(&key);
+        return Ok(json!({"closed": !closing, "closing": closing, "name": closed}));
+    }
+    if let Some(reason) = keeps_open(win) {
+        return Err(format!("{closed} stays open: {reason}."));
+    }
     let _ = app.close_window(key);
     Ok(json!({"closed": true, "name": closed}))
 }
 
-fn keeps_open(win: &crate::app::Win, own: bool) -> Option<&'static str> {
+/// Closes each window that asked to close itself once its turn is over, no message waits for it and nothing else
+/// keeps it open; one still held after the queue's life stays.
+pub(crate) fn close_when_idle(app: &mut App) {
+    let now = Instant::now();
+    let windows = &app.windows;
+    app.closing.retain(|(id, at)| now.duration_since(*at) <= QUEUE_LIFE && windows.values().any(|win| win.session_id == *id));
+    let ready: Vec<u64> = app.windows.iter().filter(|(_, win)| {
+        app.closing.iter().any(|(id, _)| *id == win.session_id) && !app.queue.iter().any(|queued| queued.session_id == win.session_id) && keeps_open(win).is_none()
+    }).map(|(&key, _)| key).collect();
+    for key in ready {
+        let id = app.windows[&key].session_id.clone();
+        app.closing.retain(|(asked, _)| *asked != id);
+        let _ = app.close_window(key);
+    }
+}
+
+fn keeps_open(win: &crate::app::Win) -> Option<&'static str> {
     let summary = win.summary.as_ref();
-    if own {
-        Some("it is the calling session")
-    } else if !summary.is_some_and(|summary| summary.idle) {
+    if !summary.is_some_and(|summary| summary.idle) {
         Some("its turn is not over, or it is reconnecting")
     } else if summary.is_some_and(|summary| summary.background_tasks > 0) {
         Some("background work is running")
